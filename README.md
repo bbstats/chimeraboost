@@ -1,8 +1,7 @@
 # chimeraboost
 Python/numba-backend gradient boosting library
 
-<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/e704fc03-df45-45d4-b017-dd4b01c3775d" />
-
+<img width="700" height="700" alt="Gemini_Generated_Image_kgy4h1kgy4h1kgy4" src="https://github.com/user-attachments/assets/29ec5fc6-81f8-406d-8425-33253922e1f6" />
 
 
 * Why?
