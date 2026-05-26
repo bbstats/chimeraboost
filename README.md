@@ -1,5 +1,5 @@
 # chimeraboost
-Python/numba-backend gradient boosting library
+Full-featured gradient boosting library with a Python/numba backend
 
 <img width="500" height="500" alt="ChatGPT Image May 26, 2026, 05_12_17 PM" src="https://github.com/user-attachments/assets/ee98a4e2-9fa7-4ef1-9e64-e398f398966c" />
 
