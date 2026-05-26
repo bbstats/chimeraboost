@@ -15,6 +15,7 @@ Python/numba-backend gradient boosting library
 
 
 ```
+from chimeraboost import ChimeraBoostClassifier
 clf = ChimeraBoostClassifier()
 clf.fit(X, y)
 ```
