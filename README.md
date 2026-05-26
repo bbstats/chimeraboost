@@ -8,3 +8,12 @@ Python/numba-backend gradient boosting library
     * I want to be able to modify my GBDT library at will
     * I know Python and I don't know C
 
+
+
+* How:
+
+
+```
+clf = ChimeraBoostClassifier()
+clf.fit(X, y)
+```
