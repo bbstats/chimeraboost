@@ -22,5 +22,6 @@ clf = ChimeraBoostClassifier(early_stopping=True)
 clf.fit(X, y, sample_weight=w)
 ```
 
-To Do:
-* Update multi-class classification loss scheme
+
+* To Do:
+    * Update multi-class classification loss scheme
