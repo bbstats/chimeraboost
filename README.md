@@ -5,7 +5,7 @@ Full-featured gradient boosting library with a Python/numba backend, inspired by
 
 
 * What?
-    * GBDT library that only depends on numpy and numba
+    * GBDT library that only depends on numpy, numba, and scikit-learn
     * Near equivalent performance to CatBoost on CPU
 
 * Why?
