@@ -17,20 +17,27 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
                  cat_smoothing=1.0, early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, thread_count=None,
                  random_state=None, verbose=False):
+        self.iterations = iterations
+        self.learning_rate = learning_rate
+        self.depth = depth
+        self.l2_leaf_reg = l2_leaf_reg
+        self.max_bins = max_bins
+        self.subsample = subsample
+        self.colsample = colsample
+        self.cat_smoothing = cat_smoothing
+        self.early_stopping_rounds = early_stopping_rounds
         self.loss = loss
         self.alpha = alpha
-        self._kw = dict(iterations=iterations, learning_rate=learning_rate,
-                        depth=depth, l2_leaf_reg=l2_leaf_reg, max_bins=max_bins,
-                        subsample=subsample, colsample=colsample,
-                        cat_smoothing=cat_smoothing,
-                        early_stopping_rounds=early_stopping_rounds,
-                        thread_count=thread_count,
-                        random_state=random_state, verbose=verbose)
+        self.thread_count = thread_count
+        self.random_state = random_state
+        self.verbose = verbose
 
     def fit(self, X, y, cat_features=None, eval_set=None):
         loss_kwargs = {"alpha": self.alpha} if self.loss == "Quantile" else {}
+        kw = {k: v for k, v in self.get_params().items()
+              if k not in ("loss", "alpha")}
         self.model_ = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
-                                       **self._kw)
+                                       **kw)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set)
         return self
 
@@ -69,13 +76,18 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
                  l2_leaf_reg=3.0, max_bins=128, subsample=1.0, colsample=1.0,
                  cat_smoothing=1.0, early_stopping_rounds=None,
                  thread_count=None, random_state=None, verbose=False):
-        self._kw = dict(iterations=iterations, learning_rate=learning_rate,
-                        depth=depth, l2_leaf_reg=l2_leaf_reg, max_bins=max_bins,
-                        subsample=subsample, colsample=colsample,
-                        cat_smoothing=cat_smoothing,
-                        early_stopping_rounds=early_stopping_rounds,
-                        thread_count=thread_count,
-                        random_state=random_state, verbose=verbose)
+        self.iterations = iterations
+        self.learning_rate = learning_rate
+        self.depth = depth
+        self.l2_leaf_reg = l2_leaf_reg
+        self.max_bins = max_bins
+        self.subsample = subsample
+        self.colsample = colsample
+        self.cat_smoothing = cat_smoothing
+        self.early_stopping_rounds = early_stopping_rounds
+        self.thread_count = thread_count
+        self.random_state = random_state
+        self.verbose = verbose
 
     def fit(self, X, y, cat_features=None, eval_set=None):
         y = np.asarray(y)
@@ -90,11 +102,11 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
             if eval_set is not None:
                 Xv, yv = eval_set
                 eval_set = (Xv, (np.asarray(yv) == self.classes_[1]).astype(np.float64))
-            self.model_ = GradientBoosting(loss="Logloss", **self._kw)
+            self.model_ = GradientBoosting(loss="Logloss", **self.get_params())
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set)
         else:
             self._multiclass = True
-            self.model_ = MulticlassBoosting(**self._kw)
+            self.model_ = MulticlassBoosting(**self.get_params())
             self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set)
             self.classes_ = self.model_.classes_
         return self
