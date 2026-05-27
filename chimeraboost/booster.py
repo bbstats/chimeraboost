@@ -29,27 +29,12 @@ def _apply_thread_count(thread_count):
 
 
 def _auto_learning_rate(n_samples, iterations, early_stopping):
-    """Pick a sensible default learning rate.
+    """Pick a default learning rate when the user did not specify one.
 
-    Two regimes:
-      * No early stopping: `iterations` IS the budget, so scale lr inversely with
-        it (fewer trees -> bigger steps) to spend a fixed budget well.
-      * Early stopping on: `iterations` is only a high ceiling, NOT the intended
-        budget. Deriving lr from the ceiling is a bug -- a 2000-tree safety
-        ceiling would force lr=0.01 and never converge before patience runs out.
-        In this regime we defer to the ecosystem-standard default of 0.1
-        (XGBoost / LightGBM / sklearn HGB all use ~0.1 here) and let early
-        stopping decide the tree count. We use the field's well-validated
-        constant rather than a value tuned on our own small benchmark suite.
-
-    Oblivious-tree note: because the same feature/threshold is shared across all
-    nodes of a level, each oblivious tree carries less information than a full
-    CART tree of the same depth. This means the model may genuinely benefit from
-    more trees at a smaller step than standard GBDT. If you observe that tree
-    count consistently correlates with accuracy on diverse (e.g. OpenML)
-    datasets, try --lr 0.05 in the benchmark harness. Promote a lower default
-    only after verifying on OpenML, not on the synthetic suite.
-    Override with an explicit learning_rate any time.
+    With early stopping, `iterations` is only a safety ceiling rather than the
+    intended tree count, so the rate is fixed at the common 0.1 and the tree
+    count is left to early stopping. Without early stopping, `iterations` is the
+    budget, so the rate scales inversely with it (clamped to [0.03, 0.2]).
     """
     if early_stopping:
         return 0.1
@@ -58,6 +43,14 @@ def _auto_learning_rate(n_samples, iterations, early_stopping):
 
 
 class _BaseBooster:
+    """Shared machinery for the scalar and multiclass boosters.
+
+    Holds the common hyperparameters and the helpers both subclasses use:
+    histogram-buffer allocation, column subsampling, row subsampling, feature
+    preprocessing, and split-gain feature importances. Subclasses implement
+    `fit` and `predict_raw`.
+    """
+
     def __init__(self, iterations=500, learning_rate=None, depth=6,
                  l2_leaf_reg=3.0, max_bins=128, subsample=1.0,
                  colsample=1.0, cat_smoothing=1.0, early_stopping_rounds=None,
@@ -102,16 +95,22 @@ class _BaseBooster:
         return mask
 
     def _new_preprocessor(self):
+        """Build a FeaturePreprocessor configured from this booster's params."""
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
                                    self.random_state)
 
     def _maybe_subsample(self, grad, hess, rng):
+        """Stochastic row subsampling: zero out the gradient/hessian of rows not
+        in this tree's sample. Zeroed rows contribute nothing to the histograms
+        but are still routed to leaves, as in standard stochastic GBDT."""
         if self.subsample >= 1.0:
             return grad, hess
         mask = rng.random(grad.shape[0]) < self.subsample
         return np.where(mask, grad, 0.0), np.where(mask, hess, 0.0)
 
     def _accumulate_importance(self, tree):
+        """Add this tree's per-split gains to the running importance totals,
+        mapped from internal columns back to original input features."""
         for f, g in zip(tree.splits_feat, tree.gains):
             orig = self.prep_.feature_map_[f]
             self._importance[orig] += g
@@ -133,6 +132,8 @@ class GradientBoosting(_BaseBooster):
         self.loss_kwargs = loss_kwargs or {}
 
     def fit(self, X, y, cat_features=None, eval_set=None):
+        """Fit the additive model. Optionally pass `cat_features` (column indices
+        to target-encode) and `eval_set=(X_val, y_val)` for early stopping."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
         y = np.asarray(y, dtype=np.float64)
@@ -178,9 +179,8 @@ class GradientBoosting(_BaseBooster):
                                         feature_mask=fmask,
                                         min_child_weight=self.min_child_weight,
                                         hist_buffers=hist_buffers)
-            # A depth-0 tree found no legal split: it predicts 0 and adds nothing.
-            # Further rounds on the same gradients would do the same, so stop now
-            # rather than bank useless trees while patience ticks down.
+            # A depth-0 tree found no legal split; subsequent rounds on the same
+            # gradients would too, so stop rather than append empty trees.
             if tree.depth == 0:
                 if self.verbose:
                     print(f"No further splits at iteration {m}; stopping.")
@@ -190,11 +190,12 @@ class GradientBoosting(_BaseBooster):
             self.trees_.append(tree)
             self._accumulate_importance(tree)
             if self.ordered_boosting and not getattr(self.loss_, "adjusts_leaves", False):
-                # LOO leaf correction: remove each sample's self-influence from
-                # its leaf step.  tree.values keeps normal Newton values for
-                # prediction on new data; only the training F uses the corrected
-                # update.  For OOB samples (g_i = h_i = 0 from _maybe_subsample)
-                # the correction naturally reduces to the normal leaf value.
+                # Leave-one-out leaf step: each row's update uses its leaf's
+                # gradient/hessian totals with that row's own contribution
+                # removed, reducing the self-reinforcement of plain boosting.
+                # tree.values keeps the standard Newton values for inference;
+                # only the training F uses this corrected update. Subsampled-out
+                # rows (g=h=0) fall back to the standard leaf value.
                 leaf = tree.apply(X_binned)
                 n_lv = tree.values.shape[0]
                 leaf_G = np.bincount(leaf, weights=g, minlength=n_lv)
@@ -240,6 +241,8 @@ class GradientBoosting(_BaseBooster):
             tree.values[l] = self.lr_ * self.loss_.leaf_value(r)
 
     def predict_raw(self, X):
+        """Return raw additive scores (pre-link): the regression prediction, or
+        the log-odds for binary classification."""
         X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
              else np.asarray(X, dtype=np.float64))
         X_binned = self.prep_.transform(X)
@@ -263,6 +266,8 @@ class MulticlassBoosting(_BaseBooster):
     """Softmax multiclass booster: fits K trees per round (one per class)."""
 
     def fit(self, X, y, cat_features=None, eval_set=None):
+        """Fit K trees per boosting round (one per class) under softmax loss.
+        Same `cat_features` / `eval_set` semantics as the scalar booster."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
         y = np.asarray(y)
@@ -365,6 +370,8 @@ class MulticlassBoosting(_BaseBooster):
         return self
 
     def predict_raw(self, X):
+        """Return the (n_samples, n_classes) matrix of raw per-class scores
+        (pre-softmax)."""
         X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
              else np.asarray(X, dtype=np.float64))
         X_binned = self.prep_.transform(X)

@@ -22,6 +22,15 @@ from .target_encoding import OrderedTargetEncoder, factorize
 
 
 class FeaturePreprocessor:
+    """Converts raw mixed-type input into integer bins for the tree builder.
+
+    Numeric columns are quantile-binned; categorical columns are ordered-target
+    encoded (one encoded column per target supplied to `fit_transform`) and then
+    binned alongside the numerics. The fitted state needed to reproduce the
+    transform at predict time is retained, along with `feature_map_` mapping each
+    output column back to its original input column for importances.
+    """
+
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
@@ -29,6 +38,8 @@ class FeaturePreprocessor:
 
     # ---- helpers -------------------------------------------------------------
     def _split_columns_fit(self, X, cat_features):
+        """Split input into a numeric matrix and an integer-code matrix for the
+        categorical columns, learning the category->code maps on the way."""
         n_features = X.shape[1]
         cat_set = set(cat_features or [])
         self.cat_features_ = sorted(cat_set)
@@ -50,6 +61,8 @@ class FeaturePreprocessor:
         return num, codes
 
     def _codes_for_transform(self, X):
+        """Map categorical columns to the codes learned at fit time; unseen
+        categories get -1 (the encoder then falls back to the prior)."""
         if not self.cat_features_:
             return np.empty((X.shape[0], 0), dtype=np.int64)
         codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
@@ -88,6 +101,7 @@ class FeaturePreprocessor:
         return X_binned
 
     def transform(self, X):
+        """Apply the fitted binning + categorical encoding to new data."""
         num = (np.asarray(X[:, self.num_features_], dtype=np.float64)
                if self.num_features_ else np.empty((X.shape[0], 0)))
         encoded_blocks = []

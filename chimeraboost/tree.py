@@ -82,11 +82,10 @@ def _best_split(hg, hh, n_bins_per_feature, l2, feat_mask, min_child_weight,
         best_t = -1
         # Threshold t means "left = bins [0..t]". Last bin can't be a threshold.
         for t in range(nb - 1):
-            # Pass 1: advance the running prefix sums for EVERY leaf. This must
-            # happen for all leaves regardless of legality, because GL/HL carry
-            # over to the next threshold -- an early exit here would corrupt
-            # them. While we're at it, check the per-leaf min_child_weight
-            # constraint on non-empty leaves.
+            # Pass 1: advance the running prefix sums for every leaf and check
+            # the min_child_weight constraint. The sums must be advanced for all
+            # leaves regardless of legality, since GL/HL carry into the next
+            # threshold and an early exit would desync them.
             legal = True
             for l in range(n_leaves):
                 GL[l] += hg[f, l, t]
@@ -96,11 +95,9 @@ def _best_split(hg, hh, n_bins_per_feature, l2, feat_mask, min_child_weight,
                         legal = False
             if not legal:
                 continue
-            # Pass 2: only now (legal threshold) accumulate the summed gain.
-            # Empty leaves contribute nothing. A non-empty leaf that fails the
-            # min_child_weight check disqualifies the whole shared split, which
-            # is what gives oblivious trees a clean, data-driven depth limit and
-            # prevents carving off sparse, noise-dominated leaves.
+            # Pass 2: accumulate the summed gain for this legal threshold. A
+            # non-empty leaf failing min_child_weight disqualifies the shared
+            # split, giving the tree a data-driven depth limit.
             gain = 0.0
             for l in range(n_leaves):
                 if Ht[l] > 0.0:
@@ -160,6 +157,7 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
 
 @njit(cache=True)
 def _predict_tree(X_binned, splits_feat, splits_thr, values):
+    """Route each row to its leaf and return the leaf value for each row."""
     leaf = _assign_leaves(X_binned, splits_feat, splits_thr)
     out = np.empty(X_binned.shape[0], dtype=np.float64)
     for i in range(leaf.shape[0]):

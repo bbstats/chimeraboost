@@ -39,6 +39,7 @@ class Binner:
         self.n_bins_ = None        # np.ndarray int, width per feature
 
     def fit(self, X):
+        """Learn quantile borders for each column from training data."""
         X = np.asarray(X, dtype=np.float64)
         n_features = X.shape[1]
         self.borders_ = [
@@ -51,6 +52,7 @@ class Binner:
         return self
 
     def transform(self, X):
+        """Map a float matrix to integer bin indices; NaNs go to the top bin."""
         X = np.asarray(X, dtype=np.float64)
         n_samples, n_features = X.shape
         out = np.empty((n_samples, n_features), dtype=BIN_DTYPE)
