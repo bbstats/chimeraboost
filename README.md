@@ -14,6 +14,7 @@ Full-featured gradient boosting library with a Python/numba backend, inspired by
 
 * How?
 
+`pip install chimeraboost`
 
 ```
 from chimeraboost import ChimeraBoostClassifier
