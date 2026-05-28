@@ -14,6 +14,9 @@ The histogram width for a feature is therefore (n_borders + 2).
 import numpy as np
 
 BIN_DTYPE = np.uint16
+# uint16 max is 65535; we reserve one slot for NaN, so the cap is 65534.
+# In practice 128-256 bins is the useful range; this guard just catches typos.
+_MAX_SUPPORTED_BINS = np.iinfo(BIN_DTYPE).max - 1
 
 
 def _feature_borders(col, max_bins):
@@ -34,6 +37,13 @@ class Binner:
     """Learns per-feature borders and maps a float matrix to bins."""
 
     def __init__(self, max_bins=128):
+        if int(max_bins) > _MAX_SUPPORTED_BINS:
+            raise ValueError(
+                f"max_bins={max_bins} exceeds {_MAX_SUPPORTED_BINS} "
+                f"(BIN_DTYPE={BIN_DTYPE.__name__}); use a smaller value."
+            )
+        if int(max_bins) < 2:
+            raise ValueError(f"max_bins={max_bins} must be >= 2.")
         self.max_bins = int(max_bins)
         self.borders_ = None       # list of np.ndarray, one per feature
         self.n_bins_ = None        # np.ndarray int, width per feature

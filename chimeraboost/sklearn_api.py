@@ -4,6 +4,47 @@ import numpy as np
 from .booster import GradientBoosting, MulticlassBoosting
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
+
+def _fit_temperature(raw, y_idx, multiclass):
+    """Learn a scalar T > 0 minimizing the log loss of sigmoid(raw/T)
+    (binary) or softmax(raw/T) (multiclass) against y_idx.
+
+    Temperature scaling is monotonic in z = raw / T, so argmax/sign predictions
+    are unchanged for any T > 0 — only probability magnitudes (and therefore
+    log loss) are affected. We fit T on a held-out validation set after the
+    booster has converged, so the calibration is decoupled from tree growth.
+    Returns the scalar T.
+    """
+    from scipy.optimize import minimize_scalar
+
+    raw = np.asarray(raw, dtype=np.float64)
+    y_idx = np.asarray(y_idx)
+
+    if multiclass:
+        n = raw.shape[0]
+        idx_rows = np.arange(n)
+
+        def loss(T):
+            if T <= 0:
+                return 1e18
+            logits = raw / T
+            mx = logits.max(axis=1, keepdims=True)
+            log_z = mx[:, 0] + np.log(np.exp(logits - mx).sum(axis=1))
+            return float(np.mean(log_z - logits[idx_rows, y_idx]))
+    else:
+        # y_idx here is the 0/1 binary label.
+        def loss(T):
+            if T <= 0:
+                return 1e18
+            z = raw / T
+            # Numerically stable BCE: log1p(exp(-|z|)) + max(z, 0) - y*z
+            return float(np.mean(np.log1p(np.exp(-np.abs(z)))
+                                 + np.maximum(z, 0.0) - y_idx * z))
+
+    res = minimize_scalar(loss, bounds=(0.05, 50.0), method="bounded",
+                          options={"xatol": 1e-4})
+    return float(res.x) if res.success else 1.0
+
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction"})
 
@@ -86,9 +127,11 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
 
     def __init__(self, iterations=500, learning_rate=None, depth=6,
                  l2_leaf_reg=3.0, max_bins=128, subsample=1.0, colsample=1.0,
-                 cat_smoothing=1.0, early_stopping_rounds=None,
+                 cat_smoothing=1.0, cat_n_permutations=4,
+                 early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=True,
+                 cat_combinations=False,
                  early_stopping=False, validation_fraction=0.1):
         self.iterations = iterations
         self.learning_rate = learning_rate
@@ -98,6 +141,7 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
         self.subsample = subsample
         self.colsample = colsample
         self.cat_smoothing = cat_smoothing
+        self.cat_n_permutations = cat_n_permutations
         self.early_stopping_rounds = early_stopping_rounds
         self.loss = loss
         self.alpha = alpha
@@ -106,6 +150,7 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
         self.random_state = random_state
         self.verbose = verbose
         self.ordered_boosting = ordered_boosting
+        self.cat_combinations = cat_combinations
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
 
@@ -196,9 +241,11 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(self, iterations=500, learning_rate=None, depth=6,
                  l2_leaf_reg=3.0, max_bins=128, subsample=1.0, colsample=1.0,
-                 cat_smoothing=1.0, early_stopping_rounds=None,
+                 cat_smoothing=1.0, cat_n_permutations=4,
+                 early_stopping_rounds=None,
                  min_child_weight=1.0, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=True,
+                 cat_combinations=False,
                  early_stopping=False, validation_fraction=0.1):
         self.iterations = iterations
         self.learning_rate = learning_rate
@@ -208,12 +255,14 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
         self.subsample = subsample
         self.colsample = colsample
         self.cat_smoothing = cat_smoothing
+        self.cat_n_permutations = cat_n_permutations
         self.early_stopping_rounds = early_stopping_rounds
         self.min_child_weight = min_child_weight
         self.thread_count = thread_count
         self.random_state = random_state
         self.verbose = verbose
         self.ordered_boosting = ordered_boosting
+        self.cat_combinations = cat_combinations
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
 
@@ -272,9 +321,12 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
         if self.n_classes_ == 2:
             self._multiclass = False
             y01 = (y == self.classes_[1]).astype(np.float64)
+            cal_xv = cal_y_idx = None
             if eval_set is not None:
                 Xv, yv = eval_set
-                eval_set = (Xv, (np.asarray(yv) == self.classes_[1]).astype(np.float64))
+                yv01 = (np.asarray(yv) == self.classes_[1]).astype(np.float64)
+                eval_set = (Xv, yv01)
+                cal_xv, cal_y_idx = Xv, yv01
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
                             sample_weight=sample_weight)
@@ -284,10 +336,25 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
             self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                             sample_weight=sample_weight)
             self.classes_ = self.model_.classes_
+            cal_xv = cal_y_idx = None
+            if eval_set is not None:
+                Xv, yv = eval_set
+                cal_xv = Xv
+                cal_y_idx = np.searchsorted(self.classes_, np.asarray(yv))
+
+        # Temperature calibration: learn T on the validation set so that
+        # softmax(raw/T) / sigmoid(raw/T) gives well-calibrated probabilities.
+        # T preserves argmax, so predict() is unchanged — only log loss improves.
+        self.temperature_ = 1.0
+        if cal_xv is not None:
+            raw_v = self.model_.predict_raw(cal_xv)
+            self.temperature_ = _fit_temperature(
+                raw_v, cal_y_idx, multiclass=self._multiclass,
+            )
         return self
 
     def predict_proba(self, X):
-        raw = self.model_.predict_raw(X)
+        raw = self.model_.predict_raw(X) / self.temperature_
         if self._multiclass:
             return self.model_.loss_.transform(raw)            # (n, K)
         p1 = self.model_.loss_.transform(raw)

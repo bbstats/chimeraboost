@@ -29,17 +29,28 @@ class FeaturePreprocessor:
     binned alongside the numerics. The fitted state needed to reproduce the
     transform at predict time is retained, along with `feature_map_` mapping each
     output column back to its original input column for importances.
+
+    cat_combinations : bool
+        When True, generate all C(n_cat, 2) pairwise categorical feature
+        combinations as additional synthetic columns (e.g. "buying_x_maint")
+        before target encoding. Mirrors CatBoost's feature combination step;
+        gives the tree access to interaction effects that individual categoricals
+        can't capture. Only active when ≥2 categorical columns are present.
     """
 
-    def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None):
+    def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
+                 cat_n_permutations=4, cat_combinations=False):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
+        self.cat_n_permutations = int(cat_n_permutations)
+        self.cat_combinations = bool(cat_combinations)
 
     # ---- helpers -------------------------------------------------------------
     def _split_columns_fit(self, X, cat_features):
         """Split input into a numeric matrix and an integer-code matrix for the
-        categorical columns, learning the category->code maps on the way."""
+        categorical columns, learning the category->code maps on the way.
+        When cat_combinations is True, appends combo codes after the base codes."""
         n_features = X.shape[1]
         cat_set = set(cat_features or [])
         self.cat_features_ = sorted(cat_set)
@@ -58,6 +69,28 @@ class FeaturePreprocessor:
         else:
             codes = np.empty((X.shape[0], 0), dtype=np.int64)
             self.cat_maps_ = []
+
+        # 2-way combinations: each pair (f_a, f_b) becomes a new categorical
+        # column whose values are "val_a_x_val_b" strings, target-encoded like
+        # any other cat column. Captures interaction effects CatBoost leverages.
+        self.combo_pairs_ = []
+        self.combo_maps_ = []
+        if self.cat_combinations and len(self.cat_features_) >= 2:
+            combo_cols = []
+            cats_list = self.cat_features_
+            for a_idx in range(len(cats_list)):
+                for b_idx in range(a_idx + 1, len(cats_list)):
+                    f_a, f_b = cats_list[a_idx], cats_list[b_idx]
+                    col_a = np.asarray(X[:, f_a], dtype=str)
+                    col_b = np.asarray(X[:, f_b], dtype=str)
+                    combo_vals = np.char.add(np.char.add(col_a, "_x_"), col_b)
+                    c, cats = factorize(combo_vals)
+                    self.combo_pairs_.append((f_a, f_b))
+                    self.combo_maps_.append({v: i for i, v in enumerate(cats)})
+                    combo_cols.append(c)
+            if combo_cols:
+                codes = np.hstack([codes,
+                                   np.column_stack(combo_cols).astype(np.int64)])
         return num, codes
 
     def _codes_for_transform(self, X):
@@ -76,6 +109,18 @@ class FeaturePreprocessor:
                 codes[i, j] = m.get(v, -1)   # unseen -> prior fallback
         return codes
 
+    def _combo_codes_for_transform(self, X):
+        """Reconstruct combination codes for transform using stored combo maps."""
+        n = X.shape[0]
+        combo_codes = np.full((n, len(self.combo_pairs_)), -1, dtype=np.int64)
+        for k, (f_a, f_b) in enumerate(self.combo_pairs_):
+            col_a = np.asarray(X[:, f_a], dtype=str)
+            col_b = np.asarray(X[:, f_b], dtype=str)
+            combo_vals = np.char.add(np.char.add(col_a, "_x_"), col_b)
+            m = self.combo_maps_[k]
+            combo_codes[:, k] = [m.get(v, -1) for v in combo_vals.tolist()]
+        return combo_codes
+
     # ---- fit / transform -----------------------------------------------------
     def fit_transform(self, X, encode_targets, cat_features):
         """encode_targets: list of 1D arrays used for ordered TS (len T)."""
@@ -88,6 +133,7 @@ class FeaturePreprocessor:
                 enc = OrderedTargetEncoder(
                     self.cat_smoothing,
                     None if self.random_state is None else self.random_state + t,
+                    self.cat_n_permutations,
                 )
                 encoded_blocks.append(enc.fit_transform(codes, target))
                 self.encoders_.append(enc)
@@ -107,6 +153,9 @@ class FeaturePreprocessor:
         encoded_blocks = []
         if self.cat_features_:
             codes = self._codes_for_transform(X)
+            if self.combo_pairs_:
+                combo_codes = self._combo_codes_for_transform(X)
+                codes = np.hstack([codes, combo_codes])
             for enc in self.encoders_:
                 encoded_blocks.append(enc.transform(codes))
         feat = self._stack(num, encoded_blocks)
@@ -121,10 +170,14 @@ class FeaturePreprocessor:
         return np.hstack(mats) if len(mats) > 1 else mats[0]
 
     def _build_feature_map(self, n_num, n_cat, n_targets):
-        """Combined column index -> original input column index."""
-        fmap = list(self.num_features_)            # numeric block
-        for _ in range(n_targets):                 # each TS target adds a block
-            fmap.extend(self.cat_features_)        # one col per cat feature
+        """Combined column index -> original input column index.
+        Combo features are mapped back to the lower-indexed original feature of
+        the pair so their split gains fold into an existing importance bucket."""
+        fmap = list(self.num_features_)
+        combo_orig = [min(i, j) for i, j in getattr(self, "combo_pairs_", [])]
+        for _ in range(n_targets):
+            fmap.extend(self.cat_features_)
+            fmap.extend(combo_orig)
         self.feature_map_ = np.array(fmap, dtype=np.int64)
         self.n_input_features_ = (
             (max(self.num_features_) if self.num_features_ else -1)

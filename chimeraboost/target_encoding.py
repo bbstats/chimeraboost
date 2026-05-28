@@ -46,11 +46,18 @@ class OrderedTargetEncoder:
 
     Categorical inputs are expected as integer codes in [0, n_categories).
     Use `factorize` to turn arbitrary (string/object) columns into codes.
+
+    n_permutations: number of random orderings to average during fit.
+    Averaging reduces the variance of the encoded values the same way
+    bagging reduces variance — each permutation is an independent noisy
+    estimate of the leave-one-out target statistic. CatBoost uses 4 by
+    default; more is strictly better but with diminishing returns past ~8.
     """
 
-    def __init__(self, smoothing=1.0, random_state=None):
+    def __init__(self, smoothing=1.0, random_state=None, n_permutations=4):
         self.smoothing = float(smoothing)
         self.random_state = random_state
+        self.n_permutations = int(n_permutations)
         self.prior_ = None
         self.sums_ = None       # list per column
         self.counts_ = None     # list per column
@@ -62,19 +69,24 @@ class OrderedTargetEncoder:
         y = np.asarray(y, dtype=np.float64)
         n_samples, n_cols = codes_matrix.shape
         rng = np.random.default_rng(self.random_state)
-        perm = rng.permutation(n_samples)
 
         self.prior_ = float(np.mean(y))
         self.sums_, self.counts_, self.n_cat_ = [], [], []
-        out = np.empty((n_samples, n_cols), dtype=np.float64)
+        out = np.zeros((n_samples, n_cols), dtype=np.float64)
 
         for j in range(n_cols):
             codes = np.ascontiguousarray(codes_matrix[:, j])
             n_cat = int(codes.max()) + 1 if codes.size else 1
-            enc, sums, counts = _ordered_ts(
-                codes, y, perm, n_cat, self.prior_, self.smoothing
-            )
-            out[:, j] = enc
+            acc = np.zeros(n_samples, dtype=np.float64)
+            sums = counts = None
+            for _ in range(self.n_permutations):
+                perm = rng.permutation(n_samples)
+                enc, sums, counts = _ordered_ts(
+                    codes, y, perm, n_cat, self.prior_, self.smoothing
+                )
+                acc += enc
+            out[:, j] = acc / self.n_permutations
+            # sums/counts are full-data totals: identical across permutations.
             self.sums_.append(sums)
             self.counts_.append(counts)
             self.n_cat_.append(n_cat)

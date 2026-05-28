@@ -31,13 +31,13 @@ def _apply_thread_count(thread_count):
 def _auto_learning_rate(n_samples, iterations, early_stopping):
     """Pick a default learning rate when the user did not specify one.
 
-    With early stopping, we default to 0.05 (down from 0.1). This forces the 
-    model to take smaller steps and build a larger, smoother ensemble. We trade 
-    a bit of our massive speed advantage for better test generalization.
+    With early stopping, 0.05 forces smaller steps and a larger, smoother
+    ensemble. Halved from 0.1 to match CatBoost's default; the speed budget
+    is large enough to absorb the extra trees early stopping will grow.
     Without early stopping, the rate scales inversely with the iteration budget.
     """
     if early_stopping:
-        return 0.1
+        return 0.05
     lr = 20.0 / max(iterations, 1)
     return float(np.clip(lr, 0.03, 0.2))
 
@@ -53,9 +53,10 @@ class _BaseBooster:
 
     def __init__(self, iterations=500, learning_rate=None, depth=6,
                  l2_leaf_reg=3.0, max_bins=128, subsample=1.0,
-                 colsample=1.0, cat_smoothing=1.0, early_stopping_rounds=None,
-                 min_child_weight=1.0, thread_count=None, random_state=None,
-                 verbose=False, ordered_boosting=True):
+                 colsample=1.0, cat_smoothing=1.0, cat_n_permutations=4,
+                 early_stopping_rounds=None, min_child_weight=1.0,
+                 thread_count=None, random_state=None, verbose=False,
+                 ordered_boosting=True, cat_combinations=False):
         self.iterations = int(iterations)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -64,12 +65,14 @@ class _BaseBooster:
         self.subsample = float(subsample)
         self.colsample = float(colsample)
         self.cat_smoothing = float(cat_smoothing)
+        self.cat_n_permutations = int(cat_n_permutations)
         self.early_stopping_rounds = early_stopping_rounds
         self.min_child_weight = float(min_child_weight)
         self.thread_count = thread_count
         self.random_state = random_state
         self.verbose = verbose
         self.ordered_boosting = bool(ordered_boosting)
+        self.cat_combinations = bool(cat_combinations)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate reusable histogram buffers once per fit.
@@ -97,16 +100,62 @@ class _BaseBooster:
     def _new_preprocessor(self):
         """Build a FeaturePreprocessor configured from this booster's params."""
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
-                                   self.random_state)
+                                   self.random_state, self.cat_n_permutations,
+                                   self.cat_combinations)
+
+    def _mvs_threshold(self, abs_g, target):
+        """MVS: find threshold λ s.t. sum(min(|g_i|/λ, 1)) = target.
+
+        Vectorized: sort once, then find the cutoff k (first row with p<1) via
+        a single boolean scan. O(n log n) sort + O(n) NumPy, no Python loop.
+        Returns λ=0 to signal "use uniform fallback" (degenerate cases).
+        """
+        n = len(abs_g)
+        if target >= n:
+            return 0.0
+        sorted_g = np.sort(abs_g)[::-1]  # descending
+        total = sorted_g.sum()
+        if total < 1e-12:
+            return 0.0
+        # prefix[k] = sum(sorted_g[:k]); suffix[k] = sum(sorted_g[k:])
+        prefix = np.empty(n)
+        prefix[0] = 0.0
+        prefix[1:] = np.cumsum(sorted_g[:-1])
+        suffix = total - prefix
+        remaining = target - np.arange(n, dtype=np.float64)
+        # Stop at first k where sorted_g[k] * remaining[k] <= suffix[k]
+        # (equivalent to sorted_g[k] <= λ_k = suffix[k]/remaining[k])
+        cond = (remaining > 0) & (sorted_g * remaining <= suffix)
+        if not cond.any():
+            return 0.0  # all rows forced
+        k = int(np.argmax(cond))
+        return suffix[k] / remaining[k]
 
     def _maybe_subsample(self, grad, hess, rng):
-        """Stochastic row subsampling: zero out the gradient/hessian of rows not
-        in this tree's sample. Zeroed rows contribute nothing to the histograms
-        but are still routed to leaves, as in standard stochastic GBDT."""
+        """MVS (Minimum Variance Sampling): gradient-weighted row subsampling.
+
+        Rows with larger |grad| are sampled with higher probability and
+        reweighted by 1/p to keep the leaf gradient sum unbiased. Reduces
+        tree-to-tree correlation while concentrating capacity on uncertain
+        samples — CatBoost's approach. Falls back to uniform when subsample=1.
+        """
         if self.subsample >= 1.0:
             return grad, hess
-        mask = rng.random(grad.shape[0]) < self.subsample
-        return np.where(mask, grad, 0.0), np.where(mask, hess, 0.0)
+        n = grad.shape[0]
+        target = self.subsample * n
+        abs_g = np.abs(grad)
+        lam = self._mvs_threshold(abs_g, target)
+        if lam == 0.0:
+            # degenerate or all rows selected: uniform fallback
+            mask = rng.random(n) < self.subsample
+            return np.where(mask, grad, 0.0), np.where(mask, hess, 0.0)
+        prob = np.minimum(abs_g / lam, 1.0)
+        mask = rng.random(n) < prob
+        # importance weight = 1/p; capped at 1/subsample to avoid blowup on
+        # near-zero-gradient rows (whose effective contribution g_i/p_i = λ)
+        max_w = 1.0 / max(self.subsample, 1e-3)
+        w = np.where(mask, np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
+        return grad * w, hess * w
 
     def _accumulate_importance(self, tree):
         """Add this tree's per-split gains to the running importance totals,
@@ -219,7 +268,10 @@ class GradientBoosting(_BaseBooster):
                     np.maximum(leaf_H[leaf] - h, 0.0) + self.l2_leaf_reg)
             else:
                 F += tree.predict(X_binned)
-            self.train_history_.append(self.loss_.eval(y, F, w))
+            # Training-loss tracking is only consumed by verbose printing;
+            # the eval call (esp. sigmoid for Logloss) is a measurable cost.
+            if self.verbose:
+                self.train_history_.append(self.loss_.eval(y, F, w))
 
             if Fv is not None:
                 Fv += tree.predict(Xv_binned)
@@ -342,9 +394,10 @@ class MulticlassBoosting(_BaseBooster):
                 hess = hess * w[:, None]
             fmask = self._feature_mask(X_binned.shape[1], rng)
             round_trees = []
+            coupling = (K - 1) / K  # softmax constraint: Hessian has rank K-1
             for k in range(K):
                 g, h = self._maybe_subsample(np.ascontiguousarray(grad[:, k]),
-                                             np.ascontiguousarray(hess[:, k]), rng)
+                                             np.ascontiguousarray(hess[:, k]) * coupling, rng)
                 tree = build_oblivious_tree(X_binned, g, h, n_bins, self.depth,
                                             self.l2_leaf_reg, self.lr_,
                                             feature_mask=fmask,
@@ -369,7 +422,8 @@ class MulticlassBoosting(_BaseBooster):
                           f"stopping.")
                 break
             self.trees_.append(round_trees)
-            self.train_history_.append(self.loss_.eval(Y, F, w))
+            if self.verbose:
+                self.train_history_.append(self.loss_.eval(Y, F, w))
 
             if Fv is not None:
                 for k in range(K):

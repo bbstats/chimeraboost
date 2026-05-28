@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CatBoost benchmark outputs (created when CatBoost is a benchmark competitor)
+catboost_info/

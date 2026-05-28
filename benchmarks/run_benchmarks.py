@@ -30,6 +30,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, accuracy_score, log_loss, f1_score,
 )
+import json as _json
 from sklearn.ensemble import (
     HistGradientBoostingRegressor, HistGradientBoostingClassifier,
 )
@@ -163,13 +164,23 @@ OPENML_SUITE = {
     "bank-marketing":dict(data_id=1461,  task="binary",     cats="auto"),
     "kc1":           dict(data_id=1067,  task="binary",     cats=None),
     "phoneme":       dict(data_id=1489,  task="binary",     cats=None),
+    "electricity":   dict(data_id=151,   task="binary",     cats=None),
+    "magic":         dict(data_id=1120,  task="binary",     cats=None),
+    "spambase":      dict(data_id=44,    task="binary",     cats=None),
+    "kc2":           dict(data_id=1063,  task="binary",     cats=None),
+    "sick":          dict(data_id=38,    task="binary",     cats="auto"),
     # classification (multiclass)
     "vehicle":       dict(data_id=54,    task="multiclass", cats=None),
     "segment":       dict(data_id=40984, task="multiclass", cats=None),
+    "optdigits":     dict(data_id=28,    task="multiclass", cats=None),
+    "car":           dict(data_id=40975, task="multiclass", cats="auto"),
     # regression
     "cpu_act":       dict(data_id=197,   task="regression", cats=None),
     "wine_quality":  dict(data_id=287,   task="regression", cats=None),
     "boston":        dict(data_id=531,   task="regression", cats=None),
+    "elevators":     dict(data_id=216,   task="regression", cats=None),
+    "ailerons":      dict(data_id=296,   task="regression", cats=None),
+    "abalone":       dict(data_id=183,   task="regression", cats="auto"),
 }
 
 
@@ -185,8 +196,10 @@ def _make_openml_builder(spec):
 
         # Detect categoricals from dtype if requested.
         if spec["cats"] == "auto":
-            cat_idx = [i for i, c in enumerate(X_df.columns)
-                       if str(X_df[c].dtype) in ("category", "object")]
+            def _is_cat(dtype):
+                s = str(dtype).lower()
+                return s in ("category", "object") or s.startswith("string")
+            cat_idx = [i for i, c in enumerate(X_df.columns) if _is_cat(X_df[c].dtype)]
         else:
             cat_idx = spec["cats"]
 
@@ -224,15 +237,22 @@ def _add_openml_datasets():
 
 
 # --------------------------------------------------------------------------
-# Model runners. Each returns (score, fit_seconds). Higher score = better,
-# so regression returns NEGATIVE rmse. Returns None if the model can't run
-# the task (e.g. competitor without native categorical support we skip).
+# Model runners. Each returns (metrics_dict, fit_seconds, best_iter). The
+# metrics dict always includes "primary" (higher=better; -RMSE for regression,
+# F1-macro for classification) which the summary/sign-test logic uses. For
+# classification it also includes "log_loss" so table cuts can report both.
+# Returns None if the model can't run the task (e.g. competitor without
+# native categorical support we skip).
 # --------------------------------------------------------------------------
-def _score(task, y_true, model, X_test, predict_proba=None):
+def _compute_metrics(task, y_true, model, X_test):
     if task == "regression":
-        return -np.sqrt(mean_squared_error(y_true, model.predict(X_test)))
-    # classification: macro-F1 works for both binary and multiclass
-    return f1_score(y_true, model.predict(X_test), average="macro")
+        rmse = float(np.sqrt(mean_squared_error(y_true, model.predict(X_test))))
+        return {"primary": -rmse, "rmse": rmse}
+    f1 = float(f1_score(y_true, model.predict(X_test), average="macro"))
+    proba = model.predict_proba(X_test)
+    # log_loss needs labels= for safety when a class is missing from y_true.
+    ll = float(log_loss(y_true, proba, labels=np.unique(np.concatenate([y_true]))))
+    return {"primary": f1, "f1_macro": f1, "log_loss": ll}
 
 
 def _val_split(Xtr, ytr, task, seed):
@@ -249,15 +269,18 @@ PATIENCE = 50
 
 
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
-                 ordered_boosting=True, depth=6):
+                 ordered_boosting=True, depth=6, subsample=1.0, mcw=1.0,
+                 cat_combinations=False):
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     m = Est(iterations=MAX_ITERS, early_stopping_rounds=PATIENCE,
             learning_rate=lr, depth=depth, ordered_boosting=ordered_boosting,
+            subsample=subsample, min_child_weight=mcw,
+            cat_combinations=cat_combinations,
             thread_count=threads, random_state=0)
     m.fit(Xf, yf, cat_features=cat, eval_set=(Xv, yv))
-    return _score(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
 
 
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -289,7 +312,7 @@ def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
            else HistGradientBoostingClassifier)
     m = Est(**common)
     m.fit(Xtr, ytr)
-    return _score(task, yte, m, Xte), time.time() - t, m.n_iter_
+    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.n_iter_
 
 
 def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -303,37 +326,92 @@ def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
     Est = CatBoostRegressor if task == "regression" else CatBoostClassifier
     m = Est(**common)
     m.fit(Xf, yf, cat_features=cat, eval_set=(Xv, yv))
-    return _score(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
+
+
+def _xgb_dataframes(Xtr, Xval, Xte, cat_idx):
+    """Build three pandas DataFrames sharing the same category sets per cat
+    column. Categories absent from training become NaN at predict-time, which
+    XGBoost handles via its default missing direction. This avoids the
+    'category not in the training set' error on unseen values."""
+    import pandas as pd
+    cat_set = set(cat_idx)
+
+    def _to_df(X):
+        df = pd.DataFrame(X)
+        for i in range(df.shape[1]):
+            if i not in cat_set:
+                df[i] = pd.to_numeric(df[i], errors="coerce")
+        return df
+
+    df_tr = _to_df(Xtr)
+    df_va = _to_df(Xval)
+    df_te = _to_df(Xte)
+    for i in cat_idx:
+        df_tr[i] = df_tr[i].astype("category")
+        cats = df_tr[i].cat.categories
+        df_va[i] = pd.Categorical(df_va[i], categories=cats)
+        df_te[i] = pd.Categorical(df_te[i], categories=cats)
+    return df_tr, df_va, df_te
 
 
 def _run_xgboost(task, Xtr, ytr, Xte, yte, cat, threads):
-    if not HAVE["xgboost"] or cat is not None:
+    if not HAVE["xgboost"]:
         return None
     import xgboost as xgb
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
     common = dict(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
-                  n_jobs=threads or -1, random_state=0, verbosity=0)
+                  n_jobs=threads or -1, random_state=0, verbosity=0,
+                  tree_method="hist")
+    if cat is not None:
+        common["enable_categorical"] = True
+        Xf_in, Xv_in, Xte_in = _xgb_dataframes(Xf, Xv, Xte, list(cat))
+    else:
+        Xf_in, Xv_in, Xte_in = Xf, Xv, Xte
     Est = xgb.XGBRegressor if task == "regression" else xgb.XGBClassifier
     m = Est(**common)
-    m.fit(Xf, yf, eval_set=[(Xv, yv)], verbose=False)
+    m.fit(Xf_in, yf, eval_set=[(Xv_in, yv)], verbose=False)
     best = getattr(m, "best_iteration", None)
-    return _score(task, yte, m, Xte), time.time() - t, best
+    return _compute_metrics(task, yte, m, Xte_in), time.time() - t, best
+
+
+def _lgb_prepare(Xtr, Xval, Xte, cat_idx):
+    """Ordinal-encode the cat columns to ints using a single encoder fit on
+    training. Validation and test reuse it; unseen categories become -1.
+    LightGBM expects integer-coded categoricals when categorical_feature is set.
+    """
+    from sklearn.preprocessing import OrdinalEncoder
+    Xtr = np.array(Xtr, dtype=object)
+    Xval = np.array(Xval, dtype=object)
+    Xte = np.array(Xte, dtype=object)
+    enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+    enc.fit(Xtr[:, cat_idx])
+    Xtr[:, cat_idx] = enc.transform(Xtr[:, cat_idx])
+    Xval[:, cat_idx] = enc.transform(Xval[:, cat_idx])
+    Xte[:, cat_idx] = enc.transform(Xte[:, cat_idx])
+    return Xtr.astype(float), Xval.astype(float), Xte.astype(float)
 
 
 def _run_lightgbm(task, Xtr, ytr, Xte, yte, cat, threads):
-    if not HAVE["lightgbm"] or cat is not None:
+    if not HAVE["lightgbm"]:
         return None
     import lightgbm as lgb
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
     common = dict(n_estimators=MAX_ITERS, n_jobs=threads or -1,
                   random_state=0, verbosity=-1)
+    fit_kw = dict(callbacks=[lgb.early_stopping(PATIENCE, verbose=False)])
+    if cat is not None:
+        Xf_in, Xv_in, Xte_in = _lgb_prepare(Xf, Xv, Xte, list(cat))
+        fit_kw["categorical_feature"] = list(cat)
+    else:
+        Xf_in, Xv_in, Xte_in = Xf, Xv, Xte
+    fit_kw["eval_set"] = [(Xv_in, yv)]
     Est = lgb.LGBMRegressor if task == "regression" else lgb.LGBMClassifier
     m = Est(**common)
-    m.fit(Xf, yf, eval_set=[(Xv, yv)],
-          callbacks=[lgb.early_stopping(PATIENCE, verbose=False)])
-    return _score(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    m.fit(Xf_in, yf, **fit_kw)
+    return _compute_metrics(task, yte, m, Xte_in), time.time() - t, m.best_iteration_
 
 
 RUNNERS = {
@@ -401,9 +479,59 @@ def main():
                     action="store_false", default=True,
                     help=("disable LOO leaf correction in ChimeraBoost "
                           "(default: on). Use to A/B test the improvement."))
+    ap.add_argument("--chimera-subsample", type=float, default=1.0,
+                    dest="chimera_subsample",
+                    help=("ChimeraBoost row subsample fraction (default: 1.0=off). "
+                          "Uses MVS (gradient-weighted) sampling when < 1. "
+                          "Try 0.8 to test whether stochastic boosting helps."))
+    ap.add_argument("--chimera-mcw", type=float, default=1.0,
+                    dest="chimera_mcw",
+                    help=("ChimeraBoost min_child_weight (default: 1.0). "
+                          "Try 0.5 or 0.0 to see whether relaxing the hessian "
+                          "constraint allows better splits on small datasets."))
+    ap.add_argument("--chimera-cat-combinations", action="store_true",
+                    default=False, dest="cat_combinations",
+                    help=("Enable 2-way categorical feature combinations in "
+                          "ChimeraBoost (default: off). Generates all C(n_cat,2) "
+                          "pairwise combo columns before target encoding, mirroring "
+                          "CatBoost's feature combination step."))
+    ap.add_argument("--datasets", nargs="+", default=None,
+                    metavar="DS",
+                    help=("run only these datasets, e.g. --datasets diabetes "
+                          "oml:phoneme boston. Names must match keys in DATASETS "
+                          "(after --openml datasets are added)."))
+    ap.add_argument("--save", nargs="?", const="auto", default=None,
+                    metavar="PATH",
+                    help=("Also write the full benchmark output to a file. "
+                          "Pass a path, or no argument for a timestamped file "
+                          "under benchmarks/results/."))
     args = ap.parse_args()
 
-    if args.openml or args.no_synthetic:
+    # Optional tee: mirror stdout to a results file so runs are inspectable
+    # later. Default location is benchmarks/results/YYYYMMDD-HHMMSS.txt.
+    tee = None
+    if args.save is not None:
+        import os, sys, datetime
+        if args.save == "auto":
+            results_dir = os.path.join(os.path.dirname(__file__), "results")
+            os.makedirs(results_dir, exist_ok=True)
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            save_path = os.path.join(results_dir, f"{stamp}.txt")
+        else:
+            save_path = args.save
+        tee_file = open(save_path, "w", encoding="utf-8")
+        real_stdout = sys.stdout
+        class _Tee:
+            def write(self, s):
+                real_stdout.write(s); tee_file.write(s); tee_file.flush()
+            def flush(self):
+                real_stdout.flush(); tee_file.flush()
+        sys.stdout = _Tee()
+        tee = (tee_file, save_path)
+        print(f"# Benchmark results will be saved to: {save_path}")
+
+    if args.openml or args.no_synthetic or (
+            args.datasets and any(d.startswith("oml:") for d in (args.datasets or []))):
         _add_openml_datasets()
     if args.no_synthetic:
         for k in [k for k in DATASETS if not k.startswith("oml:")]:
@@ -418,7 +546,8 @@ def main():
     active_runners = dict(RUNNERS)
     active_runners["ChimeraBoost"] = functools.partial(
         _run_chimera, lr=args.lr, ordered_boosting=args.ordered_boosting,
-        depth=args.chimera_depth,
+        depth=args.chimera_depth, subsample=args.chimera_subsample,
+        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
     )
     if args.models:
         unknown = set(args.models) - set(active_runners)
@@ -434,6 +563,8 @@ def main():
           f"early stopping: max_iter={MAX_ITERS}, patience={PATIENCE}"
           + (f"  chimera_lr={args.lr}" if args.lr else "")
           + (f"  ordered_boosting={args.ordered_boosting}")
+          + (f"  subsample={args.chimera_subsample}" if args.chimera_subsample < 1.0 else "")
+          + (f"  cat_combinations=True" if args.cat_combinations else "")
           + (f"  models={args.models}" if args.models else "")
           + "\n")
 
@@ -445,14 +576,23 @@ def main():
     gap_acc = {r: [] for r in active_runners if r != "ChimeraBoost"}
     speed_acc = {r: [] for r in active_runners if r != "ChimeraBoost"}
 
+    # Raw per-(dataset, model, seed) records for downstream table generation.
+    # Captures every metric (incl. log_loss for classification) and per-seed
+    # fit time, so the table script can slice by task / cats / size buckets.
+    raw_records = []
+    dataset_meta = {}
+
     for ds_name, builder in DATASETS.items():
+        if args.datasets and ds_name not in args.datasets:
+            continue
         _, _, _, task = builder(args.scale, np.random.default_rng(0))
         if args.only == "regression" and task != "regression":
             continue
         if args.only == "classification" and task == "regression":
             continue
 
-        results = {r: [] for r in active_runners}
+        results = {r: [] for r in active_runners}     # primary score per seed
+        metrics_all = {r: [] for r in active_runners} # full dict per seed
         times = {r: [] for r in active_runners}
         iters = {r: [] for r in active_runners}
         for s in range(args.seeds):
@@ -462,14 +602,28 @@ def main():
             Xtr, Xte, ytr, yte = train_test_split(
                 X, y, test_size=0.25, random_state=s, stratify=strat
             )
+            if ds_name not in dataset_meta:
+                dataset_meta[ds_name] = {
+                    "task": task,
+                    "n_train": int(Xtr.shape[0]),
+                    "n_total": int(X.shape[0]),
+                    "n_features": int(X.shape[1]),
+                    "has_cats": bool(cat),
+                }
             for rname, runner in active_runners.items():
                 out = runner(task, Xtr, ytr, Xte, yte, cat, args.threads)
                 if out is not None:
-                    score, secs, best_it = out
-                    results[rname].append(score)
+                    metrics, secs, best_it = out
+                    results[rname].append(metrics["primary"])
+                    metrics_all[rname].append(metrics)
                     times[rname].append(secs)
                     if best_it is not None:
                         iters[rname].append(best_it)
+                    raw_records.append({
+                        "dataset": ds_name, "model": rname, "seed": s,
+                        "metrics": metrics, "fit_time": secs,
+                        "best_iter": int(best_it) if best_it is not None else None,
+                    })
 
         print(f"### {ds_name}  [{task}]  metric={metric_name[task]}")
         for rname in active_runners:
@@ -511,6 +665,24 @@ def main():
         print(f"  vs {rname:12s}  F1 macro {g.mean():+6.2f}% "
               f"(wins {wins}/{len(g)})   speed x{sp.mean():.2f}   -> {verdict}")
     print()
+    if tee is not None:
+        import sys
+        # Sidecar JSON: every metric for every (dataset, model, seed), plus
+        # dataset metadata (task, size, has_cats). Used by make_tables.py.
+        json_path = tee[1].rsplit(".", 1)[0] + ".json"
+        with open(json_path, "w", encoding="utf-8") as jf:
+            _json.dump({
+                "config": {
+                    "seeds": args.seeds, "max_iters": MAX_ITERS,
+                    "patience": PATIENCE,
+                },
+                "datasets": dataset_meta,
+                "records": raw_records,
+            }, jf, indent=2)
+        print(f"# Saved results to: {tee[1]}")
+        print(f"# Saved raw data to: {json_path}")
+        sys.stdout = real_stdout
+        tee[0].close()
 
 
 def _verdict(competitor, mean_gap):

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Local pre-push hook: run the test suite before allowing a push.
+# Activate once with:  git config core.hooksPath .githooks
+#
+# To bypass in a one-off emergency:  git push --no-verify
+set -e
+echo "[pre-push] running pytest..."
+python -m pytest tests/ -q

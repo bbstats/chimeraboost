@@ -51,13 +51,22 @@ def _weighted_quantile(values, weights, alpha):
     return float(sv[idx])
 
 
+from numba import njit, prange
+
+
+@njit(cache=True, parallel=True)
 def _sigmoid(z):
-    # Numerically stable logistic.
-    out = np.empty_like(z)
-    pos = z >= 0
-    out[pos] = 1.0 / (1.0 + np.exp(-z[pos]))
-    ez = np.exp(z[~pos])
-    out[~pos] = ez / (1.0 + ez)
+    # Numerically stable logistic, parallelized over rows. Branching on sign
+    # avoids overflow in exp(): exp(-|z|) is always in [0, 1].
+    n = z.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        zi = z[i]
+        if zi >= 0.0:
+            out[i] = 1.0 / (1.0 + np.exp(-zi))
+        else:
+            ez = np.exp(zi)
+            out[i] = ez / (1.0 + ez)
     return out
 
 

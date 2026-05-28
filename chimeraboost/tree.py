@@ -83,31 +83,35 @@ def _best_split(hg, hh, n_bins_per_feature, l2, feat_mask, min_child_weight,
         best_t = -1
         # Threshold t means "left = bins [0..t]". Last bin can't be a threshold.
         for t in range(nb - 1):
-            gain = 0.0
-            any_legal = False
-            
+            # Pass 1: Advance running prefix sums for all leaves unconditionally
+            # so GL/HL carry correctly into the next threshold.
             for l in range(n_leaves):
-                # Pass 1: Advance the running prefix sums for every leaf regardless
-                # of legality, so GL/HL carry correctly into the next threshold.
                 GL[l] += hg[f, l, t]
                 HL[l] += hh[f, l, t]
-                
+
+            # Pass 2: A threshold is legal only if every non-empty active leaf
+            # retains at least min_child_weight hessian mass on both sides.
+            # Splitting a leaf that violates this constraint would create sparse
+            # children that overfit; rejecting the threshold entirely is correct
+            # for oblivious trees where all leaves share the same split.
+            gain = 0.0
+            legal = True
+            for l in range(n_leaves):
                 if Ht[l] > 0.0:
                     hl = HL[l]
                     hr = Ht[l] - hl
-                    # Pass 2 (Gain Masking): A leaf only contributes to the split's 
-                    # total gain if it satisfies the min_child_weight constraint locally.
-                    if hl >= min_child_weight and hr >= min_child_weight:
-                        any_legal = True
-                        gl = GL[l]
-                        gr = Gt[l] - gl
-                        gain += (
-                            gl * gl / (hl + l2)
-                            + gr * gr / (hr + l2)
-                            - Gt[l] * Gt[l] / (Ht[l] + l2)
-                        )
-            
-            if any_legal and gain > best_g:
+                    if hl < min_child_weight or hr < min_child_weight:
+                        legal = False
+                        break
+                    gl = GL[l]
+                    gr = Gt[l] - gl
+                    gain += (
+                        gl * gl / (hl + l2)
+                        + gr * gr / (hr + l2)
+                        - Gt[l] * Gt[l] / (Ht[l] + l2)
+                    )
+
+            if legal and gain > best_g:
                 best_g = gain
                 best_t = t
                 
