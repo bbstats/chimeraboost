@@ -34,7 +34,7 @@ reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9, early_stopping=True)
 reg.fit(X, y)
 ```
 
-* **Useful parameters**
+* **Some parameters**
 
 | Param | Default | What it does |
 |---|---|---|
@@ -51,8 +51,6 @@ reg.fit(X, y)
 
 ![Benchmark summary](images/summary.png)
 
-Each quality cell is **average % relative to the best model** in that column (100% = best; lower = worse). The fit-time column is the average **× slowdown relative to the fastest model** (1× = best; higher = slower).
-
 * **Reproduce the benchmark**
 
 ```
@@ -60,7 +58,7 @@ python benchmarks/run_benchmarks.py --openml --seeds 5 --save
 python benchmarks/make_tables.py benchmarks/results/<stamp>.json
 ```
 
-Results land in `benchmarks/results/<stamp>.txt` (text log) and `.json` (raw per-seed metrics). Table PNGs are written to `images/`. Competitors are auto-detected; install any of `catboost`, `xgboost`, `lightgbm` to see them.
+Results land in `benchmarks/results/<stamp>.txt` (text log) and `.json` (raw per-seed metrics). Table PNG is written to `images/`. Competitors are auto-detected; install any of `catboost`, `xgboost`, `lightgbm` to see them.
 
 * **Pre-push hook (optional)**
 
