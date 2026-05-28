@@ -58,7 +58,7 @@ python benchmarks/run_benchmarks.py --openml --seeds 5 --save
 python benchmarks/make_tables.py benchmarks/results/<stamp>.json
 ```
 
-Results land in `benchmarks/results/<stamp>.txt` (text log) and `.json` (raw per-seed metrics). Table PNGs are written to `images/`. Competitors are auto-detected; install any of `catboost`, `xgboost`, `lightgbm` to see them.
+Results land in `benchmarks/results/<stamp>.txt` (text log) and `.json` (raw per-seed metrics). Table PNGs is written to `images/`. Competitors are auto-detected; install any of `catboost`, `xgboost`, `lightgbm` to see them.
 
 * **Pre-push hook (optional)**
 
