@@ -34,7 +34,7 @@ reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9, early_stopping=True)
 reg.fit(X, y)
 ```
 
-* **Useful parameters**
+* **Some parameters**
 
 | Param | Default | What it does |
 |---|---|---|
@@ -50,8 +50,6 @@ reg.fit(X, y)
 * **Benchmark**
 
 ![Benchmark summary](images/summary.png)
-
-Each quality cell is **average % relative to the best model** in that column (100% = best; lower = worse). The fit-time column is the average **× slowdown relative to the fastest model** (1× = best; higher = slower).
 
 * **Reproduce the benchmark**
 
