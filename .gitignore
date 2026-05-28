@@ -219,3 +219,9 @@ __marimo__/
 
 # CatBoost benchmark outputs (created when CatBoost is a benchmark competitor)
 catboost_info/
+.claude/scheduled_tasks.lock
+
+benchmarks/results/*
+tests/__pycache__/*
+.gitignore
+.claude/settings.json

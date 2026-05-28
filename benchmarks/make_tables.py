@@ -167,22 +167,12 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
         ax.text(fig_w / 2, 0.35, title, ha="center", va="center",
                 fontsize=13, fontweight="bold", color="#222")
 
-    # Per-ROW color scale: each model's row is colored relative to its own
-    # best and worst cell. A cell's "goodness" is the % for pct columns and
-    # an inverse-log mapping for speed columns (1x = 100, 10x = 0). The row's
-    # max-goodness cell is the greenest; the min-goodness cell the reddest.
-    # This makes "what is this model strong/weak at?" jump out at a glance.
-    # Comparing colors ACROSS rows is not meaningful under this scheme.
+    # Color scheme:
+    #   pct cells   : fixed scale, 100% = green, 75% = red, below 75 clamps red.
+    #   speed cells : log-scale per-column, fastest = green, slowest = red.
+    #                 No hardcoded ceiling; the column's own range sets the scale,
+    #                 so e.g. a 39x cell looks much worse than 5x in the same column.
     import math
-
-    def _goodness(val, col_kind):
-        if val is None:
-            return None
-        if col_kind == "speed":
-            # 1x -> 100, 10x -> 0, log2-spaced, clamped.
-            norm = math.log2(max(val, 1.0)) / math.log2(10.0)
-            return 100.0 * (1.0 - max(0.0, min(1.0, norm)))
-        return float(val)   # already 0-100 for pct
 
     def _grad_color(norm):
         # Smooth red -> amber -> green; norm in [0, 1] (0 red, 1 green).
@@ -198,24 +188,33 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
         mix = 0.45
         return (r * (1 - mix) + mix, g * (1 - mix) + mix, b * (1 - mix) + mix)
 
-    def cell_color(val, col_kind, row_min, row_max):
+    # Precompute per-column min/max for speed columns (used as the log-scale
+    # endpoints). For pct columns the scale is fixed (75-100), values unused.
+    col_min = [0.0] * n_cols
+    col_max = [0.0] * n_cols
+    for c in range(n_cols):
+        if col_kinds[c] == "speed":
+            col_vals = [data[r][c] for r in range(n_rows) if data[r][c] is not None]
+            if col_vals:
+                col_min[c] = min(col_vals)
+                col_max[c] = max(col_vals)
+
+    def cell_color(val, c):
         if val is None:
             return "#e8e8e8"
-        g = _goodness(val, col_kind)
-        if row_max - row_min < 1e-6:
-            return _grad_color(0.5)  # row is flat -> neutral
-        norm = (g - row_min) / (row_max - row_min)
-        return _grad_color(max(0.0, min(1.0, norm)))
-
-    # Precompute per-row goodness min/max so cell_color can normalize.
-    row_min_max = []
-    for r in range(n_rows):
-        goods = [_goodness(data[r][c], col_kinds[c]) for c in range(n_cols)]
-        goods = [g for g in goods if g is not None]
-        if not goods:
-            row_min_max.append((0.0, 0.0))
+        if col_kinds[c] == "speed":
+            # Log-spaced: lowest val (fastest) -> green, highest -> red.
+            if col_max[c] - col_min[c] < 1e-6:
+                return _grad_color(0.5)
+            log_min = math.log2(max(col_min[c], 1.0))
+            log_max = math.log2(max(col_max[c], 1.0))
+            log_val = math.log2(max(val, 1.0))
+            denom = max(log_max - log_min, 1e-6)
+            norm = 1.0 - (log_val - log_min) / denom   # flip: 0 = red, 1 = green
         else:
-            row_min_max.append((min(goods), max(goods)))
+            # pct: clamp scale to [75, 100]; 75% = red, 100% = green.
+            norm = (val - 75.0) / 25.0
+        return _grad_color(max(0.0, min(1.0, norm)))
 
     # Per-column best is still tracked, but only to bold the winning cell;
     # color shading no longer depends on it. For speed, "best" = lowest.
@@ -280,10 +279,9 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
                 fontweight="bold" if is_us else "normal")
         # Data cells
         x = label_w
-        row_min, row_max = row_min_max[r]
         for c in range(n_cols):
             val = data[r][c]
-            color = cell_color(val, col_kinds[c], row_min, row_max)
+            color = cell_color(val, c)
             rect = mpatches.Rectangle((x, y), cell_w, cell_h,
                                       linewidth=0, facecolor=color)
             ax.add_patch(rect)
@@ -374,7 +372,7 @@ def main():
         ("Regression", 1 if reg_ds_all else 0),
         ("Binary", 2 if bin_ds_all else 0),
         ("Multiclass", 2 if mul_ds_all else 0),
-        ("Speed", 1),
+        ("Slowdown", 1),
     ]
     sum_groups = [(lab, span) for lab, span in sum_groups if span > 0]
 
