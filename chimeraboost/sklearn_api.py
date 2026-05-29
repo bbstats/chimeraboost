@@ -102,7 +102,7 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
     early_stopping : bool, default False
         Whether to use early stopping to terminate training when the validation
         score stops improving.  Requires ``early_stopping_rounds`` (defaults
-        to 10 when early stopping is active but the param is None).
+        to 50 when early stopping is active but the param is None).
     validation_fraction : float, default 0.1
         Fraction of training data to hold out as a validation set when
         *early_stopping* is active and no explicit *eval_set* is passed.
@@ -177,10 +177,12 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
             if sample_weight is not None:
                 sample_weight = sample_weight[train_idx]
 
-        # If early stopping is active but patience not explicitly set, use 10.
+        # If early stopping is active but patience not explicitly set, use 50.
+        # 50 beats 10 on 25/34 benchmark datasets (lr=0.1 keeps improving past a
+        # 10-round plateau); see benchmarks/investigate_early_stopping.py.
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
-            es_rounds = 10
+            es_rounds = 50
 
         loss_kwargs = {"alpha": self.alpha} if self.loss == "Quantile" else {}
         kw = {k: v for k, v in self.get_params().items()
@@ -296,7 +298,7 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
 
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
-            es_rounds = 10
+            es_rounds = 50   # see GradientBoosting/Regressor note above
 
         kw = {k: v for k, v in self.get_params().items()
               if k not in _SKLEARN_ONLY}
