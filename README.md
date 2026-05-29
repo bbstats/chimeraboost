@@ -5,9 +5,9 @@
 
 * **What?**
     * GBDT library that only depends on numpy, numba, and scikit-learn
-    * Within ~3% F1 / ~5% RMSE of CatBoost on a 34-dataset OpenML benchmark, at ~18× the speed
     * Supports regression, binary and multiclass classification, quantile regression
     * Categorical features, sample weights, and automatic early stopping
+    * Within ~3% F1 / ~5% RMSE of CatBoost on a 34-dataset OpenML benchmark, at ~18× the speed
 
 * **Why?**
     * I want to be able to modify my GBDT library at will
