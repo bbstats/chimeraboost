@@ -19,18 +19,18 @@ Usage:
 """
 
 import argparse
+import json as _json
+import os
 import time
 import warnings
+from collections import defaultdict
 
 import numpy as np
 
 warnings.filterwarnings("ignore")
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    mean_squared_error, mean_absolute_error, accuracy_score, log_loss, f1_score,
-)
-import json as _json
+from sklearn.metrics import mean_squared_error, log_loss, f1_score
 from sklearn.ensemble import (
     HistGradientBoostingRegressor, HistGradientBoostingClassifier,
 )
@@ -145,6 +145,20 @@ DATASETS = {
     "cat_multiclass": _ds_categorical_multiclass,
 }
 
+# Task type per synthetic dataset, so selection/filtering needn't build them.
+SYNTH_TASKS = {
+    "diabetes": "regression", "friedman1": "regression",
+    "synthetic_reg": "regression", "breast_cancer": "binary",
+    "wine": "multiclass", "cat_binary": "binary", "cat_multiclass": "multiclass",
+}
+
+
+def _task_of(ds_name):
+    """Task type of a dataset by name, without building it."""
+    if ds_name.startswith("oml:"):
+        return OPENML_SUITE[ds_name[4:]]["task"]
+    return SYNTH_TASKS[ds_name]
+
 
 # --------------------------------------------------------------------------
 # Real external datasets via OpenML (the standard tabular-ML benchmark repo).
@@ -169,11 +183,17 @@ OPENML_SUITE = {
     "spambase":      dict(data_id=44,    task="binary",     cats=None),
     "kc2":           dict(data_id=1063,  task="binary",     cats=None),
     "sick":          dict(data_id=38,    task="binary",     cats="auto"),
+    "mushroom":      dict(data_id=24,    task="binary",     cats="auto"),
+    "kr-vs-kp":      dict(data_id=3,     task="binary",     cats="auto"),
     # classification (multiclass)
     "vehicle":       dict(data_id=54,    task="multiclass", cats=None),
     "segment":       dict(data_id=40984, task="multiclass", cats=None),
     "optdigits":     dict(data_id=28,    task="multiclass", cats=None),
     "car":           dict(data_id=40975, task="multiclass", cats="auto"),
+    "splice":        dict(data_id=46,    task="multiclass", cats="auto"),
+    "satimage":      dict(data_id=182,   task="multiclass", cats=None),
+    "pendigits":     dict(data_id=32,    task="multiclass", cats=None),
+    "letter":        dict(data_id=6,     task="multiclass", cats=None),
     # regression
     "cpu_act":       dict(data_id=197,   task="regression", cats=None),
     "wine_quality":  dict(data_id=287,   task="regression", cats=None),
@@ -181,6 +201,7 @@ OPENML_SUITE = {
     "elevators":     dict(data_id=216,   task="regression", cats=None),
     "ailerons":      dict(data_id=296,   task="regression", cats=None),
     "abalone":       dict(data_id=183,   task="regression", cats="auto"),
+    "house_16H":     dict(data_id=574,   task="regression", cats=None),
 }
 
 
@@ -422,6 +443,43 @@ RUNNERS = {
     "LightGBM": _run_lightgbm,
 }
 
+# Always available (hard deps); the rest are gated on _detect().
+_ALWAYS = ("ChimeraBoost", "sklearn_HGB")
+_OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
+
+
+def _make_runners(model_names, chimera_cfg):
+    """Build the runner dict for `model_names`, wiring ChimeraBoost's CLI knobs."""
+    import functools
+    runners = dict(RUNNERS)
+    runners["ChimeraBoost"] = functools.partial(_run_chimera, **chimera_cfg)
+    return {name: runners[name] for name in model_names}
+
+
+def _run_seed_task(task):
+    """Fit every requested model on one (dataset, seed) draw. Top-level and
+    picklable so it can run in a worker process. Returns
+    (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
+    global PATIENCE
+    ds_name, seed, scale, threads, model_names, chimera_cfg, patience, need_openml = task
+    PATIENCE = patience
+    if need_openml:
+        _add_openml_datasets()
+
+    rng = np.random.default_rng(1000 + seed)
+    X, y, cat, ttype = DATASETS[ds_name](scale, rng)
+    strat = y if ttype != "regression" else None
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.25, random_state=seed, stratify=strat)
+    meta = {"task": ttype, "n_train": int(Xtr.shape[0]),
+            "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),
+            "has_cats": bool(cat)}
+
+    out = {}
+    for name, runner in _make_runners(model_names, chimera_cfg).items():
+        out[name] = runner(ttype, Xtr, ytr, Xte, yte, cat, threads)
+    return ds_name, seed, meta, out
+
 
 # --------------------------------------------------------------------------
 # Main loop
@@ -450,7 +508,16 @@ def main():
                     help="multiplier for synthetic dataset sizes")
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--threads", type=int, default=None,
-                    help="ChimeraBoost thread_count (None = all cores)")
+                    help="total thread budget across all parallel jobs "
+                         "(None = all cores).")
+    ap.add_argument("--jobs", type=int, default=5,
+                    help="(dataset, seed) tasks to run in parallel processes; "
+                         "each gets threads/jobs threads. GBDT thread scaling is "
+                         "sublinear, so spreading seeds beats piling threads on "
+                         "one fit (default: 5). Use 1 to run inline.")
+    ap.add_argument("--with-xgboost", action="store_true",
+                    help="include XGBoost (off by default; it tracks LightGBM "
+                         "closely and roughly doubles competitor runtime).")
     ap.add_argument("--only", choices=["regression", "classification"],
                     default=None)
     ap.add_argument("--openml", action="store_true",
@@ -499,7 +566,7 @@ def main():
     # later. Default location is benchmarks/results/YYYYMMDD-HHMMSS.txt.
     tee = None
     if args.save is not None:
-        import os, sys, datetime
+        import sys, datetime
         if args.save == "auto":
             results_dir = os.path.join(os.path.dirname(__file__), "results")
             os.makedirs(results_dir, exist_ok=True)
@@ -518,124 +585,126 @@ def main():
         tee = (tee_file, save_path)
         print(f"# Benchmark results will be saved to: {save_path}")
 
-    if args.openml or args.no_synthetic or (
-            args.datasets and any(d.startswith("oml:") for d in (args.datasets or []))):
+    if args.patience is not None:
+        PATIENCE = args.patience
+
+    need_openml = (args.openml or args.no_synthetic or bool(
+        args.datasets and any(d.startswith("oml:") for d in args.datasets)))
+    if need_openml:
         _add_openml_datasets()
     if args.no_synthetic:
         for k in [k for k in DATASETS if not k.startswith("oml:")]:
             del DATASETS[k]
 
-    # Apply patience override globally before building runner dicts.
-    if args.patience is not None:
-        PATIENCE = args.patience
-
-    # Build the runner dict; ChimeraBoost gets the lr override if provided.
-    import functools
-    active_runners = dict(RUNNERS)
-    active_runners["ChimeraBoost"] = functools.partial(
-        _run_chimera, lr=args.lr, ordered_boosting=args.ordered_boosting,
-        depth=args.chimera_depth, subsample=args.chimera_subsample,
-        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
-    )
+    # Resolve the model set. Competitors are gated on install; XGBoost is off
+    # by default (it tracks LightGBM). --models overrides everything.
+    available = list(_ALWAYS) + [m for m in _OPTIONAL if HAVE[m.lower()]]
     if args.models:
-        unknown = set(args.models) - set(active_runners)
+        unknown = set(args.models) - set(RUNNERS)
         if unknown:
-            ap.error(f"Unknown models: {unknown}. Available: {list(active_runners)}")
-        active_runners = {k: v for k, v in active_runners.items()
-                         if k in args.models}
+            ap.error(f"Unknown models: {unknown}. Available: {list(RUNNERS)}")
+        model_names = [m for m in args.models if m in available]
+    else:
+        model_names = [m for m in available
+                       if m != "XGBoost" or args.with_xgboost]
+    if "ChimeraBoost" not in model_names:
+        ap.error("ChimeraBoost must be one of the models (it is the baseline).")
+
+    chimera_cfg = dict(lr=args.lr, ordered_boosting=args.ordered_boosting,
+                       depth=args.chimera_depth, subsample=args.chimera_subsample,
+                       mcw=args.chimera_mcw, cat_combinations=args.cat_combinations)
+
+    # Split the thread budget across parallel jobs: GBDT thread scaling is
+    # sublinear, so running J seeds at threads/J each beats one fit at all cores.
+    total_threads = args.threads or os.cpu_count() or 1
+    jobs = max(1, args.jobs)
+    threads_per = max(1, total_threads // jobs)
+
+    selected = [ds for ds in DATASETS
+                if not (args.datasets and ds not in args.datasets)
+                and not (args.only == "regression" and _task_of(ds) != "regression")
+                and not (args.only == "classification" and _task_of(ds) == "regression")]
 
     print("Detected competitors:",
           ", ".join(k for k, v in HAVE.items() if v) or "none (sklearn only)")
-    print(f"scale={args.scale}  seeds={args.seeds}  "
-          f"threads={args.threads or 'all'}  "
-          f"early stopping: max_iter={MAX_ITERS}, patience={PATIENCE}"
+    print(f"scale={args.scale}  seeds={args.seeds}  jobs={jobs}  "
+          f"threads/job={threads_per}  max_iter={MAX_ITERS}  patience={PATIENCE}  "
+          f"models={model_names}"
           + (f"  chimera_lr={args.lr}" if args.lr else "")
-          + (f"  ordered_boosting={args.ordered_boosting}")
+          + ("  ordered_boosting=off" if not args.ordered_boosting else "")
           + (f"  subsample={args.chimera_subsample}" if args.chimera_subsample < 1.0 else "")
-          + (f"  cat_combinations=True" if args.cat_combinations else "")
-          + (f"  models={args.models}" if args.models else "")
+          + ("  cat_combinations=on" if args.cat_combinations else "")
           + "\n")
+
+    # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
+    tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
+              PATIENCE, need_openml)
+             for ds in selected for s in range(args.seeds)]
+    collected = defaultdict(dict)   # collected[ds][seed] = (meta, out)
+    if jobs == 1:
+        for t in tasks:
+            ds, seed, meta, out = _run_seed_task(t)
+            collected[ds][seed] = (meta, out)
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=jobs) as ex:
+            for ds, seed, meta, out in ex.map(_run_seed_task, tasks):
+                collected[ds][seed] = (meta, out)
 
     metric_name = {"regression": "RMSE (lower better)",
                    "binary": "F1 macro (higher better)",
                    "multiclass": "F1 macro (higher better)"}
-
-    # accumulate per-competitor relative gaps + speed ratios across datasets
-    gap_acc = {r: [] for r in active_runners if r != "ChimeraBoost"}
-    speed_acc = {r: [] for r in active_runners if r != "ChimeraBoost"}
-
-    # Raw per-(dataset, model, seed) records for downstream table generation.
-    # Captures every metric (incl. log_loss for classification) and per-seed
-    # fit time, so the table script can slice by task / cats / size buckets.
-    raw_records = []
+    gap_acc = {m: [] for m in model_names if m != "ChimeraBoost"}
+    speed_acc = {m: [] for m in model_names if m != "ChimeraBoost"}
+    raw_records = []      # one row per (dataset, model, seed); feeds make_tables
     dataset_meta = {}
 
-    for ds_name, builder in DATASETS.items():
-        if args.datasets and ds_name not in args.datasets:
+    for ds_name in selected:
+        seed_map = collected.get(ds_name)
+        if not seed_map:
             continue
-        _, _, _, task = builder(args.scale, np.random.default_rng(0))
-        if args.only == "regression" and task != "regression":
-            continue
-        if args.only == "classification" and task == "regression":
-            continue
+        dataset_meta[ds_name] = seed_map[next(iter(seed_map))][0]
+        task = dataset_meta[ds_name]["task"]
 
-        results = {r: [] for r in active_runners}     # primary score per seed
-        metrics_all = {r: [] for r in active_runners} # full dict per seed
-        times = {r: [] for r in active_runners}
-        iters = {r: [] for r in active_runners}
+        results = {m: [] for m in model_names}
+        times = {m: [] for m in model_names}
+        iters = {m: [] for m in model_names}
         for s in range(args.seeds):
-            rng = np.random.default_rng(1000 + s)
-            X, y, cat, task = builder(args.scale, rng)
-            strat = y if task != "regression" else None
-            Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.25, random_state=s, stratify=strat
-            )
-            if ds_name not in dataset_meta:
-                dataset_meta[ds_name] = {
-                    "task": task,
-                    "n_train": int(Xtr.shape[0]),
-                    "n_total": int(X.shape[0]),
-                    "n_features": int(X.shape[1]),
-                    "has_cats": bool(cat),
-                }
-            for rname, runner in active_runners.items():
-                out = runner(task, Xtr, ytr, Xte, yte, cat, args.threads)
-                if out is not None:
-                    metrics, secs, best_it = out
-                    results[rname].append(metrics["primary"])
-                    metrics_all[rname].append(metrics)
-                    times[rname].append(secs)
-                    if best_it is not None:
-                        iters[rname].append(best_it)
-                    raw_records.append({
-                        "dataset": ds_name, "model": rname, "seed": s,
-                        "metrics": metrics, "fit_time": secs,
-                        "best_iter": int(best_it) if best_it is not None else None,
-                    })
+            if s not in seed_map:
+                continue
+            for name, res in seed_map[s][1].items():
+                if res is None:
+                    continue
+                metrics, secs, best_it = res
+                results[name].append(metrics["primary"])
+                times[name].append(secs)
+                if best_it is not None:
+                    iters[name].append(best_it)
+                raw_records.append({
+                    "dataset": ds_name, "model": name, "seed": s,
+                    "metrics": metrics, "fit_time": secs,
+                    "best_iter": int(best_it) if best_it is not None else None,
+                })
 
         print(f"### {ds_name}  [{task}]  metric={metric_name[task]}")
-        for rname in active_runners:
-            if not results[rname]:
+        for name in model_names:
+            if not results[name]:
                 continue
-            sc = np.array(results[rname])
-            tm = np.array(times[rname])
+            sc = np.array(results[name])
+            tm = np.array(times[name])
             disp = (-sc if task == "regression" else sc)
-            it_str = (f"  trees~{int(np.mean(iters[rname]))}"
-                      if iters[rname] else "")
-            star = " <-- ours" if rname == "ChimeraBoost" else ""
-            print(f"  {rname:14s} {disp.mean():8.4f} +/- {disp.std():.4f}"
+            it_str = f"  trees~{int(np.mean(iters[name]))}" if iters[name] else ""
+            star = " <-- ours" if name == "ChimeraBoost" else ""
+            print(f"  {name:14s} {disp.mean():8.4f} +/- {disp.std():.4f}"
                   f"   fit {tm.mean():6.2f}s{it_str}{star}")
 
-        # record relative gaps for the summary
         if results["ChimeraBoost"]:
             our_score = np.mean(results["ChimeraBoost"])
             our_time = np.mean(times["ChimeraBoost"])
-            for rname in gap_acc:
-                if results[rname]:
-                    gap_acc[rname].append(
-                        _rel_gap(our_score, np.mean(results[rname]), task))
-                    speed_acc[rname].append(
-                        np.mean(times[rname]) / max(our_time, 1e-9))
+            for name in gap_acc:
+                if results[name]:
+                    gap_acc[name].append(_rel_gap(our_score, np.mean(results[name]), task))
+                    speed_acc[name].append(np.mean(times[name]) / max(our_time, 1e-9))
         print()
 
     # ---- summary verdict ----

@@ -5,7 +5,7 @@ Full-featured gradient boosting library with a Python/numba backend, inspired by
 
 * **What?**
     * GBDT library that only depends on numpy, numba, and scikit-learn
-    * Within ~3% F1 / ~5% RMSE of CatBoost on a 27-dataset OpenML benchmark, at ~15× the speed
+    * Within ~3% F1 / ~5% RMSE of CatBoost on a 34-dataset OpenML benchmark, at ~18× the speed
     * Supports regression, binary and multiclass classification, quantile regression
     * Categorical features, sample weights, and automatic early stopping
 

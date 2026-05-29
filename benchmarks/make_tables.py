@@ -330,7 +330,9 @@ def main():
     rmse = aggregate_metric(records, "rmse")
     speed = aggregate_speed(records)
 
-    models = list(MODEL_ORDER)
+    # Keep canonical order, but drop models that weren't run in this benchmark.
+    present = {r["model"] for r in records}
+    models = [m for m in MODEL_ORDER if m in present]
 
     # ============================================================
     # Summary table: one row per model, columns = RMSE, Binary F1,
