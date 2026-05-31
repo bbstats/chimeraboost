@@ -170,7 +170,7 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
                  cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
-                 random_state=None, verbose=False, ordered_boosting=True,
+                 random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=False,
                  early_stopping=False, validation_fraction=0.1,
                  n_ensembles=None, ensemble_n_jobs=1):

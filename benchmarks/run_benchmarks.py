@@ -157,6 +157,8 @@ def _task_of(ds_name):
     """Task type of a dataset by name, without building it."""
     if ds_name.startswith("oml:"):
         return OPENML_SUITE[ds_name[4:]]["task"]
+    if ds_name.startswith("gr:"):
+        return GRINSZTAJN_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
 
 
@@ -205,56 +207,127 @@ OPENML_SUITE = {
 }
 
 
+def _frame_to_dataset(X_df, y, cats, task):
+    """Turn a (features DataFrame, target Series) into (X, y, cat_idx, task).
+    Shared by the OpenML and Grinsztajn/HuggingFace builders.
+
+    `cats` is "auto" (detect object/category/string columns), an explicit index
+    list, or None. Categorical NaNs become the "__nan__" string: CatBoost rejects
+    float NaN in cat_features, and ChimeraBoost maps "__nan__" to its missing
+    bucket, so both see missing the same way. Numerics stay float.
+    """
+    if cats == "auto":
+        def _is_cat(dtype):
+            s = str(dtype).lower()
+            return s in ("category", "object") or s.startswith("string")
+        cat_idx = [i for i, c in enumerate(X_df.columns) if _is_cat(X_df[c].dtype)]
+    else:
+        cat_idx = cats
+
+    if task == "regression":
+        y = y.astype(float).to_numpy()
+    else:
+        y = y.astype("category").cat.codes.to_numpy()
+
+    if cat_idx:
+        import pandas as pd
+        cat_cols = set(cat_idx)
+        cols = []
+        for i, c in enumerate(X_df.columns):
+            s = X_df[c]
+            if i in cat_cols:
+                cols.append(s.astype(object).where(s.notna(), "__nan__"))
+            else:
+                cols.append(s.astype(float))
+        X = pd.concat(cols, axis=1).to_numpy(dtype=object)
+    else:
+        X = X_df.to_numpy(dtype=float)
+    return X, y, (cat_idx or None), task
+
+
 def _make_openml_builder(spec):
-    """Build a dataset-builder closure for one OpenML spec."""
+    """Build a dataset-builder closure for one OpenML spec (fetched by data_id)."""
     def builder(scale, rng):
         from sklearn.datasets import fetch_openml
         ds = fetch_openml(data_id=spec["data_id"], as_frame=True)
-        df = ds.frame
-        target_col = ds.target.name
-        y = ds.target
-        X_df = df.drop(columns=[target_col])
-
-        # Detect categoricals from dtype if requested.
-        if spec["cats"] == "auto":
-            def _is_cat(dtype):
-                s = str(dtype).lower()
-                return s in ("category", "object") or s.startswith("string")
-            cat_idx = [i for i, c in enumerate(X_df.columns) if _is_cat(X_df[c].dtype)]
-        else:
-            cat_idx = spec["cats"]
-
-        task = spec["task"]
-        # Encode target for classification; coerce to float for regression.
-        if task == "regression":
-            y = y.astype(float).to_numpy()
-        else:
-            y = y.astype("category").cat.codes.to_numpy()
-
-        if cat_idx:
-            # Categorical columns: NaN -> "__nan__" string. CatBoost rejects
-            # float NaN in cat_features ("must be integer or string"), and
-            # ChimeraBoost already maps the "__nan__" label to its missing bucket
-            # in factorize(), so both see missing the same way.
-            cat_cols = set(cat_idx)
-            cols = []
-            for i, c in enumerate(X_df.columns):
-                s = X_df[c]
-                if i in cat_cols:
-                    cols.append(s.astype(object).where(s.notna(), "__nan__"))
-                else:
-                    cols.append(s.astype(float))   # keep numerics numeric
-            import pandas as pd
-            X = pd.concat(cols, axis=1).to_numpy(dtype=object)
-        else:
-            X = X_df.to_numpy(dtype=float)
-        return X, y, (cat_idx or None), task
+        X_df = ds.frame.drop(columns=[ds.target.name])
+        return _frame_to_dataset(X_df, ds.target, spec["cats"], spec["task"])
     return builder
 
 
 def _add_openml_datasets():
     for name, spec in OPENML_SUITE.items():
         DATASETS[f"oml:{name}"] = _make_openml_builder(spec)
+
+
+# The Grinsztajn et al. 2022 tabular benchmark ("Why do tree-based models still
+# outperform deep learning on tabular data?"), the standard reference for this
+# question. Loaded from the official inria-soda HuggingFace mirror (the exact
+# transformed CSVs from the paper) rather than OpenML's flaky `study` API, so the
+# dataset membership is hardcoded below and only the working CSV download is
+# needed. Binary-classification + regression only (no multiclass). The target is
+# always the last column. Folder -> (task, has-categoricals).
+GRINSZTAJN_HF = ("https://huggingface.co/datasets/inria-soda/tabular-benchmark/"
+                 "resolve/main")
+GRINSZTAJN_FOLDERS = {
+    "clf_num": ("binary", False),
+    "clf_cat": ("binary", True),
+    "reg_num": ("regression", False),
+    "reg_cat": ("regression", True),
+}
+# Dataset membership per folder (from the HuggingFace mirror's file tree). Names
+# repeat across folders (e.g. electricity is in both clf_num and clf_cat, with
+# different feature sets), so the folder is part of the DATASETS key.
+GRINSZTAJN_DATASETS = {
+    "clf_num": ["Bioresponse", "Diabetes130US", "Higgs", "MagicTelescope",
+                "MiniBooNE", "bank-marketing", "california", "covertype",
+                "credit", "default-of-credit-card-clients", "electricity",
+                "eye_movements", "heloc", "house_16H", "jannis", "pol"],
+    "clf_cat": ["albert", "compas-two-years", "covertype",
+                "default-of-credit-card-clients", "electricity",
+                "eye_movements", "road-safety"],
+    "reg_num": ["Ailerons", "Bike_Sharing_Demand", "Brazilian_houses",
+                "MiamiHousing2016", "abalone", "cpu_act",
+                "delays_zurich_transport", "diamonds", "elevators", "house_16H",
+                "house_sales", "houses", "medical_charges",
+                "nyc-taxi-green-dec-2016", "pol", "sulfur", "superconduct",
+                "wine_quality", "yprop_4_1"],
+    "reg_cat": ["Airlines_DepDelay_1M", "Allstate_Claims_Severity",
+                "Bike_Sharing_Demand", "Brazilian_houses",
+                "Mercedes_Benz_Greener_Manufacturing",
+                "SGEMM_GPU_kernel_performance", "abalone", "analcatdata_supreme",
+                "delays_zurich_transport", "diamonds", "house_sales",
+                "medical_charges", "nyc-taxi-green-dec-2016",
+                "particulate-matter-ukair-2017", "seattlecrime6", "topo_2_1",
+                "visualizing_soil"],
+}
+GRINSZTAJN_TASKS = {}   # "gr:<folder>/<name>" -> task, filled at registration
+# Cap rows so the largest datasets (Higgs, nyc-taxi, ...) stay tractable, in the
+# spirit of the paper's size caps. Seeded subsample for reproducibility.
+_GRINSZTAJN_MAX_ROWS = 50000
+
+
+def _make_grinsztajn_builder(folder, name, task, has_cats):
+    def builder(scale, rng):
+        import pandas as pd
+        df = pd.read_csv(f"{GRINSZTAJN_HF}/{folder}/{name}.csv")
+        if len(df) > _GRINSZTAJN_MAX_ROWS:
+            df = df.sample(_GRINSZTAJN_MAX_ROWS, random_state=0).reset_index(drop=True)
+        return _frame_to_dataset(df.iloc[:, :-1], df.iloc[:, -1],
+                                 "auto" if has_cats else None, task)
+    return builder
+
+
+def _add_grinsztajn_datasets():
+    """Register the Grinsztajn benchmark (HuggingFace mirror) into DATASETS as
+    gr:<folder>/<name>. Idempotent so workers can call it once cheaply."""
+    if any(k.startswith("gr:") for k in DATASETS):
+        return
+    for folder, (task, has_cats) in GRINSZTAJN_FOLDERS.items():
+        for name in GRINSZTAJN_DATASETS[folder]:
+            key = f"gr:{folder}/{name}"
+            DATASETS[key] = _make_grinsztajn_builder(folder, name, task, has_cats)
+            GRINSZTAJN_TASKS[key] = task
 
 
 # --------------------------------------------------------------------------
@@ -280,7 +353,24 @@ def _compute_metrics(task, y_true, model, X_test):
     # (the K=2 sum form), so the two tasks share one definition.
     onehot = (np.asarray(y_true)[:, None] == np.asarray(classes)[None, :]).astype(float)
     brier = float(np.mean(np.sum((proba - onehot) ** 2, axis=1)))
-    return {"primary": f1, "f1_macro": f1, "log_loss": ll, "brier": brier}
+    # Miscalibration (MCB), the CORP / Dimitriadis-Gneiting-Jordan calibration
+    # measure: how much a *monotone* recalibration improves the (per-class) Brier
+    # score. Refit each class's probabilities to its outcomes with ascending,
+    # clipped isotonic regression (the optimal calibration map) and take the gap
+    # MCB_k = Brier_k(p_k) - Brier_k(isotonic(p_k)); average over classes. 0 means
+    # already perfectly calibrated, higher = worse. In-sample isotonic on the test
+    # fold is the standard CORP diagnostic. Binary -> just the class-1 curve.
+    from sklearn.isotonic import IsotonicRegression
+    mcb_k = []
+    for k in range(proba.shape[1]):
+        p = proba[:, k]
+        yk = onehot[:, k]
+        recal = IsotonicRegression(increasing=True, out_of_bounds="clip"
+                                   ).fit_transform(p, yk)
+        mcb_k.append(np.mean((p - yk) ** 2) - np.mean((recal - yk) ** 2))
+    mcb = float(np.mean(mcb_k))
+    return {"primary": f1, "f1_macro": f1, "log_loss": ll, "brier": brier,
+            "calibration_mcb": mcb}
 
 
 def _val_split(Xtr, ytr, task, seed):
@@ -297,16 +387,19 @@ PATIENCE = 50
 
 
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
-                 ordered_boosting=True, depth=6, subsample=1.0, mcw=1.0,
+                 ordered_boosting=None, depth=6, subsample=1.0, mcw=1.0,
                  cat_combinations=False):
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
+    # None = use the class default (False for Regressor, True for Classifier).
+    # An explicit bool overrides both (e.g. --no-ordered-boosting forces False).
+    kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
     m = Est(iterations=MAX_ITERS, early_stopping_rounds=PATIENCE,
-            learning_rate=lr, depth=depth, ordered_boosting=ordered_boosting,
+            learning_rate=lr, depth=depth,
             subsample=subsample, min_child_weight=mcw,
             cat_combinations=cat_combinations,
-            thread_count=threads, random_state=0)
+            thread_count=threads, random_state=0, **kw)
     m.fit(Xf, yf, cat_features=cat, eval_set=(Xv, yv))
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
 
@@ -490,11 +583,13 @@ def _run_seed_task(task):
     (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
-     ensemble_n, need_openml) = task
+     ensemble_n, need_openml, need_grinsztajn) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
         _add_openml_datasets()
+    if need_grinsztajn:
+        _add_grinsztajn_datasets()
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
@@ -554,6 +649,9 @@ def main():
                     help="include real OpenML benchmark datasets (downloads + caches)")
     ap.add_argument("--no-synthetic", action="store_true",
                     help="run ONLY the OpenML datasets (implies --openml)")
+    ap.add_argument("--grinsztajn", action="store_true",
+                    help="run the Grinsztajn et al. 2022 tabular benchmark "
+                         "(binary + regression), loaded from the HuggingFace mirror.")
     ap.add_argument("--models", nargs="+", default=None,
                     metavar="MODEL",
                     help=("limit to specific runners, e.g. "
@@ -631,6 +729,16 @@ def main():
         for k in [k for k in DATASETS if not k.startswith("oml:")]:
             del DATASETS[k]
 
+    # Grinsztajn suites: register them, then (unless specific --datasets were
+    # named) run ONLY them, since they are the "serious" recognized benchmark.
+    need_grinsztajn = args.grinsztajn or bool(
+        args.datasets and any(d.startswith("gr:") for d in args.datasets))
+    if need_grinsztajn:
+        _add_grinsztajn_datasets()
+        if args.grinsztajn and not args.datasets:
+            for k in [k for k in DATASETS if not k.startswith("gr:")]:
+                del DATASETS[k]
+
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
     available = (list(_ALWAYS) + ["ChimeraBoostEns10"]
@@ -646,7 +754,10 @@ def main():
     if "ChimeraBoost" not in model_names:
         ap.error("ChimeraBoost must be one of the models (it is the baseline).")
 
-    chimera_cfg = dict(lr=args.lr, ordered_boosting=args.ordered_boosting,
+    # None = use each class's default (Regressor=False, Classifier=True).
+    # --no-ordered-boosting forces False for both.
+    ob_override = None if args.ordered_boosting else False
+    chimera_cfg = dict(lr=args.lr, ordered_boosting=ob_override,
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations)
 
@@ -674,7 +785,7 @@ def main():
 
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
-              PATIENCE, ENSEMBLE_N, need_openml)
+              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn)
              for ds in selected for s in range(args.seeds)]
     collected = defaultdict(dict)   # collected[ds][seed] = (meta, out)
     if jobs == 1:

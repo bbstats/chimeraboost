@@ -110,6 +110,18 @@ def multiple_vs_best(per_dataset, datasets_in_bin):
     return {m: float(np.mean(v)) if v else None for m, v in sums.items()}
 
 
+def mean_over_datasets(per_dataset, datasets_in_bin):
+    """Plain per-model mean of a metric across `datasets_in_bin`. Used for the
+    calibration (MCB) column, which is a raw near-zero loss reported as-is rather
+    than as a best/value ratio (that ratio explodes near zero)."""
+    sums = defaultdict(list)
+    for ds in datasets_in_bin:
+        for m, v in per_dataset.get(ds, {}).items():
+            if v is not None:
+                sums[m].append(v)
+    return {m: float(np.mean(v)) if v else None for m, v in sums.items()}
+
+
 def render_table(data, row_labels, col_labels, col_groups, title, out_path,
                  highlight_row="ChimeraBoost", kind="pct", col_kinds=None,
                  subtitle=None):
@@ -202,7 +214,7 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
     col_min = [0.0] * n_cols
     col_max = [0.0] * n_cols
     for c in range(n_cols):
-        if col_kinds[c] == "speed":
+        if col_kinds[c] in ("speed", "calib"):
             col_vals = [data[r][c] for r in range(n_rows) if data[r][c] is not None]
             if col_vals:
                 col_min[c] = min(col_vals)
@@ -220,6 +232,11 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
             log_val = math.log2(max(val, 1.0))
             denom = max(log_max - log_min, 1e-6)
             norm = 1.0 - (log_val - log_min) / denom   # flip: 0 = red, 1 = green
+        elif col_kinds[c] == "calib":
+            # Miscalibration (lower = better). Linear per-column scale; the values
+            # are near-zero losses so a log scale (like speed) wouldn't apply.
+            denom = max(col_max[c] - col_min[c], 1e-12)
+            norm = 1.0 - (val - col_min[c]) / denom    # lowest -> green
         else:
             # pct: clamp scale to [75, 100]; 75% = red, 100% = green.
             norm = (val - 75.0) / 25.0
@@ -234,7 +251,8 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
             col_best.append(None)
         else:
             col_best.append(
-                min(col_vals) if col_kinds[c] == "speed" else max(col_vals)
+                min(col_vals) if col_kinds[c] in ("speed", "calib")
+                else max(col_vals)
             )
 
     y = 0.7
@@ -300,6 +318,8 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
             else:
                 if col_kinds[c] == "speed":
                     txt = f"{val:.1f}×"
+                elif col_kinds[c] == "calib":
+                    txt = f"{val * 1000:.1f}"   # MCB in units of 10^-3
                 else:
                     txt = f"{val:.1f}%"
                 weight = "bold" if val == col_best[c] else "normal"
@@ -339,6 +359,7 @@ def main():
     # unbounded log loss does (e.g. mushroom, where best/value explodes).
     f1 = aggregate_metric(records, "f1_macro")
     brier = aggregate_metric(records, "brier")
+    cal = aggregate_metric(records, "calibration_mcb")
     rmse = aggregate_metric(records, "rmse")
     speed = aggregate_speed(records)
 
@@ -371,6 +392,9 @@ def main():
                                     skip_best_below=1e-3))
         sum_col_labels.append("Brier")
         sum_col_kinds.append("pct")
+        sum_cols.append(mean_over_datasets(cal, bin_ds_all))
+        sum_col_labels.append("Calib")
+        sum_col_kinds.append("calib")
     if mul_ds_all:
         sum_cols.append(pct_vs_best(f1, mul_ds_all, lower_is_better=False))
         sum_col_labels.append("F1 macro")
@@ -379,6 +403,9 @@ def main():
                                     skip_best_below=1e-3))
         sum_col_labels.append("Brier")
         sum_col_kinds.append("pct")
+        sum_cols.append(mean_over_datasets(cal, mul_ds_all))
+        sum_col_labels.append("Calib")
+        sum_col_kinds.append("calib")
     # Single speed column across all datasets.
     sum_cols.append(multiple_vs_best(speed, all_ds))
     sum_col_labels.append("fit time")
@@ -386,8 +413,8 @@ def main():
 
     sum_groups = [
         ("Regression", 1 if reg_ds_all else 0),
-        ("Binary", 2 if bin_ds_all else 0),
-        ("Multiclass", 2 if mul_ds_all else 0),
+        ("Binary", 3 if bin_ds_all else 0),      # F1, Brier, Calib
+        ("Multiclass", 3 if mul_ds_all else 0),  # F1, Brier, Calib
         ("Slowdown", 1),
     ]
     sum_groups = [(lab, span) for lab, span in sum_groups if span > 0]
@@ -396,7 +423,8 @@ def main():
     render_table(
         sum_table, models, sum_col_labels, sum_groups,
         title="ChimeraBoost vs other GBMs",
-        subtitle=f"avg % vs best  ·  fit time as × slowdown  ·  {len(all_ds)} OpenML datasets",
+        subtitle=("avg % vs best  ·  Calib = miscalibration ×10⁻³ (lower better)  "
+                  f"·  fit time as × slowdown  ·  {len(all_ds)} datasets"),
         out_path=os.path.join(out_dir, "summary.png"),
         col_kinds=sum_col_kinds,
     )
