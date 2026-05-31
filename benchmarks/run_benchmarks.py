@@ -627,6 +627,64 @@ def _rel_gap(ours, theirs, task):
         return 100.0 * (ours - theirs) / theirs
 
 
+class _Progress:
+    """Writes a JSON sidecar tracking run progress so another process (the
+    /bench status command) can poll it. One file per run, located next to the
+    saved results when --save is given, else results/_running.progress.
+
+    Schema: {status, completed, total, pct, started, updated, elapsed_s,
+             eta_s, models, config, results_json}. `status` is "running" while
+    tasks complete and "done" once finished. Best-effort: any write error is
+    swallowed so progress tracking never breaks a benchmark run.
+    """
+
+    def __init__(self, results_path, total, model_names, args):
+        import datetime
+        results_dir = os.path.join(os.path.dirname(__file__), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        if results_path:
+            self.path = results_path.rsplit(".", 1)[0] + ".progress"
+            self.results_json = results_path.rsplit(".", 1)[0] + ".json"
+        else:
+            self.path = os.path.join(results_dir, "_running.progress")
+            self.results_json = None
+        self.total = total
+        self.start = time.time()
+        self.config = (f"seeds={args.seeds} jobs={args.jobs} "
+                       f"grinsztajn={args.grinsztajn} "
+                       f"depth={args.chimera_depth} "
+                       f"lei={args.leaf_estimation_iterations} "
+                       f"ob={'off' if not args.ordered_boosting else 'on'}")
+        self.models = list(model_names)
+        self.started_iso = datetime.datetime.now().isoformat(timespec="seconds")
+        self._write("running", 0)
+
+    def _write(self, status, completed):
+        try:
+            elapsed = time.time() - self.start
+            rate = completed / elapsed if elapsed > 0 and completed else 0
+            remaining = (self.total - completed) / rate if rate > 0 else None
+            payload = {
+                "status": status, "completed": completed, "total": self.total,
+                "pct": round(100.0 * completed / self.total, 1) if self.total else 0,
+                "started": self.started_iso,
+                "elapsed_s": round(elapsed, 1),
+                "eta_s": round(remaining, 1) if remaining is not None else None,
+                "models": self.models, "config": self.config,
+                "results_json": self.results_json,
+            }
+            with open(self.path, "w", encoding="utf-8") as f:
+                _json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
+    def update(self, completed):
+        self._write("running", completed)
+
+    def finish(self):
+        self._write("done", self.total)
+
+
 def main():
     global PATIENCE, ENSEMBLE_N
     ap = argparse.ArgumentParser()
@@ -795,16 +853,33 @@ def main():
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn)
              for ds in selected for s in range(args.seeds)]
+    total_tasks = len(tasks)
+
+    # Live-progress sidecar so `bench_status.py` (the /bench command) can report
+    # how far along a run is from another process. Written next to the results
+    # file when --save is on; otherwise to results/_running.progress. It records
+    # completed/total task counts (one task = one dataset-seed draw) and the
+    # config line, and is marked done at the end / removed on a clean exit.
+    prog = _Progress(tee[1] if tee else None, total_tasks, model_names, args)
+
     collected = defaultdict(dict)   # collected[ds][seed] = (meta, out)
+    done = 0
     if jobs == 1:
         for t in tasks:
             ds, seed, meta, out = _run_seed_task(t)
             collected[ds][seed] = (meta, out)
+            done += 1
+            prog.update(done)
     else:
-        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures import ProcessPoolExecutor, as_completed
         with ProcessPoolExecutor(max_workers=jobs) as ex:
-            for ds, seed, meta, out in ex.map(_run_seed_task, tasks):
+            futs = [ex.submit(_run_seed_task, t) for t in tasks]
+            for fut in as_completed(futs):
+                ds, seed, meta, out = fut.result()
                 collected[ds][seed] = (meta, out)
+                done += 1
+                prog.update(done)
+    prog.finish()
 
     metric_name = {"regression": "RMSE (lower better)",
                    "binary": "F1 macro (higher better)",
