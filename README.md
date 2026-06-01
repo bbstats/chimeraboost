@@ -1,5 +1,5 @@
 # chimeraboost
-### What if CatBoost, but 30x faster, slightly worse, and all in Python?
+### What if CatBoost, but ~5x faster, slightly worse, and all in Python?
 
 > ⚠️ **Project is in active development:** breaking changes should be expected.
 
@@ -29,14 +29,13 @@ reg.fit(X, y)
 ```
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/summary.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/summary.png" width="500" alt="Benchmark summary" /></a></p>
+<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/pareto.png" width="500" alt="Blended strength vs slowdown Pareto" /></a></p>
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/slowdown_hist.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/slowdown_hist.png" width="500" alt="Slowdown distribution" /></a></p>
-
-<sub><i><code>ChimeraBoostEns10</code> is ChimeraBoost bagged with 10 base gradient boosters.</i></sub>
 
 * **Reproduce the benchmark**
 
 ```
-python benchmarks/run_benchmarks.py --openml --seeds 5 --save --models ChimeraBoost ChimeraBoostEns10 sklearn_HGB CatBoost LightGBM
+python benchmarks/run_benchmarks.py --grinsztajn --save
 ```
 
 * **What?**
@@ -46,7 +45,7 @@ python benchmarks/run_benchmarks.py --openml --seeds 5 --save --models ChimeraBo
         * Automatic early stopping, with automatic grouped splitting for the validation set available
     * Supports regression, quantile regression, binary and multiclass classification.
     * Categorical features, sample weights, and automatic early stopping
-    * Within ~3% F1 / ~5% RMSE of CatBoost on a 34-dataset OpenML benchmark, at ~30× the speed
+    * Matches CatBoost within ~0.5% F1 and ~2% RMSE (% of best) on the 59-dataset Grinsztajn (2022) tabular benchmark, at ~5× the speed
 
 * **Why?**
     * I want to be able to modify my GBDT library at will

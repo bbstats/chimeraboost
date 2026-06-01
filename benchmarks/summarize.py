@@ -191,13 +191,16 @@ def format_table(data, label=None):
         row = f"{m:<22}" + "".join(_fmt(cols[c].get(m), c) for c in COLS)
         lines.append(row)
     seeds = f" | {meta['seeds']} seeds" if meta.get("seeds") else ""
-    excl = (f" [{meta['n_reg_excl']} near-solved excl from RMSE]"
-            if meta.get("n_reg_excl") else "")
     cap = (f"Grinsztajn et al. (2022) — {meta['n_total']} datasets "
-           f"({meta['n_reg']} reg{excl}, {meta['n_bin']} binary, "
+           f"({meta['n_reg']} reg, {meta['n_bin']} binary, "
            f"{meta['n_mul']} multiclass){seeds} | "
            f"100% = best | Calib MCB x10^-3 lower=better | Speed vs fastest")
     lines.append(cap)
+    if meta.get("n_reg_excl"):
+        n = meta["n_reg_excl"]
+        lines.append(
+            f"* Reg RMSE% excludes {n} dataset{'s' if n != 1 else ''} every model "
+            "solves near-perfectly (best NRMSE < 2%), where the ratio is meaningless.")
     return "\n".join(lines)
 
 

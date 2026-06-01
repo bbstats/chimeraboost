@@ -128,7 +128,7 @@ def mean_over_datasets(per_dataset, datasets_in_bin):
 
 def render_table(data, row_labels, col_labels, col_groups, title, out_path,
                  highlight_row="ChimeraBoost", kind="pct", col_kinds=None,
-                 subtitle=None):
+                 subtitle=None, footnote=None):
     """Render one table as a PNG.
 
     data: 2-D list/array shape (n_rows, n_cols); cells are floats or None.
@@ -174,7 +174,7 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
     cell_h = 0.55
     label_w = 1.9
     fig_w = label_w + n_cols * cell_w + 0.6
-    fig_h = (n_rows + header_rows) * cell_h + 1.2
+    fig_h = (n_rows + header_rows) * cell_h + 1.2 + (0.45 if footnote else 0.0)
 
     fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=150)
     ax.set_xlim(0, fig_w)
@@ -333,6 +333,11 @@ def render_table(data, row_labels, col_labels, col_groups, title, out_path,
             x += cell_w
         y += cell_h
 
+    # Optional footnote sentence below the table (e.g. the RMSE exclusion note).
+    if footnote:
+        ax.text(0.25, y + 0.28, footnote, ha="left", va="top",
+                fontsize=8.5, color="#666", style="italic")
+
     plt.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
@@ -393,7 +398,7 @@ def main():
 
     if reg_ds_all:
         sum_cols.append(pct_vs_best(rmse, reg_ds_scored, lower_is_better=True))
-        sum_col_labels.append("RMSE")
+        sum_col_labels.append("RMSE*" if reg_near else "RMSE")
         sum_col_kinds.append("pct")
     if bin_ds_all:
         sum_cols.append(pct_vs_best(f1, bin_ds_all, lower_is_better=False))
@@ -435,11 +440,14 @@ def main():
         sum_table, models, sum_col_labels, sum_groups,
         title="ChimeraBoost vs other GBMs",
         subtitle=("avg % vs best  ·  Calib = miscalibration ×10⁻³ (lower better)  "
-                  f"·  fit time as × slowdown  ·  Grinsztajn et al. (2022)"
-                  + (f"  ·  {len(reg_near)} near-solved excl. from RMSE"
-                     if reg_near else "")),
+                  f"·  fit time as × slowdown  ·  Grinsztajn et al. (2022)"),
         out_path=os.path.join(out_dir, "summary.png"),
         col_kinds=sum_col_kinds,
+        footnote=(
+            f"* The RMSE column excludes {len(reg_near)} dataset"
+            f"{'s' if len(reg_near) != 1 else ''} that every model solves "
+            "near-perfectly (best NRMSE < 2%), where the percent-of-best ratio "
+            "is meaningless." if reg_near else None),
     )
 
     print(f"Wrote summary.png to {out_dir}")

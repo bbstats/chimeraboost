@@ -145,14 +145,18 @@ def format_text(data, label=None):
             f"{f(s['f1'],'%',7)}{star}"
         )
     seeds = f" | {meta['seeds']} seeds" if meta.get("seeds") else ""
-    excl = (f", {meta['n_reg_excl']} near-solved excl from RMSE"
-            if meta.get("n_reg_excl") else "")
     lines.append(
         f"Grinsztajn et al. (2022) — {meta['n_total']} datasets "
-        f"({meta['n_reg']} reg{excl}, {meta['n_bin']} binary){seeds}")
+        f"({meta['n_reg']} reg, {meta['n_bin']} binary){seeds}")
     lines.append(
         "Blended = HarmonicMean(RMSE%, 2/3*Brier% + 1/3*F1%) | "
         "all % vs best (higher=better) | Slowdown vs fastest (lower=better)")
+    if meta.get("n_reg_excl"):
+        n = meta["n_reg_excl"]
+        lines.append(
+            f"* RMSE excludes {n} dataset{'s' if n != 1 else ''} that every model "
+            "solves near-perfectly (best NRMSE < 2%), where the percent-of-best "
+            "ratio is meaningless.")
     return "\n".join(lines)
 
 
@@ -217,16 +221,21 @@ def render_image(data, out_path):
     seeds = f" · {meta['seeds']} seeds" if meta.get("seeds") else ""
     fig.suptitle("Blended strength vs slowdown — Grinsztajn et al. (2022)",
                  fontsize=13, fontweight="bold", y=0.98)
-    excl = (f", {meta['n_reg_excl']} near-solved excl"
-            if meta.get("n_reg_excl") else "")
     ax.set_title(
         f"Blended = HarmonicMean(RMSE%, ⅔·Brier% + ⅓·F1%)  ·  "
-        f"{meta['n_total']} datasets ({meta['n_reg']} reg{excl}, {meta['n_bin']} bin)"
+        f"{meta['n_total']} datasets ({meta['n_reg']} reg, {meta['n_bin']} bin)"
         f"{seeds}",
         fontsize=9.5, color="#555", pad=8)
     ax.legend(loc="lower right", fontsize=9, frameon=False)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    if meta.get("n_reg_excl"):
+        n = meta["n_reg_excl"]
+        fig.text(0.5, 0.012,
+                 f"* RMSE% excludes {n} dataset{'s' if n != 1 else ''} every model "
+                 "solves near-perfectly (best NRMSE < 2%), where the percent-of-best "
+                 "ratio is meaningless.",
+                 ha="center", fontsize=8, color="#777", style="italic")
+    fig.tight_layout(rect=[0, 0.03 if meta.get("n_reg_excl") else 0, 1, 0.96])
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
