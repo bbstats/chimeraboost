@@ -487,3 +487,87 @@ def test_empty_tree_stops_boosting_early():
     m = ChimeraBoostRegressor(iterations=1000, min_child_weight=30,
                               random_state=0).fit(X, y)
     assert len(m.model_.trees_) < 1000
+
+
+# ---------------------------------------------------------------------------
+# Input validation & scikit-learn compatibility (robustness pass)
+# ---------------------------------------------------------------------------
+def _Xy(n=40, f=4, seed=0):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, f))
+    return X, X[:, 0], (X[:, 0] > 0).astype(int)
+
+
+@pytest.mark.parametrize("Est", [ChimeraBoostRegressor, ChimeraBoostClassifier])
+def test_predict_before_fit_raises_not_fitted(Est):
+    from sklearn.exceptions import NotFittedError
+    X, _, _ = _Xy()
+    with pytest.raises(NotFittedError):
+        Est().predict(X)
+
+
+def test_feature_count_mismatch_raises():
+    X, yr, _ = _Xy()
+    m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr)
+    with pytest.raises(ValueError, match="features"):
+        m.predict(np.random.default_rng(1).normal(size=(5, 7)))
+
+
+def test_fit_input_validation_messages():
+    X, yr, _ = _Xy()
+    R = ChimeraBoostRegressor(iterations=10, random_state=0)
+    with pytest.raises(ValueError, match="2D"):
+        R.fit(X[:, 0], yr)                      # 1-D X
+    with pytest.raises(ValueError, match="inconsistent lengths"):
+        R.fit(X, yr[:10])                       # X/y mismatch
+    with pytest.raises(ValueError, match="NaN or infinity"):
+        R.fit(X, np.r_[np.inf, yr[1:]])         # inf in y
+    with pytest.raises(ValueError, match="infinity"):
+        R.fit(np.r_[[[np.inf, 0, 0, 0]], X[1:]], yr)   # inf in X
+    with pytest.raises(ValueError, match="y is None"):
+        R.fit(X, None)                          # missing y
+    with pytest.raises(ValueError, match="sample_weight"):
+        R.fit(X, yr, sample_weight=np.ones(10))
+
+
+def test_nan_in_X_is_accepted_as_missing():
+    X, yr, _ = _Xy()
+    Xn = X.copy(); Xn[::5, 0] = np.nan
+    m = ChimeraBoostRegressor(iterations=20, random_state=0).fit(Xn, yr)
+    assert np.isfinite(m.predict(Xn)).all()     # NaN handled, not rejected
+
+
+def test_n_features_in_and_feature_names_in():
+    pd = pytest.importorskip("pandas")
+    X, yr, _ = _Xy()
+    m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr)
+    assert m.n_features_in_ == 4
+    df = pd.DataFrame(X, columns=list("abcd"))
+    m2 = ChimeraBoostRegressor(iterations=10, random_state=0).fit(df, yr)
+    assert list(m2.feature_names_in_) == list("abcd")
+
+
+def test_column_vector_y_is_raveled_with_warning():
+    from sklearn.exceptions import DataConversionWarning
+    X, yr, _ = _Xy()
+    with pytest.warns(DataConversionWarning):
+        m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr.reshape(-1, 1))
+    assert m.predict(X).shape == (40,)
+
+
+def test_continuous_target_to_classifier_raises():
+    X, yr, _ = _Xy()
+    with pytest.raises(ValueError, match="[Uu]nknown label|continuous"):
+        ChimeraBoostClassifier(iterations=10, random_state=0).fit(X, yr)
+
+
+@pytest.mark.parametrize("Est", [ChimeraBoostRegressor, ChimeraBoostClassifier])
+def test_sklearn_check_estimator_compliance(Est):
+    """Full sklearn check_estimator must pass, except the one documented
+    deviation (sample_weight is not bit-exactly equivalent to row repetition)."""
+    from sklearn.utils.estimator_checks import check_estimator
+    check_estimator(Est(), expected_failed_checks={
+        "check_sample_weight_equivalence_on_dense_data":
+            "weights reweight the loss but are not bit-exactly equivalent to "
+            "integer sample repetition (documented deviation)",
+    })

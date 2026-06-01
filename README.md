@@ -50,3 +50,11 @@ python benchmarks/run_benchmarks.py --grinsztajn --save
 * **Why?**
     * I want to be able to modify my GBDT library at will
     * I know Python and I don't know C
+
+* **scikit-learn compatibility**
+    * Both estimators are scikit-learn compatible (`get_params`/`set_params`, `clone`, pipelines, `n_features_in_`/`feature_names_in_`) and pass `check_estimator` with one documented deviation below.
+    * Deliberate deviations from the strict scikit-learn contract:
+        * **`NaN` in `X` is accepted** and treated as missing (routed to its own bin), like CatBoost/LightGBM — it is *not* rejected. `inf` and complex data are rejected.
+        * **Dense input only** — `scipy.sparse` matrices are not supported.
+        * **`sample_weight`** reweights the loss but is *not* bit-exactly equivalent to integer row repetition.
+        * `cat_features` and `eval_set` are passed to `fit(...)` (not the constructor), so they are not tuned by scikit-learn search utilities.

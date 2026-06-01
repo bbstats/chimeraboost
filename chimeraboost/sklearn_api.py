@@ -1,5 +1,7 @@
 """Scikit-learn flavored estimators: fit / predict / predict_proba."""
 
+import warnings
+
 import numpy as np
 from .booster import GradientBoosting, MulticlassBoosting
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
@@ -141,7 +143,116 @@ def _make_eval_split(X, y, validation_fraction, random_state,
     return train_idx, val_idx
 
 
-class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
+def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
+                        classification):
+    """Shared fit-time input validation + feature-metadata capture.
+
+    Returns the (possibly raveled) ``y`` and sets ``n_features_in_`` (and
+    ``feature_names_in_`` for DataFrame input) on ``estimator``. Raises clear
+    errors for the common malformed inputs rather than letting them fail
+    cryptically deep in numpy/numba. NaN in X is intentionally allowed (treated
+    as missing, routed to its own bin); inf, complex, multi-output y, and
+    scipy.sparse input are not -- see the README "scikit-learn compatibility" note.
+    """
+    import scipy.sparse as sp
+    from sklearn.exceptions import DataConversionWarning
+    if y is None:
+        raise ValueError(
+            "This estimator requires y to be passed, but the target y is None.")
+    if sp.issparse(X):
+        raise TypeError("Sparse input is not supported; pass a dense array.")
+    feature_names = (np.asarray(X.columns, dtype=object)
+                     if hasattr(X, "columns") else None)
+    shape = getattr(X, "shape", None)
+    Xc = None
+    if shape is None or len(shape) != 2:
+        Xc = np.asarray(X, dtype=object if cat_features else np.float64)
+        shape = Xc.shape
+    if len(shape) != 2:
+        raise ValueError(
+            f"Expected a 2D array for X; got {len(shape)}D. Reshape your data, "
+            "e.g. X.reshape(-1, 1) for a single feature.")
+    n, nf = int(shape[0]), int(shape[1])
+    if nf == 0:
+        raise ValueError(
+            f"X has 0 feature(s) (shape=({n}, 0)) while a minimum of 1 is required.")
+    if n == 0:
+        raise ValueError(
+            f"X has 0 sample(s) (shape=(0, {nf})) while a minimum of 1 is required.")
+    if not cat_features:
+        # Check complex BEFORE the float64 cast (which would raise its own
+        # TypeError on complex input instead of our clear ValueError).
+        Xraw = Xc if Xc is not None else np.asarray(X)
+        if np.iscomplexobj(Xraw):
+            raise ValueError("Complex data not supported.")
+        Xc = np.asarray(Xraw, dtype=np.float64)
+        if np.isinf(Xc).any():
+            raise ValueError(
+                "X contains infinity. NaN is accepted (treated as missing), but "
+                "inf is not -- clip or clean it first.")
+    y = np.asarray(y)
+    if y.shape[0] != n:
+        raise ValueError(
+            f"X and y have inconsistent lengths: X has {n} samples, "
+            f"y has {y.shape[0]}.")
+    # Ravel a column-vector y (n, 1) with a warning, like sklearn estimators;
+    # reject genuine multi-output y.
+    if y.ndim == 2:
+        if y.shape[1] == 1:
+            warnings.warn(
+                "A column-vector y was passed when a 1d array was expected. "
+                "Please change the shape of y to (n_samples,).",
+                DataConversionWarning, stacklevel=2)
+            y = y.ravel()
+        else:
+            raise ValueError(
+                "Multi-output y is not supported; pass a 1D y of shape "
+                "(n_samples,).")
+    if classification:
+        from sklearn.utils.multiclass import type_of_target
+        if type_of_target(y) in ("continuous", "continuous-multioutput"):
+            raise ValueError(
+                "Unknown label type: classification requires discrete class "
+                "labels, but y looks continuous (use a regressor instead).")
+        if y.dtype.kind in "fc" and \
+                not np.isfinite(np.asarray(y, np.float64)).all():
+            raise ValueError("y contains NaN or infinity.")
+    elif not np.isfinite(np.asarray(y, np.float64)).all():
+        raise ValueError("y contains NaN or infinity; targets must be finite.")
+    if sample_weight is not None:
+        sw = np.asarray(sample_weight, dtype=np.float64)
+        if sw.ndim != 1 or sw.shape[0] != n:
+            raise ValueError(
+                f"sample_weight must be 1D of length {n}; got shape {sw.shape}.")
+    estimator.n_features_in_ = nf
+    if feature_names is not None:
+        estimator.feature_names_in_ = feature_names
+    return y
+
+
+def _check_predict_input(estimator, X):
+    """Raise NotFittedError if unfitted, then validate X is 2D with the same
+    number of features as training -- preventing silently-wrong predictions on
+    mismatched input. Messages match scikit-learn's wording for compatibility."""
+    from sklearn.utils.validation import check_is_fitted
+    check_is_fitted(estimator)
+    import scipy.sparse as sp
+    if sp.issparse(X):
+        raise TypeError("Sparse input is not supported; pass a dense array.")
+    shape = getattr(X, "shape", None)
+    if shape is None or len(shape) != 2:
+        shape = np.asarray(X, dtype=object).shape
+    if len(shape) != 2:
+        raise ValueError(
+            f"Expected a 2D array for X; got {len(shape)}D. Reshape your data, "
+            "e.g. X.reshape(1, -1) for a single sample.")
+    if shape[1] != estimator.n_features_in_:
+        raise ValueError(
+            f"X has {shape[1]} features, but {type(estimator).__name__} is "
+            f"expecting {estimator.n_features_in_} features as input.")
+
+
+class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
     loss: "RMSE" (default), "MAE", or "Quantile". For "Quantile" pass the level
@@ -220,6 +331,8 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
         """
+        y = _validate_fit_input(self, X, y, cat_features, sample_weight,
+                                classification=False)
         if self.n_ensembles and self.n_ensembles > 1:
             self.estimators_ = _fit_bagged(self, X, y, cat_features, eval_set,
                                            groups, sample_weight)
@@ -227,6 +340,16 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
                                 sample_weight)
+
+    def __sklearn_is_fitted__(self):
+        return (hasattr(self, "model_")
+                or getattr(self, "estimators_", None) is not None)
+
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True   # NaN routed to a missing bin
+        tags.input_tags.sparse = False
+        return tags
 
     def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
         """Fit one (non-bagged) model on the data as given."""
@@ -265,12 +388,14 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        _check_predict_input(self, X)
         if self.estimators_ is not None:
             return np.mean([m.predict(X) for m in self.estimators_], axis=0)
         return self.model_.predict_raw(X)
 
     def staged_predict(self, X):
         """Yield the prediction after each successive tree."""
+        _check_predict_input(self, X)
         if self.estimators_ is not None:
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
@@ -290,7 +415,7 @@ class ChimeraBoostRegressor(BaseEstimator, RegressorMixin):
         return self.model_.feature_importances_
 
 
-class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
+class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     """Gradient boosted oblivious trees for classification.
 
     Automatically uses binary logloss for 2 classes and softmax multiclass for
@@ -365,6 +490,8 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
         """
+        y = _validate_fit_input(self, X, y, cat_features, sample_weight,
+                                classification=True)
         if self.n_ensembles and self.n_ensembles > 1:
             # Fix the global class set up front: a member's bootstrap may miss a
             # rare class, and predict_proba aligns each member's columns to this.
@@ -372,7 +499,8 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
             self.classes_ = np.unique(yarr)
             self.n_classes_ = self.classes_.size
             if self.n_classes_ < 2:
-                raise ValueError("Need at least 2 classes.")
+                raise ValueError(
+                    f"Need at least 2 classes; got {self.n_classes_} class(es).")
             self._multiclass = self.n_classes_ > 2
             self.estimators_ = _fit_bagged(self, X, yarr, cat_features, eval_set,
                                            groups, sample_weight)
@@ -380,6 +508,16 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
                                 sample_weight)
+
+    def __sklearn_is_fitted__(self):
+        return (hasattr(self, "model_")
+                or getattr(self, "estimators_", None) is not None)
+
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True   # NaN routed to a missing bin
+        tags.input_tags.sparse = False
+        return tags
 
     def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
         """Fit one (non-bagged) classifier on the data as given."""
@@ -389,7 +527,8 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
         self.classes_ = np.unique(y)
         self.n_classes_ = self.classes_.size
         if self.n_classes_ < 2:
-            raise ValueError("Need at least 2 classes.")
+            raise ValueError(
+                f"Need at least 2 classes; got {self.n_classes_} class(es).")
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
 
@@ -444,6 +583,7 @@ class ChimeraBoostClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict_proba(self, X):
+        _check_predict_input(self, X)
         if self.estimators_ is not None:
             # Soft-vote: average members' calibrated probabilities, aligning each
             # member's class columns to the global class set (a member whose
