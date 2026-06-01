@@ -160,8 +160,9 @@ def format_table(data, label=None):
         row = f"{m:<22}" + "".join(_fmt(cols[c].get(m), c) for c in COLS)
         lines.append(row)
     seeds = f" | {meta['seeds']} seeds" if meta.get("seeds") else ""
-    cap = (f"{meta['n_total']} datasets ({meta['n_reg']} reg, "
-           f"{meta['n_bin']} binary, {meta['n_mul']} multiclass){seeds} | "
+    cap = (f"Grinsztajn et al. (2022) — {meta['n_total']} datasets "
+           f"({meta['n_reg']} reg, {meta['n_bin']} binary, "
+           f"{meta['n_mul']} multiclass){seeds} | "
            f"100% = best | Calib MCB x10^-3 lower=better | Speed vs fastest")
     lines.append(cap)
     return "\n".join(lines)

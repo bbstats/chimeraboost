@@ -108,8 +108,8 @@ def render(slowdowns, n_datasets, out_path):
     axes[-1].set_xlabel("fit-time slowdown vs fastest model on each dataset (log scale)",
                         fontsize=10)
 
-    fig.suptitle("Fit-time slowdown distribution across "
-                 f"{n_datasets} datasets", fontsize=13, fontweight="bold",
+    fig.suptitle("Fit-time slowdown distribution — Grinsztajn et al. (2022)",
+                 fontsize=13, fontweight="bold",
                  y=0.98)
     fig.text(0.5, 0.93, "dashed line = median   ·   1× = fastest on that dataset",
              ha="center", fontsize=9.5, color="#666")

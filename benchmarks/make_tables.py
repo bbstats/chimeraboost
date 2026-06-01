@@ -424,7 +424,7 @@ def main():
         sum_table, models, sum_col_labels, sum_groups,
         title="ChimeraBoost vs other GBMs",
         subtitle=("avg % vs best  ·  Calib = miscalibration ×10⁻³ (lower better)  "
-                  f"·  fit time as × slowdown  ·  {len(all_ds)} datasets"),
+                  f"·  fit time as × slowdown  ·  Grinsztajn et al. (2022)"),
         out_path=os.path.join(out_dir, "summary.png"),
         col_kinds=sum_col_kinds,
     )
