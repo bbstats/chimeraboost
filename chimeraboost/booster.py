@@ -68,7 +68,7 @@ class _BaseBooster:
     """
 
     def __init__(self, iterations=500, learning_rate=None, depth=6,
-                 l2_leaf_reg=3.0, max_bins=128, subsample=1.0,
+                 l2_leaf_reg=1.0, max_bins=128, subsample=1.0,
                  colsample=1.0, cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None, min_child_weight=1.0,
                  thread_count=None, random_state=None, verbose=False,

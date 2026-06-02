@@ -33,6 +33,30 @@ def _feature_borders(col, max_bins):
     return np.unique(borders).astype(np.float64)
 
 
+def _bin_centers(borders):
+    """Representative continuous value for each bin produced by `borders`.
+
+    The NaN bin (highest index) gets NaN. Interior bins use the midpoint of
+    their two bounding borders. Edge bins extrapolate by one half-step so every
+    bin has a finite center even when the data range is unknown.
+    """
+    m = len(borders)
+    n_total = m + 2  # bins 0..m are real values, m+1 is the NaN bin
+    centers = np.empty(n_total, dtype=np.float64)
+    if m == 0:
+        centers[0] = np.nan
+        centers[1] = np.nan
+        return centers
+    step0 = (borders[1] - borders[0]) if m >= 2 else 0.0
+    centers[0] = borders[0] - 0.5 * step0
+    for k in range(1, m):
+        centers[k] = 0.5 * (borders[k - 1] + borders[k])
+    step_last = (borders[-1] - borders[-2]) if m >= 2 else 0.0
+    centers[m] = borders[-1] + 0.5 * step_last
+    centers[m + 1] = np.nan
+    return centers
+
+
 class Binner:
     """Learns per-feature borders and maps a float matrix to bins."""
 
@@ -47,6 +71,7 @@ class Binner:
         self.max_bins = int(max_bins)
         self.borders_ = None       # list of np.ndarray, one per feature
         self.n_bins_ = None        # np.ndarray int, width per feature
+        self.bin_centers_ = None   # list of np.ndarray, representative value per bin
 
     def fit(self, X):
         """Learn quantile borders for each column from training data."""
@@ -59,6 +84,7 @@ class Binner:
         self.n_bins_ = np.array(
             [len(b) + 2 for b in self.borders_], dtype=np.int64
         )
+        self.bin_centers_ = [_bin_centers(b) for b in self.borders_]
         return self
 
     def transform(self, X):

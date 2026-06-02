@@ -139,6 +139,14 @@ class FeaturePreprocessor:
         feat = self._stack(num, encoded_blocks)
         self._build_feature_map(len(encode_targets))
 
+        # Mark the leading numeric columns so tree.py can apply SAS smoothing
+        # only to features with an ordinal bin structure.  Encoded categorical
+        # columns (stacked after the numeric block) have no inter-bin ordering
+        # so smoothing across their bin axis is meaningless.
+        n_out = feat.shape[1]
+        self.is_numeric_binned_ = np.zeros(n_out, dtype=np.bool_)
+        self.is_numeric_binned_[:num.shape[1]] = True
+
         self.binner_ = Binner(self.max_bins)
         X_binned = self.binner_.fit_transform(feat)
         self.n_bins_ = self.binner_.n_bins_
