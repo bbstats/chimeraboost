@@ -80,7 +80,22 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
-        member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=eval_set,
+        # Use OOB rows as the early-stopping eval set when no explicit eval_set
+        # was provided. The alternative (auto-splitting the bootstrap) contaminates
+        # the validation set: ~57% of auto-split val rows are duplicates of
+        # training rows, so val loss is optimistically low, early stopping fires
+        # late, and each member builds ~38% more trees than it should.
+        # OOB rows are guaranteed unseen by the member, giving a clean signal.
+        if eval_set is None:
+            oob_mask = np.ones(n, dtype=np.bool_)
+            oob_mask[idx] = False
+            oob_idx = np.where(oob_mask)[0]
+            # Degenerate case: every row drawn (possible for tiny n). Fall back
+            # to letting the member auto-split rather than training with no eval.
+            member_eval = (X[oob_idx], y[oob_idx]) if len(oob_idx) > 0 else None
+        else:
+            member_eval = eval_set
+        member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=member_eval,
                    groups=gb, sample_weight=wb)
         return member
 
