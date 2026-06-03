@@ -4,7 +4,7 @@ Plots one aggregate point per method from the official TabArena-Lite leaderboard
 (default config, 8-fold bagged): TabArena-Lite Elo against median train + predict
 time per 1K rows, with the Pareto frontier highlighted. Among the default-config
 gradient-boosting / tree baselines, ChimeraBoost sits on the frontier — ahead of
-XGBoost and LightGBM on both Elo and speed, behind only CatBoost (at ~12x its time).
+XGBoost and LightGBM on both Elo and speed, behind only CatBoost (at ~10x its time).
 
 Numbers are the aggregate leaderboard figures (51 tasks); update DATA below if the
 leaderboard is regenerated.
@@ -28,13 +28,15 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
+# Refreshed 2026-06-03 after shipping linear leaves (default-on for binary): ChimeraBoost
+# 1212 -> 1219. Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
 DATA = {
-    "CatBoost":     (1350, 42, 42, 6.70, 0.088),
-    "ChimeraBoost": (1212, 42, 50, 0.47, 0.088),
-    "XGBoost":      (1189, 54, 54, 2.06, 0.122),
-    "LightGBM":     (1157, 50, 46, 2.20, 0.171),
+    "CatBoost":     (1349, 43, 43, 6.70, 0.088),
+    "ChimeraBoost": (1219, 45, 50, 0.59, 0.066),
+    "XGBoost":      (1190, 56, 53, 2.06, 0.122),
+    "LightGBM":     (1157, 51, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
-    "Linear":       (813, 81, 109, 1.23, 0.115),
+    "Linear":       (813, 81, 108, 1.23, 0.115),
 }
 
 
