@@ -24,6 +24,7 @@ MODEL_COLOR = {
     "XGBoost": "#8d6cab",
     "LightGBM": "#5a9e6f",
     "RandomForest": "#e0a32e",
+    "Linear": "#6c757d",
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
@@ -33,6 +34,7 @@ DATA = {
     "XGBoost":      (1189, 54, 54, 2.06, 0.122),
     "LightGBM":     (1157, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
+    "Linear":       (813, 81, 109, 1.23, 0.115),
 }
 
 
