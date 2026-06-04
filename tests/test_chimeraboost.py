@@ -672,6 +672,33 @@ def test_linear_leaves_warns_when_dropped_for_mae_quantile():
                               linear_leaves=True).fit(X, yr)
 
 
+def test_cat_features_constructor_param():
+    """cat_features can be set on the constructor (so GridSearchCV/Pipeline can
+    carry it); the fit argument overrides and never mutates the stored param."""
+    from sklearn.base import clone
+    from sklearn.model_selection import GridSearchCV
+    rng = np.random.default_rng(0)
+    n = 600
+    city = rng.choice(["NYC", "SF", "LA"], n)
+    age = rng.normal(40, 10, n)
+    y = ((city == "SF") | (age > 45)).astype(int)
+    X = np.empty((n, 2), dtype=object); X[:, 0] = city; X[:, 1] = age
+
+    # Constructor cat_features is used when fit gets none.
+    m = ChimeraBoostClassifier(iterations=40, random_state=0,
+                               cat_features=[0]).fit(X, y)
+    assert (m.predict(X) == y).mean() > 0.9
+    # It survives clone and a meta-estimator (the whole point).
+    assert clone(m).get_params()["cat_features"] == [0]
+    gs = GridSearchCV(ChimeraBoostClassifier(iterations=30, random_state=0,
+                                             cat_features=[0]), {"depth": [3, 6]}, cv=3)
+    gs.fit(X, y)                                   # would crash if cat col hit float cast
+    # The fit argument overrides, without mutating the stored constructor value.
+    m2 = ChimeraBoostClassifier(iterations=20, random_state=0, cat_features=[1])
+    m2.fit(X, y, cat_features=[0])
+    assert m2.cat_features == [1]
+
+
 def test_pyarrow_feature_names_not_polluted_by_data():
     pa = pytest.importorskip("pyarrow")
     X, _, yc = _Xy()

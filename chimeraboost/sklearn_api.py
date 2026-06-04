@@ -37,7 +37,7 @@ def _fit_temperature(raw, y, multiclass):
 
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
-                           "n_ensembles", "ensemble_n_jobs"})
+                           "n_ensembles", "ensemble_n_jobs", "cat_features"})
 
 
 def _validate_hyperparams(estimator):
@@ -103,6 +103,17 @@ def _validate_hyperparams(estimator):
                 f"loss must be one of 'RMSE', 'MAE', 'Quantile'; got {p['loss']!r}.")
         if p["loss"] == "Quantile":
             _in_range("alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
+
+
+def _resolve_cat_features(estimator, cat_features):
+    """Resolve the effective cat_features: the ``fit`` argument when given,
+    otherwise the ``cat_features`` constructor argument. The fit argument wins so
+    a one-off call can override, while the constructor form lets sklearn meta-
+    estimators (GridSearchCV/Pipeline) carry it -- a fit-only kwarg cannot. Never
+    mutates ``estimator.cat_features`` (sklearn forbids fit changing init params)."""
+    if cat_features is not None:
+        return cat_features
+    return getattr(estimator, "cat_features", None)
 
 
 def _check_eval_set(eval_set, n_features):
@@ -639,6 +650,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         averages independent members fit on bootstrap resamples.
     ensemble_n_jobs : int, default 1
         Processes used to fit ensemble members; -1 uses all cores.
+    cat_features : list of int or None, default None
+        Default categorical column indices. Used when ``fit`` is called without
+        its own ``cat_features`` (the fit argument overrides). Provided as a
+        constructor argument so ``GridSearchCV``/``Pipeline`` can carry it.
 
     Attributes
     ----------
@@ -662,7 +677,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_combinations=False, leaf_estimation_iterations=1,
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=1):
+                 n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.depth = depth
@@ -673,6 +688,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.cat_smoothing = cat_smoothing
         self.cat_n_permutations = cat_n_permutations
         self.early_stopping_rounds = early_stopping_rounds
+        self.cat_features = cat_features
         self.loss = loss
         self.alpha = alpha
         self.min_child_weight = min_child_weight
@@ -699,7 +715,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         X, y : array-like
             Training data.
         cat_features : list of int or None
-            Column indices to treat as categoricals.
+            Column indices to treat as categoricals. Falls back to the
+            ``cat_features`` constructor argument when not given here; passing it
+            here overrides the constructor value. (The constructor form lets
+            ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
         eval_set : (X_val, y_val) tuple or None
             Explicit validation set.  When provided, automatic splitting is
             skipped regardless of the *early_stopping* setting.
@@ -712,6 +731,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
         """
+        cat_features = _resolve_cat_features(self, cat_features)
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
@@ -908,6 +928,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         soft-votes the calibrated probabilities of members fit on bootstraps.
     ensemble_n_jobs : int, default 1
         Processes used to fit ensemble members; -1 uses all cores.
+    cat_features : list of int or None, default None
+        Default categorical column indices. Used when ``fit`` is called without
+        its own ``cat_features`` (the fit argument overrides). Provided as a
+        constructor argument so ``GridSearchCV``/``Pipeline`` can carry it.
 
     Attributes
     ----------
@@ -934,7 +958,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  cat_combinations=False, leaf_estimation_iterations=3,
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=1):
+                 n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.depth = depth
@@ -945,6 +969,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.cat_smoothing = cat_smoothing
         self.cat_n_permutations = cat_n_permutations
         self.early_stopping_rounds = early_stopping_rounds
+        self.cat_features = cat_features
         self.min_child_weight = min_child_weight
         self.thread_count = thread_count
         self.random_state = random_state
@@ -969,7 +994,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         X, y : array-like
             Training data.
         cat_features : list of int or None
-            Column indices to treat as categoricals.
+            Column indices to treat as categoricals. Falls back to the
+            ``cat_features`` constructor argument when not given here; passing it
+            here overrides the constructor value. (The constructor form lets
+            ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
         eval_set : (X_val, y_val) tuple or None
             Explicit validation set with original class labels.  When provided,
             automatic splitting is skipped.
@@ -981,6 +1009,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
         """
+        cat_features = _resolve_cat_features(self, cat_features)
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=True)
