@@ -1,6 +1,6 @@
 # Recipes
 
-Worked examples for common tasks. Every snippet assumes:
+FIRST:
 
 ```python
 import numpy as np
@@ -22,14 +22,18 @@ A plain `fit(X, y)` early-stops on an internal holdout — see [Early stopping](
 
 ## Categorical features
 
-Pass the column indices of your categoricals as `cat_features`. They are encoded with
-ordered target statistics (CatBoost-style), so there is no one-hot or `LabelEncoder`
-step. Categorical columns can be strings or objects; the rest of the matrix stays numeric.
+Pass your categoricals as `cat_features`, by integer position or — for a DataFrame — by
+column name (or a mix of both). They are encoded with ordered target statistics
+(CatBoost-style), so there is no one-hot or `LabelEncoder` step. Categorical columns can be
+strings or objects; the rest of the matrix stays numeric.
 
 ```python
 # columns 0 and 3 are categorical (e.g. "city", "device_type")
 clf = ChimeraBoostClassifier(random_state=0)
 clf.fit(X, y, cat_features=[0, 3])
+
+# equivalently, by name when X is a DataFrame
+clf.fit(df, y, cat_features=["city", "device_type"])
 ```
 
 For mostly-categorical data, `cat_combinations=True` adds all pairwise category-by-category
@@ -64,7 +68,7 @@ Quantile models default to a shallower tree (`depth=4`) than the squared-error
 default (`depth=6`): an extreme conditional quantile is estimated from the points in
 each leaf, so deep, sparse leaves overfit the tails and the predicted quantiles
 collapse toward the median on held-out data. If your intervals still look too narrow,
-go shallower (`depth=3`); if they look too wide, raise `depth` and add more `iterations`.
+go shallower (`depth=3`); if they look too wide, raise `depth` and add more `n_estimators`.
 As with any tree-based quantile model, held-out coverage is approximate, not exact.
 
 ## Multiclass classification
@@ -125,7 +129,7 @@ m.fit(X_train, y_train, eval_set=(X_val, y_val))
 m.fit(X_train, y_train, groups=subject_ids)
 
 # fixed number of trees, no stopping
-m = ChimeraBoostRegressor(early_stopping=False, iterations=500, random_state=0)
+m = ChimeraBoostRegressor(early_stopping=False, n_estimators=500, random_state=0)
 m.fit(X_train, y_train)
 ```
 
@@ -177,8 +181,9 @@ search.fit(X, y)
 print(search.best_params_)
 ```
 
-To pass `cat_features` through a search, set it once on the estimator via a small
-wrapper or use a `Pipeline` whose final step is the booster.
+To pass `cat_features` through a search, set it on the constructor —
+`ChimeraBoostClassifier(cat_features=["city", "brand"])` — so the meta-estimator
+carries it (a fit-only kwarg can't be).
 
 ## Save and load a model
 

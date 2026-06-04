@@ -91,7 +91,7 @@ def load(name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="adult", choices=list(DATASETS))
-    ap.add_argument("--iterations", type=int, default=500)
+    ap.add_argument("--n_estimators", type=int, default=500)
     ap.add_argument("--no-early-stopping", action="store_true")
     ap.add_argument("--top", type=int, default=25,
                     help="how many cProfile rows to print")
@@ -111,13 +111,13 @@ def main():
     # JIT warmup so first-iteration compile cost doesn't pollute the profile.
     print("Warmup (compiling numba kernels)...")
     warm_n = min(500, len(Xtr))
-    Est(iterations=5, random_state=0).fit(
+    Est(n_estimators=5, random_state=0).fit(
         Xtr[:warm_n], ytr[:warm_n], cat_features=cat_idx
     )
     _phase_times["build_tree"] = 0.0
 
     print("Profiling fit...")
-    kw = dict(iterations=args.iterations, random_state=0)
+    kw = dict(n_estimators=args.n_estimators, random_state=0)
     if not args.no_early_stopping:
         kw.update(early_stopping=True, early_stopping_rounds=50,
                   validation_fraction=0.15)

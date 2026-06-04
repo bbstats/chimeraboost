@@ -34,16 +34,16 @@ def _datasets():
 
 # (label, kwargs).  None LR = library auto-default.
 CONFIGS = [
-    ("no-ES default (auto lr=0.04, 500 trees)", dict(iterations=500, early_stopping=False)),
-    ("ES default (auto lr=0.1, patience=10)",   dict(iterations=2000, early_stopping=True, early_stopping_rounds=10)),
+    ("no-ES default (auto lr=0.04, 500 trees)", dict(n_estimators=500, early_stopping=False)),
+    ("ES default (auto lr=0.1, patience=10)",   dict(n_estimators=2000, early_stopping=True, early_stopping_rounds=10)),
     # --- hold LR fixed at 0.1 to remove the auto-LR confound ---
-    ("no-ES  lr=0.1, 500 trees",                dict(iterations=500, early_stopping=False, learning_rate=0.1)),
-    ("ES     lr=0.1, patience=10",              dict(iterations=2000, early_stopping=True, early_stopping_rounds=10, learning_rate=0.1)),
-    ("ES     lr=0.1, patience=50",              dict(iterations=2000, early_stopping=True, early_stopping_rounds=50, learning_rate=0.1)),
-    ("ES     lr=0.1, patience=100",             dict(iterations=2000, early_stopping=True, early_stopping_rounds=100, learning_rate=0.1)),
+    ("no-ES  lr=0.1, 500 trees",                dict(n_estimators=500, early_stopping=False, learning_rate=0.1)),
+    ("ES     lr=0.1, patience=10",              dict(n_estimators=2000, early_stopping=True, early_stopping_rounds=10, learning_rate=0.1)),
+    ("ES     lr=0.1, patience=50",              dict(n_estimators=2000, early_stopping=True, early_stopping_rounds=50, learning_rate=0.1)),
+    ("ES     lr=0.1, patience=100",             dict(n_estimators=2000, early_stopping=True, early_stopping_rounds=100, learning_rate=0.1)),
     # --- hold LR fixed at 0.04 (the no-ES default) but turn ES on ---
-    ("no-ES  lr=0.04, 500 trees",               dict(iterations=500, early_stopping=False, learning_rate=0.04)),
-    ("ES     lr=0.04, patience=50",             dict(iterations=2000, early_stopping=True, early_stopping_rounds=50, learning_rate=0.04)),
+    ("no-ES  lr=0.04, 500 trees",               dict(n_estimators=500, early_stopping=False, learning_rate=0.04)),
+    ("ES     lr=0.04, patience=50",             dict(n_estimators=2000, early_stopping=True, early_stopping_rounds=50, learning_rate=0.04)),
 ]
 
 SEEDS = [0, 1, 2, 3, 4]
@@ -53,7 +53,7 @@ def run():
     data = _datasets()
     # warm numba
     Xw, yw = load_wine(return_X_y=True)
-    ChimeraBoostClassifier(iterations=20).fit(Xw, yw)
+    ChimeraBoostClassifier(n_estimators=20).fit(Xw, yw)
 
     for name, (kind, X, y) in data.items():
         higher_better = (kind == "clf")

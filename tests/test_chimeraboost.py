@@ -12,7 +12,7 @@ from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
 def test_regressor_beats_mean_baseline():
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0)
-    m = ChimeraBoostRegressor(iterations=300, random_state=0).fit(Xtr, ytr)
+    m = ChimeraBoostRegressor(n_estimators=300, random_state=0).fit(Xtr, ytr)
     rmse = np.sqrt(mean_squared_error(yte, m.predict(Xte)))
     baseline = np.sqrt(mean_squared_error(yte, np.full_like(yte, ytr.mean())))
     # diabetes is tiny and noisy; this is a single split, so the bound is loose
@@ -27,7 +27,7 @@ def test_classifier_high_auc():
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.2, random_state=0, stratify=y
     )
-    m = ChimeraBoostClassifier(iterations=300, random_state=0).fit(Xtr, ytr)
+    m = ChimeraBoostClassifier(n_estimators=300, random_state=0).fit(Xtr, ytr)
     auc = roc_auc_score(yte, m.predict_proba(Xte)[:, 1])
     assert auc > 0.97
     proba = m.predict_proba(Xte)
@@ -49,7 +49,7 @@ def test_ordered_ts_resists_leakage():
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.3, random_state=1, stratify=y
     )
-    m = ChimeraBoostClassifier(iterations=200, random_state=1)
+    m = ChimeraBoostClassifier(n_estimators=200, random_state=1)
     m.fit(Xtr, ytr, cat_features=[0])
     tr = roc_auc_score(ytr, m.predict_proba(Xtr)[:, 1])
     te = roc_auc_score(yte, m.predict_proba(Xte)[:, 1])
@@ -63,7 +63,7 @@ def test_early_stopping_trims_trees():
         X, y, test_size=0.3, random_state=0, stratify=y
     )
     m = ChimeraBoostClassifier(
-        iterations=1000, early_stopping_rounds=20, random_state=0
+        n_estimators=1000, early_stopping_rounds=20, random_state=0
     )
     m.fit(Xtr, ytr, eval_set=(Xte, yte))
     assert m.best_iteration_ < 1000
@@ -78,7 +78,7 @@ def test_handles_nan_and_unseen_categories():
     num[rng.random(n) < 0.1, 0] = np.nan
     X[:, 1:] = num
     y = ((num[:, 1] > 0) | (rng.random(n) < 0.3)).astype(int)
-    m = ChimeraBoostClassifier(iterations=80, random_state=0)
+    m = ChimeraBoostClassifier(n_estimators=80, random_state=0)
     m.fit(X, y, cat_features=[0])
     Xnew = np.array([["c_UNSEEN", np.nan, 0.5], ["c3", 1.0, -0.5]], dtype=object)
     p = m.predict_proba(Xnew)
@@ -88,7 +88,7 @@ def test_handles_nan_and_unseen_categories():
 
 def test_explicit_lr_overrides_auto():
     X, y = load_diabetes(return_X_y=True)
-    m = ChimeraBoostRegressor(iterations=50, learning_rate=0.123).fit(X, y)
+    m = ChimeraBoostRegressor(n_estimators=50, learning_rate=0.123).fit(X, y)
     assert m.model_.lr_ == 0.123
 
 
@@ -99,7 +99,7 @@ def test_multiclass_accuracy():
         Xtr, Xte, ytr, yte = train_test_split(
             X, y, test_size=0.25, random_state=0, stratify=y
         )
-        m = ChimeraBoostClassifier(iterations=200, random_state=0).fit(Xtr, ytr)
+        m = ChimeraBoostClassifier(n_estimators=200, random_state=0).fit(Xtr, ytr)
         assert m.n_classes_ == 3
         proba = m.predict_proba(Xte)
         assert proba.shape == (len(yte), 3)
@@ -118,7 +118,7 @@ def test_multiclass_preserves_string_labels_and_categoricals():
     X[:, 0] = region
     X[:, 1:] = x
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=1)
-    m = ChimeraBoostClassifier(iterations=150, random_state=1)
+    m = ChimeraBoostClassifier(n_estimators=150, random_state=1)
     m.fit(Xtr, ytr, cat_features=[0])
     assert set(m.classes_) == {"low", "mid", "high"}
     assert set(np.unique(m.predict(Xte))).issubset({"low", "mid", "high"})
@@ -131,7 +131,7 @@ def test_feature_importances():
     noise = rng.normal(size=(n, 4))
     y = (strong + 0.1 * rng.normal(size=n) > 0).astype(int)
     X = np.column_stack([strong, noise])
-    m = ChimeraBoostClassifier(iterations=100, random_state=0).fit(X, y)
+    m = ChimeraBoostClassifier(n_estimators=100, random_state=0).fit(X, y)
     imp = m.feature_importances_
     assert imp.shape == (5,)
     assert abs(imp.sum() - 1.0) < 1e-6
@@ -142,8 +142,8 @@ def test_mae_loss_beats_rmse_on_mae_metric():
     from sklearn.metrics import mean_absolute_error
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42)
-    mae = ChimeraBoostRegressor(iterations=300, loss="MAE", random_state=0).fit(Xtr, ytr)
-    rmse = ChimeraBoostRegressor(iterations=300, loss="RMSE", random_state=0).fit(Xtr, ytr)
+    mae = ChimeraBoostRegressor(n_estimators=300, loss="MAE", random_state=0).fit(Xtr, ytr)
+    rmse = ChimeraBoostRegressor(n_estimators=300, loss="RMSE", random_state=0).fit(Xtr, ytr)
     assert (mean_absolute_error(yte, mae.predict(Xte))
             <= mean_absolute_error(yte, rmse.predict(Xte)) + 1.0)
 
@@ -155,10 +155,10 @@ def test_quantile_calibration_on_large_data():
     y = 2 * X[:, 0] + rng.normal(0, 1, n)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
     # Early stopping prevents overfitting the training quantiles, improving test calibration.
-    qlo = ChimeraBoostRegressor(iterations=2000, depth=4, loss="Quantile",
+    qlo = ChimeraBoostRegressor(n_estimators=2000, depth=4, loss="Quantile",
                                 alpha=0.1, early_stopping=True,
                                 early_stopping_rounds=50, random_state=0).fit(Xtr, ytr)
-    qhi = ChimeraBoostRegressor(iterations=2000, depth=4, loss="Quantile",
+    qhi = ChimeraBoostRegressor(n_estimators=2000, depth=4, loss="Quantile",
                                 alpha=0.9, early_stopping=True,
                                 early_stopping_rounds=50, random_state=0).fit(Xtr, ytr)
     cov = np.mean((yte >= qlo.predict(Xte)) & (yte <= qhi.predict(Xte)))
@@ -169,7 +169,7 @@ def test_quantile_calibration_on_large_data():
 def test_staged_predict_matches_final():
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0)
-    r = ChimeraBoostRegressor(iterations=50, random_state=0).fit(Xtr, ytr)
+    r = ChimeraBoostRegressor(n_estimators=50, random_state=0).fit(Xtr, ytr)
     stages = list(r.staged_predict(Xte))
     assert len(stages) == r.best_iteration_
     assert np.allclose(stages[-1], r.predict(Xte))
@@ -180,7 +180,7 @@ def test_colsample_runs_and_keeps_accuracy():
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.2, random_state=0, stratify=y
     )
-    m = ChimeraBoostClassifier(iterations=150, colsample=0.5,
+    m = ChimeraBoostClassifier(n_estimators=150, colsample=0.5,
                                random_state=0).fit(Xtr, ytr)
     assert roc_auc_score(yte, m.predict_proba(Xte)[:, 1]) > 0.97
 
@@ -188,21 +188,21 @@ def test_colsample_runs_and_keeps_accuracy():
 def test_thread_count_records_effective_threads():
     import numba
     X, y = load_breast_cancer(return_X_y=True)
-    m = ChimeraBoostClassifier(iterations=30, thread_count=1, random_state=0).fit(X, y)
+    m = ChimeraBoostClassifier(n_estimators=30, thread_count=1, random_state=0).fit(X, y)
     assert m.model_.n_threads_ == 1
     # None -> all detected cores
-    m2 = ChimeraBoostClassifier(iterations=30, thread_count=None, random_state=0).fit(X, y)
+    m2 = ChimeraBoostClassifier(n_estimators=30, thread_count=None, random_state=0).fit(X, y)
     assert m2.model_.n_threads_ == numba.config.NUMBA_NUM_THREADS
     # over-request is clamped, never exceeds detected cores
-    m3 = ChimeraBoostClassifier(iterations=30, thread_count=9999, random_state=0).fit(X, y)
+    m3 = ChimeraBoostClassifier(n_estimators=30, thread_count=9999, random_state=0).fit(X, y)
     assert m3.model_.n_threads_ <= numba.config.NUMBA_NUM_THREADS
 
 
 def test_thread_count_does_not_change_predictions():
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0)
-    a = ChimeraBoostRegressor(iterations=80, thread_count=1, random_state=0).fit(Xtr, ytr)
-    b = ChimeraBoostRegressor(iterations=80, thread_count=None, random_state=0).fit(Xtr, ytr)
+    a = ChimeraBoostRegressor(n_estimators=80, thread_count=1, random_state=0).fit(Xtr, ytr)
+    b = ChimeraBoostRegressor(n_estimators=80, thread_count=None, random_state=0).fit(Xtr, ytr)
     # histogram sums are deterministic regardless of thread count
     assert np.allclose(a.predict(Xte), b.predict(Xte))
 
@@ -227,7 +227,7 @@ def test_min_child_weight_regularizes_sparse_leaves():
     Xf, Xv, yf, yv = train_test_split(Xtr, ytr, test_size=0.2, random_state=0)
 
     def rmse_at(depth, mcw):
-        m = ChimeraBoostRegressor(iterations=1500, depth=depth,
+        m = ChimeraBoostRegressor(n_estimators=1500, depth=depth,
                                   min_child_weight=mcw, early_stopping_rounds=50,
                                   random_state=0).fit(Xf, yf, eval_set=(Xv, yv))
         return np.sqrt(np.mean((yte - m.predict(Xte)) ** 2))
@@ -245,7 +245,7 @@ def test_min_child_weight_regularizes_sparse_leaves():
 def test_min_child_weight_param_plumbing():
     from sklearn.datasets import load_breast_cancer
     X, y = load_breast_cancer(return_X_y=True)
-    m = ChimeraBoostClassifier(iterations=50, min_child_weight=30,
+    m = ChimeraBoostClassifier(n_estimators=50, min_child_weight=30,
                                random_state=0).fit(X, y)
     assert m.model_.min_child_weight == 30.0
 
@@ -295,8 +295,8 @@ def test_sample_weight_uniform_equals_no_weight_rmse():
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0)
     w = np.ones(len(ytr))
-    m_none = ChimeraBoostRegressor(iterations=80, random_state=0).fit(Xtr, ytr)
-    m_ones = ChimeraBoostRegressor(iterations=80, random_state=0).fit(
+    m_none = ChimeraBoostRegressor(n_estimators=80, random_state=0).fit(Xtr, ytr)
+    m_ones = ChimeraBoostRegressor(n_estimators=80, random_state=0).fit(
         Xtr, ytr, sample_weight=w
     )
     assert np.array_equal(m_none.predict(Xte), m_ones.predict(Xte))
@@ -309,8 +309,8 @@ def test_sample_weight_uniform_equals_no_weight_logloss():
         X, y, test_size=0.2, random_state=0, stratify=y
     )
     w = np.ones(len(ytr))
-    m_none = ChimeraBoostClassifier(iterations=80, random_state=0).fit(Xtr, ytr)
-    m_ones = ChimeraBoostClassifier(iterations=80, random_state=0).fit(
+    m_none = ChimeraBoostClassifier(n_estimators=80, random_state=0).fit(Xtr, ytr)
+    m_ones = ChimeraBoostClassifier(n_estimators=80, random_state=0).fit(
         Xtr, ytr, sample_weight=w
     )
     assert np.array_equal(m_none.predict_proba(Xte), m_ones.predict_proba(Xte))
@@ -324,8 +324,8 @@ def test_sample_weight_uniform_equals_no_weight_multiclass():
         X, y, test_size=0.25, random_state=0, stratify=y
     )
     w = np.ones(len(ytr))
-    m_none = ChimeraBoostClassifier(iterations=80, random_state=0).fit(Xtr, ytr)
-    m_ones = ChimeraBoostClassifier(iterations=80, random_state=0).fit(
+    m_none = ChimeraBoostClassifier(n_estimators=80, random_state=0).fit(Xtr, ytr)
+    m_ones = ChimeraBoostClassifier(n_estimators=80, random_state=0).fit(
         Xtr, ytr, sample_weight=w
     )
     assert np.array_equal(m_none.predict_proba(Xte), m_ones.predict_proba(Xte))
@@ -344,11 +344,11 @@ def test_sample_weight_shifts_predictions():
     w_high = np.where(ytr >= np.median(ytr), 5.0, 1.0)
     w_low  = np.where(ytr <  np.median(ytr), 5.0, 1.0)
 
-    m_base = ChimeraBoostRegressor(iterations=150, random_state=0).fit(Xtr, ytr)
-    m_high = ChimeraBoostRegressor(iterations=150, random_state=0).fit(
+    m_base = ChimeraBoostRegressor(n_estimators=150, random_state=0).fit(Xtr, ytr)
+    m_high = ChimeraBoostRegressor(n_estimators=150, random_state=0).fit(
         Xtr, ytr, sample_weight=w_high
     )
-    m_low  = ChimeraBoostRegressor(iterations=150, random_state=0).fit(
+    m_low  = ChimeraBoostRegressor(n_estimators=150, random_state=0).fit(
         Xtr, ytr, sample_weight=w_low
     )
     mean_base = m_base.predict(Xte).mean()
@@ -366,7 +366,7 @@ def test_sample_weight_early_stopping_slices_correctly():
     rng = np.random.default_rng(7)
     w = rng.uniform(0.5, 2.0, len(y))
     m = ChimeraBoostClassifier(
-        iterations=500, early_stopping=True, validation_fraction=0.15,
+        n_estimators=500, early_stopping=True, validation_fraction=0.15,
         early_stopping_rounds=20, random_state=0
     ).fit(X, y, sample_weight=w)
     assert m.best_iteration_ < 500
@@ -394,7 +394,7 @@ def test_groups_kept_intact_in_early_stopping_split():
     assert set(groups[tr]).isdisjoint(set(groups[va]))
 
     # End-to-end: early stopping + groups fits and predicts the right shape.
-    m = ChimeraBoostClassifier(iterations=200, early_stopping=True,
+    m = ChimeraBoostClassifier(n_estimators=200, early_stopping=True,
                                validation_fraction=0.2, early_stopping_rounds=15,
                                random_state=0).fit(X, y_cls, groups=groups)
     assert m.predict(X).shape == (n,)
@@ -403,10 +403,10 @@ def test_groups_kept_intact_in_early_stopping_split():
 def test_bagging_none_matches_single_model():
     """n_ensembles=None and =1 must be the plain single model, bit-identical."""
     X, y = load_diabetes(return_X_y=True)
-    base = ChimeraBoostRegressor(iterations=80, random_state=0).fit(X, y)
-    none_ = ChimeraBoostRegressor(iterations=80, random_state=0,
+    base = ChimeraBoostRegressor(n_estimators=80, random_state=0).fit(X, y)
+    none_ = ChimeraBoostRegressor(n_estimators=80, random_state=0,
                                   n_ensembles=None).fit(X, y)
-    one = ChimeraBoostRegressor(iterations=80, random_state=0,
+    one = ChimeraBoostRegressor(n_estimators=80, random_state=0,
                                 n_ensembles=1).fit(X, y)
     assert base.estimators_ is None and one.estimators_ is None
     assert np.array_equal(base.predict(X), none_.predict(X))
@@ -421,7 +421,7 @@ def test_bagging_regressor_runs_and_averages_members():
     X, y = make_regression(n_samples=1500, n_features=15, noise=25.0,
                            random_state=0)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0)
-    bag = ChimeraBoostRegressor(iterations=150, random_state=0,
+    bag = ChimeraBoostRegressor(n_estimators=150, random_state=0,
                                 n_ensembles=8).fit(Xtr, ytr)
     assert len(bag.estimators_) == 8
     # The ensemble prediction is the average of its members.
@@ -438,7 +438,7 @@ def test_bagging_classifier_multiclass_proba():
     preserved class labels."""
     from sklearn.datasets import load_wine
     X, y = load_wine(return_X_y=True)
-    clf = ChimeraBoostClassifier(iterations=120, random_state=0,
+    clf = ChimeraBoostClassifier(n_estimators=120, random_state=0,
                                  n_ensembles=8).fit(X, y)
     assert len(clf.estimators_) == 8
     proba = clf.predict_proba(X)
@@ -453,9 +453,9 @@ def test_bagging_parallel_matches_sequential():
     seeded, so predictions must be identical to the sequential fit."""
     from sklearn.datasets import load_wine
     X, y = load_wine(return_X_y=True)
-    seq = ChimeraBoostClassifier(iterations=80, random_state=3,
+    seq = ChimeraBoostClassifier(n_estimators=80, random_state=3,
                                  n_ensembles=4, ensemble_n_jobs=1).fit(X, y)
-    par = ChimeraBoostClassifier(iterations=80, random_state=3,
+    par = ChimeraBoostClassifier(n_estimators=80, random_state=3,
                                  n_ensembles=4, ensemble_n_jobs=2).fit(X, y)
     assert np.allclose(seq.predict_proba(X), par.predict_proba(X))
 
@@ -470,7 +470,7 @@ def test_bagging_with_categoricals():
     X[:, 1] = rng.normal(size=n)
     X[:, 2] = rng.choice(["x", "y"], n)
     y = ((X[:, 0] == "a").astype(int) ^ (X[:, 2] == "x").astype(int))
-    clf = ChimeraBoostClassifier(iterations=100, random_state=0,
+    clf = ChimeraBoostClassifier(n_estimators=100, random_state=0,
                                  n_ensembles=5).fit(X, y, cat_features=[0, 2])
     proba = clf.predict_proba(X)
     assert proba.shape == (n, 2)
@@ -484,7 +484,7 @@ def test_empty_tree_stops_boosting_early():
     # One informative feature, aggressive min_child_weight -> splits run out fast.
     X = np.array([[0.0]] * 60 + [[1.0]] * 60)
     y = np.array([0.0] * 60 + [1.0] * 60)
-    m = ChimeraBoostRegressor(iterations=1000, min_child_weight=30,
+    m = ChimeraBoostRegressor(n_estimators=1000, min_child_weight=30,
                               random_state=0).fit(X, y)
     assert len(m.model_.trees_) < 1000
 
@@ -508,14 +508,14 @@ def test_predict_before_fit_raises_not_fitted(Est):
 
 def test_feature_count_mismatch_raises():
     X, yr, _ = _Xy()
-    m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr)
+    m = ChimeraBoostRegressor(n_estimators=10, random_state=0).fit(X, yr)
     with pytest.raises(ValueError, match="features"):
         m.predict(np.random.default_rng(1).normal(size=(5, 7)))
 
 
 def test_fit_input_validation_messages():
     X, yr, _ = _Xy()
-    R = ChimeraBoostRegressor(iterations=10, random_state=0)
+    R = ChimeraBoostRegressor(n_estimators=10, random_state=0)
     with pytest.raises(ValueError, match="2D"):
         R.fit(X[:, 0], yr)                      # 1-D X
     with pytest.raises(ValueError, match="inconsistent lengths"):
@@ -533,17 +533,17 @@ def test_fit_input_validation_messages():
 def test_nan_in_X_is_accepted_as_missing():
     X, yr, _ = _Xy()
     Xn = X.copy(); Xn[::5, 0] = np.nan
-    m = ChimeraBoostRegressor(iterations=20, random_state=0).fit(Xn, yr)
+    m = ChimeraBoostRegressor(n_estimators=20, random_state=0).fit(Xn, yr)
     assert np.isfinite(m.predict(Xn)).all()     # NaN handled, not rejected
 
 
 def test_n_features_in_and_feature_names_in():
     pd = pytest.importorskip("pandas")
     X, yr, _ = _Xy()
-    m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr)
+    m = ChimeraBoostRegressor(n_estimators=10, random_state=0).fit(X, yr)
     assert m.n_features_in_ == 4
     df = pd.DataFrame(X, columns=list("abcd"))
-    m2 = ChimeraBoostRegressor(iterations=10, random_state=0).fit(df, yr)
+    m2 = ChimeraBoostRegressor(n_estimators=10, random_state=0).fit(df, yr)
     assert list(m2.feature_names_in_) == list("abcd")
 
 
@@ -551,18 +551,18 @@ def test_column_vector_y_is_raveled_with_warning():
     from sklearn.exceptions import DataConversionWarning
     X, yr, _ = _Xy()
     with pytest.warns(DataConversionWarning):
-        m = ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr.reshape(-1, 1))
+        m = ChimeraBoostRegressor(n_estimators=10, random_state=0).fit(X, yr.reshape(-1, 1))
     assert m.predict(X).shape == (40,)
 
 
 def test_continuous_target_to_classifier_raises():
     X, yr, _ = _Xy()
     with pytest.raises(ValueError, match="[Uu]nknown label|continuous"):
-        ChimeraBoostClassifier(iterations=10, random_state=0).fit(X, yr)
+        ChimeraBoostClassifier(n_estimators=10, random_state=0).fit(X, yr)
 
 
 @pytest.mark.parametrize("params, match", [
-    (dict(iterations=0), "iterations"),
+    (dict(n_estimators=0), "n_estimators"),
     (dict(depth=0), "depth"),
     (dict(depth=30), "depth"),
     (dict(learning_rate=-0.1), "learning_rate"),
@@ -591,30 +591,30 @@ def test_sample_weight_value_validation():
     X, yr, _ = _Xy()
     n = X.shape[0]
     with pytest.raises(ValueError, match="NaN or infinity"):
-        ChimeraBoostRegressor(iterations=10).fit(X, yr, sample_weight=np.full(n, np.nan))
+        ChimeraBoostRegressor(n_estimators=10).fit(X, yr, sample_weight=np.full(n, np.nan))
     with pytest.raises(ValueError, match="non-negative"):
-        ChimeraBoostRegressor(iterations=10).fit(X, yr, sample_weight=-np.ones(n))
+        ChimeraBoostRegressor(n_estimators=10).fit(X, yr, sample_weight=-np.ones(n))
     with pytest.raises(ValueError, match="sums to zero"):
-        ChimeraBoostRegressor(iterations=10).fit(X, yr, sample_weight=np.zeros(n))
+        ChimeraBoostRegressor(n_estimators=10).fit(X, yr, sample_weight=np.zeros(n))
 
 
 def test_cat_features_index_validation():
     X, _, yc = _Xy()                       # 4 numeric columns
     with pytest.raises(ValueError, match="out of range"):
-        ChimeraBoostClassifier(iterations=10).fit(X, yc, cat_features=[9])
+        ChimeraBoostClassifier(n_estimators=10).fit(X, yc, cat_features=[9])
     with pytest.raises(ValueError, match="out of range"):
-        ChimeraBoostClassifier(iterations=10).fit(X, yc, cat_features=[-1])
+        ChimeraBoostClassifier(n_estimators=10).fit(X, yc, cat_features=[-1])
     with pytest.raises(ValueError, match="duplicate"):
-        ChimeraBoostClassifier(iterations=10).fit(X, yc, cat_features=[1, 1])
+        ChimeraBoostClassifier(n_estimators=10).fit(X, yc, cat_features=[1, 1])
 
 
 def test_eval_set_shape_validation():
     X, yr, _ = _Xy()
     Xt, yt, Xv, yv = X[:30], yr[:30], X[30:], yr[30:]
     with pytest.raises(ValueError, match="features"):
-        ChimeraBoostRegressor(iterations=10).fit(Xt, yt, eval_set=(Xv[:, :2], yv))
+        ChimeraBoostRegressor(n_estimators=10).fit(Xt, yt, eval_set=(Xv[:, :2], yv))
     with pytest.raises(ValueError, match="inconsistent lengths"):
-        ChimeraBoostRegressor(iterations=10).fit(Xt, yt, eval_set=(Xv, yv[:3]))
+        ChimeraBoostRegressor(n_estimators=10).fit(Xt, yt, eval_set=(Xv, yv[:3]))
 
 
 def test_nonnumeric_column_error_names_the_column():
@@ -623,10 +623,10 @@ def test_nonnumeric_column_error_names_the_column():
     df = pd.DataFrame(X, columns=list("abcd"))
     df["g"] = np.random.default_rng(0).choice(list("XY"), len(df))
     with pytest.raises(ValueError, match="cat_features"):
-        ChimeraBoostClassifier(iterations=10).fit(df, yc)
+        ChimeraBoostClassifier(n_estimators=10).fit(df, yc)
     # The friendly message names the offending column.
     try:
-        ChimeraBoostClassifier(iterations=10).fit(df, yc)
+        ChimeraBoostClassifier(n_estimators=10).fit(df, yc)
     except ValueError as e:
         assert "'g'" in str(e)
 
@@ -637,7 +637,7 @@ def test_predict_enforces_feature_names(Est):
     X, yr, yc = _Xy()
     y = yr if Est is ChimeraBoostRegressor else yc
     df = pd.DataFrame(X, columns=list("abcd"))
-    m = Est(iterations=20, random_state=0).fit(df, y)
+    m = Est(n_estimators=20, random_state=0).fit(df, y)
     # Same order -> fine.
     m.predict(df.iloc[:3])
     # Reordered columns -> raise (would otherwise be silently wrong).
@@ -655,7 +655,7 @@ def test_predict_enforces_feature_names(Est):
 def test_inf_rejected_at_predict(Est):
     X, yr, yc = _Xy()
     y = yr if Est is ChimeraBoostRegressor else yc
-    m = Est(iterations=20, random_state=0).fit(X, y)
+    m = Est(n_estimators=20, random_state=0).fit(X, y)
     Xinf = X[:1].copy(); Xinf[0, 0] = np.inf
     with pytest.raises(ValueError, match="infinity"):
         m.predict(Xinf)
@@ -668,9 +668,9 @@ def test_inf_rejected_at_predict(Est):
 def test_linear_leaves_warns_when_dropped_for_mae_quantile():
     X, yr, _ = _Xy()
     with pytest.warns(UserWarning, match="linear_leaves"):
-        ChimeraBoostRegressor(iterations=20, loss="MAE", linear_leaves=True).fit(X, yr)
+        ChimeraBoostRegressor(n_estimators=20, loss="MAE", linear_leaves=True).fit(X, yr)
     with pytest.warns(UserWarning, match="linear_leaves"):
-        ChimeraBoostRegressor(iterations=20, loss="Quantile", alpha=0.5,
+        ChimeraBoostRegressor(n_estimators=20, loss="Quantile", alpha=0.5,
                               linear_leaves=True).fit(X, yr)
 
 
@@ -687,25 +687,61 @@ def test_cat_features_constructor_param():
     X = np.empty((n, 2), dtype=object); X[:, 0] = city; X[:, 1] = age
 
     # Constructor cat_features is used when fit gets none.
-    m = ChimeraBoostClassifier(iterations=40, random_state=0,
+    m = ChimeraBoostClassifier(n_estimators=40, random_state=0,
                                cat_features=[0]).fit(X, y)
     assert (m.predict(X) == y).mean() > 0.9
     # It survives clone and a meta-estimator (the whole point).
     assert clone(m).get_params()["cat_features"] == [0]
-    gs = GridSearchCV(ChimeraBoostClassifier(iterations=30, random_state=0,
+    gs = GridSearchCV(ChimeraBoostClassifier(n_estimators=30, random_state=0,
                                              cat_features=[0]), {"depth": [3, 6]}, cv=3)
     gs.fit(X, y)                                   # would crash if cat col hit float cast
     # The fit argument overrides, without mutating the stored constructor value.
-    m2 = ChimeraBoostClassifier(iterations=20, random_state=0, cat_features=[1])
+    m2 = ChimeraBoostClassifier(n_estimators=20, random_state=0, cat_features=[1])
     m2.fit(X, y, cat_features=[0])
     assert m2.cat_features == [1]
+
+
+def test_cat_features_by_column_name():
+    """Categoricals can be marked by DataFrame column name (resolved to the same
+    positions as integer indices), as a fit arg, a constructor arg, or a mix."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(0)
+    n = 600
+    df = pd.DataFrame({
+        "city": rng.choice(["NYC", "SF", "LA"], n),
+        "age": rng.normal(40, 10, n),
+        "plan": rng.choice(["free", "pro"], n),
+    })
+    y = ((df["city"] == "SF") | (df["age"] > 45)).astype(int).to_numpy()
+
+    by_name = ChimeraBoostClassifier(n_estimators=40, random_state=0).fit(
+        df, y, cat_features=["city", "plan"])
+    by_index = ChimeraBoostClassifier(n_estimators=40, random_state=0).fit(
+        df, y, cat_features=[0, 2])
+    # Names resolve to the same columns -> identical predictions.
+    assert np.array_equal(by_name.predict(df), by_index.predict(df))
+    # A mix of names and positions works too.
+    mixed = ChimeraBoostClassifier(n_estimators=40, random_state=0).fit(
+        df, y, cat_features=["city", 2])
+    assert np.array_equal(mixed.predict(df), by_index.predict(df))
+    # Names also work via the constructor (for GridSearchCV/Pipeline).
+    by_ctor = ChimeraBoostClassifier(n_estimators=40, random_state=0,
+                                     cat_features=["city", "plan"]).fit(df, y)
+    assert np.array_equal(by_ctor.predict(df), by_index.predict(df))
+
+    # An unknown name, or names without column metadata, raise clearly.
+    with pytest.raises(ValueError, match="not a column"):
+        ChimeraBoostClassifier(n_estimators=10).fit(df, y, cat_features=["nope"])
+    with pytest.raises(ValueError, match="no column names"):
+        ChimeraBoostClassifier(n_estimators=10).fit(
+            df.to_numpy(dtype=object), y, cat_features=["city"])
 
 
 def test_pyarrow_feature_names_not_polluted_by_data():
     pa = pytest.importorskip("pyarrow")
     X, _, yc = _Xy()
     tbl = pa.table({c: X[:, i] for i, c in enumerate("abcd")})
-    m = ChimeraBoostClassifier(iterations=10, random_state=0).fit(tbl, yc)
+    m = ChimeraBoostClassifier(n_estimators=10, random_state=0).fit(tbl, yc)
     # .columns is column DATA in pyarrow; names must come from .column_names.
     assert list(m.feature_names_in_) == list("abcd")
     assert m.n_features_in_ == 4
@@ -718,8 +754,8 @@ def test_masked_array_rejected(Est):
     Xm = np.ma.array(X, mask=np.zeros_like(X, dtype=bool))
     Xm[0, 0] = np.ma.masked
     with pytest.raises(TypeError, match="[Mm]asked"):
-        Est(iterations=10).fit(Xm, y)
-    m = Est(iterations=10, random_state=0).fit(X, y)
+        Est(n_estimators=10).fit(Xm, y)
+    m = Est(n_estimators=10, random_state=0).fit(X, y)
     with pytest.raises(TypeError, match="[Mm]asked"):
         m.predict(Xm)
 
@@ -729,13 +765,13 @@ def test_quantile_depth_default_is_loss_adaptive():
     because deep oblivious leaves overfit the tail quantile -- predicted
     quantiles otherwise collapse toward the median on held-out data."""
     X, yr, _ = _Xy()
-    assert ChimeraBoostRegressor(iterations=10, random_state=0).fit(X, yr).model_.depth == 6
-    assert ChimeraBoostRegressor(iterations=10, loss="MAE", random_state=0).fit(X, yr).model_.depth == 6
-    mq = ChimeraBoostRegressor(iterations=10, loss="Quantile", alpha=0.9,
+    assert ChimeraBoostRegressor(n_estimators=10, random_state=0).fit(X, yr).model_.depth == 6
+    assert ChimeraBoostRegressor(n_estimators=10, loss="MAE", random_state=0).fit(X, yr).model_.depth == 6
+    mq = ChimeraBoostRegressor(n_estimators=10, loss="Quantile", alpha=0.9,
                                random_state=0).fit(X, yr)
     assert mq.model_.depth == 4
     # Explicit depth still wins.
-    assert ChimeraBoostRegressor(iterations=10, loss="Quantile", alpha=0.9, depth=8,
+    assert ChimeraBoostRegressor(n_estimators=10, loss="Quantile", alpha=0.9, depth=8,
                                  random_state=0).fit(X, yr).model_.depth == 8
 
 
@@ -749,7 +785,7 @@ def test_quantile_calibration_beats_deep_trees():
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def coverage(depth, a):
-        m = ChimeraBoostRegressor(iterations=400, loss="Quantile", alpha=a,
+        m = ChimeraBoostRegressor(n_estimators=400, loss="Quantile", alpha=a,
                                   depth=depth, random_state=0).fit(Xtr, ytr)
         return float(np.mean(yte <= m.predict(Xte)))
 
@@ -772,12 +808,12 @@ def test_auto_min_child_weight_is_size_adaptive():
     # The resolved value lands on the fitted booster.
     rng = np.random.default_rng(0)
     Xs = rng.normal(size=(400, 6)); Xl = rng.normal(size=(4000, 6))
-    cs = ChimeraBoostClassifier(iterations=20, random_state=0).fit(Xs, (Xs[:, 0] > 0).astype(int))
-    cl = ChimeraBoostClassifier(iterations=20, random_state=0).fit(Xl, (Xl[:, 0] > 0).astype(int))
+    cs = ChimeraBoostClassifier(n_estimators=20, random_state=0).fit(Xs, (Xs[:, 0] > 0).astype(int))
+    cl = ChimeraBoostClassifier(n_estimators=20, random_state=0).fit(Xl, (Xl[:, 0] > 0).astype(int))
     assert cs.model_.min_child_weight == 1.0          # small -> full veto
     assert cl.model_.min_child_weight == 0.0          # large -> no veto
     # An explicit value is still honored (overrides auto).
-    ce = ChimeraBoostClassifier(iterations=20, min_child_weight=0.5,
+    ce = ChimeraBoostClassifier(n_estimators=20, min_child_weight=0.5,
                                 random_state=0).fit(Xl, (Xl[:, 0] > 0).astype(int))
     assert ce.model_.min_child_weight == 0.5
 
@@ -848,8 +884,8 @@ def test_hs_lambda_plumbs_and_changes_predictions(Est):
         X, y = load_breast_cancer(return_X_y=True)
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
                                               random_state=0)
-        base = Est(iterations=120, random_state=0).fit(Xtr, ytr)
-        hs = Est(iterations=120, hs_lambda=2.0, random_state=0).fit(Xtr, ytr)
+        base = Est(n_estimators=120, random_state=0).fit(Xtr, ytr)
+        hs = Est(n_estimators=120, hs_lambda=2.0, random_state=0).fit(Xtr, ytr)
         assert base.model_.hs_lambda == 0.0 and hs.model_.hs_lambda == 2.0
         pb = base.predict_proba(Xte)[:, 1]
         ph = hs.predict_proba(Xte)[:, 1]
@@ -859,8 +895,8 @@ def test_hs_lambda_plumbs_and_changes_predictions(Est):
         X, y = load_diabetes(return_X_y=True)
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
                                               random_state=0)
-        base = Est(iterations=120, random_state=0).fit(Xtr, ytr)
-        hs = Est(iterations=120, hs_lambda=2.0, random_state=0).fit(Xtr, ytr)
+        base = Est(n_estimators=120, random_state=0).fit(Xtr, ytr)
+        hs = Est(n_estimators=120, hs_lambda=2.0, random_state=0).fit(Xtr, ytr)
         assert base.model_.hs_lambda == 0.0 and hs.model_.hs_lambda == 2.0
         assert not np.allclose(base.predict(Xte), hs.predict(Xte))
 
@@ -876,7 +912,7 @@ def test_linear_leaves_beat_constant_on_smooth_target():
     X = rng.uniform(-3, 3, size=(3000, 3))
     y = 3.0 * X[:, 0] - 2.0 * X[:, 1] + 0.5 * X[:, 2] + 0.05 * rng.normal(size=3000)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
-    common = dict(iterations=60, depth=3, random_state=0, thread_count=4)
+    common = dict(n_estimators=60, depth=3, random_state=0, thread_count=4)
     const = ChimeraBoostRegressor(**common).fit(Xtr, ytr)
     lin = ChimeraBoostRegressor(linear_leaves=True, **common).fit(Xtr, ytr)
     r_const = mean_squared_error(yte, const.predict(Xte)) ** 0.5
@@ -895,8 +931,8 @@ def test_linear_leaves_default_off_uses_fused_path():
     """linear_leaves defaults to off: the fast fused-forest path is used
     (no centers table built), so default behavior is unchanged."""
     X, y = _big_reg()
-    off = ChimeraBoostRegressor(iterations=30, random_state=0).fit(X, y)
-    on = ChimeraBoostRegressor(iterations=30, linear_leaves=True,
+    off = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(X, y)
+    on = ChimeraBoostRegressor(n_estimators=30, linear_leaves=True,
                                random_state=0).fit(X, y)
     assert off.model_._centers_std_ is None        # fused (constant) path
     assert on.model_._centers_std_ is not None      # linear path active (n>=1000)
@@ -910,8 +946,8 @@ def test_linear_leaves_small_data_guard_falls_back_to_constant():
     from chimeraboost.booster import LINEAR_LEAVES_MIN_SAMPLES
     X, y = load_diabetes(return_X_y=True)          # 442 rows < the guard
     assert len(X) < LINEAR_LEAVES_MIN_SAMPLES
-    const = ChimeraBoostRegressor(iterations=40, random_state=0).fit(X, y)
-    lin = ChimeraBoostRegressor(iterations=40, linear_leaves=True,
+    const = ChimeraBoostRegressor(n_estimators=40, random_state=0).fit(X, y)
+    lin = ChimeraBoostRegressor(n_estimators=40, linear_leaves=True,
                                 random_state=0).fit(X, y)
     assert lin.model_._centers_std_ is None        # guard tripped -> constant
     assert np.array_equal(const.predict(X), lin.predict(X))   # bit-identical
@@ -922,7 +958,7 @@ def test_linear_leaves_predict_matches_staged_and_is_finite():
     linear-leaf predictions are finite (no solve blow-ups)."""
     X, y = _big_reg(seed=1)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=1)
-    m = ChimeraBoostRegressor(iterations=40, linear_leaves=True,
+    m = ChimeraBoostRegressor(n_estimators=40, linear_leaves=True,
                               random_state=1, early_stopping=False).fit(Xtr, ytr)
     assert m.model_._centers_std_ is not None       # linear actually engaged
     pred = m.predict(Xte)
@@ -991,7 +1027,7 @@ def test_shap_efficiency_regression_linear_leaves():
     n = 1500
     X = rng.normal(size=(n, 6))
     y = 2 * X[:, 0] - 1.5 * X[:, 1] + X[:, 2] * X[:, 3] + 0.3 * rng.normal(size=n)
-    m = ChimeraBoostRegressor(iterations=80, depth=5, linear_leaves=True,
+    m = ChimeraBoostRegressor(n_estimators=80, depth=5, linear_leaves=True,
                               random_state=0).fit(X, y)
     phi = m.shap_values(X[:50])
     # Shapley efficiency must hold exactly, with the linear-leaf slopes included.
@@ -1003,7 +1039,7 @@ def test_shap_efficiency_regression_constant_leaves():
     rng = np.random.default_rng(1)
     X = rng.normal(size=(800, 5))
     y = X[:, 0] - X[:, 1] + 0.2 * rng.normal(size=800)
-    m = ChimeraBoostRegressor(iterations=60, depth=4, linear_leaves=False,
+    m = ChimeraBoostRegressor(n_estimators=60, depth=4, linear_leaves=False,
                               random_state=0).fit(X, y)
     phi = m.shap_values(X[:40])
     assert _shap_efficiency_err(m.predict(X[:40]), phi, m.expected_value_) < 1e-6
@@ -1014,7 +1050,7 @@ def test_shap_efficiency_binary_logodds():
     X = rng.normal(size=(1500, 6))
     score = 2 * X[:, 0] - 1.5 * X[:, 1] + X[:, 2] * X[:, 3]
     y = (score + 0.3 * rng.normal(size=1500) > 0).astype(int)
-    m = ChimeraBoostClassifier(iterations=80, depth=5, random_state=0).fit(X, y)
+    m = ChimeraBoostClassifier(n_estimators=80, depth=5, random_state=0).fit(X, y)
     phi = m.shap_values(X[:50])
     # Classifier SHAP is in pre-temperature log-odds (margin) space.
     raw = m.model_.predict_raw(X[:50])
@@ -1025,7 +1061,7 @@ def test_shap_efficiency_bagged():
     rng = np.random.default_rng(3)
     X = rng.normal(size=(1500, 6))
     y = 2 * X[:, 0] - X[:, 1] + 0.3 * rng.normal(size=1500)
-    m = ChimeraBoostRegressor(iterations=60, depth=4, n_ensembles=3,
+    m = ChimeraBoostRegressor(n_estimators=60, depth=4, n_ensembles=3,
                               linear_leaves=True, random_state=0).fit(X, y)
     phi = m.shap_values(X[:40])
     # The bag prediction is the members' mean, so averaged SHAP stays exact.
@@ -1036,7 +1072,7 @@ def test_shap_null_feature_is_negligible():
     rng = np.random.default_rng(4)
     X = rng.normal(size=(1500, 6))
     y = 2 * X[:, 0] - 1.5 * X[:, 1] + 0.3 * rng.normal(size=1500)  # 5 unused
-    m = ChimeraBoostRegressor(iterations=80, depth=5, random_state=0).fit(X, y)
+    m = ChimeraBoostRegressor(n_estimators=80, depth=5, random_state=0).fit(X, y)
     imp = np.abs(m.shap_values(X[:100])).mean(axis=0)
     # A feature absent from the target should carry near-zero attribution.
     assert imp[5] < 0.1 * imp[0]
@@ -1048,7 +1084,7 @@ def test_shap_maps_to_original_feature_space_with_categoricals():
     cat = rng.integers(0, 4, size=600).astype(object)
     X = np.column_stack([num, cat])
     y = (num + (cat.astype(int) == 2)).astype(float)
-    m = ChimeraBoostRegressor(iterations=40, depth=4, random_state=0)
+    m = ChimeraBoostRegressor(n_estimators=40, depth=4, random_state=0)
     m.fit(X, y, cat_features=[1])
     phi = m.shap_values(X[:30])
     # Attribution is reported in the user's 2-column input space, not the wider
@@ -1061,7 +1097,7 @@ def test_shap_custom_background():
     rng = np.random.default_rng(6)
     X = rng.normal(size=(1200, 5))
     y = X[:, 0] - X[:, 1] + 0.2 * rng.normal(size=1200)
-    m = ChimeraBoostRegressor(iterations=60, depth=4, random_state=0).fit(X, y)
+    m = ChimeraBoostRegressor(n_estimators=60, depth=4, random_state=0).fit(X, y)
     bg = X[:100]
     phi = m.shap_values(X[:30], X_background=bg)
     # expected_value_ must equal the mean prediction over the supplied background.
@@ -1073,6 +1109,6 @@ def test_shap_multiclass_raises():
     rng = np.random.default_rng(7)
     X = rng.normal(size=(300, 4))
     y = rng.integers(0, 3, size=300)
-    m = ChimeraBoostClassifier(iterations=30, random_state=0).fit(X, y)
+    m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
     with pytest.raises(NotImplementedError):
         m.shap_values(X[:10])

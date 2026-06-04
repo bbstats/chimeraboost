@@ -59,7 +59,7 @@ def _run(make, est_cls, metric_name):
             X, y = make(rng)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
                                                   random_state=s)
-            m = est_cls(iterations=2000, hs_lambda=hl, random_state=s,
+            m = est_cls(n_estimators=2000, hs_lambda=hl, random_state=s,
                         thread_count=4)
             t0 = time.time()
             m.fit(Xtr, ytr)

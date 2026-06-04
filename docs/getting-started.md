@@ -1,15 +1,12 @@
 # Getting started
 
-A regression model and a classification model, end to end, on datasets that ship with
-scikit-learn — every block runs as written.
-
 ## Install
 
 ```bash
 pip install chimeraboost
 ```
 
-Python 3.9 or newer. The only dependencies are NumPy, numba, scikit-learn, SciPy, and pandas.
+(Python 3.9 or newer)
 
 ## Regression
 
@@ -32,7 +29,7 @@ ChimeraBoostRegressor(random_state=0)
 56.82
 ```
 
-The bare constructor early-stops on an internal validation split and keeps the best round:
+Number of trees selected:
 
 ```pycon
 >>> reg.best_iteration_

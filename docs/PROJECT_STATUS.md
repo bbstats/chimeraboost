@@ -42,7 +42,7 @@ Core design choices (all deliberate, all validated):
 | `ordered_boosting` (LOO) | False | False |
 | `leaf_estimation_iterations` | 1 | 3 |
 | `min_child_weight` | 1.0 | None → size-adaptive `_auto_min_child_weight(n)` |
-| `iterations` / patience | 2000 max, patience 50 | same |
+| `n_estimators` / patience | 2000 max, patience 50 | same |
 
 `_auto_min_child_weight(n) = clip((2000 − n)/1500, 0, 1)`: full veto (~1) below ~500
 training rows, 0 above ~2000. This is one of our most important defaults (see §4).

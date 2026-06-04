@@ -108,7 +108,7 @@ def _fit_eval(task, kw, Xtr, ytr, Xte, yte, cat, seed, threads):
     """Fit out-of-box (internal early-stop split) with kwargs `kw` (empty ==
     out-of-box baseline). Returns (metric, prediction_vector, n_trees)."""
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
-    m = Est(iterations=rb.MAX_ITERS, early_stopping_rounds=rb.PATIENCE,
+    m = Est(n_estimators=rb.MAX_ITERS, early_stopping_rounds=rb.PATIENCE,
             random_state=seed, thread_count=threads, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
     if task == "regression":

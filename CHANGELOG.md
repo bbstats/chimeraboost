@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.11.0] - 2026-06-04
 ### Added
 - **Exact SHAP feature attributions** (`model.shap_values(X)`). Interventional
   TreeSHAP computed exactly — not approximated — by exploiting the oblivious tree
@@ -27,8 +27,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   inference cost.
 - **`cat_features` as a constructor argument**, so `GridSearchCV`/`Pipeline` can
   carry it; a value passed to `fit` still overrides it.
+- **`cat_features` by column name.** Categoricals can now be marked by DataFrame
+  column name as well as integer position, or a mix — e.g.
+  `cat_features=["city", "brand"]`. Names are resolved against the DataFrame at fit.
 - **Input and hyperparameter validation.** Malformed constructor params (e.g.
-  non-positive `iterations`/`depth`, `depth` capped at 16 to avoid OOM, `lr > 0`,
+  non-positive `n_estimators`/`depth`, `depth` capped at 16 to avoid OOM, `lr > 0`,
   non-negative regularizers, `subsample`/`colsample` in `(0, 1]`,
   `cat_smoothing > 0`, known `loss`/`alpha`), `sample_weight` values (finite,
   non-negative, positive sum), `cat_features` indices, and `eval_set` shape now
@@ -37,6 +40,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   columns at `predict` now raise instead of silently producing wrong predictions.
 
 ### Changed
+- **Renamed `iterations` → `n_estimators`** (BREAKING), matching the
+  LightGBM/XGBoost convention for the number of boosting rounds (trees). Update
+  any code that passed `iterations=...`.
 - **Regressor `depth` default is loss-adaptive.** `None` resolves to 6 for
   RMSE/MAE (behavior unchanged — predictions are bit-identical) and to 4 for
   `loss="Quantile"`, where deep leaves overfit the extreme-quantile tails.

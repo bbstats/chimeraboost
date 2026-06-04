@@ -1,19 +1,16 @@
 # How it works
 
-The pieces behind the defaults, and why they are there.
-
 ## Oblivious trees
 
 Every node at a given depth splits on the same `(feature, threshold)`. A depth-`d` tree
 is therefore `d` splits, and a sample's leaf is a `d`-bit number: bit `k` is 1 when the
-sample exceeds the threshold at level `k`. Two consequences follow:
+sample exceeds the threshold at level `k`. This leads to:
 
 - **Speed.** Prediction is `d` comparisons and one array lookup. The whole forest is
   evaluated in a single numba pass parallelized over samples, so each sample loads its
   feature values once and walks every tree while they stay in cache.
 - **Regularization.** A tree has only `d` splits, shared across its level, which limits
-  how sharply it can carve the input space. This is much of why the defaults resist
-  overfitting without heavy tuning.
+  how sharply it can carve the input space.
 
 The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
 than an oblivious tree, which matters on clean, high-signal data. Raising `depth` and
@@ -28,34 +25,32 @@ directly at fit and predict time — no imputation.
 
 ## Categorical features
 
-Categoricals are encoded with **ordered target statistics**, the CatBoost approach: each
+Categoricals are encoded with **ordered target statistics**, i.e. the CatBoost approach: each
 category is replaced by a running estimate of the target computed under a random ordering
 of the rows, so a row never sees its own label. Several orderings
 (`cat_n_permutations`, default 4) are averaged to cut variance, and rare categories are
-shrunk toward the global mean by `cat_smoothing`. Pass the column indices to
-`fit(..., cat_features=[...])`; everything else is automatic.
+shrunk toward the global mean by `cat_smoothing`. Pass the columns (by integer position or
+column name) to `fit(..., cat_features=[...])`; everything else is automatic.
 
 `cat_combinations=True` additionally builds all pairwise category-by-category features.
 
 ## Leaf values and linear leaves
 
-By default each leaf predicts a single constant — the regularized Newton step over the
-rows it contains. With `linear_leaves`, a leaf instead fits a small ridge **linear
-model** over the numeric features the tree split on, adding local slope where a constant
-underfits smooth structure. Leaves with too few rows fall back to a constant, so small
-data is protected. Linear leaves are on by default for binary classification and opt-in
-for regression.
+By default each leaf predicts a single constant value. With `linear_leaves`, a leaf
+instead fits a small ridge **linear model** over the numeric features the tree split on,
+adding local slope where a constant underfits smooth structure. Leaves with too few rows
+fall back to norma behavior to reduce overfitting small datasets. Linear leaves are on by
+default for binary classification, but off for regression.
 
 `hs_lambda` (hierarchical shrinkage) optionally pulls each leaf value toward its
-ancestors, hardest for deep or low-mass leaves — a regularizer applied as a cheap
-post-pass with no inference cost.
+ancestors' value.
 
 ## Probability calibration
 
 After fitting, the classifier scales its raw scores by a single temperature chosen on
-the validation split to minimize log loss. The scaling is monotonic, so `predict`, AUC,
-and accuracy are unchanged while `predict_proba` becomes better calibrated. The fitted
-value is exposed as `temperature_`.
+the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
+are unchanged while probabilities (i.e. with `predict_proba`) becomes better calibrated.
+The fitted value is exposed as `temperature_`.
 
 ## Bagging and subsampling
 
@@ -67,6 +62,4 @@ unbiased, concentrating effort on the rows that still carry signal.
 
 ## SHAP
 
-Because the trees are oblivious, exact interventional SHAP is cheap: a depth-`D` tree
-involves at most `D` distinct features, so the Shapley coalition game is enumerated
-directly rather than sampled. See [SHAP](shap.md) for details.
+See [SHAP](shap.md) for details.

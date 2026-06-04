@@ -38,7 +38,7 @@ def _fit_chimera_brier(Xtr, ytr, Xte, yte, threads=None, **kw):
     but with overridable leaf-estimation kwargs. Returns the sum-convention
     Brier via the shared _compute_metrics, so it's comparable to the RUNNERS."""
     Xf, Xv, yf, yv = rb._val_split(Xtr, ytr, "binary", 0)
-    m = ChimeraBoostClassifier(iterations=rb.MAX_ITERS,
+    m = ChimeraBoostClassifier(n_estimators=rb.MAX_ITERS,
                                early_stopping_rounds=rb.PATIENCE,
                                depth=6, thread_count=threads, random_state=0, **kw)
     m.fit(Xf, yf, eval_set=(Xv, yv))

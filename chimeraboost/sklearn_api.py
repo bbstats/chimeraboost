@@ -47,7 +47,7 @@ def _validate_hyperparams(estimator):
     validation -- never in ``__init__``). Without this, bad values either fail
     cryptically deep in numba (e.g. ``depth=-1`` -> "negative shift count"),
     silently produce a broken model (``learning_rate=-0.1`` diverges to garbage;
-    ``iterations=0`` builds an empty model), or OOM (``depth=30`` allocates a
+    ``n_estimators=0`` builds an empty model), or OOM (``depth=30`` allocates a
     2**30-leaf histogram). ``None`` is left to the documented per-parameter
     default resolution and is not rejected here.
     """
@@ -73,7 +73,7 @@ def _validate_hyperparams(estimator):
             raise ValueError(
                 f"{name} must be in {lb}{lo}, {hi}{rb}; got {v!r}.")
 
-    _pos_int("iterations")
+    _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
     _pos_int("leaf_estimation_iterations")
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
@@ -116,6 +116,44 @@ def _resolve_cat_features(estimator, cat_features):
     if cat_features is not None:
         return cat_features
     return getattr(estimator, "cat_features", None)
+
+
+def _resolve_cat_feature_names(cat_features, X):
+    """Map any column *names* in ``cat_features`` to integer positions using X's
+    column metadata, leaving integer indices untouched.
+
+    Lets a user mark categoricals the same way LightGBM/CatBoost do -- either by
+    position (``cat_features=[0, 2]``) or by name (``cat_features=["city",
+    "brand"]``), or a mix. Names are resolved against the DataFrame columns at
+    fit time, so order changes are handled by the existing predict-time feature-
+    name check. Returns ``None`` unchanged; returns the original object when it
+    holds no strings (the downstream integer validation then applies)."""
+    if cat_features is None:
+        return None
+    try:
+        items = list(cat_features)
+    except TypeError:
+        return cat_features  # not iterable; let downstream validation report it
+    if not any(isinstance(c, str) for c in items):
+        return cat_features
+    names = _extract_feature_names(X)
+    if names is None:
+        raise ValueError(
+            "cat_features contains column names (strings), but X has no column "
+            "names to resolve them against; pass integer indices instead, or "
+            "fit on a DataFrame.")
+    name_to_idx = {n: i for i, n in enumerate(names)}
+    resolved = []
+    for c in items:
+        if isinstance(c, str):
+            if c not in name_to_idx:
+                raise ValueError(
+                    f"cat_features name {c!r} is not a column of X; columns are "
+                    f"{list(names)}.")
+            resolved.append(name_to_idx[c])
+        else:
+            resolved.append(c)
+    return resolved
 
 
 def _check_eval_set(eval_set, n_features):
@@ -582,9 +620,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
     Parameters
     ----------
-    iterations : int, default 2000
-        Maximum number of boosting rounds. With ``early_stopping`` on, this is an
-        upper bound and the best round is selected automatically.
+    n_estimators : int, default 2000
+        Maximum number of boosting rounds (trees). With ``early_stopping`` on,
+        this is an upper bound and the best round is selected automatically.
     learning_rate : float or None, default None
         Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
         stopping is active.
@@ -653,10 +691,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         averages independent members fit on bootstrap resamples.
     ensemble_n_jobs : int, default 1
         Processes used to fit ensemble members; -1 uses all cores.
-    cat_features : list of int or None, default None
-        Default categorical column indices. Used when ``fit`` is called without
-        its own ``cat_features`` (the fit argument overrides). Provided as a
-        constructor argument so ``GridSearchCV``/``Pipeline`` can carry it.
+    cat_features : list of int or str, or None, default None
+        Default categorical columns, given as integer positions and/or column
+        names (names resolved against the DataFrame at fit). Used when ``fit`` is
+        called without its own ``cat_features`` (the fit argument overrides).
+        Provided as a constructor argument so ``GridSearchCV``/``Pipeline`` can
+        carry it.
 
     Attributes
     ----------
@@ -671,7 +711,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
     """
 
-    def __init__(self, iterations=2000, learning_rate=None, depth=None,
+    def __init__(self, n_estimators=2000, learning_rate=None, depth=None,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=1.0,
                  cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None,
@@ -681,7 +721,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
-        self.iterations = iterations
+        self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
         self.l2_leaf_reg = l2_leaf_reg
@@ -717,8 +757,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ----------
         X, y : array-like
             Training data.
-        cat_features : list of int or None
-            Column indices to treat as categoricals. Falls back to the
+        cat_features : list of int or str, or None
+            Columns to treat as categoricals, given as integer positions and/or
+            column names (names resolved against the DataFrame). Falls back to the
             ``cat_features`` constructor argument when not given here; passing it
             here overrides the constructor value. (The constructor form lets
             ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
@@ -735,6 +776,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             to the training set; the validation eval metric is always unweighted.
         """
         cat_features = _resolve_cat_features(self, cat_features)
+        cat_features = _resolve_cat_feature_names(cat_features, X)
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
@@ -872,9 +914,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
 
     Parameters
     ----------
-    iterations : int, default 2000
-        Maximum number of boosting rounds. With ``early_stopping`` on, this is an
-        upper bound and the best round is selected automatically.
+    n_estimators : int, default 2000
+        Maximum number of boosting rounds (trees). With ``early_stopping`` on,
+        this is an upper bound and the best round is selected automatically.
     learning_rate : float or None, default None
         Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
         stopping is active.
@@ -932,10 +974,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         soft-votes the calibrated probabilities of members fit on bootstraps.
     ensemble_n_jobs : int, default 1
         Processes used to fit ensemble members; -1 uses all cores.
-    cat_features : list of int or None, default None
-        Default categorical column indices. Used when ``fit`` is called without
-        its own ``cat_features`` (the fit argument overrides). Provided as a
-        constructor argument so ``GridSearchCV``/``Pipeline`` can carry it.
+    cat_features : list of int or str, or None, default None
+        Default categorical columns, given as integer positions and/or column
+        names (names resolved against the DataFrame at fit). Used when ``fit`` is
+        called without its own ``cat_features`` (the fit argument overrides).
+        Provided as a constructor argument so ``GridSearchCV``/``Pipeline`` can
+        carry it.
 
     Attributes
     ----------
@@ -953,7 +997,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
     """
 
-    def __init__(self, iterations=2000, learning_rate=None, depth=6,
+    def __init__(self, n_estimators=2000, learning_rate=None, depth=6,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=1.0,
                  cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None,
@@ -963,7 +1007,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
-        self.iterations = iterations
+        self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
         self.l2_leaf_reg = l2_leaf_reg
@@ -997,8 +1041,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         ----------
         X, y : array-like
             Training data.
-        cat_features : list of int or None
-            Column indices to treat as categoricals. Falls back to the
+        cat_features : list of int or str, or None
+            Columns to treat as categoricals, given as integer positions and/or
+            column names (names resolved against the DataFrame). Falls back to the
             ``cat_features`` constructor argument when not given here; passing it
             here overrides the constructor value. (The constructor form lets
             ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
@@ -1014,6 +1059,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             to the training set; the validation eval metric is always unweighted.
         """
         cat_features = _resolve_cat_features(self, cat_features)
+        cat_features = _resolve_cat_feature_names(cat_features, X)
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=True)

@@ -1,8 +1,6 @@
 # chimeraboost
 ### What if CatBoost was slightly worse, 12× faster, and all in Python?
 
-> ⚠️ **Project is in active development:** breaking changes should be expected.
-
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
 <center>

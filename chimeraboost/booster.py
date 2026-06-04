@@ -51,7 +51,7 @@ def _apply_thread_count(thread_count):
     return n
 
 
-def _auto_learning_rate(n_samples, iterations, early_stopping):
+def _auto_learning_rate(n_samples, n_estimators, early_stopping):
     """Default learning rate when the user did not specify one.
 
     With early stopping, 0.1 (the field-standard default) lets early stopping
@@ -62,7 +62,7 @@ def _auto_learning_rate(n_samples, iterations, early_stopping):
     """
     if early_stopping:
         return 0.1
-    return float(np.clip(20.0 / max(iterations, 1), 0.03, 0.2))
+    return float(np.clip(20.0 / max(n_estimators, 1), 0.03, 0.2))
 
 
 class _EarlyStopper:
@@ -90,7 +90,7 @@ class _BaseBooster:
     `fit` and `predict_raw`.
     """
 
-    def __init__(self, iterations=500, learning_rate=None, depth=6,
+    def __init__(self, n_estimators=500, learning_rate=None, depth=6,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0,
                  colsample=1.0, cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None, min_child_weight=1.0,
@@ -98,7 +98,7 @@ class _BaseBooster:
                  ordered_boosting=True, cat_combinations=False,
                  leaf_estimation_iterations=1, hs_lambda=0.0,
                  linear_leaves=False, linear_lambda=1.0):
-        self.iterations = int(iterations)
+        self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
         self.l2_leaf_reg = float(l2_leaf_reg)
@@ -185,7 +185,7 @@ class _BaseBooster:
         if self.learning_rate is not None:
             return float(self.learning_rate)
         es = self.early_stopping_rounds is not None and eval_set is not None
-        return _auto_learning_rate(n_samples, self.iterations, es)
+        return _auto_learning_rate(n_samples, self.n_estimators, es)
 
     def _loo_update(self, tree, leaf, g, h):
         """Leave-one-out leaf step: each row's training update uses its leaf's
@@ -333,7 +333,7 @@ class GradientBoosting(_BaseBooster):
         stopper = _EarlyStopper(self.early_stopping_rounds)
         t0 = time.time()
 
-        for m in range(self.iterations):
+        for m in range(self.n_estimators):
             grad, hess = self.loss_.grad_hess(y, F)
             if w is not None:
                 grad, hess = grad * w, hess * w
@@ -398,7 +398,7 @@ class GradientBoosting(_BaseBooster):
                     self.trees_ = self.trees_[: stopper.best_iter + 1]
                     break
 
-            if self.verbose and (m % max(1, self.iterations // 10) == 0):
+            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
                 msg = f"[{m}] train {self.train_history_[-1]:.5f}"
                 if Fv is not None:
                     msg += f"  val {self.valid_history_[-1]:.5f}"
@@ -549,7 +549,7 @@ class MulticlassBoosting(_BaseBooster):
         stopper = _EarlyStopper(self.early_stopping_rounds)
         t0 = time.time()
 
-        for m in range(self.iterations):
+        for m in range(self.n_estimators):
             grad, hess = self.loss_.grad_hess(Y, F)   # (n, K) each
             if w is not None:
                 grad, hess = grad * w[:, None], hess * w[:, None]
@@ -591,7 +591,7 @@ class MulticlassBoosting(_BaseBooster):
                     self.trees_ = self.trees_[: stopper.best_iter + 1]
                     break
 
-            if self.verbose and (m % max(1, self.iterations // 10) == 0):
+            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
                 msg = f"[{m}] train {self.train_history_[-1]:.5f}"
                 if Fv is not None:
                     msg += f"  val {self.valid_history_[-1]:.5f}"

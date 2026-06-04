@@ -12,7 +12,7 @@ X, y = load_breast_cancer(return_X_y=True)
 Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0, stratify=y)
 
 clf = ChimeraBoostClassifier(
-    iterations=1000,
+    n_estimators=1000,
     early_stopping_rounds=50,
     random_state=0,
 )
@@ -42,7 +42,7 @@ X[:, 2] = age
 X[:, 3] = usage
 Xtr, Xte, ytr, yte = train_test_split(X, churn, test_size=0.25, random_state=1)
 
-clf = ChimeraBoostClassifier(iterations=400, random_state=1)
+clf = ChimeraBoostClassifier(n_estimators=400, random_state=1)
 clf.fit(Xtr, ytr, cat_features=[0, 1])   # columns 0 and 1 are categorical
 auc = roc_auc_score(yte, clf.predict_proba(Xte)[:, 1])
 print(f"mixed cat+num  AUC={auc:.4f}")

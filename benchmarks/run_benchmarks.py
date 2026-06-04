@@ -410,10 +410,10 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
     # with NO explicit eval_set, so ChimeraBoost performs its own internal
     # early-stopping split (early_stopping=True, validation_fraction default) —
-    # exactly what a user gets from `ChimeraBoostX().fit(X, y)`. iterations and
+    # exactly what a user gets from `ChimeraBoostX().fit(X, y)`. n_estimators and
     # early_stopping_rounds come from the shared harness budget, which equals the
     # class defaults for the headline run, so the benchmark == the default.
-    m = Est(iterations=MAX_ITERS, early_stopping_rounds=PATIENCE,
+    m = Est(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
             learning_rate=lr, depth=depth,
             subsample=subsample,
             cat_combinations=cat_combinations,
@@ -433,7 +433,7 @@ def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads):
     """Shared implementation for all bagged-ChimeraBoost runners."""
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
-    m = Est(iterations=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
+    m = Est(n_estimators=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
             n_ensembles=n, ensemble_n_jobs=1,
             thread_count=threads, random_state=0)
     m.fit(Xtr, ytr, cat_features=cat)
@@ -493,7 +493,7 @@ def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
     from catboost import CatBoostRegressor, CatBoostClassifier
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
-    common = dict(iterations=MAX_ITERS, early_stopping_rounds=PATIENCE,
+    common = dict(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
                   thread_count=threads or -1, verbose=False, random_seed=0)
     Est = CatBoostRegressor if task == "regression" else CatBoostClassifier
     m = Est(**common)
