@@ -607,7 +607,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         Fraction of features eligible for each tree.
     cat_smoothing : float, default 1.0
         Prior strength for ordered target statistics; higher shrinks rare
-        categories harder toward the global mean.
+        categories harder toward the global mean. Must be > 0 -- it is the
+        Bayesian pseudocount in the encoder denominator, so 0 is undefined.
     cat_n_permutations : int, default 4
         Number of random orderings averaged by the ordered target encoder.
     early_stopping_rounds : int or None, default None
@@ -888,7 +889,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     colsample : float, default 1.0
         Fraction of features eligible for each tree.
     cat_smoothing : float, default 1.0
-        Prior strength for ordered target statistics.
+        Prior strength for ordered target statistics. Must be > 0 (a Bayesian
+        pseudocount in the encoder denominator; 0 is undefined).
     cat_n_permutations : int, default 4
         Number of random orderings averaged by the ordered target encoder.
     early_stopping_rounds : int or None, default None

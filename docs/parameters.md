@@ -36,7 +36,7 @@ For exact types and the auto-generated reference, see the [API reference](api.md
 
 | Parameter | Default | Tune? | Effect |
 |---|---|:--:|---|
-| `cat_smoothing` | `1.0` | rarely | Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. |
+| `cat_smoothing` | `1.0` | rarely | Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. Must be `> 0` (a Bayesian pseudocount; `0` is rejected). |
 | `cat_n_permutations` | `4` | no | Random orderings averaged by the ordered target encoder. |
 | `cat_combinations` | `False` | optional | Add all pairwise category-by-category features. Helps mostly-categorical data, can crowd out numerics on mixed data. |
 
@@ -65,7 +65,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 
 | Parameter | Default | Tune? | Effect |
 |---|---|:--:|---|
-| `ordered_boosting` | `False` | no | Leave-one-out leaf training step. Off by default; mutually exclusive with `leaf_estimation_iterations` in the booster. |
+| `ordered_boosting` | `False` | no | Leave-one-out leaf training step. Off by default; mutually exclusive with `leaf_estimation_iterations` in the booster. Tends to *hurt* accuracy here (the plain Newton path plus leaf refinement wins broadly), so leave it off unless you have a specific reason. |
 
 ## Early stopping
 
