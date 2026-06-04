@@ -303,42 +303,90 @@ def _auto_min_child_weight(n_train):
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
-    loss: "RMSE" (default), "MAE", or "Quantile". For "Quantile" pass the level
-    via `alpha` (e.g. alpha=0.9 for the 90th-percentile predictor).
+    A scikit-learn compatible regressor supporting squared-error, absolute-error,
+    and quantile losses, native categorical features, sample weights, bagging, and
+    exact SHAP attributions.
 
+    Parameters
+    ----------
+    iterations : int, default 2000
+        Maximum number of boosting rounds. With ``early_stopping`` on, this is an
+        upper bound and the best round is selected automatically.
+    learning_rate : float or None, default None
+        Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
+        stopping is active.
+    depth : int, default 6
+        Depth of each oblivious tree; a depth-d tree makes d splits. Raise to 8-10
+        for large, interaction-heavy problems. The default is conservative to
+        avoid overfitting small data.
+    l2_leaf_reg : float, default 1.0
+        L2 regularization on leaf values.
+    max_bins : int, default 128
+        Histogram bins per numeric feature.
+    subsample : float, default 1.0
+        Row subsampling fraction per tree. Below 1.0, rows are drawn by Minimum
+        Variance Sampling (gradient-weighted, unbiased) rather than uniformly.
+    colsample : float, default 1.0
+        Fraction of features eligible for each tree.
+    cat_smoothing : float, default 1.0
+        Prior strength for ordered target statistics; higher shrinks rare
+        categories harder toward the global mean.
+    cat_n_permutations : int, default 4
+        Number of random orderings averaged by the ordered target encoder.
+    early_stopping_rounds : int or None, default None
+        Rounds without validation improvement before stopping. ``None`` becomes 50
+        when early stopping is active.
+    loss : {"RMSE", "MAE", "Quantile"}, default "RMSE"
+        Training objective. Set the level with ``alpha`` for ``"Quantile"``.
+    alpha : float, default 0.5
+        Quantile level for ``loss="Quantile"`` (e.g. 0.9 for the 90th percentile).
+    min_child_weight : float, default 1.0
+        Minimum total hessian required on each side of a split.
+    thread_count : int or None, default None
+        numba thread count. ``None`` or -1 uses all detected cores.
+    random_state : int or None, default None
+        Seed for reproducibility (deterministic for a fixed ``thread_count``).
+    verbose : bool, default False
+        Print per-round train and validation metrics.
+    ordered_boosting : bool, default False
+        Use the leave-one-out leaf training step instead of plain Newton updates.
+    cat_combinations : bool, default False
+        Add all pairwise categorical-by-categorical features.
+    leaf_estimation_iterations : int, default 1
+        Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
-        Hierarchical-shrinkage strength on the leaf values. ``0`` keeps the plain
-        per-leaf Newton estimate. When > 0, each leaf value is recursively shrunk
-        toward its ancestors (low-mass / deep leaves hardest), a cheap post-pass
-        over the finished tree that adds no inference cost. Larger = more shrinkage.
-
+        Hierarchical-shrinkage strength. Above 0, leaf values are recursively
+        shrunk toward their ancestors, hardest for deep or low-mass leaves. Adds
+        no inference cost.
     linear_leaves : bool, default False
-        When True, each leaf predicts a small ridge-regularized LINEAR model of
-        the numeric features the tree split on (evaluated at bin centers) instead
-        of a constant -- adding local slope where step leaves underfit smooth
-        structure. Leaves with too few rows fall back to the constant value, so
-        irregular data is protected. Not compatible with MAE/Quantile loss or
-        multiclass (yet). (Reference path; not yet fused for fastest inference.)
+        Fit a ridge linear model per leaf over the numeric split features instead
+        of a constant value, adding local slope where step leaves underfit. Leaves
+        with too few rows fall back to a constant. Not available with MAE or
+        quantile loss.
     linear_lambda : float, default 1.0
-        Ridge penalty on the per-leaf linear slopes. Larger = closer to constant
-        leaves; smaller = more aggressive local linear fits.
-
+        Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
     early_stopping : bool, default True
-        Whether to use early stopping to terminate training when the validation
-        score stops improving.  Requires ``early_stopping_rounds`` (defaults
-        to 50 when early stopping is active but the param is None).
+        Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
-        Fraction of training data to hold out as a validation set when
-        *early_stopping* is active and no explicit *eval_set* is passed.
-        Ignored when an explicit *eval_set* is given to ``fit``.
+        Validation fraction used when ``early_stopping`` is on and no ``eval_set``
+        is passed to ``fit``.
     n_ensembles : int or None, default None
-        Bagging. ``None`` or ``1`` trains a single model. An int >= 2 trains that
-        many independent members on bootstrap resamples and averages their
-        predictions, which cuts variance and smooths the output (works well with
-        *early_stopping*, since each member early-stops on its own bootstrap).
+        Number of bagged members. ``None`` or 1 trains a single model; >= 2
+        averages independent members fit on bootstrap resamples.
     ensemble_n_jobs : int, default 1
-        Processes used to fit ensemble members in parallel (1 = sequential).
-        When >1 and *thread_count* is None, numba threads are split among workers.
+        Processes used to fit ensemble members; -1 uses all cores.
+
+    Attributes
+    ----------
+    feature_importances_ : ndarray of shape (n_features,)
+        Split-gain importance per input feature, normalized to sum to 1.
+    best_iteration_ : int
+        Number of trees retained after early stopping.
+    expected_value_ : float
+        SHAP baseline (mean prediction over the background); set after calling
+        ``shap_values``.
+    estimators_ : list or None
+        Fitted members when ``n_ensembles > 1``, otherwise ``None``.
     """
 
     def __init__(self, iterations=2000, learning_rate=None, depth=6,
@@ -516,41 +564,86 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     """Gradient boosted oblivious trees for classification.
 
-    Automatically uses binary logloss for 2 classes and softmax multiclass for
-    3+. `classes_` preserves the original label values.
+    A scikit-learn compatible classifier. Uses binary logloss for 2 classes and
+    softmax for 3 or more, chosen automatically. ``predict_proba`` is temperature
+    scaled on the validation split for calibrated probabilities.
 
+    Parameters
+    ----------
+    iterations : int, default 2000
+        Maximum number of boosting rounds. With ``early_stopping`` on, this is an
+        upper bound and the best round is selected automatically.
+    learning_rate : float or None, default None
+        Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
+        stopping is active.
+    depth : int, default 6
+        Depth of each oblivious tree; a depth-d tree makes d splits.
+    l2_leaf_reg : float, default 1.0
+        L2 regularization on leaf values.
+    max_bins : int, default 128
+        Histogram bins per numeric feature.
+    subsample : float, default 1.0
+        Row subsampling fraction per tree (Minimum Variance Sampling below 1.0).
+    colsample : float, default 1.0
+        Fraction of features eligible for each tree.
+    cat_smoothing : float, default 1.0
+        Prior strength for ordered target statistics.
+    cat_n_permutations : int, default 4
+        Number of random orderings averaged by the ordered target encoder.
+    early_stopping_rounds : int or None, default None
+        Rounds without validation improvement before stopping. ``None`` becomes 50
+        when early stopping is active.
+    min_child_weight : float or None, default None
+        Minimum total hessian on each side of a split. ``None`` resolves to a
+        size-adaptive value: a full veto below ~500 rows, off above ~2000.
+    thread_count : int or None, default None
+        numba thread count. ``None`` or -1 uses all detected cores.
+    random_state : int or None, default None
+        Seed for reproducibility (deterministic for a fixed ``thread_count``).
+    verbose : bool, default False
+        Print per-round train and validation metrics.
+    ordered_boosting : bool, default False
+        Use the leave-one-out leaf training step instead of plain Newton updates.
+    cat_combinations : bool, default False
+        Add all pairwise categorical-by-categorical features.
+    leaf_estimation_iterations : int, default 3
+        Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
-        Hierarchical-shrinkage strength on the leaf values. ``0`` keeps the plain
-        per-leaf Newton estimate. When > 0, each leaf value is recursively shrunk
-        toward its ancestors (low-mass / deep leaves hardest), a cheap post-pass
-        over the finished tree that adds no inference cost. Larger = more shrinkage.
-
+        Hierarchical-shrinkage strength. Above 0, leaf values are recursively
+        shrunk toward their ancestors, hardest for deep or low-mass leaves.
     linear_leaves : bool or None, default None
-        Whether each leaf predicts a small ridge-regularized LINEAR model of the
-        numeric features the tree split on (instead of a constant), adding local
-        slope where step leaves underfit. ``None`` auto-enables it for BINARY
-        classification (a broad Brier improvement validated on Grinsztajn +
-        OpenML that survives bagging) and disables it for multiclass (unsupported).
-        Pass ``True``/``False`` to force it. Below ~1000 training rows it falls
-        back to constant leaves (small data overfits per-leaf slopes).
+        Fit a ridge linear model per leaf over the numeric split features instead
+        of a constant. ``None`` enables it for binary classification and disables
+        it for multiclass (where it is unsupported). Below ~1000 rows it falls
+        back to constant leaves.
     linear_lambda : float, default 1.0
-        Ridge penalty on the per-leaf linear slopes (larger = closer to constant).
-
+        Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
     early_stopping : bool, default True
-        Whether to use early stopping.  The validation split is always
-        stratified to preserve class proportions; when *groups* is passed,
-        ``StratifiedGroupKFold`` is used instead.
+        Hold out a stratified validation split and stop when it stops improving.
+        ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
     validation_fraction : float, default 0.2
-        Fraction of training data held out for the automatic validation set.
-        Ignored when an explicit *eval_set* is given to ``fit``.
+        Validation fraction used when ``early_stopping`` is on and no ``eval_set``
+        is passed to ``fit``.
     n_ensembles : int or None, default None
-        Bagging. ``None`` or ``1`` trains a single model. An int >= 2 trains that
-        many independent members on bootstrap resamples and averages their
-        (temperature-calibrated) class probabilities, which cuts variance and
-        smooths the output.
+        Number of bagged members. ``None`` or 1 trains a single model; >= 2
+        soft-votes the calibrated probabilities of members fit on bootstraps.
     ensemble_n_jobs : int, default 1
-        Processes used to fit ensemble members in parallel (1 = sequential).
-        When >1 and *thread_count* is None, numba threads are split among workers.
+        Processes used to fit ensemble members; -1 uses all cores.
+
+    Attributes
+    ----------
+    classes_ : ndarray
+        Class labels, in the column order of ``predict_proba``.
+    feature_importances_ : ndarray of shape (n_features,)
+        Split-gain importance per input feature, normalized to sum to 1.
+    best_iteration_ : int
+        Number of trees retained after early stopping.
+    temperature_ : float
+        Fitted calibration temperature; > 1 means raw scores were over-confident.
+    expected_value_ : float
+        SHAP baseline (binary only); set after calling ``shap_values``.
+    estimators_ : list or None
+        Fitted members when ``n_ensembles > 1``, otherwise ``None``.
     """
 
     def __init__(self, iterations=2000, learning_rate=None, depth=6,

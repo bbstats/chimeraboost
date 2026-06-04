@@ -1,65 +1,67 @@
 # ChimeraBoost
 
-**What if CatBoost was slightly worse, 12× faster, and all in Python?**
+Gradient boosting on oblivious (symmetric) decision trees, written in Python with a
+[numba](https://numba.pydata.org/) backend. It depends only on NumPy, scikit-learn,
+SciPy, and pandas — no C++ extensions and no build step, so you can read and modify
+every line.
 
-ChimeraBoost is an exceedingly opinionated gradient-boosted decision tree library
-built on **oblivious (symmetric) trees**, accelerated with [numba](https://numba.pydata.org/),
-and depending on nothing heavier than NumPy, scikit-learn, SciPy, and pandas. No
-C++, no build toolchain — you can read and modify every line in Python.
+> *What if CatBoost was slightly worse, 12× faster, and all in Python?*
 
-```python
+## Install
+
+```bash
 pip install chimeraboost
 ```
+
+Python 3.9 or newer.
 
 ## Quickstart
 
 ```python
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
-# classification
 clf = ChimeraBoostClassifier(random_state=0)
 clf.fit(X_train, y_train, cat_features=[0, 1])
 proba = clf.predict_proba(X_test)
 
-# regression
 reg = ChimeraBoostRegressor(random_state=0)
 reg.fit(X_train, y_train)
 preds = reg.predict(X_test)
 ```
 
-A bare `fit(X, y)` already does the sensible thing: it carves an internal
-validation split, early-stops on it, and predicts from the best iteration.
+`fit(X, y)` holds out an internal validation split, early-stops on it, and predicts
+from the best round. Categorical columns are passed by index (`cat_features=`); NaNs
+route to a dedicated bin, so no imputation is needed.
 
-## Where it sits
+## What it does
 
-[![TabArena-Lite Elo vs speed Pareto](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png){ width="560" }](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png)
+- Regression (squared error, absolute error, quantile), binary and multiclass classification.
+- Categorical features via ordered target statistics — pass column indices, no manual encoding.
+- Sample weights, bagging (`n_ensembles`), and grouped validation splits.
+- Calibrated probabilities (`predict_proba` is temperature-scaled on the validation split).
+- Exact SHAP attributions ([`shap_values`](shap.md)), including the per-leaf linear models.
+- A scikit-learn estimator API that drops into `Pipeline`, `GridSearchCV`, and `cross_val_score`.
 
-ChimeraBoost sits on the strength-vs-speed Pareto frontier: roughly CatBoost-class
-accuracy at a fraction of the training time, ahead of XGBoost and LightGBM defaults
-on both axes — all in pure Python.
+## Benchmarks
 
-## What you get
+[![TabArena-Lite Elo vs training time](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png){ width="560" }](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png)
 
-- **Regression, quantile regression, binary and multiclass classification** under one API.
-- **First-class categorical handling** — ordered target statistics (CatBoost-style), no manual encoding.
-- **Sample weights**, **bagging** (`n_ensembles`), and **grouped early-stopping splits**.
-- **Well-calibrated probabilities** out of the box (temperature scaling on `predict_proba`).
-- **Exact SHAP attributions** (`model.shap_values(X)`) — interventional TreeSHAP computed
-  exactly, not sampled, including the linear-leaf slope terms.
-- A scikit-learn-compatible estimator interface (`fit`/`predict`/`predict_proba`,
-  `feature_importances_`, full `check_estimator` compliance).
+On TabArena-Lite, ChimeraBoost sits on the accuracy-vs-training-time Pareto frontier:
+ahead of XGBoost and LightGBM defaults on both axes, and within reach of CatBoost's
+accuracy at a fraction of its training time.
 
-## Where to go next
+## Documentation
 
-- **[Recipes](recipes.md)** — copy-paste examples for every task: categoricals, quantile
-  regression, multiclass, bagging, early stopping, calibration, importances, and SHAP.
+- [Recipes](recipes.md) — worked examples for every task.
+- [Parameters](parameters.md) — what each option does and when to change it.
+- [SHAP](shap.md) — exact feature attributions.
+- [API reference](api.md) — classes, methods, and signatures.
 
-## Design in one paragraph
+## How the trees work
 
-Every node at a given depth splits on the *same* `(feature, threshold)`, so a depth-`d`
-tree is just `d` splits and a leaf is a `d`-bit number. That symmetry is the source of
-both the speed (prediction is a handful of comparisons plus an array lookup, vectorized
-over the whole forest in one numba pass) and a large part of the regularization (only
-`d` splits per tree, shared across the level). On top of that sit ordered target
-statistics for categoricals, a leave-one-out leaf correction, optional per-leaf linear
-models, and temperature-scaled probabilities.
+Every node at a given depth splits on the same `(feature, threshold)`, so a depth-`d`
+tree is `d` splits and a leaf is a `d`-bit number. That symmetry makes prediction a
+handful of comparisons plus an array lookup (vectorized across the whole forest in one
+numba pass) and provides much of the regularization, since a tree has only `d` splits
+shared across its level. Categoricals use ordered target statistics, leaves can carry
+small linear models, and probabilities are temperature-scaled after fitting.
