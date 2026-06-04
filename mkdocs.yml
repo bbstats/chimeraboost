@@ -41,7 +41,9 @@ markdown_extensions:
   - tables
   - pymdownx.details
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path: ["."]        # resolve --8<-- includes from the repo root (README.md)
+      check_paths: true       # fail the build if an included file is missing
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
