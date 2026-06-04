@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.11.0] - 2026-06-04
 ### Added
 - **Exact SHAP feature attributions** (`model.shap_values(X)`). Interventional
   TreeSHAP computed exactly — not approximated — by exploiting the oblivious tree
