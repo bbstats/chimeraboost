@@ -88,7 +88,9 @@ def _validate_hyperparams(estimator):
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
     _in_range("colsample", 0.0, 1.0, lo_incl=False)
-    _in_range("cat_smoothing", 0.0, np.inf)
+    # cat_smoothing is a Bayesian pseudocount in the ordered-TS denominator
+    # (count + a); a=0 makes the first occurrence of every category divide 0/0.
+    _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
     _in_range("hs_lambda", 0.0, np.inf)
     _in_range("linear_lambda", 0.0, np.inf)
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)

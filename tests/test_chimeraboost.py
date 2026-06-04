@@ -571,6 +571,8 @@ def test_continuous_target_to_classifier_raises():
     (dict(subsample=0.0), "subsample"),
     (dict(subsample=1.5), "subsample"),
     (dict(colsample=2.0), "colsample"),
+    (dict(cat_smoothing=0.0), "cat_smoothing"),  # 0 pseudocount -> 0/0 in ordered TS
+    (dict(cat_smoothing=-1.0), "cat_smoothing"),
     (dict(min_child_weight=-3.0), "min_child_weight"),
     (dict(validation_fraction=1.0), "validation_fraction"),
     (dict(cat_n_permutations=0), "cat_n_permutations"),
