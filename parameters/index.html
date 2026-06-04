@@ -988,9 +988,9 @@ column flags the few worth reaching for; in practice that is usually just <code>
 </tr>
 <tr>
 <td><code>depth</code></td>
-<td><code>6</code></td>
+<td><code>None</code>→auto</td>
 <td style="text-align: center;"><strong>yes</strong></td>
-<td>Tree depth (a depth-d tree is d splits). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
+<td>Tree depth (a depth-d tree is d splits). The regressor's <code>None</code> resolves to 6 for squared/absolute error and 4 for <code>loss="Quantile"</code> (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
 </tr>
 <tr>
 <td><code>l2_leaf_reg</code></td>
@@ -1071,7 +1071,7 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <td><code>cat_smoothing</code></td>
 <td><code>1.0</code></td>
 <td style="text-align: center;">rarely</td>
-<td>Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean.</td>
+<td>Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. Must be <code>&gt; 0</code> (a Bayesian pseudocount; <code>0</code> is rejected).</td>
 </tr>
 <tr>
 <td><code>cat_n_permutations</code></td>
@@ -1087,7 +1087,9 @@ column flags the few worth reaching for; in practice that is usually just <code>
 </tr>
 </tbody>
 </table>
-<p>Which columns are categorical is passed to <code>fit(..., cat_features=[...])</code>, not the constructor.</p>
+<p>Which columns are categorical can be passed either to <code>fit(..., cat_features=[...])</code> or as the
+<code>cat_features</code> constructor argument. The constructor form lets <code>GridSearchCV</code>/<code>Pipeline</code> carry
+it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <h2 id="loss-regressor-only">Loss (regressor only)<a class="headerlink" href="#loss-regressor-only" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1160,7 +1162,7 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <td><code>ordered_boosting</code></td>
 <td><code>False</code></td>
 <td style="text-align: center;">no</td>
-<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster.</td>
+<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster. Tends to <em>hurt</em> accuracy here (the plain Newton path plus leaf refinement wins broadly), so leave it off unless you have a specific reason.</td>
 </tr>
 </tbody>
 </table>
