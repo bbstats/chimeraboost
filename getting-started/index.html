@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/shap/">
+        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/getting-started/">
       
       
-        <link rel="prev" href="../concepts/">
+        <link rel="prev" href="..">
       
       
-        <link rel="next" href="../parameters/">
+        <link rel="next" href="../recipes/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>SHAP explanations - ChimeraBoost</title>
+        <title>Getting started - ChimeraBoost</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#shap-explanations" class="md-skip">
+        <a href="#getting-started" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              SHAP explanations
+              Getting started
             
           </span>
         </div>
@@ -288,10 +288,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -307,6 +334,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-features-mattered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which features mattered
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -315,8 +417,6 @@
       
   
   
-    
-  
   
   
     
@@ -329,11 +429,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -354,7 +454,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -425,37 +525,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    SHAP explanations
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../shap/" class="md-nav__link">
         
   
   
@@ -471,125 +544,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#exact-not-sampled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Exact, not sampled
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#efficiency" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Efficiency
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-numbers-mean" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the numbers mean
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#global-importance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Global importance
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#explaining-one-prediction" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Explaining one prediction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#background-distribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Background distribution
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bagged-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bagged models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versus-feature_importances_" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Versus feature_importances_
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -772,10 +726,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#exact-not-sampled" class="md-nav__link">
+  <a href="#install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exact, not sampled
+        Install
       
     </span>
   </a>
@@ -783,10 +737,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#efficiency" class="md-nav__link">
+  <a href="#regression" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Efficiency
+        Regression
       
     </span>
   </a>
@@ -794,10 +748,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-numbers-mean" class="md-nav__link">
+  <a href="#classification" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the numbers mean
+        Classification
       
     </span>
   </a>
@@ -805,10 +759,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#global-importance" class="md-nav__link">
+  <a href="#which-features-mattered" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Global importance
+        Which features mattered
       
     </span>
   </a>
@@ -816,54 +770,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#explaining-one-prediction" class="md-nav__link">
+  <a href="#next" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Explaining one prediction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#background-distribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Background distribution
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bagged-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bagged models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versus-feature_importances_" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Versus feature_importances_
+        Next
       
     </span>
   </a>
@@ -890,115 +800,76 @@
   
 
 
-<h1 id="shap-explanations">SHAP explanations<a class="headerlink" href="#shap-explanations" title="Permanent link">&para;</a></h1>
-<p><code>model.shap_values(X)</code> returns exact SHAP feature attributions: an additive
-decomposition of each prediction into per-feature contributions.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># (n_samples, n_features)</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">base</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span>           <span class="c1"># baseline, set by the call above</span>
+<h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
+<p>A regression model and a classification model, end to end, on datasets that ship with
+scikit-learn — every block runs as written.</p>
+<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>chimeraboost
 </code></pre></div>
-<h2 id="exact-not-sampled">Exact, not sampled<a class="headerlink" href="#exact-not-sampled" title="Permanent link">&para;</a></h2>
-<p>Most SHAP tooling approximates by sampling feature coalitions, because exact
-computation is expensive on trees of arbitrary shape. ChimeraBoost computes it exactly.
-Oblivious trees split on the same feature at every node of a level, so a depth-<code>D</code> tree
-involves at most <code>D</code> distinct features. The coalition game therefore has at most <code>D</code>
-players, and all <code>2**D</code> or fewer coalitions are enumerated directly in a numba kernel
-(64 evaluations per tree at depth 6). This is the interventional formulation of
-TreeSHAP, integrated over a background distribution.</p>
-<h2 id="efficiency">Efficiency<a class="headerlink" href="#efficiency" title="Permanent link">&para;</a></h2>
-<p>Contributions plus the baseline reconstruct the prediction, to floating-point tolerance:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">recon</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">base</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">recon</span> <span class="o">-</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)[</span><span class="n">i</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mf">1e-6</span>   <span class="c1"># holds to ~1e-14</span>
+<p>Python 3.9 or newer. The only dependencies are NumPy, numba, scikit-learn, SciPy, and pandas.</p>
+<h2 id="regression">Regression<a class="headerlink" href="#regression" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_diabetes</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">train_test_split</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">root_mean_squared_error</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostRegressor</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">load_diabetes</span><span class="p">(</span><span class="n">return_X_y</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="gp">... </span>    <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="go">ChimeraBoostRegressor(random_state=0)</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">preds</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">root_mean_squared_error</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">preds</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="go">56.82</span>
 </code></pre></div>
-<p>This is the Shapley efficiency property, and it is what lets <code>shap_values</code> stand in as
-the model's own accounting of a prediction. Gain importance (<code>feature_importances_</code>)
-has no such guarantee: it measures which features were split on, ignores the per-leaf
-linear models, and does not decompose any individual prediction.</p>
-<h2 id="what-the-numbers-mean">What the numbers mean<a class="headerlink" href="#what-the-numbers-mean" title="Permanent link">&para;</a></h2>
-<p><code>phi[i, j]</code> is feature <code>j</code>'s signed contribution to the raw score of row <code>i</code>, measured
-against <code>expected_value_</code> (the mean raw score over the background):</p>
+<p>The bare constructor early-stops on an internal validation split and keeps the best round:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">reg</span><span class="o">.</span><span class="n">best_iteration_</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">29</span>
+</code></pre></div>
+<h2 id="classification">Classification<a class="headerlink" href="#classification" title="Permanent link">&para;</a></h2>
+<p><code>predict_proba</code> returns calibrated probabilities; columns follow <code>clf.classes_</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_breast_cancer</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">load_breast_cancer</span><span class="p">(</span><span class="n">return_X_y</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="gp">... </span>    <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">stratify</span><span class="o">=</span><span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">roc_auc_score</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">proba</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]),</span> <span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="go">0.985</span>
+</code></pre></div>
+<p>The probabilities are temperature-scaled on the validation split:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">clf</span><span class="o">.</span><span class="n">temperature_</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">0.525</span>
+</code></pre></div>
+<h2 id="which-features-mattered">Which features mattered<a class="headerlink" href="#which-features-mattered" title="Permanent link">&para;</a></h2>
+<p><code>feature_importances_</code> is a quick global ranking by split gain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">imp</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">feature_importances_</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="p">[(</span><span class="nb">int</span><span class="p">(</span><span class="n">j</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">imp</span><span class="p">[</span><span class="n">j</span><span class="p">]),</span> <span class="mi">3</span><span class="p">))</span> <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">imp</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">3</span><span class="p">]]</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="go">[(8, 0.402), (2, 0.235), (3, 0.108)]</span>
+</code></pre></div>
+<p>For a faithful, per-prediction explanation, use SHAP. The contributions plus the
+baseline reconstruct each prediction exactly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">phi</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">phi</span><span class="o">.</span><span class="n">shape</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="go">(89, 10)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="go">(276.5232, 276.5232)</span>
+</code></pre></div>
+<h2 id="next">Next<a class="headerlink" href="#next" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Regressor: contributions to the predicted target.</li>
-<li>Binary classifier: contributions to the pre-temperature log-odds of the positive
-  class. Probabilities are a nonlinear squash of the margin, so the attribution is in
-  margin space, as in the wider SHAP ecosystem.</li>
+<li><a href="../recipes/">Recipes</a> — categoricals, quantile regression, bagging, persistence, and more.</li>
+<li><a href="../concepts/">How it works</a> — oblivious trees, categorical encoding, linear leaves, calibration.</li>
+<li><a href="../parameters/">Parameters</a> — what each option does and when to change it.</li>
+<li><a href="../shap/">SHAP</a> — exact feature attributions in depth.</li>
 </ul>
-<p>Per-leaf linear models are included exactly. A leaf that predicts
-<code>intercept + slope·(x − center)</code> folds its slope into the attribution, so <code>shap_values</code>
-explains the fitted model rather than only its split structure.</p>
-<h2 id="global-importance">Global importance<a class="headerlink" href="#global-importance" title="Permanent link">&para;</a></h2>
-<p>Average the absolute contributions for a prediction-faithful global ranking:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">global_importance</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phi</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">global_importance</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">10</span><span class="p">]:</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">global_importance</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="explaining-one-prediction">Explaining one prediction<a class="headerlink" href="#explaining-one-prediction" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;baseline: </span><span class="si">{</span><span class="n">base</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]))[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">5</span><span class="p">]:</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">direction</span> <span class="o">=</span> <span class="s2">&quot;up&quot;</span> <span class="k">if</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="s2">&quot;down&quot;</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">+.3f</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">direction</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  prediction: </span><span class="si">{</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">base</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="background-distribution">Background distribution<a class="headerlink" href="#background-distribution" title="Permanent link">&para;</a></h2>
-<p>SHAP attributions are defined against a reference: how a feature moves the prediction
-away from a typical input. That reference is the background, which defaults to a sample
-of the training data captured at fit. Override it to explain against a specific cohort:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="n">X_reference</span><span class="p">)</span>
-</code></pre></div>
-<p><code>expected_value_</code> is the mean prediction over whichever background is used. Cost scales
-linearly with background size; the default sample keeps it around 3 ms per row at depth
-6 with 200 background rows.</p>
-<h2 id="bagged-models">Bagged models<a class="headerlink" href="#bagged-models" title="Permanent link">&para;</a></h2>
-<p>When <code>n_ensembles &gt; 1</code>, attributions are averaged across members. For regression this
-is exact, since the bag prediction is the members' mean and Shapley values are linear.
-For classification it is an additive surrogate for the soft-voted probability.</p>
-<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Binary and regression only. Multiclass raises <code>NotImplementedError</code>.</li>
-<li>Attributions are in raw-score / log-odds space, not probability space.</li>
-<li>They explain this model's behavior; they are not causal effects.</li>
-</ul>
-<h2 id="versus-feature_importances_">Versus <code>feature_importances_</code><a class="headerlink" href="#versus-feature_importances_" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th></th>
-<th><code>feature_importances_</code></th>
-<th><code>shap_values</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Measures</td>
-<td>total split gain</td>
-<td>contribution to each prediction</td>
-</tr>
-<tr>
-<td>Granularity</td>
-<td>global only</td>
-<td>per-prediction and global</td>
-</tr>
-<tr>
-<td>Includes linear leaves</td>
-<td>no</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>Reconstructs the output</td>
-<td>no</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>Cost</td>
-<td>free (tracked at fit)</td>
-<td>milliseconds per row</td>
-</tr>
-</tbody>
-</table>
-<p>Use gain for a free global glance; use SHAP for a faithful or per-prediction explanation.</p>
 
 
 

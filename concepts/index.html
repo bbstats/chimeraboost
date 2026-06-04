@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/shap/">
+        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/concepts/">
       
       
-        <link rel="prev" href="../concepts/">
+        <link rel="prev" href="../recipes/">
       
       
-        <link rel="next" href="../parameters/">
+        <link rel="next" href="../shap/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>SHAP explanations - ChimeraBoost</title>
+        <title>How it works - ChimeraBoost</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#shap-explanations" class="md-skip">
+        <a href="#how-it-works" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              SHAP explanations
+              How it works
             
           </span>
         </div>
@@ -397,34 +397,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    How it works
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -444,7 +416,7 @@
   <span class="md-ellipsis">
     
   
-    SHAP explanations
+    How it works
   
 
     
@@ -462,7 +434,7 @@
   <span class="md-ellipsis">
     
   
-    SHAP explanations
+    How it works
   
 
     
@@ -488,10 +460,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#exact-not-sampled" class="md-nav__link">
+  <a href="#oblivious-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exact, not sampled
+        Oblivious trees
       
     </span>
   </a>
@@ -499,10 +471,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#efficiency" class="md-nav__link">
+  <a href="#histogram-binning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Efficiency
+        Histogram binning
       
     </span>
   </a>
@@ -510,10 +482,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-numbers-mean" class="md-nav__link">
+  <a href="#categorical-features" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the numbers mean
+        Categorical features
       
     </span>
   </a>
@@ -521,10 +493,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#global-importance" class="md-nav__link">
+  <a href="#leaf-values-and-linear-leaves" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Global importance
+        Leaf values and linear leaves
       
     </span>
   </a>
@@ -532,10 +504,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#explaining-one-prediction" class="md-nav__link">
+  <a href="#probability-calibration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Explaining one prediction
+        Probability calibration
       
     </span>
   </a>
@@ -543,10 +515,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#background-distribution" class="md-nav__link">
+  <a href="#bagging-and-subsampling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Background distribution
+        Bagging and subsampling
       
     </span>
   </a>
@@ -554,32 +526,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bagged-models" class="md-nav__link">
+  <a href="#shap" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bagged models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versus-feature_importances_" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Versus feature_importances_
+        SHAP
       
     </span>
   </a>
@@ -590,6 +540,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SHAP explanations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -772,10 +750,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#exact-not-sampled" class="md-nav__link">
+  <a href="#oblivious-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Exact, not sampled
+        Oblivious trees
       
     </span>
   </a>
@@ -783,10 +761,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#efficiency" class="md-nav__link">
+  <a href="#histogram-binning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Efficiency
+        Histogram binning
       
     </span>
   </a>
@@ -794,10 +772,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-numbers-mean" class="md-nav__link">
+  <a href="#categorical-features" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the numbers mean
+        Categorical features
       
     </span>
   </a>
@@ -805,10 +783,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#global-importance" class="md-nav__link">
+  <a href="#leaf-values-and-linear-leaves" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Global importance
+        Leaf values and linear leaves
       
     </span>
   </a>
@@ -816,10 +794,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#explaining-one-prediction" class="md-nav__link">
+  <a href="#probability-calibration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Explaining one prediction
+        Probability calibration
       
     </span>
   </a>
@@ -827,10 +805,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#background-distribution" class="md-nav__link">
+  <a href="#bagging-and-subsampling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Background distribution
+        Bagging and subsampling
       
     </span>
   </a>
@@ -838,32 +816,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bagged-models" class="md-nav__link">
+  <a href="#shap" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bagged models
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versus-feature_importances_" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Versus feature_importances_
+        SHAP
       
     </span>
   </a>
@@ -890,115 +846,61 @@
   
 
 
-<h1 id="shap-explanations">SHAP explanations<a class="headerlink" href="#shap-explanations" title="Permanent link">&para;</a></h1>
-<p><code>model.shap_values(X)</code> returns exact SHAP feature attributions: an additive
-decomposition of each prediction into per-feature contributions.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># (n_samples, n_features)</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">base</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span>           <span class="c1"># baseline, set by the call above</span>
-</code></pre></div>
-<h2 id="exact-not-sampled">Exact, not sampled<a class="headerlink" href="#exact-not-sampled" title="Permanent link">&para;</a></h2>
-<p>Most SHAP tooling approximates by sampling feature coalitions, because exact
-computation is expensive on trees of arbitrary shape. ChimeraBoost computes it exactly.
-Oblivious trees split on the same feature at every node of a level, so a depth-<code>D</code> tree
-involves at most <code>D</code> distinct features. The coalition game therefore has at most <code>D</code>
-players, and all <code>2**D</code> or fewer coalitions are enumerated directly in a numba kernel
-(64 evaluations per tree at depth 6). This is the interventional formulation of
-TreeSHAP, integrated over a background distribution.</p>
-<h2 id="efficiency">Efficiency<a class="headerlink" href="#efficiency" title="Permanent link">&para;</a></h2>
-<p>Contributions plus the baseline reconstruct the prediction, to floating-point tolerance:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">recon</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">base</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">recon</span> <span class="o">-</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)[</span><span class="n">i</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mf">1e-6</span>   <span class="c1"># holds to ~1e-14</span>
-</code></pre></div>
-<p>This is the Shapley efficiency property, and it is what lets <code>shap_values</code> stand in as
-the model's own accounting of a prediction. Gain importance (<code>feature_importances_</code>)
-has no such guarantee: it measures which features were split on, ignores the per-leaf
-linear models, and does not decompose any individual prediction.</p>
-<h2 id="what-the-numbers-mean">What the numbers mean<a class="headerlink" href="#what-the-numbers-mean" title="Permanent link">&para;</a></h2>
-<p><code>phi[i, j]</code> is feature <code>j</code>'s signed contribution to the raw score of row <code>i</code>, measured
-against <code>expected_value_</code> (the mean raw score over the background):</p>
+<h1 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h1>
+<p>The pieces behind the defaults, and why they are there.</p>
+<h2 id="oblivious-trees">Oblivious trees<a class="headerlink" href="#oblivious-trees" title="Permanent link">&para;</a></h2>
+<p>Every node at a given depth splits on the same <code>(feature, threshold)</code>. A depth-<code>d</code> tree
+is therefore <code>d</code> splits, and a sample's leaf is a <code>d</code>-bit number: bit <code>k</code> is 1 when the
+sample exceeds the threshold at level <code>k</code>. Two consequences follow:</p>
 <ul>
-<li>Regressor: contributions to the predicted target.</li>
-<li>Binary classifier: contributions to the pre-temperature log-odds of the positive
-  class. Probabilities are a nonlinear squash of the margin, so the attribution is in
-  margin space, as in the wider SHAP ecosystem.</li>
+<li><strong>Speed.</strong> Prediction is <code>d</code> comparisons and one array lookup. The whole forest is
+  evaluated in a single numba pass parallelized over samples, so each sample loads its
+  feature values once and walks every tree while they stay in cache.</li>
+<li><strong>Regularization.</strong> A tree has only <code>d</code> splits, shared across its level, which limits
+  how sharply it can carve the input space. This is much of why the defaults resist
+  overfitting without heavy tuning.</li>
 </ul>
-<p>Per-leaf linear models are included exactly. A leaf that predicts
-<code>intercept + slope·(x − center)</code> folds its slope into the attribution, so <code>shap_values</code>
-explains the fitted model rather than only its split structure.</p>
-<h2 id="global-importance">Global importance<a class="headerlink" href="#global-importance" title="Permanent link">&para;</a></h2>
-<p>Average the absolute contributions for a prediction-faithful global ranking:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">global_importance</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phi</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">global_importance</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">10</span><span class="p">]:</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">global_importance</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="explaining-one-prediction">Explaining one prediction<a class="headerlink" href="#explaining-one-prediction" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;baseline: </span><span class="si">{</span><span class="n">base</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]))[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">5</span><span class="p">]:</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">direction</span> <span class="o">=</span> <span class="s2">&quot;up&quot;</span> <span class="k">if</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="s2">&quot;down&quot;</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">+.3f</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">direction</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  prediction: </span><span class="si">{</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">base</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="background-distribution">Background distribution<a class="headerlink" href="#background-distribution" title="Permanent link">&para;</a></h2>
-<p>SHAP attributions are defined against a reference: how a feature moves the prediction
-away from a typical input. That reference is the background, which defaults to a sample
-of the training data captured at fit. Override it to explain against a specific cohort:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="n">X_reference</span><span class="p">)</span>
-</code></pre></div>
-<p><code>expected_value_</code> is the mean prediction over whichever background is used. Cost scales
-linearly with background size; the default sample keeps it around 3 ms per row at depth
-6 with 200 background rows.</p>
-<h2 id="bagged-models">Bagged models<a class="headerlink" href="#bagged-models" title="Permanent link">&para;</a></h2>
-<p>When <code>n_ensembles &gt; 1</code>, attributions are averaged across members. For regression this
-is exact, since the bag prediction is the members' mean and Shapley values are linear.
-For classification it is an additive surrogate for the soft-voted probability.</p>
-<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Binary and regression only. Multiclass raises <code>NotImplementedError</code>.</li>
-<li>Attributions are in raw-score / log-odds space, not probability space.</li>
-<li>They explain this model's behavior; they are not causal effects.</li>
-</ul>
-<h2 id="versus-feature_importances_">Versus <code>feature_importances_</code><a class="headerlink" href="#versus-feature_importances_" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th></th>
-<th><code>feature_importances_</code></th>
-<th><code>shap_values</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Measures</td>
-<td>total split gain</td>
-<td>contribution to each prediction</td>
-</tr>
-<tr>
-<td>Granularity</td>
-<td>global only</td>
-<td>per-prediction and global</td>
-</tr>
-<tr>
-<td>Includes linear leaves</td>
-<td>no</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>Reconstructs the output</td>
-<td>no</td>
-<td>yes</td>
-</tr>
-<tr>
-<td>Cost</td>
-<td>free (tracked at fit)</td>
-<td>milliseconds per row</td>
-</tr>
-</tbody>
-</table>
-<p>Use gain for a free global glance; use SHAP for a faithful or per-prediction explanation.</p>
+<p>The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
+than an oblivious tree, which matters on clean, high-signal data. Raising <code>depth</code> and
+enabling <a href="#linear-leaves">linear leaves</a> recover most of that.</p>
+<h2 id="histogram-binning">Histogram binning<a class="headerlink" href="#histogram-binning" title="Permanent link">&para;</a></h2>
+<p>Numeric features are bucketed into at most <code>max_bins</code> (default 128) bins once, up front.
+Splits are searched over bin edges rather than raw values, which is what makes the
+histogram pass fast. Missing values route to a dedicated bin, so NaNs are handled
+directly at fit and predict time — no imputation.</p>
+<h2 id="categorical-features">Categorical features<a class="headerlink" href="#categorical-features" title="Permanent link">&para;</a></h2>
+<p>Categoricals are encoded with <strong>ordered target statistics</strong>, the CatBoost approach: each
+category is replaced by a running estimate of the target computed under a random ordering
+of the rows, so a row never sees its own label. Several orderings
+(<code>cat_n_permutations</code>, default 4) are averaged to cut variance, and rare categories are
+shrunk toward the global mean by <code>cat_smoothing</code>. Pass the column indices to
+<code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
+<p><code>cat_combinations=True</code> additionally builds all pairwise category-by-category features.</p>
+<h2 id="leaf-values-and-linear-leaves">Leaf values and linear leaves<a class="headerlink" href="#leaf-values-and-linear-leaves" title="Permanent link">&para;</a></h2>
+<p>By default each leaf predicts a single constant — the regularized Newton step over the
+rows it contains. With <code>linear_leaves</code>, a leaf instead fits a small ridge <strong>linear
+model</strong> over the numeric features the tree split on, adding local slope where a constant
+underfits smooth structure. Leaves with too few rows fall back to a constant, so small
+data is protected. Linear leaves are on by default for binary classification and opt-in
+for regression.</p>
+<p><code>hs_lambda</code> (hierarchical shrinkage) optionally pulls each leaf value toward its
+ancestors, hardest for deep or low-mass leaves — a regularizer applied as a cheap
+post-pass with no inference cost.</p>
+<h2 id="probability-calibration">Probability calibration<a class="headerlink" href="#probability-calibration" title="Permanent link">&para;</a></h2>
+<p>After fitting, the classifier scales its raw scores by a single temperature chosen on
+the validation split to minimize log loss. The scaling is monotonic, so <code>predict</code>, AUC,
+and accuracy are unchanged while <code>predict_proba</code> becomes better calibrated. The fitted
+value is exposed as <code>temperature_</code>.</p>
+<h2 id="bagging-and-subsampling">Bagging and subsampling<a class="headerlink" href="#bagging-and-subsampling" title="Permanent link">&para;</a></h2>
+<p><code>n_ensembles</code> trains independent members on bootstrap resamples and averages them —
+predictions for regression, calibrated probabilities for classification — to reduce
+variance. Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Variance Sampling:
+rows are drawn with probability tied to gradient magnitude and reweighted to stay
+unbiased, concentrating effort on the rows that still carry signal.</p>
+<h2 id="shap">SHAP<a class="headerlink" href="#shap" title="Permanent link">&para;</a></h2>
+<p>Because the trees are oblivious, exact interventional SHAP is cheap: a depth-<code>D</code> tree
+involves at most <code>D</code> distinct features, so the Shapley coalition game is enumerated
+directly rather than sampled. See <a href="../shap/">SHAP</a> for details.</p>
 
 
 
