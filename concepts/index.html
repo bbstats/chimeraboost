@@ -847,18 +847,16 @@
 
 
 <h1 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h1>
-<p>The pieces behind the defaults, and why they are there.</p>
 <h2 id="oblivious-trees">Oblivious trees<a class="headerlink" href="#oblivious-trees" title="Permanent link">&para;</a></h2>
 <p>Every node at a given depth splits on the same <code>(feature, threshold)</code>. A depth-<code>d</code> tree
 is therefore <code>d</code> splits, and a sample's leaf is a <code>d</code>-bit number: bit <code>k</code> is 1 when the
-sample exceeds the threshold at level <code>k</code>. Two consequences follow:</p>
+sample exceeds the threshold at level <code>k</code>. This leads to:</p>
 <ul>
 <li><strong>Speed.</strong> Prediction is <code>d</code> comparisons and one array lookup. The whole forest is
   evaluated in a single numba pass parallelized over samples, so each sample loads its
   feature values once and walks every tree while they stay in cache.</li>
 <li><strong>Regularization.</strong> A tree has only <code>d</code> splits, shared across its level, which limits
-  how sharply it can carve the input space. This is much of why the defaults resist
-  overfitting without heavy tuning.</li>
+  how sharply it can carve the input space.</li>
 </ul>
 <p>The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
 than an oblivious tree, which matters on clean, high-signal data. Raising <code>depth</code> and
@@ -869,28 +867,26 @@ Splits are searched over bin edges rather than raw values, which is what makes t
 histogram pass fast. Missing values route to a dedicated bin, so NaNs are handled
 directly at fit and predict time — no imputation.</p>
 <h2 id="categorical-features">Categorical features<a class="headerlink" href="#categorical-features" title="Permanent link">&para;</a></h2>
-<p>Categoricals are encoded with <strong>ordered target statistics</strong>, the CatBoost approach: each
+<p>Categoricals are encoded with <strong>ordered target statistics</strong>, i.e. the CatBoost approach: each
 category is replaced by a running estimate of the target computed under a random ordering
 of the rows, so a row never sees its own label. Several orderings
 (<code>cat_n_permutations</code>, default 4) are averaged to cut variance, and rare categories are
-shrunk toward the global mean by <code>cat_smoothing</code>. Pass the column indices to
-<code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
+shrunk toward the global mean by <code>cat_smoothing</code>. Pass the columns (by integer position or
+column name) to <code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
 <p><code>cat_combinations=True</code> additionally builds all pairwise category-by-category features.</p>
 <h2 id="leaf-values-and-linear-leaves">Leaf values and linear leaves<a class="headerlink" href="#leaf-values-and-linear-leaves" title="Permanent link">&para;</a></h2>
-<p>By default each leaf predicts a single constant — the regularized Newton step over the
-rows it contains. With <code>linear_leaves</code>, a leaf instead fits a small ridge <strong>linear
-model</strong> over the numeric features the tree split on, adding local slope where a constant
-underfits smooth structure. Leaves with too few rows fall back to a constant, so small
-data is protected. Linear leaves are on by default for binary classification and opt-in
-for regression.</p>
+<p>By default each leaf predicts a single constant value. With <code>linear_leaves</code>, a leaf
+instead fits a small ridge <strong>linear model</strong> over the numeric features the tree split on,
+adding local slope where a constant underfits smooth structure. Leaves with too few rows
+fall back to norma behavior to reduce overfitting small datasets. Linear leaves are on by
+default for binary classification, but off for regression.</p>
 <p><code>hs_lambda</code> (hierarchical shrinkage) optionally pulls each leaf value toward its
-ancestors, hardest for deep or low-mass leaves — a regularizer applied as a cheap
-post-pass with no inference cost.</p>
+ancestors' value.</p>
 <h2 id="probability-calibration">Probability calibration<a class="headerlink" href="#probability-calibration" title="Permanent link">&para;</a></h2>
 <p>After fitting, the classifier scales its raw scores by a single temperature chosen on
-the validation split to minimize log loss. The scaling is monotonic, so <code>predict</code>, AUC,
-and accuracy are unchanged while <code>predict_proba</code> becomes better calibrated. The fitted
-value is exposed as <code>temperature_</code>.</p>
+the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
+are unchanged while probabilities (i.e. with <code>predict_proba</code>) becomes better calibrated.
+The fitted value is exposed as <code>temperature_</code>.</p>
 <h2 id="bagging-and-subsampling">Bagging and subsampling<a class="headerlink" href="#bagging-and-subsampling" title="Permanent link">&para;</a></h2>
 <p><code>n_ensembles</code> trains independent members on bootstrap resamples and averages them —
 predictions for regression, calibrated probabilities for classification — to reduce
@@ -898,9 +894,7 @@ variance. Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Va
 rows are drawn with probability tied to gradient magnitude and reweighted to stay
 unbiased, concentrating effort on the rows that still carry signal.</p>
 <h2 id="shap">SHAP<a class="headerlink" href="#shap" title="Permanent link">&para;</a></h2>
-<p>Because the trees are oblivious, exact interventional SHAP is cheap: a depth-<code>D</code> tree
-involves at most <code>D</code> distinct features, so the Shapley coalition game is enumerated
-directly rather than sampled. See <a href="../shap/">SHAP</a> for details.</p>
+<p>See <a href="../shap/">SHAP</a> for details.</p>
 
 
 

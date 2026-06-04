@@ -957,58 +957,46 @@
 
 
 <h1 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h1>
-<p>Every constructor option for <code>ChimeraBoostRegressor</code> and <code>ChimeraBoostClassifier</code>,
-grouped by what it controls, with both defaults shown where they differ. The defaults
-are the benchmarked configuration, so most problems need no tuning. The <strong>Tune?</strong>
-column flags the few worth reaching for; in practice that is usually just <code>depth</code>,
-<code>n_ensembles</code>, and <code>random_state</code>.</p>
-<p>For exact types and the auto-generated reference, see the <a href="../api/">API reference</a>.</p>
+<p>For more detail, see <a href="../api/">API reference</a>.</p>
 <h2 id="core-boosting">Core boosting<a class="headerlink" href="#core-boosting" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>iterations</code></td>
+<td><code>n_estimators</code></td>
 <td><code>2000</code></td>
-<td style="text-align: center;">rarely</td>
-<td>Maximum boosting rounds. With early stopping on, an upper bound rather than a target.</td>
+<td>Maximum boosting rounds (trees).</td>
 </tr>
 <tr>
 <td><code>learning_rate</code></td>
 <td><code>None</code> (auto)</td>
-<td style="text-align: center;">rarely</td>
 <td>Per-tree shrinkage. <code>None</code> resolves to 0.1 with early stopping. Lower trades more trees for slightly better fit.</td>
 </tr>
 <tr>
 <td><code>depth</code></td>
 <td><code>None</code>→auto</td>
-<td style="text-align: center;"><strong>yes</strong></td>
-<td>Tree depth (a depth-d tree is d splits). The regressor's <code>None</code> resolves to 6 for squared/absolute error and 4 for <code>loss="Quantile"</code> (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
+<td>Tree depth (a depth-d tree is d splits). Defaults to to 6 for squared/absolute error and 4 for <code>loss="Quantile"</code> (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
 </tr>
 <tr>
 <td><code>l2_leaf_reg</code></td>
 <td><code>1.0</code></td>
-<td style="text-align: center;">rarely</td>
 <td>L2 penalty on leaf values. Higher is smoother.</td>
 </tr>
 <tr>
 <td><code>min_child_weight</code></td>
 <td><code>1.0</code> (reg) / <code>None</code>→auto (clf)</td>
-<td style="text-align: center;">rarely</td>
-<td>Minimum hessian mass on each side of a split. The classifier's <code>None</code> is size-adaptive: full veto below ~500 rows, off above ~2000.</td>
+<td>Minimum hessian mass on each side of a split. The classifier's <code>None</code> is size-adaptive: gradates off when below 500 rows, gradates off when above 2000.</td>
 </tr>
 <tr>
 <td><code>leaf_estimation_iterations</code></td>
 <td><code>1</code> (reg) / <code>3</code> (clf)</td>
-<td style="text-align: center;">rarely</td>
-<td>Extra Newton refinement steps per leaf. Helps logloss; little effect on squared error.</td>
+<td>Extra Newton refinement steps per leaf. Likely more important to tune in classification tasks.</td>
 </tr>
 </tbody>
 </table>
@@ -1018,7 +1006,6 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1026,8 +1013,7 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <td><code>max_bins</code></td>
 <td><code>128</code></td>
-<td style="text-align: center;">no</td>
-<td>Histogram bins per numeric feature. Raising it overfits noise and slows builds without generalizing.</td>
+<td>Histogram bins per numeric feature. Raising it can improve fit in some scenarios.</td>
 </tr>
 </tbody>
 </table>
@@ -1037,7 +1023,6 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1045,13 +1030,11 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <td><code>subsample</code></td>
 <td><code>1.0</code></td>
-<td style="text-align: center;">optional</td>
 <td>Row fraction per tree. Below 1.0, uses Minimum Variance Sampling (gradient-weighted, unbiased).</td>
 </tr>
 <tr>
 <td><code>colsample</code></td>
 <td><code>1.0</code></td>
-<td style="text-align: center;">optional</td>
 <td>Feature fraction eligible per tree.</td>
 </tr>
 </tbody>
@@ -1062,7 +1045,6 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1070,33 +1052,30 @@ column flags the few worth reaching for; in practice that is usually just <code>
 <tr>
 <td><code>cat_smoothing</code></td>
 <td><code>1.0</code></td>
-<td style="text-align: center;">rarely</td>
-<td>Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. Must be <code>&gt; 0</code> (a Bayesian pseudocount; <code>0</code> is rejected).</td>
+<td>Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. Must be <code>&gt; 0</code>.</td>
 </tr>
 <tr>
 <td><code>cat_n_permutations</code></td>
 <td><code>4</code></td>
-<td style="text-align: center;">no</td>
 <td>Random orderings averaged by the ordered target encoder.</td>
 </tr>
 <tr>
 <td><code>cat_combinations</code></td>
 <td><code>False</code></td>
-<td style="text-align: center;">optional</td>
 <td>Add all pairwise category-by-category features. Helps mostly-categorical data, can crowd out numerics on mixed data.</td>
 </tr>
 </tbody>
 </table>
 <p>Which columns are categorical can be passed either to <code>fit(..., cat_features=[...])</code> or as the
-<code>cat_features</code> constructor argument. The constructor form lets <code>GridSearchCV</code>/<code>Pipeline</code> carry
-it; a value passed to <code>fit</code> overrides the constructor one.</p>
+<code>cat_features</code> to your ChimeraBoostRegressor/ChimeraBoostClassifier arguments depending on your use case.
+Columns may be named by integer position or by column name (resolved against the DataFrame), or a
+mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[0, 3]</code>.</p>
 <h2 id="loss-regressor-only">Loss (regressor only)<a class="headerlink" href="#loss-regressor-only" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1104,13 +1083,11 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>loss</code></td>
 <td><code>"RMSE"</code></td>
-<td style="text-align: center;">task</td>
 <td><code>"RMSE"</code>, <code>"MAE"</code> (median), or <code>"Quantile"</code>.</td>
 </tr>
 <tr>
 <td><code>alpha</code></td>
 <td><code>0.5</code></td>
-<td style="text-align: center;">task</td>
 <td>Quantile level for <code>loss="Quantile"</code>.</td>
 </tr>
 </tbody>
@@ -1122,7 +1099,6 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1130,19 +1106,16 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>linear_leaves</code></td>
 <td><code>False</code> (reg) / <code>None</code>→auto (clf)</td>
-<td style="text-align: center;">optional</td>
 <td>Fit a ridge linear model per leaf over the numeric split features instead of a constant. On by default for binary classification; falls back to constant below ~1000 rows. Not available with MAE/Quantile or multiclass.</td>
 </tr>
 <tr>
 <td><code>linear_lambda</code></td>
 <td><code>1.0</code></td>
-<td style="text-align: center;">optional</td>
 <td>Ridge penalty on per-leaf slopes; larger is closer to a constant.</td>
 </tr>
 <tr>
 <td><code>hs_lambda</code></td>
 <td><code>0.0</code></td>
-<td style="text-align: center;">optional</td>
 <td>Hierarchical shrinkage: above 0, leaf values are pulled toward their ancestors, hardest for deep or low-mass leaves.</td>
 </tr>
 </tbody>
@@ -1153,7 +1126,6 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1161,8 +1133,7 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>ordered_boosting</code></td>
 <td><code>False</code></td>
-<td style="text-align: center;">no</td>
-<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster. Tends to <em>hurt</em> accuracy here (the plain Newton path plus leaf refinement wins broadly), so leave it off unless you have a specific reason.</td>
+<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster.</td>
 </tr>
 </tbody>
 </table>
@@ -1172,7 +1143,6 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1180,19 +1150,16 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>early_stopping</code></td>
 <td><code>True</code></td>
-<td style="text-align: center;">rarely</td>
-<td>Hold out a validation split and stop on a plateau. Set <code>False</code> to build a fixed <code>iterations</code> trees.</td>
+<td>Hold out a validation split and stop on a plateau. Set <code>False</code> to build a fixed <code>n_estimators</code> trees.</td>
 </tr>
 <tr>
 <td><code>early_stopping_rounds</code></td>
 <td><code>None</code>→<code>50</code></td>
-<td style="text-align: center;">rarely</td>
 <td>Patience when early stopping is active.</td>
 </tr>
 <tr>
 <td><code>validation_fraction</code></td>
 <td><code>0.2</code></td>
-<td style="text-align: center;">rarely</td>
 <td>Held-out fraction (stratified for classifiers). Ignored when <code>eval_set</code> is passed to <code>fit</code>.</td>
 </tr>
 </tbody>
@@ -1204,7 +1171,6 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1212,13 +1178,11 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>n_ensembles</code></td>
 <td><code>None</code></td>
-<td style="text-align: center;"><strong>yes</strong></td>
 <td><code>None</code>/<code>1</code> is a single model; <code>≥2</code> averages members fit on bootstrap resamples. Reduces variance.</td>
 </tr>
 <tr>
 <td><code>ensemble_n_jobs</code></td>
 <td><code>1</code></td>
-<td style="text-align: center;">optional</td>
 <td>Processes used to fit members; <code>-1</code> uses all cores.</td>
 </tr>
 </tbody>
@@ -1229,7 +1193,6 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <th>Parameter</th>
 <th>Default</th>
-<th style="text-align: center;">Tune?</th>
 <th>Effect</th>
 </tr>
 </thead>
@@ -1237,19 +1200,16 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tr>
 <td><code>thread_count</code></td>
 <td><code>None</code></td>
-<td style="text-align: center;">optional</td>
 <td>numba threads. <code>None</code>/<code>-1</code> uses all cores. Affects determinism of floating-point reductions.</td>
 </tr>
 <tr>
 <td><code>random_state</code></td>
 <td><code>None</code></td>
-<td style="text-align: center;"><strong>yes</strong></td>
 <td>Seed (deterministic for a fixed <code>thread_count</code>).</td>
 </tr>
 <tr>
 <td><code>verbose</code></td>
 <td><code>False</code></td>
-<td style="text-align: center;">optional</td>
 <td>Print per-round metrics.</td>
 </tr>
 </tbody>
@@ -1265,7 +1225,7 @@ it; a value passed to <code>fit</code> overrides the constructor one.</p>
 <tbody>
 <tr>
 <td><code>cat_features</code></td>
-<td>Column indices to treat as categorical.</td>
+<td>Columns to treat as categorical, by integer position and/or column name.</td>
 </tr>
 <tr>
 <td><code>eval_set</code></td>

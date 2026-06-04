@@ -801,12 +801,10 @@
 
 
 <h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
-<p>A regression model and a classification model, end to end, on datasets that ship with
-scikit-learn — every block runs as written.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>chimeraboost
 </code></pre></div>
-<p>Python 3.9 or newer. The only dependencies are NumPy, numba, scikit-learn, SciPy, and pandas.</p>
+<p>(Python 3.9 or newer)</p>
 <h2 id="regression">Regression<a class="headerlink" href="#regression" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_diabetes</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">train_test_split</span>
@@ -825,7 +823,7 @@ scikit-learn — every block runs as written.</p>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">root_mean_squared_error</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">preds</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="go">56.82</span>
 </code></pre></div>
-<p>The bare constructor early-stops on an internal validation split and keeps the best round:</p>
+<p>Number of trees selected:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">reg</span><span class="o">.</span><span class="n">best_iteration_</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">29</span>
 </code></pre></div>
