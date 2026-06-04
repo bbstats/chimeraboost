@@ -41,9 +41,9 @@ reg.fit(X, y)
     * Interaction-heavy regression: raise `depth` to 8–10 (default 6 is conservative to protect small data).
 
 * **Inspirations / Citations**
-    * **CatBoost** — Prokhorenkova et al., *NeurIPS* 2018 — ordered boosting, ordered target statistics, oblivious trees
     * **XGBoost** — Chen & Guestrin, *KDD* 2016 — regularized objective, Newton leaf estimation, column subsampling
     * **LightGBM** — Ke et al., *NeurIPS* 2017 — histogram-based split finding
+    * **CatBoost** — Prokhorenkova et al., *NeurIPS* 2018 — ordered boosting, ordered target statistics, oblivious trees
     * **Linear-leaf trees** — Shi et al., *IJCAI* 2019 (arXiv:1802.05640) — piece-wise-linear regression trees (the `linear_leaves` default for binary)
     * **Hierarchical shrinkage** — Agarwal et al., *ICML* 2022 (arXiv:2202.00858) — the optional `hs_lambda` leaf regularizer
     * **TabArena** — Erickson et al., *NeurIPS* 2025 (arXiv:2506.16791) — the benchmark
