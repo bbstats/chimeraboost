@@ -476,6 +476,122 @@ def _predict_forest_linear(Xb, feats, thrs, depths, lin_k, featoff,
     return out
 
 
+@njit(cache=True, parallel=True)
+def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
+                        lin_feat_idx, coefoff, coef, centers_std,
+                        feat_orig, n_orig, fact):
+    """Exact interventional TreeSHAP for a forest of oblivious (linear-leaf or
+    constant, k=0) trees, returned in the user's ORIGINAL feature space.
+
+    For each instance x (column of Xb) and background reference r (column of Rb)
+    the per-tree Shapley values are computed by exact enumeration over subsets of
+    the distinct ORIGINAL features the tree uses. This is tractable precisely
+    because the trees are oblivious: a depth-D tree touches at most D distinct
+    features, so the coalition game has at most D players (<=2**D subsets), not
+    one per input column. A feature in coalition S takes its value from x, the
+    rest from r; the leaf -- and any linear-leaf slope term -- is evaluated under
+    that mix, so the linear leaves are explained faithfully rather than ignored.
+
+    Contributions are averaged over the background and summed over trees, giving
+    for every instance the Shapley-efficiency identity (to float tolerance)
+        sum_orig phi[i, orig] == predict_trees(x_i) - mean_r predict_trees(r).
+    Two internal columns mapping to the same original feature (categorical combos
+    / multi-target encodings) are treated as ONE player, so the attribution lands
+    directly in input-feature space. `fact[s]` is s! (precomputed up to depth).
+    Parallelized over instances; each thread owns a disjoint row of `phi`."""
+    n = Xb.shape[1]
+    nbg = Rb.shape[1]
+    n_trees = feats.shape[0]
+    phi = np.zeros((n, n_orig))
+    inv_nbg = 1.0 / nbg
+    for i in prange(n):
+        for t in range(n_trees):
+            d = depths[t]
+            if d == 0:
+                continue
+            k = lin_k[t]
+            fb = featoff[t]
+            cb = coefoff[t]
+            # Distinct original features used by this tree = coalition players U;
+            # level_u[dd] is the U-slot of level dd's feature (features reused
+            # across levels share a slot, so they move together in a coalition).
+            U = np.empty(d, dtype=np.int64)
+            level_u = np.empty(d, dtype=np.int64)
+            u = 0
+            for dd in range(d):
+                o = feat_orig[feats[t, dd]]
+                idx = -1
+                for q in range(u):
+                    if U[q] == o:
+                        idx = q
+                        break
+                if idx < 0:
+                    U[u] = o
+                    idx = u
+                    u += 1
+                level_u[dd] = idx
+            lin_u = np.empty(k, dtype=np.int64)
+            for j in range(k):
+                o = feat_orig[lin_feat_idx[fb + j]]
+                for q in range(u):
+                    if U[q] == o:
+                        lin_u[j] = q
+                        break
+            nsub = 1 << u
+            # x-side: level bits and standardized linear values (ref-independent).
+            xbit = np.empty(d, dtype=np.int64)
+            for dd in range(d):
+                xbit[dd] = 1 if Xb[feats[t, dd], i] > thrs[t, dd] else 0
+            xval = np.empty(k)
+            for j in range(k):
+                f = lin_feat_idx[fb + j]
+                v = centers_std[f, Xb[f, i]]
+                xval[j] = v if np.isfinite(v) else 0.0
+            fval = np.empty(nsub)
+            rbit = np.empty(d, dtype=np.int64)
+            rval = np.empty(k)
+            for b in range(nbg):
+                for dd in range(d):
+                    rbit[dd] = 1 if Rb[feats[t, dd], b] > thrs[t, dd] else 0
+                for j in range(k):
+                    f = lin_feat_idx[fb + j]
+                    vv = centers_std[f, Rb[f, b]]
+                    rval[j] = vv if np.isfinite(vv) else 0.0
+                # Output of every coalition: bits/linear-values follow x inside S,
+                # r outside it.
+                for mask in range(nsub):
+                    leaf = 0
+                    for dd in range(d):
+                        if (mask >> level_u[dd]) & 1:
+                            bit = xbit[dd]
+                        else:
+                            bit = rbit[dd]
+                        leaf = leaf * 2 + bit
+                    row = cb + leaf * (1 + k)
+                    val = coef[row]
+                    for j in range(k):
+                        vv = xval[j] if (mask >> lin_u[j]) & 1 else rval[j]
+                        val += coef[row + 1 + j] * vv
+                    fval[mask] = val
+                # Shapley value of each player: weighted marginal over every
+                # coalition that excludes it.
+                for ui in range(u):
+                    bit_ui = 1 << ui
+                    contrib = 0.0
+                    for mask in range(nsub):
+                        if (mask >> ui) & 1:
+                            continue
+                        s = 0
+                        mm = mask
+                        while mm:
+                            s += mm & 1
+                            mm >>= 1
+                        w = fact[s] * fact[u - s - 1] / fact[u]
+                        contrib += w * (fval[mask | bit_ui] - fval[mask])
+                    phi[i, U[ui]] += contrib * inv_nbg
+    return phi
+
+
 class ObliviousTree:
     """A single symmetric tree. Stores its splits and leaf values.
 

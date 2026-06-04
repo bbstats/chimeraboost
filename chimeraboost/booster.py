@@ -12,7 +12,16 @@ from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    _leaf_values_hs, _linear_predict, _predict_forest, pack_forest,
-                   _predict_forest_linear, pack_forest_linear)
+                   _predict_forest_linear, pack_forest_linear, _shap_forest_linear)
+
+
+def _factorials(n):
+    """Factorials 0!..n! as a float array (Shapley coalition weights)."""
+    f = np.empty(n + 1)
+    f[0] = 1.0
+    for i in range(1, n + 1):
+        f[i] = f[i - 1] * i
+    return f
 
 
 # Below this many training rows, per-leaf linear models overfit (noisy small
@@ -22,6 +31,9 @@ from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
 # the max_bins sub-1k overfit). Validated: protects kc2 (~313 train) from a -4.6%
 # Brier loss while keeping the wins on larger sets (sick/spambase/electricity).
 LINEAR_LEAVES_MIN_SAMPLES = 1000
+
+# Default number of training rows retained as the SHAP background distribution.
+SHAP_BACKGROUND_SIZE = 200
 
 
 def _apply_thread_count(thread_count):
@@ -284,6 +296,13 @@ class GradientBoosting(_BaseBooster):
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         self._importance = np.zeros(self.prep_.n_input_features_)
+        # Keep a small sample of the (binned) training rows as the default SHAP
+        # background -- the reference distribution interventional TreeSHAP
+        # integrates over. Capped so it never bloats the pickled model.
+        bg_n = min(n_samples, SHAP_BACKGROUND_SIZE)
+        bg_idx = np.random.default_rng(self.random_state).choice(
+            n_samples, bg_n, replace=False)
+        self._shap_background_ = np.ascontiguousarray(Xb[:, bg_idx])
 
         Xvb = yv = Fv = None
         if eval_set is not None:
@@ -432,6 +451,49 @@ class GradientBoosting(_BaseBooster):
         for tree in self.trees_:
             F += tree.predict(Xb)
             yield F.copy()
+
+    def shap_values(self, X, background=None, max_background=SHAP_BACKGROUND_SIZE,
+                    random_state=0):
+        """Exact interventional TreeSHAP, in raw-score (margin) space.
+
+        Returns ``(phi, expected_value)`` where ``phi`` has shape
+        ``(n_samples, n_input_features)`` and, for every row,
+        ``phi.sum(axis=1) + expected_value == predict_raw(X)`` to floating-point
+        tolerance (Shapley efficiency). Each ``phi[i, f]`` is feature f's signed
+        additive contribution to the raw score of row i -- the regression target,
+        or the binary log-odds. Linear-leaf slope terms are included exactly.
+
+        ``background`` is the reference distribution SHAP integrates over
+        (defaults to the training-data sample captured at fit); ``max_background``
+        subsamples it for speed (cost is linear in the background size)."""
+        X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
+             else np.asarray(X, dtype=np.float64))
+        Xb = np.ascontiguousarray(self.prep_.transform(X).T)
+        n_orig = self.prep_.n_input_features_
+        if not self.trees_:
+            return np.zeros((Xb.shape[1], n_orig)), float(self.init_)
+        if background is None:
+            Rb = self._shap_background_
+        else:
+            bg = (np.asarray(background, dtype=object) if self.prep_.cat_features_
+                  else np.asarray(background, dtype=np.float64))
+            Rb = np.ascontiguousarray(self.prep_.transform(bg).T)
+        if Rb.shape[1] > max_background:
+            sel = np.random.default_rng(random_state).choice(
+                Rb.shape[1], max_background, replace=False)
+            Rb = np.ascontiguousarray(Rb[:, sel])
+        feats, thrs, depths, lin_k, foff, lidx, coff, coef = \
+            pack_forest_linear(self.trees_, self.depth)
+        cs = getattr(self, "_centers_std_", None)
+        if cs is None:
+            cs = np.zeros((1, 1))   # unused: every tree is constant (k=0)
+        fact = _factorials(self.depth)
+        phi = _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, foff, lidx,
+                                  coff, coef, cs, self.prep_.feature_map_, n_orig,
+                                  fact)
+        base = _predict_forest_linear(Rb, feats, thrs, depths, lin_k, foff, lidx,
+                                      coff, coef, cs, self.init_)
+        return phi, float(base.mean())
 
 
 class MulticlassBoosting(_BaseBooster):

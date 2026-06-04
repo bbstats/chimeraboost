@@ -775,3 +775,102 @@ def test_sklearn_check_estimator_compliance(Est):
             "weights reweight the loss but are not bit-exactly equivalent to "
             "integer sample repetition (documented deviation)",
     })
+
+
+# ---- SHAP (exact interventional TreeSHAP) -----------------------------------
+
+def _shap_efficiency_err(model_pred, phi, expected_value):
+    """Max |sum_features(phi) + expected_value - prediction| over rows."""
+    return np.abs(phi.sum(axis=1) + expected_value - model_pred).max()
+
+
+def test_shap_efficiency_regression_linear_leaves():
+    rng = np.random.default_rng(0)
+    n = 1500
+    X = rng.normal(size=(n, 6))
+    y = 2 * X[:, 0] - 1.5 * X[:, 1] + X[:, 2] * X[:, 3] + 0.3 * rng.normal(size=n)
+    m = ChimeraBoostRegressor(iterations=80, depth=5, linear_leaves=True,
+                              random_state=0).fit(X, y)
+    phi = m.shap_values(X[:50])
+    # Shapley efficiency must hold exactly, with the linear-leaf slopes included.
+    assert _shap_efficiency_err(m.predict(X[:50]), phi, m.expected_value_) < 1e-6
+    assert phi.shape == (50, 6)
+
+
+def test_shap_efficiency_regression_constant_leaves():
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.2 * rng.normal(size=800)
+    m = ChimeraBoostRegressor(iterations=60, depth=4, linear_leaves=False,
+                              random_state=0).fit(X, y)
+    phi = m.shap_values(X[:40])
+    assert _shap_efficiency_err(m.predict(X[:40]), phi, m.expected_value_) < 1e-6
+
+
+def test_shap_efficiency_binary_logodds():
+    rng = np.random.default_rng(2)
+    X = rng.normal(size=(1500, 6))
+    score = 2 * X[:, 0] - 1.5 * X[:, 1] + X[:, 2] * X[:, 3]
+    y = (score + 0.3 * rng.normal(size=1500) > 0).astype(int)
+    m = ChimeraBoostClassifier(iterations=80, depth=5, random_state=0).fit(X, y)
+    phi = m.shap_values(X[:50])
+    # Classifier SHAP is in pre-temperature log-odds (margin) space.
+    raw = m.model_.predict_raw(X[:50])
+    assert _shap_efficiency_err(raw, phi, m.expected_value_) < 1e-6
+
+
+def test_shap_efficiency_bagged():
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(1500, 6))
+    y = 2 * X[:, 0] - X[:, 1] + 0.3 * rng.normal(size=1500)
+    m = ChimeraBoostRegressor(iterations=60, depth=4, n_ensembles=3,
+                              linear_leaves=True, random_state=0).fit(X, y)
+    phi = m.shap_values(X[:40])
+    # The bag prediction is the members' mean, so averaged SHAP stays exact.
+    assert _shap_efficiency_err(m.predict(X[:40]), phi, m.expected_value_) < 1e-6
+
+
+def test_shap_null_feature_is_negligible():
+    rng = np.random.default_rng(4)
+    X = rng.normal(size=(1500, 6))
+    y = 2 * X[:, 0] - 1.5 * X[:, 1] + 0.3 * rng.normal(size=1500)  # 5 unused
+    m = ChimeraBoostRegressor(iterations=80, depth=5, random_state=0).fit(X, y)
+    imp = np.abs(m.shap_values(X[:100])).mean(axis=0)
+    # A feature absent from the target should carry near-zero attribution.
+    assert imp[5] < 0.1 * imp[0]
+
+
+def test_shap_maps_to_original_feature_space_with_categoricals():
+    rng = np.random.default_rng(5)
+    num = rng.normal(size=600)
+    cat = rng.integers(0, 4, size=600).astype(object)
+    X = np.column_stack([num, cat])
+    y = (num + (cat.astype(int) == 2)).astype(float)
+    m = ChimeraBoostRegressor(iterations=40, depth=4, random_state=0)
+    m.fit(X, y, cat_features=[1])
+    phi = m.shap_values(X[:30])
+    # Attribution is reported in the user's 2-column input space, not the wider
+    # internal (target-encoded / combo) matrix, and still satisfies efficiency.
+    assert phi.shape == (30, 2)
+    assert _shap_efficiency_err(m.predict(X[:30]), phi, m.expected_value_) < 1e-6
+
+
+def test_shap_custom_background():
+    rng = np.random.default_rng(6)
+    X = rng.normal(size=(1200, 5))
+    y = X[:, 0] - X[:, 1] + 0.2 * rng.normal(size=1200)
+    m = ChimeraBoostRegressor(iterations=60, depth=4, random_state=0).fit(X, y)
+    bg = X[:100]
+    phi = m.shap_values(X[:30], X_background=bg)
+    # expected_value_ must equal the mean prediction over the supplied background.
+    assert abs(m.expected_value_ - m.predict(bg).mean()) < 1e-6
+    assert _shap_efficiency_err(m.predict(X[:30]), phi, m.expected_value_) < 1e-6
+
+
+def test_shap_multiclass_raises():
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(300, 4))
+    y = rng.integers(0, 3, size=300)
+    m = ChimeraBoostClassifier(iterations=30, random_state=0).fit(X, y)
+    with pytest.raises(NotImplementedError):
+        m.shap_values(X[:10])

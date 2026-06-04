@@ -491,6 +491,27 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                            axis=0)
         return self.model_.feature_importances_
 
+    def shap_values(self, X, X_background=None):
+        """Exact interventional TreeSHAP contributions to the predicted target.
+
+        Returns an array of shape ``(n_samples, n_features)`` whose rows sum to
+        ``predict(X) - expected_value_``, where ``expected_value_`` (set as an
+        attribute by this call) is the mean prediction over the background. Each
+        entry is a feature's signed additive contribution to the prediction;
+        linear-leaf slopes are included exactly. Averaged across the bag when
+        ``n_ensembles > 1`` (the bag prediction is the members' mean, so the
+        averaged attribution stays exact). ``X_background`` overrides the
+        reference distribution (default: a sample of the training data)."""
+        _check_predict_input(self, X)
+        if self.estimators_ is not None:
+            out = [m.model_.shap_values(X, background=X_background)
+                   for m in self.estimators_]
+            self.expected_value_ = float(np.mean([b for _, b in out]))
+            return np.mean([p for p, _ in out], axis=0)
+        phi, base = self.model_.shap_values(X, background=X_background)
+        self.expected_value_ = base
+        return phi
+
 
 class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     """Gradient boosted oblivious trees for classification.
@@ -732,3 +753,28 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             return np.mean([m.feature_importances_ for m in self.estimators_],
                            axis=0)
         return self.model_.feature_importances_
+
+    def shap_values(self, X, X_background=None):
+        """Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.
+
+        Binary only. Returns an array of shape ``(n_samples, n_features)`` whose
+        rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with
+        ``expected_value_`` set as an attribute. Each entry is a feature's signed
+        contribution to the log-odds of the positive class; linear-leaf slopes are
+        included exactly. Averaged across the bag when ``n_ensembles > 1`` (an
+        additive surrogate for the soft-voted probability). Multiclass is not
+        supported yet. ``X_background`` overrides the reference distribution."""
+        _check_predict_input(self, X)
+        members = self.estimators_ if self.estimators_ is not None else None
+        if (members is not None and getattr(members[0], "_multiclass", False)) \
+                or (members is None and self._multiclass):
+            raise NotImplementedError(
+                "shap_values is not supported for multiclass classification yet.")
+        if members is not None:
+            out = [m.model_.shap_values(X, background=X_background)
+                   for m in members]
+            self.expected_value_ = float(np.mean([b for _, b in out]))
+            return np.mean([p for p, _ in out], axis=0)
+        phi, base = self.model_.shap_values(X, background=X_background)
+        self.expected_value_ = base
+        return phi

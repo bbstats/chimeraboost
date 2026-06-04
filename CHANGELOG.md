@@ -4,6 +4,19 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **Exact SHAP feature attributions** (`model.shap_values(X)`). Interventional
+  TreeSHAP computed exactly — not approximated — by exploiting the oblivious tree
+  structure: a depth-D tree touches at most D distinct features, so the Shapley
+  coalition game is enumerated directly (≤2**D subsets) rather than sampled. The
+  attributions satisfy Shapley efficiency to floating-point tolerance
+  (`phi.sum(1) + expected_value_ == prediction`), are reported in the user's
+  original feature space (categorical combos / multi-target encodings fold into
+  one player), and **include the linear-leaf slope terms exactly** — so they
+  faithfully explain the actual model rather than just its split structure (which
+  is all gain importance sees). Regression explains the target; binary
+  classification explains the pre-temperature log-odds. Averaged across the bag
+  when `n_ensembles > 1`. Multiclass is not supported yet.
 
 ## [0.10.0] - 2026-06-02
 ### Changed
