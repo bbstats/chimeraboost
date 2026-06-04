@@ -17,6 +17,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   is all gain importance sees). Regression explains the target; binary
   classification explains the pre-temperature log-odds. Averaged across the bag
   when `n_ensembles > 1`. Multiclass is not supported yet.
+- **Linear-leaf models** (`linear_leaves`, default-on for binary classification).
+  Each leaf fits a ridge model over its numeric split features instead of a
+  constant, adding local slope where step leaves underfit; `linear_lambda` sets
+  the ridge penalty. Leaves with too few rows fall back to a constant. Not
+  available with MAE/Quantile loss or multiclass.
+- **Hierarchical shrinkage** (`hs_lambda`). Above 0, leaf values are recursively
+  shrunk toward their ancestors — hardest for deep or low-mass leaves — at no
+  inference cost.
+- **`cat_features` as a constructor argument**, so `GridSearchCV`/`Pipeline` can
+  carry it; a value passed to `fit` still overrides it.
+- **Input and hyperparameter validation.** Malformed constructor params (e.g.
+  non-positive `iterations`/`depth`, `depth` capped at 16 to avoid OOM, `lr > 0`,
+  non-negative regularizers, `subsample`/`colsample` in `(0, 1]`,
+  `cat_smoothing > 0`, known `loss`/`alpha`), `sample_weight` values (finite,
+  non-negative, positive sum), `cat_features` indices, and `eval_set` shape now
+  raise clear errors instead of crashing cryptically or silently misbehaving.
+- **Predict-time feature-name enforcement.** Reordered or renamed DataFrame
+  columns at `predict` now raise instead of silently producing wrong predictions.
+
+### Changed
+- **Regressor `depth` default is loss-adaptive.** `None` resolves to 6 for
+  RMSE/MAE (behavior unchanged — predictions are bit-identical) and to 4 for
+  `loss="Quantile"`, where deep leaves overfit the extreme-quantile tails.
+
+### Fixed
+- **Quantile under-dispersion.** Held-out coverage of extreme quantiles collapsed
+  toward the median as depth grew; the loss-adaptive shallower default restores
+  both coverage and the pinball objective.
+- **`cat_smoothing=0` is now rejected** with a clear error (previously a cryptic
+  `ZeroDivisionError` from a 0/0 in the ordered target encoder).
+- **pyarrow-backed DataFrames** no longer pollute captured feature names; masked
+  arrays are rejected at `fit`; `inf` is rejected at `predict` (mirroring `fit`),
+  with the O(n) scan skippable via scikit-learn's `assume_finite` for serving.
 
 ## [0.10.0] - 2026-06-02
 ### Changed
