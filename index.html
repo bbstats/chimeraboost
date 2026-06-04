@@ -322,6 +322,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#quickstart" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -333,10 +344,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-it-sits" class="md-nav__link">
+  <a href="#what-it-does" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where it sits
+        What it does
       
     </span>
   </a>
@@ -344,10 +355,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-get" class="md-nav__link">
+  <a href="#benchmarks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you get
+        Benchmarks
       
     </span>
   </a>
@@ -355,10 +366,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-go-next" class="md-nav__link">
+  <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to go next
+        Documentation
       
     </span>
   </a>
@@ -366,10 +377,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-in-one-paragraph" class="md-nav__link">
+  <a href="#how-the-trees-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design in one paragraph
+        How the trees work
       
     </span>
   </a>
@@ -519,6 +530,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#quickstart" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -530,10 +552,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-it-sits" class="md-nav__link">
+  <a href="#what-it-does" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where it sits
+        What it does
       
     </span>
   </a>
@@ -541,10 +563,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-you-get" class="md-nav__link">
+  <a href="#benchmarks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What you get
+        Benchmarks
       
     </span>
   </a>
@@ -552,10 +574,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-go-next" class="md-nav__link">
+  <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to go next
+        Documentation
       
     </span>
   </a>
@@ -563,10 +585,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-in-one-paragraph" class="md-nav__link">
+  <a href="#how-the-trees-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design in one paragraph
+        How the trees work
       
     </span>
   </a>
@@ -594,57 +616,59 @@
 
 
 <h1 id="chimeraboost">ChimeraBoost<a class="headerlink" href="#chimeraboost" title="Permanent link">&para;</a></h1>
-<p><strong>What if CatBoost was slightly worse, 12× faster, and all in Python?</strong></p>
-<p>ChimeraBoost is an exceedingly opinionated gradient-boosted decision tree library
-built on <strong>oblivious (symmetric) trees</strong>, accelerated with <a href="https://numba.pydata.org/">numba</a>,
-and depending on nothing heavier than NumPy, scikit-learn, SciPy, and pandas. No
-C++, no build toolchain — you can read and modify every line in Python.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">pip</span> <span class="n">install</span> <span class="n">chimeraboost</span>
+<p>Gradient boosting on oblivious (symmetric) decision trees, written in Python with a
+<a href="https://numba.pydata.org/">numba</a> backend. It depends only on NumPy, scikit-learn,
+SciPy, and pandas — no C++ extensions and no build step, so you can read and modify
+every line.</p>
+<blockquote>
+<p><em>What if CatBoost was slightly worse, 12× faster, and all in Python?</em></p>
+</blockquote>
+<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>chimeraboost
 </code></pre></div>
+<p>Python 3.9 or newer.</p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># classification</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># regression</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">preds</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">preds</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
 </code></pre></div>
-<p>A bare <code>fit(X, y)</code> already does the sensible thing: it carves an internal
-validation split, early-stops on it, and predicts from the best iteration.</p>
-<h2 id="where-it-sits">Where it sits<a class="headerlink" href="#where-it-sits" title="Permanent link">&para;</a></h2>
-<p><a href="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png"><img alt="TabArena-Lite Elo vs speed Pareto" src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="560" /></a></p>
-<p>ChimeraBoost sits on the strength-vs-speed Pareto frontier: roughly CatBoost-class
-accuracy at a fraction of the training time, ahead of XGBoost and LightGBM defaults
-on both axes — all in pure Python.</p>
-<h2 id="what-you-get">What you get<a class="headerlink" href="#what-you-get" title="Permanent link">&para;</a></h2>
+<p><code>fit(X, y)</code> holds out an internal validation split, early-stops on it, and predicts
+from the best round. Categorical columns are passed by index (<code>cat_features=</code>); NaNs
+route to a dedicated bin, so no imputation is needed.</p>
+<h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Regression, quantile regression, binary and multiclass classification</strong> under one API.</li>
-<li><strong>First-class categorical handling</strong> — ordered target statistics (CatBoost-style), no manual encoding.</li>
-<li><strong>Sample weights</strong>, <strong>bagging</strong> (<code>n_ensembles</code>), and <strong>grouped early-stopping splits</strong>.</li>
-<li><strong>Well-calibrated probabilities</strong> out of the box (temperature scaling on <code>predict_proba</code>).</li>
-<li><strong>Exact SHAP attributions</strong> (<code>model.shap_values(X)</code>) — interventional TreeSHAP computed
-  exactly, not sampled, including the linear-leaf slope terms.</li>
-<li>A scikit-learn-compatible estimator interface (<code>fit</code>/<code>predict</code>/<code>predict_proba</code>,
-  <code>feature_importances_</code>, full <code>check_estimator</code> compliance).</li>
+<li>Regression (squared error, absolute error, quantile), binary and multiclass classification.</li>
+<li>Categorical features via ordered target statistics — pass column indices, no manual encoding.</li>
+<li>Sample weights, bagging (<code>n_ensembles</code>), and grouped validation splits.</li>
+<li>Calibrated probabilities (<code>predict_proba</code> is temperature-scaled on the validation split).</li>
+<li>Exact SHAP attributions (<a href="shap/"><code>shap_values</code></a>), including the per-leaf linear models.</li>
+<li>A scikit-learn estimator API that drops into <code>Pipeline</code>, <code>GridSearchCV</code>, and <code>cross_val_score</code>.</li>
 </ul>
-<h2 id="where-to-go-next">Where to go next<a class="headerlink" href="#where-to-go-next" title="Permanent link">&para;</a></h2>
+<h2 id="benchmarks">Benchmarks<a class="headerlink" href="#benchmarks" title="Permanent link">&para;</a></h2>
+<p><a href="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png"><img alt="TabArena-Lite Elo vs training time" src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="560" /></a></p>
+<p>On TabArena-Lite, ChimeraBoost sits on the accuracy-vs-training-time Pareto frontier:
+ahead of XGBoost and LightGBM defaults on both axes, and within reach of CatBoost's
+accuracy at a fraction of its training time.</p>
+<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><a href="recipes/">Recipes</a></strong> — copy-paste examples for every task: categoricals, quantile
-  regression, multiclass, bagging, early stopping, calibration, importances, and SHAP.</li>
+<li><a href="recipes/">Recipes</a> — worked examples for every task.</li>
+<li><a href="parameters/">Parameters</a> — what each option does and when to change it.</li>
+<li><a href="shap/">SHAP</a> — exact feature attributions.</li>
+<li><a href="api/">API reference</a> — classes, methods, and signatures.</li>
 </ul>
-<h2 id="design-in-one-paragraph">Design in one paragraph<a class="headerlink" href="#design-in-one-paragraph" title="Permanent link">&para;</a></h2>
-<p>Every node at a given depth splits on the <em>same</em> <code>(feature, threshold)</code>, so a depth-<code>d</code>
-tree is just <code>d</code> splits and a leaf is a <code>d</code>-bit number. That symmetry is the source of
-both the speed (prediction is a handful of comparisons plus an array lookup, vectorized
-over the whole forest in one numba pass) and a large part of the regularization (only
-<code>d</code> splits per tree, shared across the level). On top of that sit ordered target
-statistics for categoricals, a leave-one-out leaf correction, optional per-leaf linear
-models, and temperature-scaled probabilities.</p>
+<h2 id="how-the-trees-work">How the trees work<a class="headerlink" href="#how-the-trees-work" title="Permanent link">&para;</a></h2>
+<p>Every node at a given depth splits on the same <code>(feature, threshold)</code>, so a depth-<code>d</code>
+tree is <code>d</code> splits and a leaf is a <code>d</code>-bit number. That symmetry makes prediction a
+handful of comparisons plus an array lookup (vectorized across the whole forest in one
+numba pass) and provides much of the regularization, since a tree has only <code>d</code> splits
+shared across its level. Categoricals use ordered target statistics, leaves can carry
+small linear models, and probabilities are temperature-scaled after fitting.</p>
 
 
 
