@@ -60,6 +60,13 @@ lower, median, upper = lo.predict(X_test), md.predict(X_test), hi.predict(X_test
 
 `loss="MAE"` gives median regression; `loss="RMSE"` (default) is squared error.
 
+Quantile models default to a shallower tree (`depth=4`) than the squared-error
+default (`depth=6`): an extreme conditional quantile is estimated from the points in
+each leaf, so deep, sparse leaves overfit the tails and the predicted quantiles
+collapse toward the median on held-out data. If your intervals still look too narrow,
+go shallower (`depth=3`); if they look too wide, raise `depth` and add more `iterations`.
+As with any tree-based quantile model, held-out coverage is approximate, not exact.
+
 ## Multiclass classification
 
 No configuration needed — the classifier switches to softmax when it sees 3 or more

@@ -14,7 +14,7 @@ For exact types and the auto-generated reference, see the [API reference](api.md
 |---|---|:--:|---|
 | `iterations` | `2000` | rarely | Maximum boosting rounds. With early stopping on, an upper bound rather than a target. |
 | `learning_rate` | `None` (auto) | rarely | Per-tree shrinkage. `None` resolves to 0.1 with early stopping. Lower trades more trees for slightly better fit. |
-| `depth` | `6` | **yes** | Tree depth (a depth-d tree is d splits). Conservative by default; raise to 8–10 for large, interaction-heavy regression. |
+| `depth` | `None`→auto | **yes** | Tree depth (a depth-d tree is d splits). The regressor's `None` resolves to 6 for squared/absolute error and 4 for `loss="Quantile"` (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression. |
 | `l2_leaf_reg` | `1.0` | rarely | L2 penalty on leaf values. Higher is smoother. |
 | `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | rarely | Minimum hessian mass on each side of a split. The classifier's `None` is size-adaptive: full veto below ~500 rows, off above ~2000. |
 | `leaf_estimation_iterations` | `1` (reg) / `3` (clf) | rarely | Extra Newton refinement steps per leaf. Helps logloss; little effect on squared error. |

@@ -20,6 +20,36 @@ No to both. Pass categorical column indices to `fit(..., cat_features=[...])` an
 are handled with ordered target statistics. NaNs route to a dedicated bin at fit and
 predict time, so no imputation is needed.
 
+## Does column order matter when I predict on a DataFrame?
+
+Yes. If you fit on a DataFrame (pandas or polars), the column **names and order** are
+recorded, and `predict` raises if the columns you pass don't match — reordered or renamed
+columns would otherwise produce silently-wrong predictions, since the model consumes
+columns positionally. Pass the same columns in the same order (or plain arrays on both
+sides). This mirrors scikit-learn's behavior.
+
+## What input does it reject, and how?
+
+Malformed input fails fast with a clear message rather than a cryptic crash or a silently
+broken model. A non-numeric column passed without `cat_features` names the offending
+column and points you at `cat_features`; out-of-range `cat_features` indices, bad
+`eval_set` shapes, non-finite or negative `sample_weight`, and out-of-range
+hyperparameters (e.g. negative `learning_rate`, `depth` outside `[1, 16]`) all raise
+`ValueError`. `inf` is rejected at both fit and predict; `NaN` is accepted as missing.
+
+## How do I make inference as fast as possible?
+
+Prediction is already fast (oblivious trees, a single fused forest pass). The one
+per-row check on the hot path is a finiteness scan that rejects `inf`. If you have
+already validated your serving data and want to skip it, use scikit-learn's global
+config — the same switch its own estimators honor:
+
+```python
+import sklearn
+with sklearn.config_context(assume_finite=True):
+    preds = model.predict(X)        # finiteness scan skipped
+```
+
 ## Is it deterministic?
 
 Yes, given a fixed `random_state` and `thread_count`. With multiple threads, the order
