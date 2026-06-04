@@ -1,0 +1,5 @@
+# Documentation build dependencies (NOT runtime deps — the library itself stays
+# pure-Python: numpy/numba/scikit-learn/scipy/pandas only). Install with:
+#   pip install -r requirements-docs.txt
+# Preview locally with:  mkdocs serve
+mkdocs-material>=9.5

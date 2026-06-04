@@ -224,3 +224,6 @@ catboost_info/
 benchmarks/results/*
 .claude/settings.json
 .githooks/
+
+# MkDocs build output (the site is built/published by CI, never committed)
+site/

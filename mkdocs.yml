@@ -1,0 +1,61 @@
+site_name: ChimeraBoost
+site_description: CatBoost-inspired gradient boosting in pure Python with a numba backend
+site_url: https://bbstats.github.io/chimeraboost/
+repo_url: https://github.com/bbstats/chimeraboost
+repo_name: bbstats/chimeraboost
+edit_uri: edit/main/docs/
+copyright: Apache-2.0 licensed
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+# PROJECT_STATUS.md is an internal dev/handoff briefing — keep it in the repo but
+# out of the published site.
+exclude_docs: |
+  PROJECT_STATUS.md
+
+nav:
+  - Home: index.md
+  - Recipes: recipes.md

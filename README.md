@@ -3,6 +3,8 @@
 
 > ⚠️ **Project is in active development:** breaking changes should be expected.
 
+📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
+
 <center>
 <img width="500" height="500" alt="chimeraboost logo" src="https://github.com/user-attachments/assets/ee98a4e2-9fa7-4ef1-9e64-e398f398966c" />
 </center>

@@ -30,6 +30,7 @@ Repository = "https://github.com/bbstats/chimeraboost"
 
 [project.optional-dependencies]
 dev = ["pytest"]
+docs = ["mkdocs-material>=9.5"]
 
 [tool.setuptools.packages.find]
 include = ["chimeraboost*"]
