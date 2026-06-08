@@ -77,6 +77,7 @@ def _validate_hyperparams(estimator):
     _pos_int("cat_n_permutations")
     _pos_int("leaf_estimation_iterations")
     _pos_int("onehot_max_card", lo=2)
+    _pos_int("cat_combinations_max_pairs")
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -752,6 +753,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_combinations=None, leaf_estimation_iterations=1,
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -779,6 +781,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_lambda = linear_lambda
         self.onehot_low_card = onehot_low_card
         self.onehot_max_card = onehot_max_card
+        self.cat_combinations_selective = cat_combinations_selective
+        self.cat_combinations_max_pairs = cat_combinations_max_pairs
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1067,6 +1071,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  cat_combinations=None, leaf_estimation_iterations=3,
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1092,6 +1097,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.linear_lambda = linear_lambda
         self.onehot_low_card = onehot_low_card
         self.onehot_max_card = onehot_max_card
+        self.cat_combinations_selective = cat_combinations_selective
+        self.cat_combinations_max_pairs = cat_combinations_max_pairs
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles

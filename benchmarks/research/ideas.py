@@ -64,7 +64,7 @@ IDEAS = {
     "C3_selective_cat_combinations": dict(
         params={"cat_combinations_selective": True},
         category="categorical",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="Selecting cat-combinations by target association (mutual "
                    "info / gain) instead of all C(n,2), and allowing them on "

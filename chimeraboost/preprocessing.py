@@ -46,11 +46,21 @@ class FeaturePreprocessor:
         columns keep TS only (one-hot would explode the column count).
     onehot_max_card : int
         Cardinality ceiling (inclusive) for one-hot encoding a column.
+    cat_combinations_selective : bool
+        Selective variant of ``cat_combinations``: instead of all C(n_cat, 2)
+        pairs, keep only those whose target mutual information beats BOTH parent
+        columns (the combo adds interaction signal beyond its marginals), ranked
+        and capped at ``cat_combinations_max_pairs``. Unlike the plain flag it is
+        meant for MIXED data -- selecting a few high-signal interactions instead
+        of flooding the tree with combos that crowd out the numeric features.
+    cat_combinations_max_pairs : int
+        Maximum number of selected combo columns (top-k by target MI).
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
                  cat_n_permutations=4, cat_combinations=False,
-                 onehot_low_card=False, onehot_max_card=8):
+                 onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
@@ -58,6 +68,8 @@ class FeaturePreprocessor:
         self.cat_combinations = bool(cat_combinations)
         self.onehot_low_card = bool(onehot_low_card)
         self.onehot_max_card = int(onehot_max_card)
+        self.cat_combinations_selective = bool(cat_combinations_selective)
+        self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
 
     # ---- helpers -------------------------------------------------------------
     @staticmethod
@@ -67,10 +79,53 @@ class FeaturePreprocessor:
         col_b = np.asarray(X[:, f_b], dtype=str)
         return np.char.add(np.char.add(col_a, "_x_"), col_b)
 
-    def _split_columns_fit(self, X, cat_features):
+    @staticmethod
+    def _assoc_labels(encode_targets):
+        """Reduce the ordered-TS encode targets to a single integer label vector
+        for measuring categorical->target association (combo selection only).
+
+        * multiclass (K one-hot targets) -> the class index (argmax)
+        * binary / already-discrete single target -> the values as labels
+        * regression (continuous single target) -> decile bins
+        Selection uses the full training target, like any mutual-info feature
+        screen; the ordered encoder still prevents value leakage at encode time.
+        """
+        if len(encode_targets) > 1:
+            return np.argmax(np.column_stack(encode_targets), axis=1)
+        t = np.asarray(encode_targets[0], dtype=np.float64)
+        uniq = np.unique(t)
+        if uniq.size <= 20:                       # already categorical/binary
+            return np.searchsorted(uniq, t)
+        # Continuous: decile-bin (robust, dependency-free).
+        edges = np.quantile(t, np.linspace(0, 1, 11)[1:-1])
+        return np.searchsorted(edges, t)
+
+    @staticmethod
+    def _mutual_info(codes, labels):
+        """Mutual information I(codes; labels) in nats, both integer-coded. A
+        dependency-free contingency-table estimate; used to rank candidate combo
+        columns by how much they explain the target."""
+        n = labels.shape[0]
+        if n == 0:
+            return 0.0
+        a = codes - codes.min() if codes.size else codes
+        b = labels - labels.min() if labels.size else labels
+        na, nb = int(a.max()) + 1, int(b.max()) + 1
+        joint = np.zeros((na, nb), dtype=np.float64)
+        np.add.at(joint, (a, b), 1.0)
+        joint /= n
+        pa = joint.sum(axis=1, keepdims=True)
+        pb = joint.sum(axis=0, keepdims=True)
+        denom = pa @ pb
+        nz = joint > 0
+        return float(np.sum(joint[nz] * np.log(joint[nz] / denom[nz])))
+
+    def _split_columns_fit(self, X, cat_features, assoc_labels=None):
         """Split input into a numeric matrix and an integer-code matrix for the
         categorical columns, learning the category->code maps on the way.
-        When cat_combinations is True, appends combo codes after the base codes."""
+        When cat_combinations is True, appends combo codes after the base codes.
+        ``assoc_labels`` (integer target labels) enables selective combos: only
+        the top pairs by target mutual information that beat both parents."""
         n_features = X.shape[1]
         cat_set = set(cat_features or [])
         self.cat_features_ = sorted(cat_set)
@@ -95,17 +150,42 @@ class FeaturePreprocessor:
         # the tree sees interaction effects single columns can't express.
         self.combo_pairs_ = []
         self.combo_maps_ = []
-        if self.cat_combinations and len(self.cat_features_) >= 2:
-            combo_cols = []
-            for a in range(len(self.cat_features_)):
-                for b in range(a + 1, len(self.cat_features_)):
+        n_cat = len(self.cat_features_)
+        selective = self.cat_combinations_selective and assoc_labels is not None
+        enable_combos = (self.cat_combinations or selective) and n_cat >= 2
+        if enable_combos:
+            # Factorize every candidate pair once.
+            cand = []   # (f_a, f_b, codes, cats)
+            for a in range(n_cat):
+                for b in range(a + 1, n_cat):
                     f_a, f_b = self.cat_features_[a], self.cat_features_[b]
                     c, cats = factorize(self._combo_values(X, f_a, f_b))
-                    self.combo_pairs_.append((f_a, f_b))
-                    self.combo_maps_.append({v: i for i, v in enumerate(cats)})
-                    combo_cols.append(c)
-            codes = np.hstack([codes,
-                               np.column_stack(combo_cols).astype(np.int64)])
+                    cand.append((f_a, f_b, a, b, c, cats))
+            if selective:
+                # Keep only combos whose target MI beats BOTH parents (they add
+                # interaction signal beyond their marginals), ranked by MI and
+                # capped at cat_combinations_max_pairs. Works on MIXED data --
+                # the numeric columns are untouched, so combos no longer crowd
+                # them out indiscriminately (the C1/auto-combo lesson).
+                parent_mi = [self._mutual_info(codes[:, j], assoc_labels)
+                             for j in range(n_cat)]
+                scored = []
+                for (f_a, f_b, a, b, c, cats) in cand:
+                    mi = self._mutual_info(c, assoc_labels)
+                    if mi > max(parent_mi[a], parent_mi[b]):
+                        scored.append((mi, f_a, f_b, c, cats))
+                scored.sort(key=lambda t: t[0], reverse=True)
+                cand = [(f_a, f_b, None, None, c, cats)
+                        for (_mi, f_a, f_b, c, cats)
+                        in scored[:self.cat_combinations_max_pairs]]
+            combo_cols = []
+            for (f_a, f_b, _a, _b, c, cats) in cand:
+                self.combo_pairs_.append((f_a, f_b))
+                self.combo_maps_.append({v: i for i, v in enumerate(cats)})
+                combo_cols.append(c)
+            if combo_cols:
+                codes = np.hstack(
+                    [codes, np.column_stack(combo_cols).astype(np.int64)])
         return num, codes
 
     def _compute_onehot_specs(self):
@@ -163,7 +243,9 @@ class FeaturePreprocessor:
     # ---- fit / transform -----------------------------------------------------
     def fit_transform(self, X, encode_targets, cat_features):
         """encode_targets: list of 1D arrays used for ordered TS (len T)."""
-        num, codes = self._split_columns_fit(X, cat_features)
+        assoc_labels = (self._assoc_labels(encode_targets)
+                        if self.cat_combinations_selective else None)
+        num, codes = self._split_columns_fit(X, cat_features, assoc_labels)
 
         # One-hot indicator block for low-cardinality cats (built from the base
         # cat codes, before any combo columns). Stacked between num and the TS

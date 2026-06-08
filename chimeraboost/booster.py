@@ -113,7 +113,9 @@ class _BaseBooster:
                  ordered_boosting=True, cat_combinations=False,
                  leaf_estimation_iterations=1, hs_lambda=0.0,
                  linear_leaves=False, linear_lambda=1.0,
-                 onehot_low_card=False, onehot_max_card=8):
+                 onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False,
+                 cat_combinations_max_pairs=20):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -136,6 +138,8 @@ class _BaseBooster:
         self.linear_lambda = float(linear_lambda)
         self.onehot_low_card = bool(onehot_low_card)
         self.onehot_max_card = int(onehot_max_card)
+        self.cat_combinations_selective = bool(cat_combinations_selective)
+        self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -190,7 +194,9 @@ class _BaseBooster:
                                    self.random_state, self.cat_n_permutations,
                                    self.cat_combinations,
                                    onehot_low_card=self.onehot_low_card,
-                                   onehot_max_card=self.onehot_max_card)
+                                   onehot_max_card=self.onehot_max_card,
+                                   cat_combinations_selective=self.cat_combinations_selective,
+                                   cat_combinations_max_pairs=self.cat_combinations_max_pairs)
 
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):

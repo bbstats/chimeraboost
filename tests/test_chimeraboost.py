@@ -1317,3 +1317,63 @@ def test_onehot_max_card_validation():
     y = (X[:, 0] > 0).astype(int)
     with pytest.raises(ValueError, match="onehot_max_card"):
         ChimeraBoostClassifier(onehot_max_card=1).fit(X, y)
+
+
+# --- C3: selective cat_combinations on mixed data (default-off flag) -----------
+
+def test_cat_combinations_selective_is_noop_on_numeric_data():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 4))
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(X, y)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               cat_combinations_selective=True).fit(X, y)
+    assert np.allclose(a.predict_proba(X), b.predict_proba(X))
+
+
+def test_cat_combinations_selective_fires_on_mixed_data():
+    """On MIXED data the plain auto-rule keeps no combos, but the selective flag
+    picks high-MI interaction pairs (here A x B drives an XOR target) and changes
+    predictions. Unseen categories at predict still work."""
+    rng = np.random.default_rng(0)
+    n = 3000
+    A, B, C = (rng.integers(0, 4, n), rng.integers(0, 4, n),
+               rng.integers(0, 6, n))
+    num = rng.normal(size=(n, 2))
+    X = np.empty((n, 5), dtype=object)
+    X[:, 0] = [f"a{v}" for v in A]
+    X[:, 1] = [f"b{v}" for v in B]
+    X[:, 2] = [f"c{v}" for v in C]
+    X[:, 3], X[:, 4] = num[:, 0], num[:, 1]
+    y = (((A % 2) ^ (B % 2)).astype(bool) | (num[:, 0] > 1.2)).astype(int)
+    base = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False).fit(X, y,
+                                                            cat_features=[0, 1, 2])
+    sel = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                 early_stopping=False,
+                                 cat_combinations_selective=True
+                                 ).fit(X, y, cat_features=[0, 1, 2])
+    assert base.model_.prep_.combo_pairs_ == []          # auto-off on mixed
+    assert (0, 1) in sel.model_.prep_.combo_pairs_       # the XOR-driving pair
+    assert not np.allclose(base.predict_proba(X), sel.predict_proba(X))
+    Xnew = X[:3].copy()
+    Xnew[0, 0] = "a_UNSEEN"
+    assert sel.predict_proba(Xnew).shape == (3, 2)
+
+
+def test_cat_combinations_max_pairs_caps_selection():
+    rng = np.random.default_rng(1)
+    n = 2000
+    X = np.empty((n, 5), dtype=object)
+    cols = [rng.integers(0, 4, n) for _ in range(5)]
+    for j, c in enumerate(cols):
+        X[:, j] = [f"v{v}" for v in c]
+    y = ((cols[0] % 2) ^ (cols[1] % 2) ^ (cols[2] % 2)).astype(int)
+    m = ChimeraBoostClassifier(n_estimators=40, random_state=0,
+                               early_stopping=False,
+                               cat_combinations_selective=True,
+                               cat_combinations_max_pairs=2
+                               ).fit(X, y, cat_features=[0, 1, 2, 3, 4])
+    assert len(m.model_.prep_.combo_pairs_) <= 2
