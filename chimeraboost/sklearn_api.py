@@ -611,6 +611,34 @@ def _auto_min_child_weight(n_train):
     return float(np.clip((2000.0 - n_train) / 1500.0, 0.0, 1.0))
 
 
+# Pairwise categorical combinations help when the target depends on categorical
+# INTERACTIONS, but on mixed data the synthetic combo columns crowd out the
+# numeric features that want to split (sign-tested: all-categorical car/kr-vs-kp
+# gain +60%+, mixed sets regress). So the auto-default enables them ONLY when the
+# data is entirely categorical -- the precise condition under which they help
+# without a downside. The two caps below are resource guards (a wide all-cat
+# dataset generates C(n_cat, 2) combo columns, each target-encoded over every
+# row), NOT accuracy knobs: above them the user can still opt in explicitly.
+_AUTO_CAT_COMBO_MAX_PAIRS = 1000        # ceiling on C(n_cat, 2) combo columns
+_AUTO_CAT_COMBO_MAX_CELLS = 5e7         # ceiling on pairs * n_samples (memory)
+
+
+def _auto_cat_combinations(cat_features, n_features, n_samples):
+    """Resolve ``cat_combinations=None``: True only for (tractable) all-categorical
+    data. ``cat_features`` is the resolved integer-index list (or None)."""
+    if cat_features is None or len(cat_features) == 0:
+        return False
+    n_cat = len(cat_features)
+    if n_cat < 2 or n_cat != n_features:
+        return False
+    n_pairs = n_cat * (n_cat - 1) // 2
+    if n_pairs > _AUTO_CAT_COMBO_MAX_PAIRS:
+        return False
+    if n_pairs * n_samples > _AUTO_CAT_COMBO_MAX_CELLS:
+        return False
+    return True
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -666,8 +694,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         Print per-round train and validation metrics.
     ordered_boosting : bool, default False
         Use the leave-one-out leaf training step instead of plain Newton updates.
-    cat_combinations : bool, default False
-        Add all pairwise categorical-by-categorical features.
+    cat_combinations : bool or None, default None
+        Add all pairwise categorical-by-categorical features. ``None`` enables
+        them automatically only when the data is entirely categorical (where the
+        interaction columns help without crowding out numeric splits); set
+        ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
@@ -717,7 +748,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
-                 cat_combinations=False, leaf_estimation_iterations=1,
+                 cat_combinations=None, leaf_estimation_iterations=1,
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
@@ -850,6 +881,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
+        # Auto-resolve cat_combinations: on only for tractable all-categorical data.
+        if kw.get("cat_combinations") is None:
+            kw["cat_combinations"] = _auto_cat_combinations(
+                cat_features, self.n_features_in_, len(X))
         self.model_ = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                        **kw)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
@@ -949,8 +984,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Print per-round train and validation metrics.
     ordered_boosting : bool, default False
         Use the leave-one-out leaf training step instead of plain Newton updates.
-    cat_combinations : bool, default False
-        Add all pairwise categorical-by-categorical features.
+    cat_combinations : bool or None, default None
+        Add all pairwise categorical-by-categorical features. ``None`` enables
+        them automatically only when the data is entirely categorical (where the
+        interaction columns help without crowding out numeric splits); set
+        ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 3
         Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
@@ -1003,7 +1041,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
-                 cat_combinations=False, leaf_estimation_iterations=3,
+                 cat_combinations=None, leaf_estimation_iterations=3,
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
@@ -1133,6 +1171,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # on the FINAL training set (post early-stopping split).
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
+        # Auto-resolve cat_combinations: on only for tractable all-categorical data
+        # (targets the all-categorical multiclass gap, e.g. car).
+        if kw.get("cat_combinations") is None:
+            kw["cat_combinations"] = _auto_cat_combinations(
+                cat_features, self.n_features_in_, len(X))
 
         self._multiclass = self.n_classes_ > 2
         # Resolve the linear_leaves auto-default: ON for binary (a clean broad

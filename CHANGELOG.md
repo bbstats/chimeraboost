@@ -3,6 +3,16 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **`cat_combinations` default is now adaptive** (`None`). Pairwise
+  category-by-category features are enabled automatically when the data is
+  entirely categorical — where they capture interactions without crowding out
+  numeric splits — and stay off otherwise. This closes the long-standing gap on
+  all-categorical datasets (e.g. the `car` multiclass set) out of the box. Set
+  `True`/`False` to force it; auto is skipped for very wide all-categorical data
+  as a resource guard against the `C(n_cat, 2)` blow-up.
+
 ## [0.11.0] - 2026-06-04
 ### Added
 - **Exact SHAP feature attributions** (`model.shap_values(X)`). Interventional

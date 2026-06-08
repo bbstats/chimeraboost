@@ -32,7 +32,8 @@ of the rows, so a row never sees its own label. Several orderings
 shrunk toward the global mean by `cat_smoothing`. Pass the columns (by integer position or
 column name) to `fit(..., cat_features=[...])`; everything else is automatic.
 
-`cat_combinations=True` additionally builds all pairwise category-by-category features.
+`cat_combinations` additionally builds all pairwise category-by-category features; the
+default (`None`) turns them on automatically when the data is entirely categorical.
 
 ## Leaf values and linear leaves
 

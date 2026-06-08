@@ -36,8 +36,11 @@ clf.fit(X, y, cat_features=[0, 3])
 clf.fit(df, y, cat_features=["city", "device_type"])
 ```
 
-For mostly-categorical data, `cat_combinations=True` adds all pairwise category-by-category
-features. It can crowd out numerics on mixed data, so it is off by default.
+`cat_combinations` adds all pairwise category-by-category features. They help when the
+target depends on categorical interactions but can crowd out numerics on mixed data, so
+the default (`None`) turns them on automatically only when the data is entirely
+categorical. Force them with `cat_combinations=True` (e.g. on mixed data where you know
+the interactions matter) or disable with `False`.
 
 ## Missing values
 

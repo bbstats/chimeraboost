@@ -818,6 +818,55 @@ def test_auto_min_child_weight_is_size_adaptive():
     assert ce.model_.min_child_weight == 0.5
 
 
+def test_auto_cat_combinations_helper():
+    """cat_combinations=None enables combos only for tractable all-categorical
+    data; the resource caps and the mixed/no-cat cases stay off."""
+    from chimeraboost.sklearn_api import (
+        _auto_cat_combinations as f,
+        _AUTO_CAT_COMBO_MAX_PAIRS, _AUTO_CAT_COMBO_MAX_CELLS)
+    assert f([0, 1, 2, 3], 4, 1000) is True            # all-categorical -> on
+    assert f([0, 1], 4, 1000) is False                 # mixed (2 of 4) -> off
+    assert f(None, 4, 1000) is False                   # no cats -> off
+    assert f([0], 1, 1000) is False                    # need >=2 to combine
+    # Resource guards: too many pairs, or too many pairs*rows, -> off.
+    big = list(range(60)); assert (60 * 59 // 2) > _AUTO_CAT_COMBO_MAX_PAIRS
+    assert f(big, 60, 1000) is False
+    n_feat = 40; small_pairs = n_feat * (n_feat - 1) // 2
+    assert small_pairs <= _AUTO_CAT_COMBO_MAX_PAIRS
+    big_rows = int(_AUTO_CAT_COMBO_MAX_CELLS // small_pairs) + 10
+    assert f(list(range(n_feat)), n_feat, big_rows) is False
+    # numpy-array cat_features must not raise (ambiguous truth value).
+    assert f(np.array([0, 1, 2]), 3, 1000) is True
+
+
+def test_auto_cat_combinations_on_estimators():
+    """The resolved cat_combinations lands on the fitted preprocessor; explicit
+    True/False override the auto rule."""
+    rng = np.random.default_rng(0)
+    n = 1500
+    fcat = rng.integers(0, 4, (n, 4))
+    y = ((fcat[:, 0] == fcat[:, 1]) ^ (fcat[:, 2] > 1)).astype(int)
+    Xcat = fcat.astype(object)
+    allcat = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(
+        Xcat, y, cat_features=[0, 1, 2, 3])
+    assert allcat.model_.prep_.combo_pairs_                 # auto-on
+    # Mixed data leaves combos off.
+    Xmix = np.column_stack([fcat[:, :2].astype(object),
+                            rng.normal(size=(n, 2)).astype(object)])
+    mixed = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(
+        Xmix, y, cat_features=[0, 1])
+    assert not mixed.model_.prep_.combo_pairs_             # auto-off
+    # Explicit False on all-categorical data overrides the auto rule.
+    off = ChimeraBoostClassifier(cat_combinations=False, n_estimators=30,
+                                 random_state=0).fit(Xcat, y, cat_features=[0, 1, 2, 3])
+    assert not off.model_.prep_.combo_pairs_
+    # Regressor honors the same auto rule.
+    yr = fcat[:, 0] + 2.0 * (fcat[:, 1] == fcat[:, 2])
+    rgr = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(
+        Xcat, yr, cat_features=[0, 1, 2, 3])
+    assert rgr.model_.prep_.combo_pairs_
+
+
 # ---------------------------------------------------------------------------
 # hierarchical shrinkage (hs_lambda)
 # ---------------------------------------------------------------------------
