@@ -1161,3 +1161,111 @@ def test_shap_multiclass_raises():
     m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
     with pytest.raises(NotImplementedError):
         m.shap_values(X[:10])
+
+
+# --- validation_history_ property and callbacks= fit hook ---------------------
+
+def test_validation_history_best_iteration_is_curve_argmin():
+    """Under early stopping the recorded curve covers every round actually run
+    (best round + patience), and best_iteration_ is its argmin + 1 -- so the
+    kept-tree count is recoverable from the curve alone."""
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    PATIENCE = 20
+    m = ChimeraBoostClassifier(
+        n_estimators=1000, early_stopping_rounds=PATIENCE, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    hist = m.validation_history_
+    assert m.best_iteration_ < 1000
+    assert int(np.argmin(hist)) + 1 == m.best_iteration_
+    # Stopped because patience ran out after the best round (not at the horizon).
+    assert len(hist) == m.best_iteration_ + PATIENCE
+
+
+def test_validation_history_full_curve_without_early_stopping():
+    """early_stopping=False + explicit eval_set => the complete curve to the
+    horizon (n_estimators), never truncated by the stopper."""
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    HORIZON = 60
+    m = ChimeraBoostClassifier(
+        n_estimators=HORIZON, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(m.validation_history_) == HORIZON
+
+
+def test_validation_history_matches_manual_staged_logloss():
+    """The cheap per-round curve equals a manual staged log-loss evaluation on
+    the same eval_set -- so the harness can trust valid_history_ as the metric
+    at every iteration count from a single fit."""
+    from chimeraboost.losses import LOSSES
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    m = ChimeraBoostClassifier(
+        n_estimators=40, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    # Manual: staged raw scores -> Logloss against the 0/1 eval labels.
+    y01 = (yte == m.classes_[1]).astype(np.float64)
+    loss = LOSSES["Logloss"]()
+    manual = [loss.eval(y01, F)
+              for F in m.model_.staged_predict_raw(Xte)]
+    assert np.allclose(m.validation_history_, manual, atol=1e-9)
+
+
+def test_callbacks_fire_once_per_round_and_can_stop():
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    seen = []
+
+    def record(it, train_loss, val_loss, model):
+        seen.append((it, train_loss, val_loss))
+
+    m = ChimeraBoostClassifier(
+        n_estimators=15, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte), callbacks=record)
+    # One call per round, monotonically increasing iteration index.
+    assert [s[0] for s in seen] == list(range(15))
+    # val_loss passed to the callback tracks the recorded curve.
+    assert np.allclose([s[2] for s in seen], m.validation_history_, atol=1e-9)
+
+    stopped = []
+
+    def stop_at_5(it, train_loss, val_loss, model):
+        stopped.append(it)
+        return it >= 5
+
+    m2 = ChimeraBoostClassifier(
+        n_estimators=100, early_stopping=False, random_state=0)
+    m2.fit(Xtr, ytr, eval_set=(Xte, yte), callbacks=stop_at_5)
+    assert max(stopped) == 5
+    assert m2.best_iteration_ == 6   # rounds 0..5 kept
+
+
+def test_callbacks_rejected_for_bagging():
+    X, y = load_breast_cancer(return_X_y=True)
+    m = ChimeraBoostClassifier(n_estimators=20, n_ensembles=3, random_state=0)
+    with pytest.raises(ValueError, match="callbacks"):
+        m.fit(X, y, callbacks=lambda *a: None)
+
+
+def test_validation_history_regressor_and_multiclass():
+    # Regressor curve present with explicit eval set.
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=800)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
+    r = ChimeraBoostRegressor(
+        n_estimators=30, early_stopping=False, random_state=0)
+    r.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(r.validation_history_) == 30
+    # Multiclass keeps a single combined softmax-logloss curve.
+    yc = rng.integers(0, 3, size=800)
+    Xtr, Xte, ytr, yte = train_test_split(X, yc, test_size=0.3, random_state=0)
+    c = ChimeraBoostClassifier(
+        n_estimators=25, early_stopping=False, random_state=0)
+    c.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(c.validation_history_) == 25

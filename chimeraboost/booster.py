@@ -15,6 +15,21 @@ from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    _predict_forest_linear, pack_forest_linear, _shap_forest_linear)
 
 
+def _run_callbacks(callbacks, iteration, train_loss, val_loss, model):
+    """Invoke each fit callback for one boosting round. A callback is
+    ``cb(iteration, train_loss, val_loss, model)``; returning True requests an
+    early stop. Returns True if any callback asked to stop. ``callbacks`` may be
+    a single callable or an iterable of them; None is a no-op."""
+    if not callbacks:
+        return False
+    cbs = callbacks if isinstance(callbacks, (list, tuple)) else (callbacks,)
+    stop = False
+    for cb in cbs:
+        if cb(iteration, train_loss, val_loss, model) is True:
+            stop = True
+    return stop
+
+
 def _factorials(n):
     """Factorials 0!..n! as a float array (Shapley coalition weights)."""
     f = np.empty(n + 1)
@@ -274,7 +289,8 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None):
+    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
+            callbacks=None):
         """Fit the additive model. Optionally pass `cat_features` (column indices
         to target-encode) and `eval_set=(X_val, y_val)` for early stopping.
         `sample_weight` is a 1-D array of per-sample weights; None means uniform.
@@ -404,6 +420,13 @@ class GradientBoosting(_BaseBooster):
                     msg += f"  val {self.valid_history_[-1]:.5f}"
                 print(msg)
 
+            if callbacks:
+                tl = self.train_history_[-1] if self.train_history_ \
+                    else self.loss_.eval(y, F, w)
+                vl = self.valid_history_[-1] if self.valid_history_ else None
+                if _run_callbacks(callbacks, m, tl, vl, self):
+                    break
+
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
@@ -499,7 +522,8 @@ class GradientBoosting(_BaseBooster):
 class MulticlassBoosting(_BaseBooster):
     """Softmax multiclass booster: fits K trees per round (one per class)."""
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None):
+    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
+            callbacks=None):
         """Fit K trees per boosting round (one per class) under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
         scalar booster."""
@@ -596,6 +620,13 @@ class MulticlassBoosting(_BaseBooster):
                 if Fv is not None:
                     msg += f"  val {self.valid_history_[-1]:.5f}"
                 print(msg)
+
+            if callbacks:
+                tl = self.train_history_[-1] if self.train_history_ \
+                    else self.loss_.eval(Y, F, w)
+                vl = self.valid_history_[-1] if self.valid_history_ else None
+                if _run_callbacks(callbacks, m, tl, vl, self):
+                    break
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)

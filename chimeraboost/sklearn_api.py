@@ -781,7 +781,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.ensemble_n_jobs = ensemble_n_jobs
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
-            sample_weight=None):
+            sample_weight=None, callbacks=None):
         """Fit the model.
 
         Parameters
@@ -805,6 +805,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
+        callbacks : callable or list of callable, or None
+            Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
+            a callback returning True requests an early stop. Used for live
+            validation-curve capture and instrumentation. Not supported with
+            ``n_ensembles > 1`` (members fit in parallel worker processes).
         """
         cat_features = _resolve_cat_features(self, cat_features)
         cat_features = _resolve_cat_feature_names(cat_features, X)
@@ -814,12 +819,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
         if self.n_ensembles and self.n_ensembles > 1:
+            if callbacks is not None:
+                raise ValueError(
+                    "callbacks are not supported with n_ensembles > 1.")
             self.estimators_ = _fit_bagged(self, X, y, cat_features, eval_set,
                                            groups, sample_weight)
             return self
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight)
+                                sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -831,7 +839,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
         """Fit one (non-bagged) model on the data as given."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
@@ -888,7 +897,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.model_ = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                        **kw)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight)
+                        sample_weight=sample_weight, callbacks=callbacks)
         return self
 
     def predict(self, X):
@@ -910,6 +919,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if self.estimators_ is not None:
             return int(round(np.mean([m.best_iteration_ for m in self.estimators_])))
         return self.model_.best_iteration_
+
+    @property
+    def validation_history_(self):
+        """Per-round validation loss recorded during ``fit`` (RMSE-space loss for
+        regression), as a list whose length is the number of rounds run. Empty
+        when no ``eval_set`` / early-stopping split was available; for a bagged
+        model (``n_ensembles > 1``) a list of the members' histories."""
+        if self.estimators_ is not None:
+            return [m.model_.valid_history_ for m in self.estimators_]
+        return self.model_.valid_history_
 
     @property
     def feature_importances_(self):
@@ -1072,7 +1091,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.ensemble_n_jobs = ensemble_n_jobs
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
-            sample_weight=None):
+            sample_weight=None, callbacks=None):
         """Fit the model.
 
         Parameters
@@ -1095,6 +1114,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
+        callbacks : callable or list of callable, or None
+            Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
+            a callback returning True requests an early stop. Used for live
+            validation-curve capture and instrumentation. Not supported with
+            ``n_ensembles > 1`` (members fit in parallel worker processes).
         """
         cat_features = _resolve_cat_features(self, cat_features)
         cat_features = _resolve_cat_feature_names(cat_features, X)
@@ -1104,6 +1128,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
         if self.n_ensembles and self.n_ensembles > 1:
+            if callbacks is not None:
+                raise ValueError(
+                    "callbacks are not supported with n_ensembles > 1.")
             # Fix the global class set up front: a member's bootstrap may miss a
             # rare class, and predict_proba aligns each member's columns to this.
             yarr = np.asarray(y)
@@ -1118,7 +1145,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             return self
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight)
+                                sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -1130,7 +1157,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
         """Fit one (non-bagged) classifier on the data as given."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
@@ -1192,7 +1220,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if self._multiclass:
             self.model_ = MulticlassBoosting(**kw)
             self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight)
+                            sample_weight=sample_weight, callbacks=callbacks)
             self.classes_ = self.model_.classes_
             if eval_set is not None:
                 cal_Xv = eval_set[0]
@@ -1205,7 +1233,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 eval_set = (cal_Xv, cal_y)
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight)
+                            sample_weight=sample_weight, callbacks=callbacks)
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
@@ -1243,6 +1271,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if self.estimators_ is not None:
             return int(round(np.mean([m.best_iteration_ for m in self.estimators_])))
         return self.model_.best_iteration_
+
+    @property
+    def validation_history_(self):
+        """Per-round validation loss recorded during ``fit`` (binary or softmax
+        log loss), as a list whose length is the number of rounds run. Empty when
+        no ``eval_set`` / early-stopping split was available; for a bagged model
+        (``n_ensembles > 1``) a list of the members' histories."""
+        if self.estimators_ is not None:
+            return [m.model_.valid_history_ for m in self.estimators_]
+        return self.model_.valid_history_
 
     @property
     def feature_importances_(self):
