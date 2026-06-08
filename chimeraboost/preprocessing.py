@@ -36,15 +36,28 @@ class FeaturePreprocessor:
         before target encoding. Mirrors CatBoost's feature combination step;
         gives the tree access to interaction effects that individual categoricals
         can't capture. Only active when ≥2 categorical columns are present.
+    onehot_low_card : bool
+        When True, every categorical column with at most ``onehot_max_card``
+        distinct levels also gets a one-hot indicator block (one 0/1 column per
+        level), stacked alongside the ordered-TS encoding. The indicators let the
+        tree make EXACT subset splits on individual rare categories -- which a
+        single monotone TS column, where rare levels are shrunk toward the prior,
+        cannot. CatBoost-proven; cheap for low cardinality. High-cardinality
+        columns keep TS only (one-hot would explode the column count).
+    onehot_max_card : int
+        Cardinality ceiling (inclusive) for one-hot encoding a column.
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
-                 cat_n_permutations=4, cat_combinations=False):
+                 cat_n_permutations=4, cat_combinations=False,
+                 onehot_low_card=False, onehot_max_card=8):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
         self.cat_n_permutations = int(cat_n_permutations)
         self.cat_combinations = bool(cat_combinations)
+        self.onehot_low_card = bool(onehot_low_card)
+        self.onehot_max_card = int(onehot_max_card)
 
     # ---- helpers -------------------------------------------------------------
     @staticmethod
@@ -95,6 +108,34 @@ class FeaturePreprocessor:
                                np.column_stack(combo_cols).astype(np.int64)])
         return num, codes
 
+    def _compute_onehot_specs(self):
+        """Pick the base categorical columns to one-hot: those with at least 2
+        and at most ``onehot_max_card`` distinct levels. Stores
+        ``onehot_specs_`` as a list of (col-index-into-cat_features_, n_levels).
+        A no-op (empty list) unless ``onehot_low_card`` is set."""
+        self.onehot_specs_ = []
+        if not self.onehot_low_card:
+            return
+        for j in range(len(self.cat_features_)):
+            n_levels = len(self.cat_maps_[j])
+            if 2 <= n_levels <= self.onehot_max_card:
+                self.onehot_specs_.append((j, n_levels))
+
+    def _onehot_block(self, base_codes):
+        """Build the (n, sum n_levels) one-hot 0/1 matrix from the base-cat code
+        matrix. Column for level ``l`` of cat ``j`` is ``base_codes[:, j] == l``;
+        an unseen category (code -1 from transform) matches no level, so its row
+        is all-zeros -- the right behavior (the TS column still carries the prior
+        fallback for unseen values)."""
+        if not self.onehot_specs_:
+            return np.empty((base_codes.shape[0], 0))
+        cols = []
+        for j, n_levels in self.onehot_specs_:
+            cj = base_codes[:, j]
+            for l in range(n_levels):
+                cols.append((cj == l).astype(np.float64))
+        return np.column_stack(cols)
+
     def _codes_for_transform(self, X):
         """Map categorical columns to the codes learned at fit time; unseen
         categories get -1 (the encoder then falls back to the prior).
@@ -124,6 +165,12 @@ class FeaturePreprocessor:
         """encode_targets: list of 1D arrays used for ordered TS (len T)."""
         num, codes = self._split_columns_fit(X, cat_features)
 
+        # One-hot indicator block for low-cardinality cats (built from the base
+        # cat codes, before any combo columns). Stacked between num and the TS
+        # blocks; non-numeric (binary, no ordinal meaning for linear leaves).
+        self._compute_onehot_specs()
+        onehot = self._onehot_block(codes[:, :len(self.cat_features_)])
+
         encoded_blocks = []
         self.encoders_ = []
         if codes.shape[1]:
@@ -136,11 +183,12 @@ class FeaturePreprocessor:
                 encoded_blocks.append(enc.fit_transform(codes, target))
                 self.encoders_.append(enc)
 
-        feat = self._stack(num, encoded_blocks)
+        feat = self._stack(num, [onehot] + encoded_blocks)
         self._build_feature_map(len(encode_targets))
-        # The numeric block is stacked first, then the (cat/combo) encoded blocks.
-        # Only numeric columns carry an ordinal meaning usable by linear-leaf
-        # models; mark them so the booster can pick linear-term features.
+        # Block order is [numeric | one-hot | per-target TS]. Only true numeric
+        # columns carry an ordinal meaning usable by linear-leaf models; mark them
+        # so the booster can pick linear-term features. One-hot indicators are 0/1
+        # (the tree still splits on them exactly) and the TS blocks are excluded.
         self.is_numeric_binned_ = np.zeros(feat.shape[1], dtype=bool)
         self.is_numeric_binned_[:num.shape[1]] = True
 
@@ -153,15 +201,17 @@ class FeaturePreprocessor:
         """Apply the fitted binning + categorical encoding to new data."""
         num = (np.asarray(X[:, self.num_features_], dtype=np.float64)
                if self.num_features_ else np.empty((X.shape[0], 0)))
+        onehot = np.empty((X.shape[0], 0))
         encoded_blocks = []
         if self.cat_features_:
             codes = self._codes_for_transform(X)
+            onehot = self._onehot_block(codes)   # from base codes, pre-combo
             if self.combo_pairs_:
                 combo_codes = self._combo_codes_for_transform(X)
                 codes = np.hstack([codes, combo_codes])
             for enc in self.encoders_:
                 encoded_blocks.append(enc.transform(codes))
-        feat = self._stack(num, encoded_blocks)
+        feat = self._stack(num, [onehot] + encoded_blocks)
         return self.binner_.transform(feat)
 
     # ---- internals -----------------------------------------------------------
@@ -174,11 +224,15 @@ class FeaturePreprocessor:
 
     def _build_feature_map(self, n_targets):
         """Map each combined-matrix column back to its original input column.
-        The numeric block comes first, then one (cat + combo) block per encode
-        target. Combo columns map to the lower-indexed feature of their pair so
-        their split gains fold into an existing importance bucket."""
+        Block order is [numeric | one-hot | per-target (cat + combo)]. Each
+        one-hot indicator maps to its source categorical column (repeated per
+        level), and combo columns map to the lower-indexed feature of their pair,
+        so their split gains fold into the right importance bucket."""
         combo_orig = [min(i, j) for i, j in self.combo_pairs_]
-        fmap = list(self.num_features_)
+        onehot_orig = [self.cat_features_[j]
+                       for j, n_levels in self.onehot_specs_
+                       for _ in range(n_levels)]
+        fmap = list(self.num_features_) + onehot_orig
         for _ in range(n_targets):
             fmap.extend(self.cat_features_)
             fmap.extend(combo_orig)

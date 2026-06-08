@@ -112,7 +112,8 @@ class _BaseBooster:
                  thread_count=None, random_state=None, verbose=False,
                  ordered_boosting=True, cat_combinations=False,
                  leaf_estimation_iterations=1, hs_lambda=0.0,
-                 linear_leaves=False, linear_lambda=1.0):
+                 linear_leaves=False, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -133,6 +134,8 @@ class _BaseBooster:
         self.hs_lambda = float(hs_lambda)
         self.linear_leaves = bool(linear_leaves)
         self.linear_lambda = float(linear_lambda)
+        self.onehot_low_card = bool(onehot_low_card)
+        self.onehot_max_card = int(onehot_max_card)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -185,7 +188,9 @@ class _BaseBooster:
         """Build a FeaturePreprocessor configured from this booster's params."""
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
                                    self.random_state, self.cat_n_permutations,
-                                   self.cat_combinations)
+                                   self.cat_combinations,
+                                   onehot_low_card=self.onehot_low_card,
+                                   onehot_max_card=self.onehot_max_card)
 
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):

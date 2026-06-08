@@ -1269,3 +1269,51 @@ def test_validation_history_regressor_and_multiclass():
         n_estimators=25, early_stopping=False, random_state=0)
     c.fit(Xtr, ytr, eval_set=(Xte, yte))
     assert len(c.validation_history_) == 25
+
+
+# --- C1: one-hot low-cardinality categoricals (default-off flag) --------------
+
+def test_onehot_low_card_is_noop_on_numeric_data():
+    """The flag must be a true no-op when there are no categoricals (or none low-
+    cardinality): predictions byte-identical to the default."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 4))
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(X, y)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               onehot_low_card=True).fit(X, y)
+    assert np.allclose(a.predict_proba(X), b.predict_proba(X))
+
+
+def test_onehot_low_card_encodes_only_low_cardinality():
+    """Only columns with <= onehot_max_card levels get a one-hot block; high-
+    cardinality columns keep TS only. The flag changes predictions."""
+    rng = np.random.default_rng(0)
+    n = 2000
+    X = np.empty((n, 3), dtype=object)
+    X[:, 0] = np.array([f"c{c}" for c in rng.integers(0, 5, n)], dtype=object)
+    X[:, 1] = np.array([f"h{c}" for c in rng.integers(0, 50, n)], dtype=object)
+    X[:, 2] = rng.normal(size=n)
+    y = ((X[:, 0] == "c1") | (rng.random(n) < 0.3)).astype(int)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               early_stopping=False, onehot_low_card=True)
+    m.fit(X, y, cat_features=[0, 1])
+    # The 5-level column (index 0 among cats) is one-hot; the 50-level one isn't.
+    assert m.model_.prep_.onehot_specs_ == [(0, 5)]
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y, cat_features=[0, 1])
+    assert not np.allclose(m.predict_proba(X), base.predict_proba(X))
+    # Unseen categories at predict route to an all-zero one-hot row (no crash).
+    Xnew = np.array([["c_UNSEEN", "h_UNSEEN", 0.1], ["c1", "h3", -0.2]],
+                    dtype=object)
+    assert m.predict_proba(Xnew).shape == (2, 2)
+
+
+def test_onehot_max_card_validation():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 3))
+    y = (X[:, 0] > 0).astype(int)
+    with pytest.raises(ValueError, match="onehot_max_card"):
+        ChimeraBoostClassifier(onehot_max_card=1).fit(X, y)

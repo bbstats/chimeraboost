@@ -76,6 +76,7 @@ def _validate_hyperparams(estimator):
     _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
     _pos_int("leaf_estimation_iterations")
+    _pos_int("onehot_max_card", lo=2)
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -750,6 +751,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -775,6 +777,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.onehot_low_card = onehot_low_card
+        self.onehot_max_card = onehot_max_card
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1062,6 +1066,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1085,6 +1090,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.onehot_low_card = onehot_low_card
+        self.onehot_max_card = onehot_max_card
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles

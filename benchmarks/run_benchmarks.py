@@ -189,12 +189,17 @@ OPENML_SUITE = {
     "sick":          dict(data_id=38,    task="binary",     cats="auto"),
     "mushroom":      dict(data_id=24,    task="binary",     cats="auto"),
     "kr-vs-kp":      dict(data_id=3,     task="binary",     cats="auto"),
+    # high-cardinality real categoricals -- where one-hot vs ordered TS and fresh
+    # permutations actually differ (the CatBoost-gap research targets). Added for
+    # the categorical tier (Part B); all-categorical, no pre-encoding.
+    "Amazon_access": dict(data_id=4135,  task="binary",     cats="auto"),
     # classification (multiclass)
     "vehicle":       dict(data_id=54,    task="multiclass", cats=None),
     "segment":       dict(data_id=40984, task="multiclass", cats=None),
     "optdigits":     dict(data_id=28,    task="multiclass", cats=None),
     "car":           dict(data_id=40975, task="multiclass", cats="auto"),
     "splice":        dict(data_id=46,    task="multiclass", cats="auto"),
+    "nursery":       dict(data_id=26,    task="multiclass", cats="auto"),
     "satimage":      dict(data_id=182,   task="multiclass", cats=None),
     "pendigits":     dict(data_id=32,    task="multiclass", cats=None),
     "letter":        dict(data_id=6,     task="multiclass", cats=None),
