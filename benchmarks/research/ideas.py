@@ -85,6 +85,10 @@ IDEAS = {
         params={"forest_leaf_refit": True},
         category="general",
         implemented=True,
+        # Post-fit pass: it rewrites leaf values AFTER boosting, so the per-round
+        # validation_history_ curve cannot see it. The fast (curve) tier is blind
+        # to it -> evaluate directly at the promotion tier (true test metric).
+        post_fit=True,
         direction="lower_better",
         hypothesis="A post-fit ridge over all leaves couples redundant oblivious "
                    "splits and recovers sharpness -- the highest-upside Brier "

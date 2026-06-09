@@ -169,6 +169,16 @@ def cascade(idea_name, tiers, seed, threads, jobs):
                category=spec["category"], params=params, tiers={})
     print(report.preregister(idea_name, spec), flush=True)
 
+    # Post-fit ideas (e.g. G1 forest leaf refit) rewrite the model AFTER boosting,
+    # so the per-round validation_history_ curve cannot see them -- the fast
+    # (curve) tier would read a false flat. Skip T0 for them and judge at the
+    # promotion tier, which fits the full model (refit included) and scores the
+    # held-out test set.
+    if spec.get("post_fit") and "T0" in tiers:
+        print("\n[T0] SKIPPED -- post-fit idea is invisible to the validation "
+              "curve; evaluating at the promotion tier instead.", flush=True)
+        tiers = [t for t in tiers if t != "T0"]
+
     if "T0" in tiers:
         print("\n[T0] fast tier -- paired validation curves ...", flush=True)
         v = run_fast_tier(params, seed, threads, jobs)
