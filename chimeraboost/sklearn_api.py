@@ -97,6 +97,7 @@ def _validate_hyperparams(estimator):
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")
     _in_range("max_bins", 2, 65534)
+    _in_range("cat_max_bins", 2, 65534)
     _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
@@ -766,6 +767,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
                  forest_leaf_refit=False, forest_refit_iterations=3,
                  ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
                  adaptive_leaf_shrinkage=0.0,
@@ -798,6 +800,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.onehot_max_card = onehot_max_card
         self.cat_combinations_selective = cat_combinations_selective
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.cat_aware_binning = cat_aware_binning
+        self.cat_max_bins = cat_max_bins
         self.forest_leaf_refit = forest_leaf_refit
         self.forest_refit_iterations = forest_refit_iterations
         self.ordered_leaf_estimation = ordered_leaf_estimation
@@ -1097,6 +1101,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
                  forest_leaf_refit=False, forest_refit_iterations=3,
                  ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
                  adaptive_leaf_shrinkage=0.0,
@@ -1127,6 +1132,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.onehot_max_card = onehot_max_card
         self.cat_combinations_selective = cat_combinations_selective
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.cat_aware_binning = cat_aware_binning
+        self.cat_max_bins = cat_max_bins
         self.forest_leaf_refit = forest_leaf_refit
         self.forest_refit_iterations = forest_refit_iterations
         self.ordered_leaf_estimation = ordered_leaf_estimation

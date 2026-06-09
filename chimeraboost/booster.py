@@ -117,6 +117,7 @@ class _BaseBooster:
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False,
                  cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
                  forest_leaf_refit=False, forest_refit_iterations=3,
                  ordered_leaf_estimation=False, adaptive_leaf_shrinkage=0.0):
         self.n_estimators = int(n_estimators)
@@ -143,6 +144,8 @@ class _BaseBooster:
         self.onehot_max_card = int(onehot_max_card)
         self.cat_combinations_selective = bool(cat_combinations_selective)
         self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
+        self.cat_aware_binning = bool(cat_aware_binning)
+        self.cat_max_bins = int(cat_max_bins)
         self.forest_leaf_refit = bool(forest_leaf_refit)
         self.forest_refit_iterations = int(forest_refit_iterations)
         self.ordered_leaf_estimation = bool(ordered_leaf_estimation)
@@ -203,7 +206,9 @@ class _BaseBooster:
                                    onehot_low_card=self.onehot_low_card,
                                    onehot_max_card=self.onehot_max_card,
                                    cat_combinations_selective=self.cat_combinations_selective,
-                                   cat_combinations_max_pairs=self.cat_combinations_max_pairs)
+                                   cat_combinations_max_pairs=self.cat_combinations_max_pairs,
+                                   cat_aware_binning=self.cat_aware_binning,
+                                   cat_max_bins=self.cat_max_bins)
 
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):

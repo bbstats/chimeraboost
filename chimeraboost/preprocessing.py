@@ -60,7 +60,8 @@ class FeaturePreprocessor:
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
                  cat_n_permutations=4, cat_combinations=False,
                  onehot_low_card=False, onehot_max_card=8,
-                 cat_combinations_selective=False, cat_combinations_max_pairs=20):
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
@@ -70,6 +71,8 @@ class FeaturePreprocessor:
         self.onehot_max_card = int(onehot_max_card)
         self.cat_combinations_selective = bool(cat_combinations_selective)
         self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
+        self.cat_aware_binning = bool(cat_aware_binning)
+        self.cat_max_bins = int(cat_max_bins)
 
     # ---- helpers -------------------------------------------------------------
     @staticmethod
@@ -274,7 +277,16 @@ class FeaturePreprocessor:
         self.is_numeric_binned_ = np.zeros(feat.shape[1], dtype=bool)
         self.is_numeric_binned_[:num.shape[1]] = True
 
-        self.binner_ = Binner(self.max_bins)
+        # C4: cat-aware binning gives the target-encoded categorical columns
+        # (everything that isn't a raw numeric) a larger bin budget, so the tree
+        # can make sharper splits on the categorical target statistic. Off by
+        # default -> uniform max_bins (scalar, byte-identical to before).
+        if self.cat_aware_binning and not self.is_numeric_binned_.all():
+            bins = np.where(self.is_numeric_binned_, self.max_bins,
+                            self.cat_max_bins).astype(np.int64)
+            self.binner_ = Binner(bins)
+        else:
+            self.binner_ = Binner(self.max_bins)
         X_binned = self.binner_.fit_transform(feat)
         self.n_bins_ = self.binner_.n_bins_
         return X_binned

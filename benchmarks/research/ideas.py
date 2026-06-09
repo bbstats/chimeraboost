@@ -55,11 +55,16 @@ IDEAS = {
     "C2_pertree_ts_permutation": dict(
         params={"cat_pertree_permutation": True},
         category="categorical",
-        implemented=False,
+        implemented=False,   # DEFERRED -- see note below
         direction="lower_better",
         hypothesis="A fresh TS permutation per tree (per block) approximates "
                    "CatBoost's per-snapshot adaptivity; helps high-signal "
-                   "categorical sets. Watch fit-time cost.",
+                   "categorical sets. DEFERRED: this requires RE-ENCODING the "
+                   "categorical columns every boosting round, a fundamental break "
+                   "from ChimeraBoost's encode-once-then-bin architecture (the "
+                   "binned matrix the tree kernel consumes is built once at fit). "
+                   "Not justified for a near-certain kill given 6/6 other levers "
+                   "killed; would need a dedicated re-encode-per-round redesign.",
     ),
     "C3_selective_cat_combinations": dict(
         params={"cat_combinations_selective": True},
@@ -74,7 +79,7 @@ IDEAS = {
     "C4_cat_aware_binning": dict(
         params={"cat_aware_binning": True},
         category="categorical",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="More/different bins for encoded categorical columns gives "
                    "sharper categorical splits.",

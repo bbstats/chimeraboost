@@ -1528,3 +1528,34 @@ def test_adaptive_leaf_shrinkage_kernel_matches_formula():
     np.add.at(H, leaf, h)
     factor = H / (H + alpha)
     assert np.allclose(adapt, plain * factor)
+
+
+# --- C4: cat-aware binning (default-off flag) ---------------------------------
+
+def test_cat_aware_binning_gives_cat_columns_more_bins_and_is_noop_on_numeric():
+    rng = np.random.default_rng(0)
+    n = 3000
+    X = np.empty((n, 3), dtype=object)
+    X[:, 0] = [f"c{c}" for c in rng.integers(0, 30, n)]   # high-card categorical
+    X[:, 1] = rng.normal(size=n)
+    X[:, 2] = rng.normal(size=n)
+    y = ((rng.integers(0, 30, n) % 2) | (X[:, 1].astype(float) > 0.5)).astype(int)
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y, cat_features=[0])
+    caw = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                 early_stopping=False,
+                                 cat_aware_binning=True).fit(X, y, cat_features=[0])
+    # The target-encoded categorical column gets the larger (cat_max_bins) budget;
+    # numeric columns keep max_bins.
+    assert caw.model_.prep_.binner_.n_bins_.max() > \
+        base.model_.prep_.binner_.n_bins_.max()
+    assert not np.allclose(base.predict_proba(X), caw.predict_proba(X))
+    # No categoricals -> no effect.
+    Xn = rng.normal(size=(1500, 4))
+    yn = (Xn[:, 0] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(Xn, yn)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               cat_aware_binning=True).fit(Xn, yn)
+    assert np.allclose(a.predict_proba(Xn), b.predict_proba(Xn))

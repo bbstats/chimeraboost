@@ -37,17 +37,30 @@ class Binner:
     """Learns per-feature borders and maps a float matrix to bins."""
 
     def __init__(self, max_bins=128):
-        if int(max_bins) > _MAX_SUPPORTED_BINS:
+        # max_bins is a scalar (uniform budget) or a per-feature array (C4
+        # cat-aware binning: a larger budget for target-encoded categorical
+        # columns). Validate either form against the dtype cap and the >=2 floor.
+        arr = np.atleast_1d(np.asarray(max_bins))
+        if (arr > _MAX_SUPPORTED_BINS).any():
             raise ValueError(
                 f"max_bins={max_bins} exceeds {_MAX_SUPPORTED_BINS} "
                 f"(BIN_DTYPE={BIN_DTYPE.__name__}); use a smaller value."
             )
-        if int(max_bins) < 2:
+        if (arr.astype(np.int64) < 2).any():
             raise ValueError(f"max_bins={max_bins} must be >= 2.")
-        self.max_bins = int(max_bins)
+        # Keep a scalar scalar (back-compat) or an int per-feature array.
+        self.max_bins = (int(max_bins) if np.isscalar(max_bins)
+                         or arr.size == 1 and np.ndim(max_bins) == 0
+                         else arr.astype(np.int64))
         self.borders_ = None       # list of np.ndarray, one per feature
         self.n_bins_ = None        # np.ndarray int, width per feature
         self.bin_centers_ = None   # list of np.ndarray: representative value/bin
+
+    def _max_bins_for(self, f):
+        """Per-feature bin budget: a scalar applies to all features, an array
+        gives feature f its own budget."""
+        return int(self.max_bins) if np.ndim(self.max_bins) == 0 \
+            else int(self.max_bins[f])
 
     @staticmethod
     def _centers_for(borders):
@@ -80,7 +93,8 @@ class Binner:
         X = np.asarray(X, dtype=np.float64)
         n_features = X.shape[1]
         self.borders_ = [
-            _feature_borders(X[:, f], self.max_bins) for f in range(n_features)
+            _feature_borders(X[:, f], self._max_bins_for(f))
+            for f in range(n_features)
         ]
         # +1 for the searchsorted upper bucket, +1 for the NaN bucket.
         self.n_bins_ = np.array(
