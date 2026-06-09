@@ -105,7 +105,7 @@ IDEAS = {
     "G3_adaptive_leaf_estimation": dict(
         params={"adaptive_leaf_estimation": True},
         category="general",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="Scaling leaf_estimation_iterations by data size/signal helps "
                    "where the single Newton step underfits.",

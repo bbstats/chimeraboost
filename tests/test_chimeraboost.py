@@ -1475,3 +1475,19 @@ def test_ordered_leaf_estimation_fires_only_under_ordered_boosting():
                                   early_stopping=False,
                                   ordered_leaf_estimation=True).fit(X, y)
     assert np.allclose(base.predict_proba(X), flag.predict_proba(X))
+
+
+# --- G3: size-adaptive leaf_estimation_iterations (default-off flag) -----------
+
+def test_adaptive_leaf_estimation_resolves_by_size_and_is_off_by_default():
+    from chimeraboost.sklearn_api import _adaptive_leaf_estimation_iterations as f
+    assert f(300) == 1 and f(2000) == 3 and f(40000) == 6   # monotone, capped
+    X, y = load_breast_cancer(return_X_y=True)               # ~400 train rows
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y)
+    adapt = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                   early_stopping=False,
+                                   adaptive_leaf_estimation=True).fit(X, y)
+    assert base.model_.leaf_estimation_iterations == 3       # class default
+    assert adapt.model_.leaf_estimation_iterations == 1      # size-resolved
+    assert not np.allclose(base.predict_proba(X), adapt.predict_proba(X))
