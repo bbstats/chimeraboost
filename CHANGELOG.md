@@ -4,6 +4,8 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.12.0] - 2026-06-09
 ### Changed
 - **`cat_combinations` default is now adaptive** (`None`). Pairwise
   category-by-category features are enabled automatically when the data is
@@ -12,6 +14,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   all-categorical datasets (e.g. the `car` multiclass set) out of the box. Set
   `True`/`False` to force it; auto is skipped for very wide all-categorical data
   as a resource guard against the `C(n_cat, 2)` blow-up.
+
+### Added
+- **`validation_history_`** property on both estimators — the full per-round
+  validation-loss curve from a single fit (length = rounds run; with
+  `early_stopping=False` it runs to the horizon, never truncated). Makes
+  per-iteration capture first-class.
+- **`callbacks=`** fit hook — `cb(iteration, train_loss, val_loss, model)` called
+  each round; returning `True` requests an early stop. (Not supported with bagging.)
+- **Opt-in research flags** (all default-off, byte-identical no-ops unless set).
+  Each was validated through an efficient paired-curve benchmark cascade; none
+  improved the blended defaults broadly (the defaults are already at a good
+  optimum — see `benchmarks/research/SUMMARY.md`), so they ship as documented
+  opt-ins for data that matches their narrow sweet-spot: `onehot_low_card`
+  (one-hot low-cardinality categoricals), `cat_aware_binning` (larger bin budget
+  for target-encoded categoricals — both help all-categorical sets like
+  `car`/`splice`), `cat_combinations_selective` (mutual-info-selected combos on
+  mixed data), `forest_leaf_refit` (post-fit joint ridge over all leaves),
+  `ordered_leaf_estimation` (ordered boosting + leaf refinement together),
+  `adaptive_leaf_estimation` (size-scheduled Newton steps), and
+  `adaptive_leaf_shrinkage` (mass-dependent per-leaf shrinkage).
+- **Research cascade harness** under `benchmarks/research/` — a reusable,
+  download-once, paired-validation-curve engine for evaluating ideas efficiently
+  without ever touching the sealed TabArena holdout.
 
 ## [0.11.0] - 2026-06-04
 ### Added
