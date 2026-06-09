@@ -1491,3 +1491,40 @@ def test_adaptive_leaf_estimation_resolves_by_size_and_is_off_by_default():
     assert base.model_.leaf_estimation_iterations == 3       # class default
     assert adapt.model_.leaf_estimation_iterations == 1      # size-resolved
     assert not np.allclose(base.predict_proba(X), adapt.predict_proba(X))
+
+
+# --- G2: mass-adaptive per-leaf shrinkage (default-off, alpha=0) ---------------
+
+def test_adaptive_leaf_shrinkage_noop_at_zero_and_shrinks_when_positive():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=1500)
+    base = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                                 early_stopping=False).fit(X, y)
+    zero = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                                 early_stopping=False,
+                                 adaptive_leaf_shrinkage=0.0).fit(X, y)
+    assert np.allclose(base.predict(X), zero.predict(X))      # alpha=0 -> no-op
+    on = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                               early_stopping=False,
+                               adaptive_leaf_shrinkage=5.0).fit(X, y)
+    assert not np.allclose(base.predict(X), on.predict(X))
+    with pytest.raises(ValueError, match="adaptive_leaf_shrinkage"):
+        ChimeraBoostRegressor(adaptive_leaf_shrinkage=-1.0).fit(X, y)
+
+
+def test_adaptive_leaf_shrinkage_kernel_matches_formula():
+    """The mass-shrinkage kernel must equal -lr*G/(H+l2) * H/(H+alpha)."""
+    from chimeraboost.tree import _leaf_values, _leaf_values_adaptive
+    rng = np.random.default_rng(2)
+    leaf = rng.integers(0, 4, 200).astype(np.int64)
+    g = rng.normal(size=200)
+    h = rng.random(200) + 0.1
+    plain = _leaf_values(leaf, g, h, 4, 1.0, 0.1)
+    alpha = 3.0
+    adapt = _leaf_values_adaptive(leaf, g, h, 4, 1.0, 0.1, alpha)
+    # reconstruct H per leaf to form the expected factor
+    H = np.zeros(4)
+    np.add.at(H, leaf, h)
+    factor = H / (H + alpha)
+    assert np.allclose(adapt, plain * factor)

@@ -105,6 +105,7 @@ def _validate_hyperparams(estimator):
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
     _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
     _in_range("hs_lambda", 0.0, np.inf)
+    _in_range("adaptive_leaf_shrinkage", 0.0, np.inf)
     _in_range("linear_lambda", 0.0, np.inf)
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
@@ -767,6 +768,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  forest_leaf_refit=False, forest_refit_iterations=3,
                  ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
+                 adaptive_leaf_shrinkage=0.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -800,6 +802,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.forest_refit_iterations = forest_refit_iterations
         self.ordered_leaf_estimation = ordered_leaf_estimation
         self.adaptive_leaf_estimation = adaptive_leaf_estimation
+        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1096,6 +1099,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  forest_leaf_refit=False, forest_refit_iterations=3,
                  ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
+                 adaptive_leaf_shrinkage=0.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1127,6 +1131,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.forest_refit_iterations = forest_refit_iterations
         self.ordered_leaf_estimation = ordered_leaf_estimation
         self.adaptive_leaf_estimation = adaptive_leaf_estimation
+        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles

@@ -95,9 +95,9 @@ IDEAS = {
                    "lever. De-risk with a slow reference impl first.",
     ),
     "G2_adaptive_leaf_shrinkage": dict(
-        params={"adaptive_leaf_shrinkage": True},
+        params={"adaptive_leaf_shrinkage": 1.0},
         category="general",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="Per-leaf L2 scaled by leaf mass regularizes low-mass leaves "
                    "harder; small broad Brier gain.",

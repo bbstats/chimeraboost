@@ -162,6 +162,25 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
 
 
 @njit(cache=True)
+def _leaf_values_adaptive(leaf, grad, hess, n_leaves, l2, lr, alpha):
+    """Mass-adaptive leaf values (G2): the Newton step is multiplied by a per-leaf
+    shrinkage factor H / (H + alpha), so a leaf's value is pulled toward zero in
+    proportion to how little hessian mass it carries -- low-mass leaves (whose
+    Newton estimate has the highest variance) shrink hardest, high-mass leaves are
+    nearly untouched. ``alpha == 0`` reproduces the plain Newton value exactly."""
+    G = np.zeros(n_leaves)
+    H = np.zeros(n_leaves)
+    for i in range(leaf.shape[0]):
+        G[leaf[i]] += grad[i]
+        H[leaf[i]] += hess[i]
+    values = np.zeros(n_leaves)
+    for l in range(n_leaves):
+        if H[l] > 0.0:
+            values[l] = -lr * G[l] / (H[l] + l2) * (H[l] / (H[l] + alpha))
+    return values
+
+
+@njit(cache=True)
 def _leaf_values_hs(leaf, grad, hess, n_leaves, l2, lr, hs_lambda):
     """Hierarchical-shrinkage leaf values for an oblivious tree.
 
@@ -633,7 +652,7 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
                          min_child_weight=1.0, hist_buffers=None, hs_lambda=0.0,
                          linear_leaves=False, centers_std=None, is_numeric=None,
-                         linear_lambda=1.0):
+                         linear_lambda=1.0, adaptive_shrinkage=0.0):
     """Grow one oblivious tree level by level. Returns (tree, train_leaf), where
     train_leaf is the tree's leaf index for every training sample.
 
@@ -687,6 +706,9 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     n_leaves = 1 << len(splits_feat)
     if hs_lambda > 0.0:
         values = _leaf_values_hs(leaf, grad, hess, n_leaves, l2, lr, hs_lambda)
+    elif adaptive_shrinkage > 0.0:
+        values = _leaf_values_adaptive(leaf, grad, hess, n_leaves, l2, lr,
+                                       adaptive_shrinkage)
     else:
         values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
     lin_feats = lin_coef = None

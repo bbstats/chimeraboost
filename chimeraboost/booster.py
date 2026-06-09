@@ -11,8 +11,9 @@ import numpy as np
 from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
-                   _leaf_values_hs, _linear_predict, _predict_forest, pack_forest,
-                   _predict_forest_linear, pack_forest_linear, _shap_forest_linear)
+                   _leaf_values_hs, _leaf_values_adaptive, _linear_predict,
+                   _predict_forest, pack_forest, _predict_forest_linear,
+                   pack_forest_linear, _shap_forest_linear)
 
 
 def _run_callbacks(callbacks, iteration, train_loss, val_loss, model):
@@ -117,7 +118,7 @@ class _BaseBooster:
                  cat_combinations_selective=False,
                  cat_combinations_max_pairs=20,
                  forest_leaf_refit=False, forest_refit_iterations=3,
-                 ordered_leaf_estimation=False):
+                 ordered_leaf_estimation=False, adaptive_leaf_shrinkage=0.0):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -145,6 +146,7 @@ class _BaseBooster:
         self.forest_leaf_refit = bool(forest_leaf_refit)
         self.forest_refit_iterations = int(forest_refit_iterations)
         self.ordered_leaf_estimation = bool(ordered_leaf_estimation)
+        self.adaptive_leaf_shrinkage = float(adaptive_leaf_shrinkage)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -244,6 +246,10 @@ class _BaseBooster:
                 tree.values += _leaf_values_hs(leaf, g2, h2, n_lv,
                                                self.l2_leaf_reg, self.lr_,
                                                self.hs_lambda)
+            elif self.adaptive_leaf_shrinkage > 0.0:
+                tree.values += _leaf_values_adaptive(leaf, g2, h2, n_lv,
+                                                     self.l2_leaf_reg, self.lr_,
+                                                     self.adaptive_leaf_shrinkage)
             else:
                 tree.values += _leaf_values(leaf, g2, h2, n_lv,
                                             self.l2_leaf_reg, self.lr_)
@@ -400,7 +406,8 @@ class GradientBoosting(_BaseBooster):
                                               linear_leaves=ll_active,
                                               centers_std=self._centers_std_,
                                               is_numeric=self.prep_.is_numeric_binned_,
-                                              linear_lambda=self.linear_lambda)
+                                              linear_lambda=self.linear_lambda,
+                                              adaptive_shrinkage=self.adaptive_leaf_shrinkage)
             # A depth-0 tree found no legal split; the next round on the same
             # gradients would too, so stop rather than bank empty trees.
             if tree.depth == 0:
@@ -685,7 +692,8 @@ class MulticlassBoosting(_BaseBooster):
                                                   feature_mask=fmask,
                                                   min_child_weight=self.min_child_weight,
                                                   hist_buffers=hist_buffers,
-                                                  hs_lambda=self.hs_lambda)
+                                                  hs_lambda=self.hs_lambda,
+                                                  adaptive_shrinkage=self.adaptive_leaf_shrinkage)
                 round_trees.append(tree)
                 self._accumulate_importance(tree)
                 if self.ordered_boosting and tree.depth > 0:
