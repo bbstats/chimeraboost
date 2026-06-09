@@ -84,7 +84,7 @@ IDEAS = {
     "G1_forest_joint_leaf_refit": dict(
         params={"forest_leaf_refit": True},
         category="general",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="A post-fit ridge over all leaves couples redundant oblivious "
                    "splits and recovers sharpness -- the highest-upside Brier "

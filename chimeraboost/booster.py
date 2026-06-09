@@ -115,7 +115,8 @@ class _BaseBooster:
                  linear_leaves=False, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False,
-                 cat_combinations_max_pairs=20):
+                 cat_combinations_max_pairs=20,
+                 forest_leaf_refit=False, forest_refit_iterations=3):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -140,6 +141,8 @@ class _BaseBooster:
         self.onehot_max_card = int(onehot_max_card)
         self.cat_combinations_selective = bool(cat_combinations_selective)
         self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
+        self.forest_leaf_refit = bool(forest_leaf_refit)
+        self.forest_refit_iterations = int(forest_refit_iterations)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -438,9 +441,74 @@ class GradientBoosting(_BaseBooster):
                 if _run_callbacks(callbacks, m, tl, vl, self):
                     break
 
+        # G1: optional forest-level joint leaf refit. Couples the redundant
+        # oblivious splits by re-solving ALL leaf values together (incompatible
+        # with linear leaves, which own the leaf value, and with the median/
+        # quantile leaf override).
+        if (self.forest_leaf_refit and self.trees_ and not ll_active
+                and not adjusts_leaves):
+            self._forest_leaf_refit(Xb, y, w)
+
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
+
+    def _forest_leaf_refit(self, Xb, y, w):
+        """Jointly re-estimate every constant leaf value across the whole forest.
+
+        Reference implementation (slow but obviously correct): the model
+        prediction is ``init + Z @ wvec`` where ``Z`` is the (n_samples x
+        total_leaves) one-hot leaf-membership matrix over all trees and ``wvec``
+        stacks every tree's leaf values. Standard per-tree boosting fits each
+        tree's leaves in isolation; here we run a few global Newton (IRLS) steps
+        that solve for ALL leaves together, so redundant splits across trees stop
+        double-counting -- the coupling CatBoost's leaf machinery gets.
+
+        Matrix-free: ``Z`` is never materialized; ``Z @ v`` gathers per-tree leaf
+        slices and ``Z.T @ u`` scatter-adds, and the SPD normal-equation system
+        ``(Z.T H Z + lambda I) d = -(Z.T g) - lambda w`` is solved with CG. Only
+        constant-leaf trees (depth > 0) participate. Loss-general (RMSE / Logloss)
+        via the booster's own grad/hess; the regression case converges in one
+        step (constant hessian)."""
+        from scipy.sparse.linalg import cg, LinearOperator
+
+        trees = [t for t in self.trees_ if t.depth > 0 and t.lin_coef is None]
+        if not trees:
+            return
+        n = Xb.shape[1]
+        leaf_idx = [t.apply(Xb) for t in trees]            # per-tree (n,) indices
+        sizes = [t.values.shape[0] for t in trees]
+        offs = np.concatenate([[0], np.cumsum(sizes)])
+        L = int(offs[-1])
+
+        def Zmul(v):                                        # Z @ v -> (n,)
+            out = np.zeros(n)
+            for k, li in enumerate(leaf_idx):
+                out += v[offs[k]:offs[k + 1]][li]
+            return out
+
+        def ZTmul(u):                                       # Z.T @ u -> (L,)
+            out = np.zeros(L)
+            for k, li in enumerate(leaf_idx):
+                np.add.at(out[offs[k]:offs[k + 1]], li, u)
+            return out
+
+        lam = self.l2_leaf_reg if self.l2_leaf_reg > 0 else 1e-6
+        wvec = np.concatenate([t.values for t in trees]).astype(np.float64)
+        F = self.init_ + Zmul(wvec)
+        for _ in range(max(1, self.forest_refit_iterations)):
+            g, h = self.loss_.grad_hess(y, F)
+            if w is not None:
+                g, h = g * w, h * w
+            rhs = -ZTmul(g) - lam * wvec
+            A = LinearOperator((L, L),
+                               matvec=lambda v: ZTmul(h * Zmul(v)) + lam * v)
+            d, _ = cg(A, rhs, maxiter=300, atol=1e-10)
+            wvec = wvec + d
+            F = self.init_ + Zmul(wvec)
+        for k, t in enumerate(trees):
+            t.values = np.ascontiguousarray(wvec[offs[k]:offs[k + 1]])
+        self._forest_ = None    # invalidate the packed-forest predict cache
 
     def _correct_leaves(self, tree, leaf, residuals, sample_weight=None):
         """Override Newton leaf values with the loss-appropriate residual

@@ -1377,3 +1377,77 @@ def test_cat_combinations_max_pairs_caps_selection():
                                cat_combinations_max_pairs=2
                                ).fit(X, y, cat_features=[0, 1, 2, 3, 4])
     assert len(m.model_.prep_.combo_pairs_) <= 2
+
+
+# --- G1: forest-level joint leaf refit (default-off flag) ---------------------
+
+def test_forest_leaf_refit_is_noop_when_off():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=1500)
+    a = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False).fit(X, y)
+    b = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False).fit(X, y)
+    assert np.allclose(a.predict(X), b.predict(X))    # determinism baseline
+    c = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False,
+                              forest_leaf_refit=True).fit(X, y)
+    assert not np.allclose(a.predict(X), c.predict(X))
+
+
+def test_forest_leaf_refit_solves_ridge_optimum():
+    """The joint refit must reach the ridge stationarity point: with prediction
+    init + Z @ w (Z = leaf-membership over all trees), the RMSE-ridge gradient
+    Z.T(pred - y) + lambda * w is ~0. This pins the matrix-free CG result to the
+    explicit closed-form solve."""
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(400, 3))
+    y = 0.7 * X[:, 0] + 0.3 * rng.normal(size=400)
+    lam = 2.0
+    m = ChimeraBoostRegressor(n_estimators=8, depth=3, random_state=0,
+                              early_stopping=False, l2_leaf_reg=lam,
+                              forest_leaf_refit=True,
+                              forest_refit_iterations=2).fit(X, y)
+    gb = m.model_
+    Xb = np.ascontiguousarray(gb.prep_.transform(X).T)
+    trees = [t for t in gb.trees_ if t.depth > 0 and t.lin_coef is None]
+    sizes = [t.values.shape[0] for t in trees]
+    offs = np.concatenate([[0], np.cumsum(sizes)])
+    n, L = Xb.shape[1], int(offs[-1])
+    Z = np.zeros((n, L))
+    for k, t in enumerate(trees):
+        Z[np.arange(n), offs[k] + t.apply(Xb)] = 1.0
+    w = np.concatenate([t.values for t in trees])
+    pred = gb.init_ + Z @ w
+    assert np.allclose(pred, m.predict(X), atol=1e-6)          # consistency
+    grad = Z.T @ (pred - y) + lam * w
+    assert np.linalg.norm(grad) < 1e-2                         # ridge optimum
+    # And it lowers training RMSE vs no refit.
+    base = ChimeraBoostRegressor(n_estimators=8, depth=3, random_state=0,
+                                 early_stopping=False, l2_leaf_reg=lam).fit(X, y)
+    assert np.sqrt(np.mean((m.predict(X) - y) ** 2)) < \
+        np.sqrt(np.mean((base.predict(X) - y) ** 2))
+
+
+def test_forest_leaf_refit_binary_lowers_logloss():
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0,
+                                          stratify=y)
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(Xtr, ytr)
+    ref = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                 early_stopping=False,
+                                 forest_leaf_refit=True).fit(Xtr, ytr)
+    from sklearn.metrics import log_loss
+    assert log_loss(ytr, ref.predict_proba(Xtr)) < log_loss(ytr, base.predict_proba(Xtr))
+
+
+def test_forest_leaf_refit_multiclass_warns_and_ignored():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(600, 4))
+    y = rng.integers(0, 3, size=600)
+    with pytest.warns(UserWarning, match="forest_leaf_refit"):
+        ChimeraBoostClassifier(n_estimators=30, random_state=0,
+                               early_stopping=False,
+                               forest_leaf_refit=True).fit(X, y)

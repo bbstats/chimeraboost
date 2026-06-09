@@ -78,6 +78,7 @@ def _validate_hyperparams(estimator):
     _pos_int("leaf_estimation_iterations")
     _pos_int("onehot_max_card", lo=2)
     _pos_int("cat_combinations_max_pairs")
+    _pos_int("forest_refit_iterations")
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -754,6 +755,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 forest_leaf_refit=False, forest_refit_iterations=3,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -783,6 +785,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.onehot_max_card = onehot_max_card
         self.cat_combinations_selective = cat_combinations_selective
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.forest_leaf_refit = forest_leaf_refit
+        self.forest_refit_iterations = forest_refit_iterations
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1072,6 +1076,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 forest_leaf_refit=False, forest_refit_iterations=3,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1099,6 +1104,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.onehot_max_card = onehot_max_card
         self.cat_combinations_selective = cat_combinations_selective
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.forest_leaf_refit = forest_leaf_refit
+        self.forest_refit_iterations = forest_refit_iterations
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1230,6 +1237,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+        # forest_leaf_refit is a scalar-booster post-pass (regression / binary);
+        # the multiclass booster has no joint-refit path, so warn rather than
+        # silently ignore.
+        if self.forest_leaf_refit and self._multiclass:
+            warnings.warn(
+                "forest_leaf_refit is not supported for multiclass classification "
+                "yet and will be ignored.", UserWarning, stacklevel=2)
         cal_Xv = cal_y = None   # validation set used to calibrate temperature
         if self._multiclass:
             self.model_ = MulticlassBoosting(**kw)
