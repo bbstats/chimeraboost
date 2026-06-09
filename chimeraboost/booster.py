@@ -11,8 +11,24 @@ import numpy as np
 from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
-                   _leaf_values_hs, _linear_predict, _predict_forest, pack_forest,
-                   _predict_forest_linear, pack_forest_linear, _shap_forest_linear)
+                   _leaf_values_hs, _leaf_values_adaptive, _linear_predict,
+                   _predict_forest, pack_forest, _predict_forest_linear,
+                   pack_forest_linear, _shap_forest_linear)
+
+
+def _run_callbacks(callbacks, iteration, train_loss, val_loss, model):
+    """Invoke each fit callback for one boosting round. A callback is
+    ``cb(iteration, train_loss, val_loss, model)``; returning True requests an
+    early stop. Returns True if any callback asked to stop. ``callbacks`` may be
+    a single callable or an iterable of them; None is a no-op."""
+    if not callbacks:
+        return False
+    cbs = callbacks if isinstance(callbacks, (list, tuple)) else (callbacks,)
+    stop = False
+    for cb in cbs:
+        if cb(iteration, train_loss, val_loss, model) is True:
+            stop = True
+    return stop
 
 
 def _factorials(n):
@@ -97,7 +113,13 @@ class _BaseBooster:
                  thread_count=None, random_state=None, verbose=False,
                  ordered_boosting=True, cat_combinations=False,
                  leaf_estimation_iterations=1, hs_lambda=0.0,
-                 linear_leaves=False, linear_lambda=1.0):
+                 linear_leaves=False, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False,
+                 cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
+                 forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False, adaptive_leaf_shrinkage=0.0):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -118,6 +140,16 @@ class _BaseBooster:
         self.hs_lambda = float(hs_lambda)
         self.linear_leaves = bool(linear_leaves)
         self.linear_lambda = float(linear_lambda)
+        self.onehot_low_card = bool(onehot_low_card)
+        self.onehot_max_card = int(onehot_max_card)
+        self.cat_combinations_selective = bool(cat_combinations_selective)
+        self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
+        self.cat_aware_binning = bool(cat_aware_binning)
+        self.cat_max_bins = int(cat_max_bins)
+        self.forest_leaf_refit = bool(forest_leaf_refit)
+        self.forest_refit_iterations = int(forest_refit_iterations)
+        self.ordered_leaf_estimation = bool(ordered_leaf_estimation)
+        self.adaptive_leaf_shrinkage = float(adaptive_leaf_shrinkage)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -170,7 +202,13 @@ class _BaseBooster:
         """Build a FeaturePreprocessor configured from this booster's params."""
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
                                    self.random_state, self.cat_n_permutations,
-                                   self.cat_combinations)
+                                   self.cat_combinations,
+                                   onehot_low_card=self.onehot_low_card,
+                                   onehot_max_card=self.onehot_max_card,
+                                   cat_combinations_selective=self.cat_combinations_selective,
+                                   cat_combinations_max_pairs=self.cat_combinations_max_pairs,
+                                   cat_aware_binning=self.cat_aware_binning,
+                                   cat_max_bins=self.cat_max_bins)
 
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):
@@ -196,6 +234,30 @@ class _BaseBooster:
         training assignment returned by build_oblivious_tree."""
         return _loo_leaf_step(leaf, g, h, tree.values.shape[0],
                               self.l2_leaf_reg, self.lr_)
+
+    def _refine_leaf_values(self, tree, leaf, F, y, w):
+        """Apply ``leaf_estimation_iterations - 1`` extra Newton steps to a
+        tree's leaf values, recomputing grad/hess at the updated residuals after
+        each step. Mutates ``tree.values`` in place. A no-op when
+        ``leaf_estimation_iterations == 1``. Shared by the plain and (under
+        ``ordered_leaf_estimation``) the ordered-boosting paths."""
+        for _ in range(self.leaf_estimation_iterations - 1):
+            F_tmp = F + tree.values[leaf]
+            g2, h2 = self.loss_.grad_hess(y, F_tmp)
+            if w is not None:
+                g2, h2 = g2 * w, h2 * w
+            n_lv = tree.values.shape[0]
+            if self.hs_lambda > 0.0:
+                tree.values += _leaf_values_hs(leaf, g2, h2, n_lv,
+                                               self.l2_leaf_reg, self.lr_,
+                                               self.hs_lambda)
+            elif self.adaptive_leaf_shrinkage > 0.0:
+                tree.values += _leaf_values_adaptive(leaf, g2, h2, n_lv,
+                                                     self.l2_leaf_reg, self.lr_,
+                                                     self.adaptive_leaf_shrinkage)
+            else:
+                tree.values += _leaf_values(leaf, g2, h2, n_lv,
+                                            self.l2_leaf_reg, self.lr_)
 
     def _mvs_threshold(self, abs_g, target):
         """MVS: find threshold λ s.t. sum(min(|g_i|/λ, 1)) = target.
@@ -274,7 +336,8 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None):
+    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
+            callbacks=None):
         """Fit the additive model. Optionally pass `cat_features` (column indices
         to target-encode) and `eval_set=(X_val, y_val)` for early stopping.
         `sample_weight` is a 1-D array of per-sample weights; None means uniform.
@@ -348,7 +411,8 @@ class GradientBoosting(_BaseBooster):
                                               linear_leaves=ll_active,
                                               centers_std=self._centers_std_,
                                               is_numeric=self.prep_.is_numeric_binned_,
-                                              linear_lambda=self.linear_lambda)
+                                              linear_lambda=self.linear_lambda,
+                                              adaptive_shrinkage=self.adaptive_leaf_shrinkage)
             # A depth-0 tree found no legal split; the next round on the same
             # gradients would too, so stop rather than bank empty trees.
             if tree.depth == 0:
@@ -365,25 +429,21 @@ class GradientBoosting(_BaseBooster):
                 F += _linear_predict(leaf, tree.lin_feats, tree.lin_coef,
                                      self._centers_std_, Xb)
             elif self.ordered_boosting and not adjusts_leaves:
+                # G4: by default ordered boosting and the leaf-estimation Newton
+                # refinement are mutually exclusive (ordered owns the training
+                # step). With ordered_leaf_estimation on, also refine the stored
+                # leaf values (which predict uses) -- CatBoost's "ordered boosting
+                # AND leaf machinery together" -- while F keeps the honest ordered
+                # LOO trajectory.
+                if self.ordered_leaf_estimation:
+                    self._refine_leaf_values(tree, leaf, F, y, w)
                 F += self._loo_update(tree, leaf, g, h)
             else:
                 # Additional Newton steps refine the leaf values using the updated
                 # residuals after each step. For constant-hessian losses (RMSE)
                 # this converges in a few steps; for Logloss it reaches a better
                 # per-leaf approximation than the single first-order step.
-                for _ in range(self.leaf_estimation_iterations - 1):
-                    F_tmp = F + tree.values[leaf]
-                    g2, h2 = self.loss_.grad_hess(y, F_tmp)
-                    if w is not None:
-                        g2, h2 = g2 * w, h2 * w
-                    n_lv = tree.values.shape[0]
-                    if self.hs_lambda > 0.0:
-                        tree.values += _leaf_values_hs(leaf, g2, h2, n_lv,
-                                                       self.l2_leaf_reg, self.lr_,
-                                                       self.hs_lambda)
-                    else:
-                        tree.values += _leaf_values(leaf, g2, h2, n_lv,
-                                                    self.l2_leaf_reg, self.lr_)
+                self._refine_leaf_values(tree, leaf, F, y, w)
                 F += tree.values[leaf]
             if self.verbose:
                 self.train_history_.append(self.loss_.eval(y, F, w))
@@ -404,9 +464,81 @@ class GradientBoosting(_BaseBooster):
                     msg += f"  val {self.valid_history_[-1]:.5f}"
                 print(msg)
 
+            if callbacks:
+                tl = self.train_history_[-1] if self.train_history_ \
+                    else self.loss_.eval(y, F, w)
+                vl = self.valid_history_[-1] if self.valid_history_ else None
+                if _run_callbacks(callbacks, m, tl, vl, self):
+                    break
+
+        # G1: optional forest-level joint leaf refit. Couples the redundant
+        # oblivious splits by re-solving ALL leaf values together (incompatible
+        # with linear leaves, which own the leaf value, and with the median/
+        # quantile leaf override).
+        if (self.forest_leaf_refit and self.trees_ and not ll_active
+                and not adjusts_leaves):
+            self._forest_leaf_refit(Xb, y, w)
+
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
+
+    def _forest_leaf_refit(self, Xb, y, w):
+        """Jointly re-estimate every constant leaf value across the whole forest.
+
+        Reference implementation (slow but obviously correct): the model
+        prediction is ``init + Z @ wvec`` where ``Z`` is the (n_samples x
+        total_leaves) one-hot leaf-membership matrix over all trees and ``wvec``
+        stacks every tree's leaf values. Standard per-tree boosting fits each
+        tree's leaves in isolation; here we run a few global Newton (IRLS) steps
+        that solve for ALL leaves together, so redundant splits across trees stop
+        double-counting -- the coupling CatBoost's leaf machinery gets.
+
+        Matrix-free: ``Z`` is never materialized; ``Z @ v`` gathers per-tree leaf
+        slices and ``Z.T @ u`` scatter-adds, and the SPD normal-equation system
+        ``(Z.T H Z + lambda I) d = -(Z.T g) - lambda w`` is solved with CG. Only
+        constant-leaf trees (depth > 0) participate. Loss-general (RMSE / Logloss)
+        via the booster's own grad/hess; the regression case converges in one
+        step (constant hessian)."""
+        from scipy.sparse.linalg import cg, LinearOperator
+
+        trees = [t for t in self.trees_ if t.depth > 0 and t.lin_coef is None]
+        if not trees:
+            return
+        n = Xb.shape[1]
+        leaf_idx = [t.apply(Xb) for t in trees]            # per-tree (n,) indices
+        sizes = [t.values.shape[0] for t in trees]
+        offs = np.concatenate([[0], np.cumsum(sizes)])
+        L = int(offs[-1])
+
+        def Zmul(v):                                        # Z @ v -> (n,)
+            out = np.zeros(n)
+            for k, li in enumerate(leaf_idx):
+                out += v[offs[k]:offs[k + 1]][li]
+            return out
+
+        def ZTmul(u):                                       # Z.T @ u -> (L,)
+            out = np.zeros(L)
+            for k, li in enumerate(leaf_idx):
+                np.add.at(out[offs[k]:offs[k + 1]], li, u)
+            return out
+
+        lam = self.l2_leaf_reg if self.l2_leaf_reg > 0 else 1e-6
+        wvec = np.concatenate([t.values for t in trees]).astype(np.float64)
+        F = self.init_ + Zmul(wvec)
+        for _ in range(max(1, self.forest_refit_iterations)):
+            g, h = self.loss_.grad_hess(y, F)
+            if w is not None:
+                g, h = g * w, h * w
+            rhs = -ZTmul(g) - lam * wvec
+            A = LinearOperator((L, L),
+                               matvec=lambda v: ZTmul(h * Zmul(v)) + lam * v)
+            d, _ = cg(A, rhs, maxiter=300, atol=1e-10)
+            wvec = wvec + d
+            F = self.init_ + Zmul(wvec)
+        for k, t in enumerate(trees):
+            t.values = np.ascontiguousarray(wvec[offs[k]:offs[k + 1]])
+        self._forest_ = None    # invalidate the packed-forest predict cache
 
     def _correct_leaves(self, tree, leaf, residuals, sample_weight=None):
         """Override Newton leaf values with the loss-appropriate residual
@@ -499,7 +631,8 @@ class GradientBoosting(_BaseBooster):
 class MulticlassBoosting(_BaseBooster):
     """Softmax multiclass booster: fits K trees per round (one per class)."""
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None):
+    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
+            callbacks=None):
         """Fit K trees per boosting round (one per class) under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
         scalar booster."""
@@ -564,7 +697,8 @@ class MulticlassBoosting(_BaseBooster):
                                                   feature_mask=fmask,
                                                   min_child_weight=self.min_child_weight,
                                                   hist_buffers=hist_buffers,
-                                                  hs_lambda=self.hs_lambda)
+                                                  hs_lambda=self.hs_lambda,
+                                                  adaptive_shrinkage=self.adaptive_leaf_shrinkage)
                 round_trees.append(tree)
                 self._accumulate_importance(tree)
                 if self.ordered_boosting and tree.depth > 0:
@@ -596,6 +730,13 @@ class MulticlassBoosting(_BaseBooster):
                 if Fv is not None:
                     msg += f"  val {self.valid_history_[-1]:.5f}"
                 print(msg)
+
+            if callbacks:
+                tl = self.train_history_[-1] if self.train_history_ \
+                    else self.loss_.eval(Y, F, w)
+                vl = self.valid_history_[-1] if self.valid_history_ else None
+                if _run_callbacks(callbacks, m, tl, vl, self):
+                    break
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)

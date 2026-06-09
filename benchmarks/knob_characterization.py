@@ -28,6 +28,9 @@ Suites:
   --suite offline    7 built-in datasets (reg/binary/multiclass/cat), NO network.
   --suite grinsztajn 59 real Grinsztajn datasets (HuggingFace). Dataset-outer so
                      each CSV downloads once and is reused across all knobs.
+  --suite openml-cat OpenML datasets that have REAL string categoricals (adult,
+                     bank-marketing, credit-g, sick, mushroom, kr-vs-kp, car,
+                     splice, abalone). Focused on cat knobs by default.
 
 Report-only: this CHARACTERIZES the knobs. It does NOT tune defaults — nothing
 ships off these numbers without the full synthetic->Grinsztajn->OpenML pipeline.
@@ -36,6 +39,7 @@ Usage:
   python benchmarks/knob_characterization.py                       # offline, all knobs
   python benchmarks/knob_characterization.py --knob colsample subsample
   python benchmarks/knob_characterization.py --suite grinsztajn --runs 1
+  python benchmarks/knob_characterization.py --suite openml-cat   # cat knobs only
 """
 
 import argparse
@@ -81,6 +85,9 @@ KNOBS = {
     "leaf_estimation_iterations": dict(values=[1, 3, 5, 10],        group="all"),
     "hs_lambda":                  dict(values=[1.0, 5.0, 20.0],     group="all"),
     "max_bins":                   dict(values=[64, 128, 254],       group="all"),
+    # Baseline patience is 50. "Better by Default" (arXiv 2407.04491) found
+    # patience ~300 helps classifiers; probe whether it generalizes here.
+    "early_stopping_rounds":      dict(values=[50, 100, 200, 300],  group="all"),
     "ordered_boosting":           dict(values=[True],               group="all"),
     # cat_smoothing=0.0 is invalid (0/0 pseudocount -> rejected); 0.3 is the
     # smallest sensible probe below the 1.0 default.
@@ -108,8 +115,12 @@ def _fit_eval(task, kw, Xtr, ytr, Xte, yte, cat, seed, threads):
     """Fit out-of-box (internal early-stop split) with kwargs `kw` (empty ==
     out-of-box baseline). Returns (metric, prediction_vector, n_trees)."""
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
-    m = Est(n_estimators=rb.MAX_ITERS, early_stopping_rounds=rb.PATIENCE,
-            random_state=seed, thread_count=threads, **kw)
+    # kw overrides the harness defaults (so a swept early_stopping_rounds wins
+    # over rb.PATIENCE instead of colliding on the keyword).
+    params = dict(n_estimators=rb.MAX_ITERS, early_stopping_rounds=rb.PATIENCE,
+                  random_state=seed, thread_count=threads)
+    params.update(kw)
+    m = Est(**params)
     m.fit(Xtr, ytr, cat_features=cat)
     if task == "regression":
         pred = np.asarray(m.predict(Xte), dtype=float)
@@ -237,7 +248,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--knob", nargs="+", default=["all"],
                     help=f"knobs to characterize, or 'all'. Available: {list(KNOBS)}")
-    ap.add_argument("--suite", choices=["offline", "grinsztajn"], default="offline")
+    ap.add_argument("--suite", choices=["offline", "grinsztajn", "openml-cat"],
+                    default="offline")
     ap.add_argument("--runs", type=int, default=None,
                     help="seeds per (dataset, value); default 3 offline / 1 grinsztajn")
     ap.add_argument("--threads", type=int, default=None)
@@ -253,6 +265,14 @@ def main():
         rb._add_grinsztajn_datasets()
         dataset_keys = [k for k in rb.DATASETS if k.startswith("gr:")]
         runs = args.runs if args.runs is not None else 1
+    elif args.suite == "openml-cat":
+        rb._add_openml_datasets()
+        dataset_keys = [f"oml:{name}" for name, spec in rb.OPENML_SUITE.items()
+                        if spec.get("cats") == "auto"]
+        runs = args.runs if args.runs is not None else 3
+        # Default to cat knobs only when none specified explicitly
+        if args.knob == ["all"]:
+            knobs = [k for k in knobs if KNOBS[k]["group"] == "cat"]
     else:
         dataset_keys = OFFLINE_PANEL
         runs = args.runs if args.runs is not None else 3

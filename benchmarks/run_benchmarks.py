@@ -159,6 +159,8 @@ def _task_of(ds_name):
         return OPENML_SUITE[ds_name[4:]]["task"]
     if ds_name.startswith("gr:"):
         return GRINSZTAJN_TASKS[ds_name]
+    if ds_name.startswith("pm:"):
+        return PMLB_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
 
 
@@ -187,12 +189,17 @@ OPENML_SUITE = {
     "sick":          dict(data_id=38,    task="binary",     cats="auto"),
     "mushroom":      dict(data_id=24,    task="binary",     cats="auto"),
     "kr-vs-kp":      dict(data_id=3,     task="binary",     cats="auto"),
+    # high-cardinality real categoricals -- where one-hot vs ordered TS and fresh
+    # permutations actually differ (the CatBoost-gap research targets). Added for
+    # the categorical tier (Part B); all-categorical, no pre-encoding.
+    "Amazon_access": dict(data_id=4135,  task="binary",     cats="auto"),
     # classification (multiclass)
     "vehicle":       dict(data_id=54,    task="multiclass", cats=None),
     "segment":       dict(data_id=40984, task="multiclass", cats=None),
     "optdigits":     dict(data_id=28,    task="multiclass", cats=None),
     "car":           dict(data_id=40975, task="multiclass", cats="auto"),
     "splice":        dict(data_id=46,    task="multiclass", cats="auto"),
+    "nursery":       dict(data_id=26,    task="multiclass", cats="auto"),
     "satimage":      dict(data_id=182,   task="multiclass", cats=None),
     "pendigits":     dict(data_id=32,    task="multiclass", cats=None),
     "letter":        dict(data_id=6,     task="multiclass", cats=None),
@@ -330,6 +337,76 @@ def _add_grinsztajn_datasets():
             GRINSZTAJN_TASKS[key] = task
 
 
+# The Penn Machine Learning Benchmarks (PMLB, EpistasisLab) — a fourth, fully
+# INDEPENDENT suite, distinct from Grinsztajn / the OpenML-34 suite / TabArena.
+# Purpose: a TUNING benchmark, kept separate so the report suites above stay
+# pure out-of-sample. Data is fetched as gzipped TSV from the GitHub LFS media
+# mirror (no `pmlb` dependency, same spirit as the Grinsztajn CSV loader); every
+# file has a `target` last-or-named column. Two design notes specific to PMLB:
+#   * All columns are integer-encoded (no string dtype), so `cats="auto"` would
+#     find nothing — we load everything as numeric. Nominal signal in the
+#     "categorical" columns is therefore not exploited (acceptable for tuning).
+#   * PMLB regression is dominated by synthetic Friedman/BNG families; we curate
+#     a real-world subset only. PMLB's value-add is MULTICLASS coverage, which
+#     the Grinsztajn suite lacks entirely.
+# The curated subset is split into a `tune` fold and a `holdout` fold so a tuned
+# knob can be checked for within-suite generalization (tune -> holdout) before it
+# ever touches the report suites. Keys are "pm:<fold>/<name>".
+PMLB_MEDIA = ("https://media.githubusercontent.com/media/EpistasisLab/pmlb/"
+              "master/datasets")
+# (name, task) per fold. Deduped against Grinsztajn + the OpenML-34 suite;
+# real-world only (no fri_c*/BNG_*/2dplanes/mv synthetics). reg = regression
+# (some are ordinal targets, treated as continuous), bin = binary, mc = multiclass.
+PMLB_DATASETS = {
+    "tune": [
+        ("1028_SWD", "regression"), ("1029_LEV", "regression"),
+        ("503_wind", "regression"), ("225_puma8NH", "regression"),
+        ("218_house_8L", "regression"),
+        ("churn", "binary"), ("hypothyroid", "binary"), ("coil2000", "binary"),
+        ("yeast", "multiclass"), ("contraceptive_method", "multiclass"),
+        ("segmentation", "multiclass"), ("texture", "multiclass"),
+        ("nursery", "multiclass"),
+    ],
+    "holdout": [
+        ("1030_ERA", "regression"),
+        ("4544_GeographicalOriginalofMusic", "regression"),
+        ("solar_flare", "regression"), ("529_pollen", "regression"),
+        ("dis", "binary"), ("clean2", "binary"), ("titanic", "binary"),
+        ("dna", "multiclass"), ("page_blocks", "multiclass"),
+        ("ann_thyroid", "multiclass"), ("mfeat_factors", "multiclass"),
+        ("krkopt", "multiclass"),
+    ],
+}
+PMLB_TASKS = {}   # "pm:<fold>/<name>" -> task, filled at registration
+_PMLB_MAX_ROWS = 50000
+
+
+def _make_pmlb_builder(name, task):
+    def builder(scale, rng):
+        import pandas as pd
+        df = pd.read_csv(f"{PMLB_MEDIA}/{name}/{name}.tsv.gz",
+                         sep="\t", compression="gzip")
+        if len(df) > _PMLB_MAX_ROWS:
+            df = df.sample(_PMLB_MAX_ROWS, random_state=0).reset_index(drop=True)
+        y = df["target"]
+        X_df = df.drop(columns=["target"])
+        # All-numeric integer encoding -> no categoricals to detect (cats=None).
+        return _frame_to_dataset(X_df, y, None, task)
+    return builder
+
+
+def _add_pmlb_datasets():
+    """Register the curated PMLB tuning suite into DATASETS as pm:<fold>/<name>.
+    Idempotent so workers can call it once cheaply."""
+    if any(k.startswith("pm:") for k in DATASETS):
+        return
+    for fold, items in PMLB_DATASETS.items():
+        for name, task in items:
+            key = f"pm:{fold}/{name}"
+            DATASETS[key] = _make_pmlb_builder(name, task)
+            PMLB_TASKS[key] = task
+
+
 # --------------------------------------------------------------------------
 # Model runners. Each returns (metrics_dict, fit_seconds, best_iter). The
 # metrics dict always includes "primary" (higher=better; -RMSE for regression,
@@ -388,7 +465,7 @@ PATIENCE = 50
 
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  ordered_boosting=None, depth=6, subsample=1.0, mcw=None,
-                 cat_combinations=False, leaf_estimation_iterations=None,
+                 cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
@@ -400,6 +477,10 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
     if mcw is not None:
         kw["min_child_weight"] = mcw
+    # None = use the class auto-default (on for all-categorical data); only force
+    # it on when --chimera-cat-combinations is passed.
+    if cat_combinations:
+        kw["cat_combinations"] = True
     if linear_leaves:
         # multiclass doesn't support linear leaves yet; fall back to constant
         # leaves there so a full-suite run doesn't crash on multiclass tasks.
@@ -416,7 +497,6 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     m = Est(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
             learning_rate=lr, depth=depth,
             subsample=subsample,
-            cat_combinations=cat_combinations,
             thread_count=threads, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
@@ -619,13 +699,15 @@ def _run_seed_task(task):
     (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
-     ensemble_n, need_openml, need_grinsztajn) = task
+     ensemble_n, need_openml, need_grinsztajn, need_pmlb) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
         _add_openml_datasets()
     if need_grinsztajn:
         _add_grinsztajn_datasets()
+    if need_pmlb:
+        _add_pmlb_datasets()
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
@@ -693,6 +775,8 @@ class _Progress:
         lei = args.leaf_estimation_iterations
         self.config = (f"seeds={args.seeds} jobs={args.jobs} "
                        f"grinsztajn={args.grinsztajn} "
+                       f"pmlb={args.pmlb}"
+                       f"{('/' + args.pmlb_fold) if args.pmlb_fold else ''} "
                        f"depth={args.chimera_depth} "
                        f"lei={'default' if lei is None else lei} "
                        f"ob={'off' if not args.ordered_boosting else 'on'}")
@@ -752,6 +836,12 @@ def main():
     ap.add_argument("--grinsztajn", action="store_true",
                     help="run the Grinsztajn et al. 2022 tabular benchmark "
                          "(binary + regression), loaded from the HuggingFace mirror.")
+    ap.add_argument("--pmlb", action="store_true",
+                    help="run the curated PMLB tuning suite (reg + binary + "
+                         "multiclass; independent of the report suites). Use "
+                         "--pmlb-fold to restrict to tune/holdout.")
+    ap.add_argument("--pmlb-fold", choices=["tune", "holdout"], default=None,
+                    help="with --pmlb, run only this fold (default: both).")
     ap.add_argument("--models", nargs="+", default=None,
                     metavar="MODEL",
                     help=("limit to specific runners, e.g. "
@@ -853,6 +943,17 @@ def main():
             for k in [k for k in DATASETS if not k.startswith("gr:")]:
                 del DATASETS[k]
 
+    # PMLB tuning suite: same convention as Grinsztajn — register, then (unless
+    # specific --datasets were named) run ONLY it. --pmlb-fold narrows further.
+    need_pmlb = args.pmlb or bool(
+        args.datasets and any(d.startswith("pm:") for d in args.datasets))
+    if need_pmlb:
+        _add_pmlb_datasets()
+        if args.pmlb and not args.datasets:
+            keep_fold = (f"pm:{args.pmlb_fold}/" if args.pmlb_fold else "pm:")
+            for k in [k for k in DATASETS if not k.startswith(keep_fold)]:
+                del DATASETS[k]
+
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
     available = (list(_ALWAYS)
@@ -903,7 +1004,7 @@ def main():
 
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
-              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn)
+              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 

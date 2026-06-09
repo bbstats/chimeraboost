@@ -32,7 +32,7 @@ For more detail, see [API reference](api.md).
 |---|---|---|
 | `cat_smoothing` | `1.0` | Prior strength for ordered target statistics; higher shrinks rare categories toward the global mean. Must be `> 0`. |
 | `cat_n_permutations` | `4` | Random orderings averaged by the ordered target encoder. |
-| `cat_combinations` | `False` | Add all pairwise category-by-category features. Helps mostly-categorical data, can crowd out numerics on mixed data. |
+| `cat_combinations` | `None`→auto | Add all pairwise category-by-category features. `None` turns them on automatically only when the data is entirely categorical (where they help without crowding out numeric splits); set `True`/`False` to force it. Auto is skipped for very wide all-categorical data (a resource guard against the `C(n_cat, 2)` blow-up) — pass `True` there if you want them anyway. |
 
 Which columns are categorical can be passed either to `fit(..., cat_features=[...])` or as the
 `cat_features` to your ChimeraBoostRegressor/ChimeraBoostClassifier arguments depending on your use case.
@@ -67,7 +67,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 | Parameter | Default | Effect |
 |---|---|---|
 | `early_stopping` | `True` | Hold out a validation split and stop on a plateau. Set `False` to build a fixed `n_estimators` trees. |
-| `early_stopping_rounds` | `None`→`50` | Patience when early stopping is active. |
+| `early_stopping_rounds` | `None`→`50` | Patience when early stopping is active. `50` is the sweet spot across the Grinsztajn suite; raising it to `100`–`300` helps only large, high-signal datasets (e.g. covertype, electricity, pol) and costs ~25–35% more trees, so it is not worth it as a default — bump it yourself for that kind of data. |
 | `validation_fraction` | `0.2` | Held-out fraction (stratified for classifiers). Ignored when `eval_set` is passed to `fit`. |
 
 See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `groups`.

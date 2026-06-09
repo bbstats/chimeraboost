@@ -818,6 +818,55 @@ def test_auto_min_child_weight_is_size_adaptive():
     assert ce.model_.min_child_weight == 0.5
 
 
+def test_auto_cat_combinations_helper():
+    """cat_combinations=None enables combos only for tractable all-categorical
+    data; the resource caps and the mixed/no-cat cases stay off."""
+    from chimeraboost.sklearn_api import (
+        _auto_cat_combinations as f,
+        _AUTO_CAT_COMBO_MAX_PAIRS, _AUTO_CAT_COMBO_MAX_CELLS)
+    assert f([0, 1, 2, 3], 4, 1000) is True            # all-categorical -> on
+    assert f([0, 1], 4, 1000) is False                 # mixed (2 of 4) -> off
+    assert f(None, 4, 1000) is False                   # no cats -> off
+    assert f([0], 1, 1000) is False                    # need >=2 to combine
+    # Resource guards: too many pairs, or too many pairs*rows, -> off.
+    big = list(range(60)); assert (60 * 59 // 2) > _AUTO_CAT_COMBO_MAX_PAIRS
+    assert f(big, 60, 1000) is False
+    n_feat = 40; small_pairs = n_feat * (n_feat - 1) // 2
+    assert small_pairs <= _AUTO_CAT_COMBO_MAX_PAIRS
+    big_rows = int(_AUTO_CAT_COMBO_MAX_CELLS // small_pairs) + 10
+    assert f(list(range(n_feat)), n_feat, big_rows) is False
+    # numpy-array cat_features must not raise (ambiguous truth value).
+    assert f(np.array([0, 1, 2]), 3, 1000) is True
+
+
+def test_auto_cat_combinations_on_estimators():
+    """The resolved cat_combinations lands on the fitted preprocessor; explicit
+    True/False override the auto rule."""
+    rng = np.random.default_rng(0)
+    n = 1500
+    fcat = rng.integers(0, 4, (n, 4))
+    y = ((fcat[:, 0] == fcat[:, 1]) ^ (fcat[:, 2] > 1)).astype(int)
+    Xcat = fcat.astype(object)
+    allcat = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(
+        Xcat, y, cat_features=[0, 1, 2, 3])
+    assert allcat.model_.prep_.combo_pairs_                 # auto-on
+    # Mixed data leaves combos off.
+    Xmix = np.column_stack([fcat[:, :2].astype(object),
+                            rng.normal(size=(n, 2)).astype(object)])
+    mixed = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(
+        Xmix, y, cat_features=[0, 1])
+    assert not mixed.model_.prep_.combo_pairs_             # auto-off
+    # Explicit False on all-categorical data overrides the auto rule.
+    off = ChimeraBoostClassifier(cat_combinations=False, n_estimators=30,
+                                 random_state=0).fit(Xcat, y, cat_features=[0, 1, 2, 3])
+    assert not off.model_.prep_.combo_pairs_
+    # Regressor honors the same auto rule.
+    yr = fcat[:, 0] + 2.0 * (fcat[:, 1] == fcat[:, 2])
+    rgr = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(
+        Xcat, yr, cat_features=[0, 1, 2, 3])
+    assert rgr.model_.prep_.combo_pairs_
+
+
 # ---------------------------------------------------------------------------
 # hierarchical shrinkage (hs_lambda)
 # ---------------------------------------------------------------------------
@@ -1112,3 +1161,401 @@ def test_shap_multiclass_raises():
     m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
     with pytest.raises(NotImplementedError):
         m.shap_values(X[:10])
+
+
+# --- validation_history_ property and callbacks= fit hook ---------------------
+
+def test_validation_history_best_iteration_is_curve_argmin():
+    """Under early stopping the recorded curve covers every round actually run
+    (best round + patience), and best_iteration_ is its argmin + 1 -- so the
+    kept-tree count is recoverable from the curve alone."""
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    PATIENCE = 20
+    m = ChimeraBoostClassifier(
+        n_estimators=1000, early_stopping_rounds=PATIENCE, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    hist = m.validation_history_
+    assert m.best_iteration_ < 1000
+    assert int(np.argmin(hist)) + 1 == m.best_iteration_
+    # Stopped because patience ran out after the best round (not at the horizon).
+    assert len(hist) == m.best_iteration_ + PATIENCE
+
+
+def test_validation_history_full_curve_without_early_stopping():
+    """early_stopping=False + explicit eval_set => the complete curve to the
+    horizon (n_estimators), never truncated by the stopper."""
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    HORIZON = 60
+    m = ChimeraBoostClassifier(
+        n_estimators=HORIZON, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(m.validation_history_) == HORIZON
+
+
+def test_validation_history_matches_manual_staged_logloss():
+    """The cheap per-round curve equals a manual staged log-loss evaluation on
+    the same eval_set -- so the harness can trust valid_history_ as the metric
+    at every iteration count from a single fit."""
+    from chimeraboost.losses import LOSSES
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    m = ChimeraBoostClassifier(
+        n_estimators=40, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte))
+    # Manual: staged raw scores -> Logloss against the 0/1 eval labels.
+    y01 = (yte == m.classes_[1]).astype(np.float64)
+    loss = LOSSES["Logloss"]()
+    manual = [loss.eval(y01, F)
+              for F in m.model_.staged_predict_raw(Xte)]
+    assert np.allclose(m.validation_history_, manual, atol=1e-9)
+
+
+def test_callbacks_fire_once_per_round_and_can_stop():
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.3, random_state=0, stratify=y)
+    seen = []
+
+    def record(it, train_loss, val_loss, model):
+        seen.append((it, train_loss, val_loss))
+
+    m = ChimeraBoostClassifier(
+        n_estimators=15, early_stopping=False, random_state=0)
+    m.fit(Xtr, ytr, eval_set=(Xte, yte), callbacks=record)
+    # One call per round, monotonically increasing iteration index.
+    assert [s[0] for s in seen] == list(range(15))
+    # val_loss passed to the callback tracks the recorded curve.
+    assert np.allclose([s[2] for s in seen], m.validation_history_, atol=1e-9)
+
+    stopped = []
+
+    def stop_at_5(it, train_loss, val_loss, model):
+        stopped.append(it)
+        return it >= 5
+
+    m2 = ChimeraBoostClassifier(
+        n_estimators=100, early_stopping=False, random_state=0)
+    m2.fit(Xtr, ytr, eval_set=(Xte, yte), callbacks=stop_at_5)
+    assert max(stopped) == 5
+    assert m2.best_iteration_ == 6   # rounds 0..5 kept
+
+
+def test_callbacks_rejected_for_bagging():
+    X, y = load_breast_cancer(return_X_y=True)
+    m = ChimeraBoostClassifier(n_estimators=20, n_ensembles=3, random_state=0)
+    with pytest.raises(ValueError, match="callbacks"):
+        m.fit(X, y, callbacks=lambda *a: None)
+
+
+def test_validation_history_regressor_and_multiclass():
+    # Regressor curve present with explicit eval set.
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=800)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
+    r = ChimeraBoostRegressor(
+        n_estimators=30, early_stopping=False, random_state=0)
+    r.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(r.validation_history_) == 30
+    # Multiclass keeps a single combined softmax-logloss curve.
+    yc = rng.integers(0, 3, size=800)
+    Xtr, Xte, ytr, yte = train_test_split(X, yc, test_size=0.3, random_state=0)
+    c = ChimeraBoostClassifier(
+        n_estimators=25, early_stopping=False, random_state=0)
+    c.fit(Xtr, ytr, eval_set=(Xte, yte))
+    assert len(c.validation_history_) == 25
+
+
+# --- C1: one-hot low-cardinality categoricals (default-off flag) --------------
+
+def test_onehot_low_card_is_noop_on_numeric_data():
+    """The flag must be a true no-op when there are no categoricals (or none low-
+    cardinality): predictions byte-identical to the default."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 4))
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(X, y)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               onehot_low_card=True).fit(X, y)
+    assert np.allclose(a.predict_proba(X), b.predict_proba(X))
+
+
+def test_onehot_low_card_encodes_only_low_cardinality():
+    """Only columns with <= onehot_max_card levels get a one-hot block; high-
+    cardinality columns keep TS only. The flag changes predictions."""
+    rng = np.random.default_rng(0)
+    n = 2000
+    X = np.empty((n, 3), dtype=object)
+    X[:, 0] = np.array([f"c{c}" for c in rng.integers(0, 5, n)], dtype=object)
+    X[:, 1] = np.array([f"h{c}" for c in rng.integers(0, 50, n)], dtype=object)
+    X[:, 2] = rng.normal(size=n)
+    y = ((X[:, 0] == "c1") | (rng.random(n) < 0.3)).astype(int)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               early_stopping=False, onehot_low_card=True)
+    m.fit(X, y, cat_features=[0, 1])
+    # The 5-level column (index 0 among cats) is one-hot; the 50-level one isn't.
+    assert m.model_.prep_.onehot_specs_ == [(0, 5)]
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y, cat_features=[0, 1])
+    assert not np.allclose(m.predict_proba(X), base.predict_proba(X))
+    # Unseen categories at predict route to an all-zero one-hot row (no crash).
+    Xnew = np.array([["c_UNSEEN", "h_UNSEEN", 0.1], ["c1", "h3", -0.2]],
+                    dtype=object)
+    assert m.predict_proba(Xnew).shape == (2, 2)
+
+
+def test_onehot_max_card_validation():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 3))
+    y = (X[:, 0] > 0).astype(int)
+    with pytest.raises(ValueError, match="onehot_max_card"):
+        ChimeraBoostClassifier(onehot_max_card=1).fit(X, y)
+
+
+# --- C3: selective cat_combinations on mixed data (default-off flag) -----------
+
+def test_cat_combinations_selective_is_noop_on_numeric_data():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 4))
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(X, y)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               cat_combinations_selective=True).fit(X, y)
+    assert np.allclose(a.predict_proba(X), b.predict_proba(X))
+
+
+def test_cat_combinations_selective_fires_on_mixed_data():
+    """On MIXED data the plain auto-rule keeps no combos, but the selective flag
+    picks high-MI interaction pairs (here A x B drives an XOR target) and changes
+    predictions. Unseen categories at predict still work."""
+    rng = np.random.default_rng(0)
+    n = 3000
+    A, B, C = (rng.integers(0, 4, n), rng.integers(0, 4, n),
+               rng.integers(0, 6, n))
+    num = rng.normal(size=(n, 2))
+    X = np.empty((n, 5), dtype=object)
+    X[:, 0] = [f"a{v}" for v in A]
+    X[:, 1] = [f"b{v}" for v in B]
+    X[:, 2] = [f"c{v}" for v in C]
+    X[:, 3], X[:, 4] = num[:, 0], num[:, 1]
+    y = (((A % 2) ^ (B % 2)).astype(bool) | (num[:, 0] > 1.2)).astype(int)
+    base = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False).fit(X, y,
+                                                            cat_features=[0, 1, 2])
+    sel = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                 early_stopping=False,
+                                 cat_combinations_selective=True
+                                 ).fit(X, y, cat_features=[0, 1, 2])
+    assert base.model_.prep_.combo_pairs_ == []          # auto-off on mixed
+    assert (0, 1) in sel.model_.prep_.combo_pairs_       # the XOR-driving pair
+    assert not np.allclose(base.predict_proba(X), sel.predict_proba(X))
+    Xnew = X[:3].copy()
+    Xnew[0, 0] = "a_UNSEEN"
+    assert sel.predict_proba(Xnew).shape == (3, 2)
+
+
+def test_cat_combinations_max_pairs_caps_selection():
+    rng = np.random.default_rng(1)
+    n = 2000
+    X = np.empty((n, 5), dtype=object)
+    cols = [rng.integers(0, 4, n) for _ in range(5)]
+    for j, c in enumerate(cols):
+        X[:, j] = [f"v{v}" for v in c]
+    y = ((cols[0] % 2) ^ (cols[1] % 2) ^ (cols[2] % 2)).astype(int)
+    m = ChimeraBoostClassifier(n_estimators=40, random_state=0,
+                               early_stopping=False,
+                               cat_combinations_selective=True,
+                               cat_combinations_max_pairs=2
+                               ).fit(X, y, cat_features=[0, 1, 2, 3, 4])
+    assert len(m.model_.prep_.combo_pairs_) <= 2
+
+
+# --- G1: forest-level joint leaf refit (default-off flag) ---------------------
+
+def test_forest_leaf_refit_is_noop_when_off():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=1500)
+    a = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False).fit(X, y)
+    b = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False).fit(X, y)
+    assert np.allclose(a.predict(X), b.predict(X))    # determinism baseline
+    c = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                              early_stopping=False,
+                              forest_leaf_refit=True).fit(X, y)
+    assert not np.allclose(a.predict(X), c.predict(X))
+
+
+def test_forest_leaf_refit_solves_ridge_optimum():
+    """The joint refit must reach the ridge stationarity point: with prediction
+    init + Z @ w (Z = leaf-membership over all trees), the RMSE-ridge gradient
+    Z.T(pred - y) + lambda * w is ~0. This pins the matrix-free CG result to the
+    explicit closed-form solve."""
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(400, 3))
+    y = 0.7 * X[:, 0] + 0.3 * rng.normal(size=400)
+    lam = 2.0
+    m = ChimeraBoostRegressor(n_estimators=8, depth=3, random_state=0,
+                              early_stopping=False, l2_leaf_reg=lam,
+                              forest_leaf_refit=True,
+                              forest_refit_iterations=2).fit(X, y)
+    gb = m.model_
+    Xb = np.ascontiguousarray(gb.prep_.transform(X).T)
+    trees = [t for t in gb.trees_ if t.depth > 0 and t.lin_coef is None]
+    sizes = [t.values.shape[0] for t in trees]
+    offs = np.concatenate([[0], np.cumsum(sizes)])
+    n, L = Xb.shape[1], int(offs[-1])
+    Z = np.zeros((n, L))
+    for k, t in enumerate(trees):
+        Z[np.arange(n), offs[k] + t.apply(Xb)] = 1.0
+    w = np.concatenate([t.values for t in trees])
+    pred = gb.init_ + Z @ w
+    assert np.allclose(pred, m.predict(X), atol=1e-6)          # consistency
+    grad = Z.T @ (pred - y) + lam * w
+    assert np.linalg.norm(grad) < 1e-2                         # ridge optimum
+    # And it lowers training RMSE vs no refit.
+    base = ChimeraBoostRegressor(n_estimators=8, depth=3, random_state=0,
+                                 early_stopping=False, l2_leaf_reg=lam).fit(X, y)
+    assert np.sqrt(np.mean((m.predict(X) - y) ** 2)) < \
+        np.sqrt(np.mean((base.predict(X) - y) ** 2))
+
+
+def test_forest_leaf_refit_binary_lowers_logloss():
+    X, y = load_breast_cancer(return_X_y=True)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0,
+                                          stratify=y)
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(Xtr, ytr)
+    ref = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                 early_stopping=False,
+                                 forest_leaf_refit=True).fit(Xtr, ytr)
+    from sklearn.metrics import log_loss
+    assert log_loss(ytr, ref.predict_proba(Xtr)) < log_loss(ytr, base.predict_proba(Xtr))
+
+
+def test_forest_leaf_refit_multiclass_warns_and_ignored():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(600, 4))
+    y = rng.integers(0, 3, size=600)
+    with pytest.warns(UserWarning, match="forest_leaf_refit"):
+        ChimeraBoostClassifier(n_estimators=30, random_state=0,
+                               early_stopping=False,
+                               forest_leaf_refit=True).fit(X, y)
+
+
+# --- G4: ordered_boosting + leaf_estimation reconciliation (default-off flag) --
+
+def test_ordered_leaf_estimation_fires_only_under_ordered_boosting():
+    """ordered_leaf_estimation refines the leaf values that predict uses while
+    F keeps the ordered LOO trajectory. It must change predictions when
+    ordered_boosting is on, and be a byte-identical no-op when it is off (the
+    flag only acts in the ordered-boosting branch)."""
+    X, y = load_breast_cancer(return_X_y=True)
+    ob = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                early_stopping=False,
+                                ordered_boosting=True).fit(X, y)
+    g4 = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                early_stopping=False, ordered_boosting=True,
+                                ordered_leaf_estimation=True).fit(X, y)
+    assert not np.allclose(ob.predict_proba(X), g4.predict_proba(X))
+    # off -> no-op
+    base = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False).fit(X, y)
+    flag = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False,
+                                  ordered_leaf_estimation=True).fit(X, y)
+    assert np.allclose(base.predict_proba(X), flag.predict_proba(X))
+
+
+# --- G3: size-adaptive leaf_estimation_iterations (default-off flag) -----------
+
+def test_adaptive_leaf_estimation_resolves_by_size_and_is_off_by_default():
+    from chimeraboost.sklearn_api import _adaptive_leaf_estimation_iterations as f
+    assert f(300) == 1 and f(2000) == 3 and f(40000) == 6   # monotone, capped
+    X, y = load_breast_cancer(return_X_y=True)               # ~400 train rows
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y)
+    adapt = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                   early_stopping=False,
+                                   adaptive_leaf_estimation=True).fit(X, y)
+    assert base.model_.leaf_estimation_iterations == 3       # class default
+    assert adapt.model_.leaf_estimation_iterations == 1      # size-resolved
+    assert not np.allclose(base.predict_proba(X), adapt.predict_proba(X))
+
+
+# --- G2: mass-adaptive per-leaf shrinkage (default-off, alpha=0) ---------------
+
+def test_adaptive_leaf_shrinkage_noop_at_zero_and_shrinks_when_positive():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(1500, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=1500)
+    base = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                                 early_stopping=False).fit(X, y)
+    zero = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                                 early_stopping=False,
+                                 adaptive_leaf_shrinkage=0.0).fit(X, y)
+    assert np.allclose(base.predict(X), zero.predict(X))      # alpha=0 -> no-op
+    on = ChimeraBoostRegressor(n_estimators=50, random_state=1,
+                               early_stopping=False,
+                               adaptive_leaf_shrinkage=5.0).fit(X, y)
+    assert not np.allclose(base.predict(X), on.predict(X))
+    with pytest.raises(ValueError, match="adaptive_leaf_shrinkage"):
+        ChimeraBoostRegressor(adaptive_leaf_shrinkage=-1.0).fit(X, y)
+
+
+def test_adaptive_leaf_shrinkage_kernel_matches_formula():
+    """The mass-shrinkage kernel must equal -lr*G/(H+l2) * H/(H+alpha)."""
+    from chimeraboost.tree import _leaf_values, _leaf_values_adaptive
+    rng = np.random.default_rng(2)
+    leaf = rng.integers(0, 4, 200).astype(np.int64)
+    g = rng.normal(size=200)
+    h = rng.random(200) + 0.1
+    plain = _leaf_values(leaf, g, h, 4, 1.0, 0.1)
+    alpha = 3.0
+    adapt = _leaf_values_adaptive(leaf, g, h, 4, 1.0, 0.1, alpha)
+    # reconstruct H per leaf to form the expected factor
+    H = np.zeros(4)
+    np.add.at(H, leaf, h)
+    factor = H / (H + alpha)
+    assert np.allclose(adapt, plain * factor)
+
+
+# --- C4: cat-aware binning (default-off flag) ---------------------------------
+
+def test_cat_aware_binning_gives_cat_columns_more_bins_and_is_noop_on_numeric():
+    rng = np.random.default_rng(0)
+    n = 3000
+    X = np.empty((n, 3), dtype=object)
+    X[:, 0] = [f"c{c}" for c in rng.integers(0, 30, n)]   # high-card categorical
+    X[:, 1] = rng.normal(size=n)
+    X[:, 2] = rng.normal(size=n)
+    y = ((rng.integers(0, 30, n) % 2) | (X[:, 1].astype(float) > 0.5)).astype(int)
+    base = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                  early_stopping=False).fit(X, y, cat_features=[0])
+    caw = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                                 early_stopping=False,
+                                 cat_aware_binning=True).fit(X, y, cat_features=[0])
+    # The target-encoded categorical column gets the larger (cat_max_bins) budget;
+    # numeric columns keep max_bins.
+    assert caw.model_.prep_.binner_.n_bins_.max() > \
+        base.model_.prep_.binner_.n_bins_.max()
+    assert not np.allclose(base.predict_proba(X), caw.predict_proba(X))
+    # No categoricals -> no effect.
+    Xn = rng.normal(size=(1500, 4))
+    yn = (Xn[:, 0] > 0).astype(int)
+    a = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False).fit(Xn, yn)
+    b = ChimeraBoostClassifier(n_estimators=40, random_state=1,
+                               early_stopping=False,
+                               cat_aware_binning=True).fit(Xn, yn)
+    assert np.allclose(a.predict_proba(Xn), b.predict_proba(Xn))

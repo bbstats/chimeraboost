@@ -37,7 +37,17 @@ def _fit_temperature(raw, y, multiclass):
 
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
-                           "n_ensembles", "ensemble_n_jobs", "cat_features"})
+                           "n_ensembles", "ensemble_n_jobs", "cat_features",
+                           "adaptive_leaf_estimation"})
+
+
+def _adaptive_leaf_estimation_iterations(n_train):
+    """Size-adaptive ``leaf_estimation_iterations`` (G3). More Newton refinement
+    of the leaf values is affordable -- and the per-leaf estimate more stable --
+    as data grows; on small data extra steps just chase noise. Doubles the field-
+    standard schedule: 1 step below ~500 rows, +1 per doubling, capped at 6
+    (~16k rows). Used only when ``adaptive_leaf_estimation`` is set."""
+    return int(np.clip(round(np.log2(max(n_train, 1) / 500.0)) + 1, 1, 6))
 
 
 def _validate_hyperparams(estimator):
@@ -76,6 +86,9 @@ def _validate_hyperparams(estimator):
     _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
     _pos_int("leaf_estimation_iterations")
+    _pos_int("onehot_max_card", lo=2)
+    _pos_int("cat_combinations_max_pairs")
+    _pos_int("forest_refit_iterations")
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -84,6 +97,7 @@ def _validate_hyperparams(estimator):
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")
     _in_range("max_bins", 2, 65534)
+    _in_range("cat_max_bins", 2, 65534)
     _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
@@ -92,6 +106,7 @@ def _validate_hyperparams(estimator):
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
     _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
     _in_range("hs_lambda", 0.0, np.inf)
+    _in_range("adaptive_leaf_shrinkage", 0.0, np.inf)
     _in_range("linear_lambda", 0.0, np.inf)
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
@@ -611,6 +626,34 @@ def _auto_min_child_weight(n_train):
     return float(np.clip((2000.0 - n_train) / 1500.0, 0.0, 1.0))
 
 
+# Pairwise categorical combinations help when the target depends on categorical
+# INTERACTIONS, but on mixed data the synthetic combo columns crowd out the
+# numeric features that want to split (sign-tested: all-categorical car/kr-vs-kp
+# gain +60%+, mixed sets regress). So the auto-default enables them ONLY when the
+# data is entirely categorical -- the precise condition under which they help
+# without a downside. The two caps below are resource guards (a wide all-cat
+# dataset generates C(n_cat, 2) combo columns, each target-encoded over every
+# row), NOT accuracy knobs: above them the user can still opt in explicitly.
+_AUTO_CAT_COMBO_MAX_PAIRS = 1000        # ceiling on C(n_cat, 2) combo columns
+_AUTO_CAT_COMBO_MAX_CELLS = 5e7         # ceiling on pairs * n_samples (memory)
+
+
+def _auto_cat_combinations(cat_features, n_features, n_samples):
+    """Resolve ``cat_combinations=None``: True only for (tractable) all-categorical
+    data. ``cat_features`` is the resolved integer-index list (or None)."""
+    if cat_features is None or len(cat_features) == 0:
+        return False
+    n_cat = len(cat_features)
+    if n_cat < 2 or n_cat != n_features:
+        return False
+    n_pairs = n_cat * (n_cat - 1) // 2
+    if n_pairs > _AUTO_CAT_COMBO_MAX_PAIRS:
+        return False
+    if n_pairs * n_samples > _AUTO_CAT_COMBO_MAX_CELLS:
+        return False
+    return True
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -666,8 +709,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         Print per-round train and validation metrics.
     ordered_boosting : bool, default False
         Use the leave-one-out leaf training step instead of plain Newton updates.
-    cat_combinations : bool, default False
-        Add all pairwise categorical-by-categorical features.
+    cat_combinations : bool or None, default None
+        Add all pairwise categorical-by-categorical features. ``None`` enables
+        them automatically only when the data is entirely categorical (where the
+        interaction columns help without crowding out numeric splits); set
+        ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
@@ -717,8 +763,14 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
-                 cat_combinations=False, leaf_estimation_iterations=1,
+                 cat_combinations=None, leaf_estimation_iterations=1,
                  hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
+                 forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
+                 adaptive_leaf_shrinkage=0.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -744,13 +796,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.onehot_low_card = onehot_low_card
+        self.onehot_max_card = onehot_max_card
+        self.cat_combinations_selective = cat_combinations_selective
+        self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.cat_aware_binning = cat_aware_binning
+        self.cat_max_bins = cat_max_bins
+        self.forest_leaf_refit = forest_leaf_refit
+        self.forest_refit_iterations = forest_refit_iterations
+        self.ordered_leaf_estimation = ordered_leaf_estimation
+        self.adaptive_leaf_estimation = adaptive_leaf_estimation
+        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
-            sample_weight=None):
+            sample_weight=None, callbacks=None):
         """Fit the model.
 
         Parameters
@@ -774,6 +837,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
+        callbacks : callable or list of callable, or None
+            Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
+            a callback returning True requests an early stop. Used for live
+            validation-curve capture and instrumentation. Not supported with
+            ``n_ensembles > 1`` (members fit in parallel worker processes).
         """
         cat_features = _resolve_cat_features(self, cat_features)
         cat_features = _resolve_cat_feature_names(cat_features, X)
@@ -783,12 +851,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
         if self.n_ensembles and self.n_ensembles > 1:
+            if callbacks is not None:
+                raise ValueError(
+                    "callbacks are not supported with n_ensembles > 1.")
             self.estimators_ = _fit_bagged(self, X, y, cat_features, eval_set,
                                            groups, sample_weight)
             return self
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight)
+                                sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -800,7 +871,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
         """Fit one (non-bagged) model on the data as given."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
@@ -850,10 +922,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
+        # G3: size-adaptive leaf_estimation_iterations (resolved on the final
+        # training set, post early-stopping split), default off.
+        if self.adaptive_leaf_estimation:
+            kw["leaf_estimation_iterations"] = \
+                _adaptive_leaf_estimation_iterations(len(X))
+        # Auto-resolve cat_combinations: on only for tractable all-categorical data.
+        if kw.get("cat_combinations") is None:
+            kw["cat_combinations"] = _auto_cat_combinations(
+                cat_features, self.n_features_in_, len(X))
         self.model_ = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                        **kw)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight)
+                        sample_weight=sample_weight, callbacks=callbacks)
         return self
 
     def predict(self, X):
@@ -875,6 +956,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if self.estimators_ is not None:
             return int(round(np.mean([m.best_iteration_ for m in self.estimators_])))
         return self.model_.best_iteration_
+
+    @property
+    def validation_history_(self):
+        """Per-round validation loss recorded during ``fit`` (RMSE-space loss for
+        regression), as a list whose length is the number of rounds run. Empty
+        when no ``eval_set`` / early-stopping split was available; for a bagged
+        model (``n_ensembles > 1``) a list of the members' histories."""
+        if self.estimators_ is not None:
+            return [m.model_.valid_history_ for m in self.estimators_]
+        return self.model_.valid_history_
 
     @property
     def feature_importances_(self):
@@ -949,8 +1040,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Print per-round train and validation metrics.
     ordered_boosting : bool, default False
         Use the leave-one-out leaf training step instead of plain Newton updates.
-    cat_combinations : bool, default False
-        Add all pairwise categorical-by-categorical features.
+    cat_combinations : bool or None, default None
+        Add all pairwise categorical-by-categorical features. ``None`` enables
+        them automatically only when the data is entirely categorical (where the
+        interaction columns help without crowding out numeric splits); set
+        ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 3
         Newton refinement steps per leaf.
     hs_lambda : float, default 0.0
@@ -1003,8 +1097,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
-                 cat_combinations=False, leaf_estimation_iterations=3,
+                 cat_combinations=None, leaf_estimation_iterations=3,
                  hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
+                 onehot_low_card=False, onehot_max_card=8,
+                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
+                 cat_aware_binning=False, cat_max_bins=254,
+                 forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
+                 adaptive_leaf_shrinkage=0.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1028,13 +1128,24 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.onehot_low_card = onehot_low_card
+        self.onehot_max_card = onehot_max_card
+        self.cat_combinations_selective = cat_combinations_selective
+        self.cat_combinations_max_pairs = cat_combinations_max_pairs
+        self.cat_aware_binning = cat_aware_binning
+        self.cat_max_bins = cat_max_bins
+        self.forest_leaf_refit = forest_leaf_refit
+        self.forest_refit_iterations = forest_refit_iterations
+        self.ordered_leaf_estimation = ordered_leaf_estimation
+        self.adaptive_leaf_estimation = adaptive_leaf_estimation
+        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
-            sample_weight=None):
+            sample_weight=None, callbacks=None):
         """Fit the model.
 
         Parameters
@@ -1057,6 +1168,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights.  Normalized to mean 1 internally.  Only applied
             to the training set; the validation eval metric is always unweighted.
+        callbacks : callable or list of callable, or None
+            Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
+            a callback returning True requests an early stop. Used for live
+            validation-curve capture and instrumentation. Not supported with
+            ``n_ensembles > 1`` (members fit in parallel worker processes).
         """
         cat_features = _resolve_cat_features(self, cat_features)
         cat_features = _resolve_cat_feature_names(cat_features, X)
@@ -1066,6 +1182,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
         if self.n_ensembles and self.n_ensembles > 1:
+            if callbacks is not None:
+                raise ValueError(
+                    "callbacks are not supported with n_ensembles > 1.")
             # Fix the global class set up front: a member's bootstrap may miss a
             # rare class, and predict_proba aligns each member's columns to this.
             yarr = np.asarray(y)
@@ -1080,7 +1199,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             return self
         self.estimators_ = None
         return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight)
+                                sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -1092,7 +1211,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight):
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
         """Fit one (non-bagged) classifier on the data as given."""
         X = (np.asarray(X, dtype=object) if cat_features
              else np.asarray(X, dtype=np.float64))
@@ -1133,6 +1253,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # on the FINAL training set (post early-stopping split).
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
+        # G3: size-adaptive leaf_estimation_iterations (default off).
+        if self.adaptive_leaf_estimation:
+            kw["leaf_estimation_iterations"] = \
+                _adaptive_leaf_estimation_iterations(len(X))
+        # Auto-resolve cat_combinations: on only for tractable all-categorical data
+        # (targets the all-categorical multiclass gap, e.g. car).
+        if kw.get("cat_combinations") is None:
+            kw["cat_combinations"] = _auto_cat_combinations(
+                cat_features, self.n_features_in_, len(X))
 
         self._multiclass = self.n_classes_ > 2
         # Resolve the linear_leaves auto-default: ON for binary (a clean broad
@@ -1145,11 +1274,18 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+        # forest_leaf_refit is a scalar-booster post-pass (regression / binary);
+        # the multiclass booster has no joint-refit path, so warn rather than
+        # silently ignore.
+        if self.forest_leaf_refit and self._multiclass:
+            warnings.warn(
+                "forest_leaf_refit is not supported for multiclass classification "
+                "yet and will be ignored.", UserWarning, stacklevel=2)
         cal_Xv = cal_y = None   # validation set used to calibrate temperature
         if self._multiclass:
             self.model_ = MulticlassBoosting(**kw)
             self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight)
+                            sample_weight=sample_weight, callbacks=callbacks)
             self.classes_ = self.model_.classes_
             if eval_set is not None:
                 cal_Xv = eval_set[0]
@@ -1162,7 +1298,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 eval_set = (cal_Xv, cal_y)
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight)
+                            sample_weight=sample_weight, callbacks=callbacks)
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
@@ -1200,6 +1336,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if self.estimators_ is not None:
             return int(round(np.mean([m.best_iteration_ for m in self.estimators_])))
         return self.model_.best_iteration_
+
+    @property
+    def validation_history_(self):
+        """Per-round validation loss recorded during ``fit`` (binary or softmax
+        log loss), as a list whose length is the number of rounds run. Empty when
+        no ``eval_set`` / early-stopping split was available; for a bagged model
+        (``n_ensembles > 1``) a list of the members' histories."""
+        if self.estimators_ is not None:
+            return [m.model_.valid_history_ for m in self.estimators_]
+        return self.model_.valid_history_
 
     @property
     def feature_importances_(self):
