@@ -12,11 +12,13 @@ gate, not an iteration target.**
 | C3 selective cat-combos (mixed) | `cat_combinations_selective` | T0 | **KILL** | MI-pruning *hurts* all-cat sets (kr-vs-kp +27%); auto-rule already right (1/8) |
 | G1 forest joint leaf refit | `forest_leaf_refit` | T1 | **KILL** | overfits (train↓ test↑ +6–14%); binary gain already in `linear_leaves` |
 | G4 ordered + leaf machinery | `ordered_leaf_estimation` | T0 | **KILL** | helps some cats, badly hurts kr-vs-kp (+17%); ordered-boosting off by default for a reason (3/8) |
+| G3 adaptive leaf-estimation | `adaptive_leaf_estimation` | T0 | **KILL** | flat — size-scheduling the Newton steps buys ~nothing (1/8, mean −0.11%) |
 
 ## Headline finding
 
-Four CatBoost-inspired levers, four kills. Each partial mechanism port **regresses
-somewhere** while the wins it chases are **already banked in the current defaults**:
+Five CatBoost-inspired / scheduling levers, five kills. Each partial mechanism
+port **regresses somewhere** (or is flat) while the wins it chases are **already
+banked in the current defaults**:
 - the all-categorical `cat_combinations` auto-rule (C1/C3 can't beat it),
 - the binary `linear_leaves` default (G1's leaf-sharpness target),
 - plain boosting with size-adaptive `min_child_weight` (G4's ordered variant loses).
@@ -33,7 +35,9 @@ on-permutations machinery operating together, not any single transplantable part
   the promotion tier (`post_fit=True`).
 
 ## Still pending (lower priority)
-C2 per-tree TS permutation, C4 cat-aware binning, G2 adaptive leaf shrinkage,
-G3 adaptive leaf_estimation. Given 4/4 kills, expectations are low; run them to
-confirm, not to hope. The higher-value direction is studying CatBoost's machinery
-*as a whole* rather than porting parts.
+C2 per-tree TS permutation, C4 cat-aware binning, G2 adaptive leaf shrinkage.
+Given 5/5 kills, expectations are low; run them to confirm, not to hope. The
+higher-value direction is studying CatBoost's machinery *as a whole* (integrated
+ordered boosting on permutations) rather than porting parts — or accepting that
+ChimeraBoost's identity (pure-Python, oblivious, fast, near-optimal defaults) is
+a different, valid point on the Pareto front than CatBoost's TabArena Elo.
