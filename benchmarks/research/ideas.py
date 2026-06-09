@@ -111,9 +111,9 @@ IDEAS = {
                    "where the single Newton step underfits.",
     ),
     "G4_ordered_plus_leaf_estimation": dict(
-        params={"ordered_leaf_estimation": True},
+        params={"ordered_boosting": True, "ordered_leaf_estimation": True},
         category="general",
-        implemented=False,
+        implemented=True,
         direction="lower_better",
         hypothesis="Reconciling ordered_boosting WITH leaf estimation (mutually "
                    "exclusive today) gives CatBoost's 'ordered boosting AND leaf "

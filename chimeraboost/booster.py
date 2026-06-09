@@ -116,7 +116,8 @@ class _BaseBooster:
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False,
                  cat_combinations_max_pairs=20,
-                 forest_leaf_refit=False, forest_refit_iterations=3):
+                 forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -143,6 +144,7 @@ class _BaseBooster:
         self.cat_combinations_max_pairs = int(cat_combinations_max_pairs)
         self.forest_leaf_refit = bool(forest_leaf_refit)
         self.forest_refit_iterations = int(forest_refit_iterations)
+        self.ordered_leaf_estimation = bool(ordered_leaf_estimation)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -225,6 +227,26 @@ class _BaseBooster:
         training assignment returned by build_oblivious_tree."""
         return _loo_leaf_step(leaf, g, h, tree.values.shape[0],
                               self.l2_leaf_reg, self.lr_)
+
+    def _refine_leaf_values(self, tree, leaf, F, y, w):
+        """Apply ``leaf_estimation_iterations - 1`` extra Newton steps to a
+        tree's leaf values, recomputing grad/hess at the updated residuals after
+        each step. Mutates ``tree.values`` in place. A no-op when
+        ``leaf_estimation_iterations == 1``. Shared by the plain and (under
+        ``ordered_leaf_estimation``) the ordered-boosting paths."""
+        for _ in range(self.leaf_estimation_iterations - 1):
+            F_tmp = F + tree.values[leaf]
+            g2, h2 = self.loss_.grad_hess(y, F_tmp)
+            if w is not None:
+                g2, h2 = g2 * w, h2 * w
+            n_lv = tree.values.shape[0]
+            if self.hs_lambda > 0.0:
+                tree.values += _leaf_values_hs(leaf, g2, h2, n_lv,
+                                               self.l2_leaf_reg, self.lr_,
+                                               self.hs_lambda)
+            else:
+                tree.values += _leaf_values(leaf, g2, h2, n_lv,
+                                            self.l2_leaf_reg, self.lr_)
 
     def _mvs_threshold(self, abs_g, target):
         """MVS: find threshold λ s.t. sum(min(|g_i|/λ, 1)) = target.
@@ -395,25 +417,21 @@ class GradientBoosting(_BaseBooster):
                 F += _linear_predict(leaf, tree.lin_feats, tree.lin_coef,
                                      self._centers_std_, Xb)
             elif self.ordered_boosting and not adjusts_leaves:
+                # G4: by default ordered boosting and the leaf-estimation Newton
+                # refinement are mutually exclusive (ordered owns the training
+                # step). With ordered_leaf_estimation on, also refine the stored
+                # leaf values (which predict uses) -- CatBoost's "ordered boosting
+                # AND leaf machinery together" -- while F keeps the honest ordered
+                # LOO trajectory.
+                if self.ordered_leaf_estimation:
+                    self._refine_leaf_values(tree, leaf, F, y, w)
                 F += self._loo_update(tree, leaf, g, h)
             else:
                 # Additional Newton steps refine the leaf values using the updated
                 # residuals after each step. For constant-hessian losses (RMSE)
                 # this converges in a few steps; for Logloss it reaches a better
                 # per-leaf approximation than the single first-order step.
-                for _ in range(self.leaf_estimation_iterations - 1):
-                    F_tmp = F + tree.values[leaf]
-                    g2, h2 = self.loss_.grad_hess(y, F_tmp)
-                    if w is not None:
-                        g2, h2 = g2 * w, h2 * w
-                    n_lv = tree.values.shape[0]
-                    if self.hs_lambda > 0.0:
-                        tree.values += _leaf_values_hs(leaf, g2, h2, n_lv,
-                                                       self.l2_leaf_reg, self.lr_,
-                                                       self.hs_lambda)
-                    else:
-                        tree.values += _leaf_values(leaf, g2, h2, n_lv,
-                                                    self.l2_leaf_reg, self.lr_)
+                self._refine_leaf_values(tree, leaf, F, y, w)
                 F += tree.values[leaf]
             if self.verbose:
                 self.train_history_.append(self.loss_.eval(y, F, w))

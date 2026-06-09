@@ -756,6 +756,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -787,6 +788,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
         self.forest_leaf_refit = forest_leaf_refit
         self.forest_refit_iterations = forest_refit_iterations
+        self.ordered_leaf_estimation = ordered_leaf_estimation
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1077,6 +1079,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  onehot_low_card=False, onehot_max_card=8,
                  cat_combinations_selective=False, cat_combinations_max_pairs=20,
                  forest_leaf_refit=False, forest_refit_iterations=3,
+                 ordered_leaf_estimation=False,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1106,6 +1109,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.cat_combinations_max_pairs = cat_combinations_max_pairs
         self.forest_leaf_refit = forest_leaf_refit
         self.forest_refit_iterations = forest_refit_iterations
+        self.ordered_leaf_estimation = ordered_leaf_estimation
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles

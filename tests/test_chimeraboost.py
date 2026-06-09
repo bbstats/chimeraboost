@@ -1451,3 +1451,27 @@ def test_forest_leaf_refit_multiclass_warns_and_ignored():
         ChimeraBoostClassifier(n_estimators=30, random_state=0,
                                early_stopping=False,
                                forest_leaf_refit=True).fit(X, y)
+
+
+# --- G4: ordered_boosting + leaf_estimation reconciliation (default-off flag) --
+
+def test_ordered_leaf_estimation_fires_only_under_ordered_boosting():
+    """ordered_leaf_estimation refines the leaf values that predict uses while
+    F keeps the ordered LOO trajectory. It must change predictions when
+    ordered_boosting is on, and be a byte-identical no-op when it is off (the
+    flag only acts in the ordered-boosting branch)."""
+    X, y = load_breast_cancer(return_X_y=True)
+    ob = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                early_stopping=False,
+                                ordered_boosting=True).fit(X, y)
+    g4 = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                early_stopping=False, ordered_boosting=True,
+                                ordered_leaf_estimation=True).fit(X, y)
+    assert not np.allclose(ob.predict_proba(X), g4.predict_proba(X))
+    # off -> no-op
+    base = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False).fit(X, y)
+    flag = ChimeraBoostClassifier(n_estimators=80, random_state=0,
+                                  early_stopping=False,
+                                  ordered_leaf_estimation=True).fit(X, y)
+    assert np.allclose(base.predict_proba(X), flag.predict_proba(X))
