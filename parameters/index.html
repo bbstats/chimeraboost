@@ -1061,8 +1061,8 @@
 </tr>
 <tr>
 <td><code>cat_combinations</code></td>
-<td><code>False</code></td>
-<td>Add all pairwise category-by-category features. Helps mostly-categorical data, can crowd out numerics on mixed data.</td>
+<td><code>None</code>→auto</td>
+<td>Add all pairwise category-by-category features. <code>None</code> turns them on automatically only when the data is entirely categorical (where they help without crowding out numeric splits); set <code>True</code>/<code>False</code> to force it. Auto is skipped for very wide all-categorical data (a resource guard against the <code>C(n_cat, 2)</code> blow-up) — pass <code>True</code> there if you want them anyway.</td>
 </tr>
 </tbody>
 </table>
@@ -1155,7 +1155,7 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>early_stopping_rounds</code></td>
 <td><code>None</code>→<code>50</code></td>
-<td>Patience when early stopping is active.</td>
+<td>Patience when early stopping is active. <code>50</code> is the sweet spot across the Grinsztajn suite; raising it to <code>100</code>–<code>300</code> helps only large, high-signal datasets (e.g. covertype, electricity, pol) and costs ~25–35% more trees, so it is not worth it as a default — bump it yourself for that kind of data.</td>
 </tr>
 <tr>
 <td><code>validation_fraction</code></td>

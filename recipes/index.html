@@ -1026,8 +1026,11 @@ strings or objects; the rest of the matrix stays numeric.</p>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># equivalently, by name when X is a DataFrame</span>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;city&quot;</span><span class="p">,</span> <span class="s2">&quot;device_type&quot;</span><span class="p">])</span>
 </code></pre></div>
-<p>For mostly-categorical data, <code>cat_combinations=True</code> adds all pairwise category-by-category
-features. It can crowd out numerics on mixed data, so it is off by default.</p>
+<p><code>cat_combinations</code> adds all pairwise category-by-category features. They help when the
+target depends on categorical interactions but can crowd out numerics on mixed data, so
+the default (<code>None</code>) turns them on automatically only when the data is entirely
+categorical. Force them with <code>cat_combinations=True</code> (e.g. on mixed data where you know
+the interactions matter) or disable with <code>False</code>.</p>
 <h2 id="missing-values">Missing values<a class="headerlink" href="#missing-values" title="Permanent link">&para;</a></h2>
 <p>NaNs route to a dedicated histogram bin — no imputation needed. This works for both
 numeric and categorical columns, at fit and at predict time.</p>

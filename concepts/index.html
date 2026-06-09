@@ -873,7 +873,8 @@ of the rows, so a row never sees its own label. Several orderings
 (<code>cat_n_permutations</code>, default 4) are averaged to cut variance, and rare categories are
 shrunk toward the global mean by <code>cat_smoothing</code>. Pass the columns (by integer position or
 column name) to <code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
-<p><code>cat_combinations=True</code> additionally builds all pairwise category-by-category features.</p>
+<p><code>cat_combinations</code> additionally builds all pairwise category-by-category features; the
+default (<code>None</code>) turns them on automatically when the data is entirely categorical.</p>
 <h2 id="leaf-values-and-linear-leaves">Leaf values and linear leaves<a class="headerlink" href="#leaf-values-and-linear-leaves" title="Permanent link">&para;</a></h2>
 <p>By default each leaf predicts a single constant value. With <code>linear_leaves</code>, a leaf
 instead fits a small ridge <strong>linear model</strong> over the numeric features the tree split on,
