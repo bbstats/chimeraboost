@@ -227,3 +227,9 @@ benchmarks/results/*
 
 # MkDocs build output (the site is built/published by CI, never committed)
 site/
+
+# Research-cascade dataset/baseline cache (regenerable, large)
+benchmarks/research/cache/
+
+# AutoGluon scratch dirs created when running the TabArena scripts locally
+AutogluonModels/
