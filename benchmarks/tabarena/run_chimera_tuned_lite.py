@@ -30,6 +30,11 @@ def main():
                     help="run only the first N tasks (smoke test); default = all 51")
     ap.add_argument("--num-random-configs", type=int, default=200,
                     help="number of random HP configs (default 200)")
+    ap.add_argument("--output-dir", default=OUTPUT_DIR,
+                    help="result dir. ALWAYS use a scratch dir for smoke runs: "
+                         "config names (r1..rN) are position-based, so cached "
+                         "smoke results would silently stand in for different "
+                         "configs in a full run.")
     args = ap.parse_args()
 
     openml.config.set_root_cache_directory(r"A:\code\openml")
@@ -43,7 +48,7 @@ def main():
           f"(repetitions_mode='TabArena-Lite' = 1 fold each)")
 
     run_experiments_new(
-        output_dir=OUTPUT_DIR,
+        output_dir=args.output_dir,
         model_experiments=model_experiments,
         tasks=task_ids,
         repetitions_mode="TabArena-Lite",
