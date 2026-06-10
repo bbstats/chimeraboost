@@ -60,9 +60,17 @@ def load(json_path):
 
 
 def latest_json(results_dir=RESULTS_DIR):
-    """Path to the most recently modified results .json, or None."""
+    """Path to the most recently modified results .json that has a 'records' key, or None."""
     files = glob.glob(os.path.join(results_dir, "*.json"))
-    return max(files, key=os.path.getmtime) if files else None
+    valid = []
+    for f in files:
+        try:
+            with open(f, encoding="utf-8") as fh:
+                if "records" in json.load(fh):
+                    valid.append(f)
+        except Exception:
+            pass
+    return max(valid, key=os.path.getmtime) if valid else None
 
 
 def _agg_metric(records, key):
