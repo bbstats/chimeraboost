@@ -21,7 +21,6 @@ import io
 import pstats
 import time
 
-import numpy as np
 
 # Patch BEFORE constructing any booster so the timing wrapper is picked up.
 import chimeraboost.booster as bm
