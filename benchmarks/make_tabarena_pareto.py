@@ -68,7 +68,7 @@ def render_image(out_path):
     models = list(DATA)
     front = pareto_frontier(models)
 
-    fig, ax = plt.subplots(figsize=(8.2, 5.6), dpi=150)
+    fig, ax = plt.subplots(figsize=(6.0, 4.2), dpi=220)
 
     # Frontier step line (under the points), sorted by time ascending.
     fr = sorted(front, key=total_time)
@@ -113,9 +113,8 @@ def render_image(out_path):
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}s"))
 
     # Fast (low time) on the LEFT, strong (high Elo) UP -> best corner up-left.
-    ax.set_xlabel("← Train + predict time per 1K rows  (log scale, lower = faster)",
-                  fontsize=10.5)
-    ax.set_ylabel("TabArena-Lite Elo  (higher = stronger) →", fontsize=10.5)
+    ax.set_xlabel("Time", fontsize=10.5)
+    ax.set_ylabel("Elo", fontsize=10.5)
 
     ax.text(0.02, 0.98, "stronger + faster", transform=ax.transAxes,
             ha="left", va="top", fontsize=9.5, color="#2b8a3e", fontstyle="italic")
@@ -124,16 +123,12 @@ def render_image(out_path):
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    fig.suptitle("Strength vs speed on TabArena-Lite — default configs",
+    fig.suptitle("Train + Predict Time vs TabArena-Lite Elo",
                  fontsize=13, fontweight="bold", y=0.98)
-    ax.set_title(
-        "Official TabArena-Lite Elo (51 tasks, 8-fold bagged)  ·  "
-        "time = median train + predict (s / 1K rows)",
-        fontsize=9.5, color="#555", pad=8)
     ax.legend(loc="lower right", fontsize=9, frameon=False)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.savefig(out_path, dpi=220, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return front
 
