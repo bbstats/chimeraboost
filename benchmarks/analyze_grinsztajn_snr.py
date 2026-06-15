@@ -82,8 +82,8 @@ def main():
     sr = _spearman(signal, delta)
 
     print(f"\nStage-2 SNR test on {os.path.basename(path)} — {len(rows)} binary datasets")
-    print(f"(Brier = sum-convention; ΔBrier>0 means ChimeraBoost trails the best "
-          f"leaf-wise model)\n")
+    print("(Brier = sum-convention; ΔBrier>0 means ChimeraBoost trails the best "
+          "leaf-wise model)\n")
     print(f"{'dataset':28s} {'n_train':>7s} {'lw_floor':>8s} {'lw':>11s} "
           f"{'Chimera':>8s} {'Δ':>8s} {'signal':>7s}")
     for ds, fl, which, ch, dl, sg, ntr in rows:

@@ -50,6 +50,12 @@ are: (a) study CatBoost's machinery *as a whole* — integrated ordered boosting
 permutations, which would be a from-scratch redesign, not a flag; or (b) accept
 that ChimeraBoost's identity (pure-Python, oblivious, fast, near-optimal defaults)
 is simply a different, valid point on the Pareto front than CatBoost's TabArena
-Elo. The seven flags remain as documented default-off opt-ins for users whose data
-matches a lever's narrow sweet-spot (e.g. `cat_aware_binning`/`onehot_low_card`
-help car/splice).
+Elo.
+
+**Update (2026-06-15):** the eight default-off flags these levers shipped behind
+(`hs_lambda`, `adaptive_leaf_shrinkage`, `adaptive_leaf_estimation`,
+`ordered_leaf_estimation`, `forest_leaf_refit`, `onehot_low_card`,
+`cat_combinations_selective`, `cat_aware_binning`) were **removed from the library**
+to cut API surface (constructor 36 → 24 params). The cascade's verdicts stand as the
+record; the narrow car/splice wins are documented here and recoverable from git
+history if ever revisited. This ledger is kept as the research log, not live API.

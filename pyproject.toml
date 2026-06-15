@@ -34,3 +34,12 @@ docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24", "black>=24.0"]
 
 [tool.setuptools.packages.find]
 include = ["chimeraboost*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# `l` is the established name for a leaf index throughout the tree kernels, where
+# it reads naturally alongside `f` (feature) and `b` (bin); E741 would force a
+# churny rename across the histogram code for no clarity gain.
+ignore = ["E741"]

@@ -13,7 +13,6 @@ import argparse
 import os
 import time
 
-import numpy as np
 from scaling_giant import _gen  # reuse the synthetic generator
 
 

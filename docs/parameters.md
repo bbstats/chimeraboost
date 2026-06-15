@@ -54,7 +54,6 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 |---|---|---|
 | `linear_leaves` | `False` (reg) / `None`→auto (clf) | Fit a ridge linear model per leaf over the numeric split features instead of a constant. On by default for binary classification; falls back to constant below ~1000 rows. Not available with MAE/Quantile or multiclass. |
 | `linear_lambda` | `1.0` | Ridge penalty on per-leaf slopes; larger is closer to a constant. |
-| `hs_lambda` | `0.0` | Hierarchical shrinkage: above 0, leaf values are pulled toward their ancestors, hardest for deep or low-mass leaves. |
 
 ## Ordered boosting
 

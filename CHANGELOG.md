@@ -4,6 +4,23 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **Faster inference (~1.9×) and fit (~1.4×).** Predict-time bin assignment and
+  the per-level leaf descent during tree building are now parallel numba kernels
+  instead of allocation-heavy NumPy. Output is bit-identical; large-batch
+  `predict`/`predict_proba` throughput roughly doubles (now on par with
+  LightGBM) and fitting on large data is ~1.4× faster.
+
+### Removed
+- **Eight default-off experimental flags retired** after the research cascade
+  found each either null or net-negative: `hs_lambda`, `adaptive_leaf_shrinkage`,
+  `adaptive_leaf_estimation`, `ordered_leaf_estimation`, `forest_leaf_refit`
+  (+`forest_refit_iterations`), `onehot_low_card` (+`onehot_max_card`),
+  `cat_combinations_selective` (+`cat_combinations_max_pairs`), and
+  `cat_aware_binning` (+`cat_max_bins`). The constructor drops from 36 to 24
+  parameters. All shipped defaults (`cat_combinations` auto-rule, `linear_leaves`,
+  `leaf_estimation_iterations`, ordered boosting) are unchanged — predictions for
+  any model not setting a removed flag are identical.
 
 ## [0.12.0] - 2026-06-09
 ### Changed
