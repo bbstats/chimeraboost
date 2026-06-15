@@ -16,7 +16,10 @@ from chimeraboost_tabarena_model import get_configs_for_chimera_tuned
 from tabarena.benchmark.experiment import run_experiments_new
 from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
 
-OUTPUT_DIR = r"A:\code\tabarena_out\chimera_tuned"
+# Fresh dir for the fixed (post-de-slop) search space. The old chimera_tuned /
+# chimera_tuned_lite dirs hold killed-flag-space caches whose r-config IDs would
+# collide and silently load stale results — never reuse them for this run.
+OUTPUT_DIR = r"A:\code\tabarena_out\chimera_tuned_full"
 
 
 def _task_ids_from_csv() -> list[int]:
