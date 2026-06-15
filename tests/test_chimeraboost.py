@@ -9,6 +9,38 @@ from sklearn.metrics import roc_auc_score, mean_squared_error
 from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
 
 
+def test_binning_transform_matches_searchsorted_reference():
+    """The njit row-parallel binning kernel must be bit-identical to the old
+    per-column np.searchsorted(side='right') logic, including NaN/+-inf routing to
+    the missing bin and few-distinct/constant columns. Guards the predict-time
+    binning speedup (the kernel is ~half of inference cost)."""
+    from chimeraboost.binning import Binner, BIN_DTYPE
+
+    def reference(binner, X):
+        X = np.asarray(X, dtype=np.float64)
+        out = np.empty(X.shape, dtype=BIN_DTYPE)
+        for f in range(X.shape[1]):
+            col = X[:, f]
+            borders = binner.borders_[f]
+            binned = np.searchsorted(borders, col, side="right").astype(BIN_DTYPE)
+            binned[~np.isfinite(col)] = len(borders) + 1
+            out[:, f] = binned
+        return out
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(4000, 10))
+    X[:, 2] = rng.integers(0, 4, size=4000)          # few distinct values
+    X[:, 5] = 1.0                                      # constant column
+    X[rng.integers(0, 4000, 300), rng.integers(0, 10, 300)] = np.nan
+    X[rng.integers(0, 4000, 100), rng.integers(0, 10, 100)] = np.inf
+    X[rng.integers(0, 4000, 100), rng.integers(0, 10, 100)] = -np.inf
+
+    bn = Binner(max_bins=64).fit(X)
+    assert np.array_equal(bn.transform(X), reference(bn, X))
+    assert np.array_equal(bn.transform(X[:1]), reference(bn, X[:1]))  # single row
+    assert bn.transform(X[:0]).shape == (0, 10)                       # empty
+
+
 def test_regressor_beats_mean_baseline():
     X, y = load_diabetes(return_X_y=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=0)
