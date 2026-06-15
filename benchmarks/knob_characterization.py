@@ -83,7 +83,6 @@ KNOBS = {
     "subsample":                  dict(values=[0.8, 0.5],           group="all"),
     "colsample":                  dict(values=[0.8, 0.5],           group="all"),
     "leaf_estimation_iterations": dict(values=[1, 3, 5, 10],        group="all"),
-    "hs_lambda":                  dict(values=[1.0, 5.0, 20.0],     group="all"),
     "max_bins":                   dict(values=[64, 128, 254],       group="all"),
     # Baseline patience is 50. "Better by Default" (arXiv 2407.04491) found
     # patience ~300 helps classifiers; probe whether it generalizes here.

@@ -161,18 +161,22 @@ def get_configs_for_chimera_tuned(*, num_random_configs: int = 200):
     * Core capacity/regularization knobs with known per-dataset variance:
       learning_rate, depth, l2_leaf_reg, min_child_weight, subsample, colsample,
       leaf_estimation_iterations, max_bins.
-    * The default-OFF research flags that were KILLED as defaults precisely
-      because each helps only a narrow slice of datasets (see
-      benchmarks/research/SUMMARY.md) — per-task HPO is the regime where
-      narrow-sweet-spot levers earn their keep: linear_leaves (regression wins
-      pol/abalone; default only auto-on for binary), onehot_low_card,
-      cat_aware_binning, cat_combinations_selective (hard-capped at 20 pairs;
-      the plain cat_combinations flag is deliberately EXCLUDED — explicit True
+    * Categorical-handling knobs that exist in current source: cat_smoothing
+      (ordered-TS pseudocount) and cat_n_permutations (anti-leakage averaging).
+      The raw cat_combinations flag is deliberately EXCLUDED — explicit True
       bypasses the auto-rule's <=1000-pair resource guard and would explode on
-      high-cardinality tasks), and hs_lambda (null at depth 6 but designed to
-      make deeper trees safe — searchable jointly with depth here).
+      high-cardinality tasks; combinations stay on the adaptive auto default.
+    * linear_leaves (regression wins pol/abalone; default only auto-on for
+      binary) searched jointly with its regularizer linear_lambda.
+    * ordered_boosting (CatBoost-style ordered target stats) — default off, a
+      per-task lever for leakage-sensitive small data.
     * n_estimators stays fixed (1500 cap + early stopping): searching a budget
       cap under ES only adds noise.
+
+    NOTE: the 8 default-off research flags (onehot_low_card, cat_aware_binning,
+    cat_combinations_selective, hs_lambda, …) were REMOVED from the model in the
+    June de-slop pass (benchmarks/research/SUMMARY.md), so they are no longer
+    searchable — passing them now raises TypeError at construction.
     """
     from autogluon.common.space import Categorical, Int, Real
 
@@ -189,10 +193,10 @@ def get_configs_for_chimera_tuned(*, num_random_configs: int = 200):
         "leaf_estimation_iterations": Int(1, 5),
         "max_bins": Categorical(128, 254),
         "linear_leaves": Categorical(False, True),
-        "onehot_low_card": Categorical(False, True),
-        "cat_aware_binning": Categorical(False, True),
-        "cat_combinations_selective": Categorical(False, True),
-        "hs_lambda": Real(0.0, 4.0),
+        "linear_lambda": Real(0.1, 10.0, log=True),
+        "cat_smoothing": Real(0.1, 10.0, log=True),
+        "cat_n_permutations": Int(1, 8),
+        "ordered_boosting": Categorical(False, True),
     }
 
     gen = ConfigGenerator(
