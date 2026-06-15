@@ -46,6 +46,21 @@ def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist):
 
 
 @njit(cache=True, parallel=True)
+def _descend_leaves(leaf, Xf, t):
+    """Push every sample one level deeper, in place: leaf = (leaf<<1) + (Xf > t).
+
+    Replaces the per-level numpy expression
+    ``leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)`` which allocated several
+    n-sample temporaries (the bool mask, its int64 cast, the shifted array, the
+    sum) on every one of the (max_depth x n_trees) level steps — measured at ~⅓
+    of total fit time. One parallel pass over the contiguous feature row, no
+    temporaries; bit-identical bucketing.
+    """
+    for i in prange(leaf.shape[0]):
+        leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > t else 0)
+
+
+@njit(cache=True, parallel=True)
 def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
                 n_leaves):
     """Find the (feature, threshold) with the highest total gain.
@@ -698,8 +713,9 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
         splits_thr.append(t)
         splits_gain.append(gain)
         # Push each sample one bit deeper from the just-chosen split. Xb[f] is
-        # a contiguous row, so this re-bucketing reads sequentially.
-        leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)
+        # a contiguous row, so this re-bucketing reads sequentially. In-place
+        # njit pass (no per-level n-sample temporaries); see _descend_leaves.
+        _descend_leaves(leaf, Xb[f], t)
 
     sf = np.array(splits_feat, dtype=np.int64)
     st = np.array(splits_thr, dtype=np.int64)
