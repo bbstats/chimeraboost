@@ -12,11 +12,45 @@ The histogram width for a feature is therefore (n_borders + 2).
 """
 
 import numpy as np
+from numba import njit, prange
 
 BIN_DTYPE = np.uint16
 # uint16 max is 65535; we reserve one slot for NaN, so the cap is 65534.
 # In practice 128-256 bins is the useful range; this guard just catches typos.
 _MAX_SUPPORTED_BINS = np.iinfo(BIN_DTYPE).max - 1
+
+
+@njit(cache=True, parallel=True)
+def _bin_matrix(X, borders_flat, offsets, out):
+    """Map every (row, feature) of X to its integer bin, in parallel over rows.
+
+    Equivalent to, per feature f with borders b = borders_flat[offsets[f]:offsets[f+1]]:
+        finite v -> np.searchsorted(b, v, side="right")   (count of borders <= v)
+        non-finite v (NaN / +-inf) -> len(b) + 1          (the NaN/missing bin)
+    Parallelised over rows so each thread reads a contiguous X row and writes a
+    contiguous `out` row (cache-friendly on the row-major matrices), replacing the
+    per-column single-threaded np.searchsorted loop.
+    """
+    n, nf = X.shape
+    for i in prange(n):
+        for f in range(nf):
+            lo = offsets[f]
+            hi = offsets[f + 1]
+            m = hi - lo                      # number of borders for feature f
+            v = X[i, f]
+            if not np.isfinite(v):
+                out[i, f] = m + 1            # NaN / inf -> missing bin
+            else:
+                # rightmost insertion point == count of borders <= v.
+                a = lo
+                b = hi
+                while a < b:
+                    mid = (a + b) // 2
+                    if borders_flat[mid] <= v:
+                        a = mid + 1
+                    else:
+                        b = mid
+                out[i, f] = a - lo
 
 
 def _feature_borders(col, max_bins):
@@ -55,6 +89,8 @@ class Binner:
         self.borders_ = None       # list of np.ndarray, one per feature
         self.n_bins_ = None        # np.ndarray int, width per feature
         self.bin_centers_ = None   # list of np.ndarray: representative value/bin
+        self._borders_flat = None  # contiguous borders for the numba kernel
+        self._offsets = None       # int64 (n_features+1) prefix offsets into flat
 
     def _max_bins_for(self, f):
         """Per-feature bin budget: a scalar applies to all features, an array
@@ -101,20 +137,31 @@ class Binner:
             [len(b) + 2 for b in self.borders_], dtype=np.int64
         )
         self.bin_centers_ = [self._centers_for(b) for b in self.borders_]
+        self._build_flat_borders()
         return self
+
+    def _build_flat_borders(self):
+        """Flatten the ragged per-feature borders into one contiguous array plus
+        offsets, so the numba kernel can index feature f's borders as
+        borders_flat[offsets[f]:offsets[f+1]]. Cached on the instance."""
+        lens = [len(b) for b in self.borders_]
+        self._offsets = np.zeros(len(self.borders_) + 1, dtype=np.int64)
+        self._offsets[1:] = np.cumsum(lens)
+        self._borders_flat = (np.concatenate(self.borders_).astype(np.float64)
+                              if self.borders_ else np.zeros(0, dtype=np.float64))
 
     def transform(self, X):
         """Map a float matrix to integer bin indices; NaNs go to the top bin."""
-        X = np.asarray(X, dtype=np.float64)
+        X = np.ascontiguousarray(X, dtype=np.float64)
         n_samples, n_features = X.shape
+        # Lazily (re)build the flat border layout if missing — e.g. when borders_
+        # were set without going through fit().
+        if getattr(self, "_borders_flat", None) is None or \
+                len(self._offsets) != n_features + 1:
+            self._build_flat_borders()
         out = np.empty((n_samples, n_features), dtype=BIN_DTYPE)
-        for f in range(n_features):
-            col = X[:, f]
-            borders = self.borders_[f]
-            nan_bin = len(borders) + 1
-            binned = np.searchsorted(borders, col, side="right").astype(BIN_DTYPE)
-            binned[~np.isfinite(col)] = nan_bin
-            out[:, f] = binned
+        if n_samples:
+            _bin_matrix(X, self._borders_flat, self._offsets, out)
         return out
 
     def fit_transform(self, X):
