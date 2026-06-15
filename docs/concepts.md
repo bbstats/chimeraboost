@@ -43,9 +43,6 @@ adding local slope where a constant underfits smooth structure. Leaves with too 
 fall back to norma behavior to reduce overfitting small datasets. Linear leaves are on by
 default for binary classification, but off for regression.
 
-`hs_lambda` (hierarchical shrinkage) optionally pulls each leaf value toward its
-ancestors' value.
-
 ## Probability calibration
 
 After fitting, the classifier scales its raw scores by a single temperature chosen on

@@ -177,80 +177,6 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
 
 
 @njit(cache=True)
-def _leaf_values_adaptive(leaf, grad, hess, n_leaves, l2, lr, alpha):
-    """Mass-adaptive leaf values (G2): the Newton step is multiplied by a per-leaf
-    shrinkage factor H / (H + alpha), so a leaf's value is pulled toward zero in
-    proportion to how little hessian mass it carries -- low-mass leaves (whose
-    Newton estimate has the highest variance) shrink hardest, high-mass leaves are
-    nearly untouched. ``alpha == 0`` reproduces the plain Newton value exactly."""
-    G = np.zeros(n_leaves)
-    H = np.zeros(n_leaves)
-    for i in range(leaf.shape[0]):
-        G[leaf[i]] += grad[i]
-        H[leaf[i]] += hess[i]
-    values = np.zeros(n_leaves)
-    for l in range(n_leaves):
-        if H[l] > 0.0:
-            values[l] = -lr * G[l] / (H[l] + l2) * (H[l] / (H[l] + alpha))
-    return values
-
-
-@njit(cache=True)
-def _leaf_values_hs(leaf, grad, hess, n_leaves, l2, lr, hs_lambda):
-    """Hierarchical-shrinkage leaf values for an oblivious tree.
-
-    Instead of estimating every leaf independently (``_leaf_values``), each
-    leaf's Newton value is recursively shrunk toward its ancestors' values, with
-    the shrinkage strength set by ``hs_lambda`` and damped by the node's hessian
-    mass (a sample-count proxy). Low-mass / deep leaves -- the ones that overfit
-    local gradient noise -- are pulled hardest toward the smoother parent; large,
-    high-signal leaves keep their sharp value. See Agarwal et al., ICML 2022.
-
-    Oblivious trees are perfectly symmetric, so leaf ``j`` at depth D and its
-    coarser ancestors form a complete binary tree under ``parent(j) = j >> 1``.
-    We lay that tree out heap-style (root 0, children of i at 2i+1/2i+2; the
-    2**D leaves occupy [n_leaves-1, 2*n_leaves-1)), aggregate grad/hess upward,
-    then blend downward:
-
-        w_i      = -G_i / (H_i + l2)                      (raw Newton update)
-        theta_i  = a_i * w_i + (1 - a_i) * theta_parent,  a_i = H_i/(H_i + hs)
-
-    Returns ``lr * theta`` for the leaves. Note this is intentionally NOT
-    bit-identical to ``_leaf_values`` at hs_lambda=0 (different op order), so the
-    caller keeps using ``_leaf_values`` when hs_lambda == 0."""
-    n_nodes = 2 * n_leaves - 1          # complete binary tree, 2**(D+1) - 1
-    base = n_leaves - 1                 # heap index of the first (depth-D) leaf
-    G = np.zeros(n_nodes)
-    H = np.zeros(n_nodes)
-    for i in range(leaf.shape[0]):
-        node = base + leaf[i]
-        G[node] += grad[i]
-        H[node] += hess[i]
-    # Upward pass: a node's mass is the sum of its two children's masses.
-    for i in range(base - 1, -1, -1):
-        G[i] = G[2 * i + 1] + G[2 * i + 2]
-        H[i] = H[2 * i + 1] + H[2 * i + 2]
-    # Downward pass: shrink each node toward its (already-shrunk) parent.
-    theta = np.zeros(n_nodes)
-    if H[0] > 0.0:
-        theta[0] = -G[0] / (H[0] + l2)
-    for i in range(1, n_nodes):
-        h = H[i]
-        parent = (i - 1) // 2
-        if h > 0.0:
-            w = -G[i] / (h + l2)
-            a = h / (h + hs_lambda)
-            theta[i] = a * w + (1.0 - a) * theta[parent]
-        else:
-            # Empty leaf (no samples): inherit the parent's value outright.
-            theta[i] = theta[parent]
-    values = np.empty(n_leaves)
-    for j in range(n_leaves):
-        values[j] = lr * theta[base + j]
-    return values
-
-
-@njit(cache=True)
 def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
                      l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
@@ -665,9 +591,9 @@ class ObliviousTree:
 
 def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
-                         min_child_weight=1.0, hist_buffers=None, hs_lambda=0.0,
+                         min_child_weight=1.0, hist_buffers=None,
                          linear_leaves=False, centers_std=None, is_numeric=None,
-                         linear_lambda=1.0, adaptive_shrinkage=0.0):
+                         linear_lambda=1.0):
     """Grow one oblivious tree level by level. Returns (tree, train_leaf), where
     train_leaf is the tree's leaf index for every training sample.
 
@@ -680,10 +606,6 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     hist_buffers: optional interleaved buffer of shape (n_features,
     2**max_depth, max_bins, 2) reused across trees to avoid per-level
     allocation. If None, it is allocated here (for one-off calls and tests).
-    hs_lambda: hierarchical-shrinkage strength for the leaf values (0 = off,
-    the plain per-leaf Newton estimate). When > 0, leaf values are shrunk
-    toward their ancestors via `_leaf_values_hs` as a cheap post-pass over the
-    finished structure (the split search is unaffected).
     linear_leaves: when True, attach a per-leaf ridge linear model over the
     tree's numeric split features (`centers_std`/`is_numeric` required;
     `linear_lambda` is the slope penalty). Low-count leaves fall back to the
@@ -720,13 +642,7 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     sf = np.array(splits_feat, dtype=np.int64)
     st = np.array(splits_thr, dtype=np.int64)
     n_leaves = 1 << len(splits_feat)
-    if hs_lambda > 0.0:
-        values = _leaf_values_hs(leaf, grad, hess, n_leaves, l2, lr, hs_lambda)
-    elif adaptive_shrinkage > 0.0:
-        values = _leaf_values_adaptive(leaf, grad, hess, n_leaves, l2, lr,
-                                       adaptive_shrinkage)
-    else:
-        values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
+    values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
     lin_feats = lin_coef = None
     if linear_leaves and len(splits_feat) > 0 and centers_std is not None:
         # Linear term uses the NUMERIC features the tree actually split on.

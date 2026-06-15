@@ -37,17 +37,7 @@ def _fit_temperature(raw, y, multiclass):
 
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
-                           "n_ensembles", "ensemble_n_jobs", "cat_features",
-                           "adaptive_leaf_estimation"})
-
-
-def _adaptive_leaf_estimation_iterations(n_train):
-    """Size-adaptive ``leaf_estimation_iterations`` (G3). More Newton refinement
-    of the leaf values is affordable -- and the per-leaf estimate more stable --
-    as data grows; on small data extra steps just chase noise. Doubles the field-
-    standard schedule: 1 step below ~500 rows, +1 per doubling, capped at 6
-    (~16k rows). Used only when ``adaptive_leaf_estimation`` is set."""
-    return int(np.clip(round(np.log2(max(n_train, 1) / 500.0)) + 1, 1, 6))
+                           "n_ensembles", "ensemble_n_jobs", "cat_features"})
 
 
 def _validate_hyperparams(estimator):
@@ -86,9 +76,6 @@ def _validate_hyperparams(estimator):
     _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
     _pos_int("leaf_estimation_iterations")
-    _pos_int("onehot_max_card", lo=2)
-    _pos_int("cat_combinations_max_pairs")
-    _pos_int("forest_refit_iterations")
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -97,7 +84,6 @@ def _validate_hyperparams(estimator):
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")
     _in_range("max_bins", 2, 65534)
-    _in_range("cat_max_bins", 2, 65534)
     _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
@@ -105,8 +91,6 @@ def _validate_hyperparams(estimator):
     # cat_smoothing is a Bayesian pseudocount in the ordered-TS denominator
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
     _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
-    _in_range("hs_lambda", 0.0, np.inf)
-    _in_range("adaptive_leaf_shrinkage", 0.0, np.inf)
     _in_range("linear_lambda", 0.0, np.inf)
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
@@ -716,10 +700,6 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
-    hs_lambda : float, default 0.0
-        Hierarchical-shrinkage strength. Above 0, leaf values are recursively
-        shrunk toward their ancestors, hardest for deep or low-mass leaves. Adds
-        no inference cost.
     linear_leaves : bool, default False
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant value, adding local slope where step leaves underfit. Leaves
@@ -764,13 +744,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
-                 hs_lambda=0.0, linear_leaves=False, linear_lambda=1.0,
-                 onehot_low_card=False, onehot_max_card=8,
-                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
-                 cat_aware_binning=False, cat_max_bins=254,
-                 forest_leaf_refit=False, forest_refit_iterations=3,
-                 ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
-                 adaptive_leaf_shrinkage=0.0,
+                 linear_leaves=False, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -793,20 +767,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.ordered_boosting = ordered_boosting
         self.cat_combinations = cat_combinations
         self.leaf_estimation_iterations = leaf_estimation_iterations
-        self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
-        self.onehot_low_card = onehot_low_card
-        self.onehot_max_card = onehot_max_card
-        self.cat_combinations_selective = cat_combinations_selective
-        self.cat_combinations_max_pairs = cat_combinations_max_pairs
-        self.cat_aware_binning = cat_aware_binning
-        self.cat_max_bins = cat_max_bins
-        self.forest_leaf_refit = forest_leaf_refit
-        self.forest_refit_iterations = forest_refit_iterations
-        self.ordered_leaf_estimation = ordered_leaf_estimation
-        self.adaptive_leaf_estimation = adaptive_leaf_estimation
-        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -922,11 +884,6 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
-        # G3: size-adaptive leaf_estimation_iterations (resolved on the final
-        # training set, post early-stopping split), default off.
-        if self.adaptive_leaf_estimation:
-            kw["leaf_estimation_iterations"] = \
-                _adaptive_leaf_estimation_iterations(len(X))
         # Auto-resolve cat_combinations: on only for tractable all-categorical data.
         if kw.get("cat_combinations") is None:
             kw["cat_combinations"] = _auto_cat_combinations(
@@ -1047,9 +1004,6 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 3
         Newton refinement steps per leaf.
-    hs_lambda : float, default 0.0
-        Hierarchical-shrinkage strength. Above 0, leaf values are recursively
-        shrunk toward their ancestors, hardest for deep or low-mass leaves.
     linear_leaves : bool or None, default None
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant. ``None`` enables it for binary classification and disables
@@ -1098,13 +1052,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
-                 hs_lambda=0.0, linear_leaves=None, linear_lambda=1.0,
-                 onehot_low_card=False, onehot_max_card=8,
-                 cat_combinations_selective=False, cat_combinations_max_pairs=20,
-                 cat_aware_binning=False, cat_max_bins=254,
-                 forest_leaf_refit=False, forest_refit_iterations=3,
-                 ordered_leaf_estimation=False, adaptive_leaf_estimation=False,
-                 adaptive_leaf_shrinkage=0.0,
+                 linear_leaves=None, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1125,20 +1073,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.ordered_boosting = ordered_boosting
         self.cat_combinations = cat_combinations
         self.leaf_estimation_iterations = leaf_estimation_iterations
-        self.hs_lambda = hs_lambda
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
-        self.onehot_low_card = onehot_low_card
-        self.onehot_max_card = onehot_max_card
-        self.cat_combinations_selective = cat_combinations_selective
-        self.cat_combinations_max_pairs = cat_combinations_max_pairs
-        self.cat_aware_binning = cat_aware_binning
-        self.cat_max_bins = cat_max_bins
-        self.forest_leaf_refit = forest_leaf_refit
-        self.forest_refit_iterations = forest_refit_iterations
-        self.ordered_leaf_estimation = ordered_leaf_estimation
-        self.adaptive_leaf_estimation = adaptive_leaf_estimation
-        self.adaptive_leaf_shrinkage = adaptive_leaf_shrinkage
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1253,10 +1189,6 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # on the FINAL training set (post early-stopping split).
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
-        # G3: size-adaptive leaf_estimation_iterations (default off).
-        if self.adaptive_leaf_estimation:
-            kw["leaf_estimation_iterations"] = \
-                _adaptive_leaf_estimation_iterations(len(X))
         # Auto-resolve cat_combinations: on only for tractable all-categorical data
         # (targets the all-categorical multiclass gap, e.g. car).
         if kw.get("cat_combinations") is None:
@@ -1274,13 +1206,6 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
-        # forest_leaf_refit is a scalar-booster post-pass (regression / binary);
-        # the multiclass booster has no joint-refit path, so warn rather than
-        # silently ignore.
-        if self.forest_leaf_refit and self._multiclass:
-            warnings.warn(
-                "forest_leaf_refit is not supported for multiclass classification "
-                "yet and will be ignored.", UserWarning, stacklevel=2)
         cal_Xv = cal_y = None   # validation set used to calibrate temperature
         if self._multiclass:
             self.model_ = MulticlassBoosting(**kw)
