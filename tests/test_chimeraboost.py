@@ -9,6 +9,26 @@ from sklearn.metrics import roc_auc_score, mean_squared_error
 from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
 
 
+def test_descend_leaves_matches_numpy_reference():
+    """The in-place njit per-level leaf descent must equal the old numpy
+    expression `(leaf<<1) + (Xf > t).astype(int64)` exactly, across leaf depths,
+    bin values and thresholds (incl. t=-1 and t at the max bin). Guards the
+    fit-time speedup (the descent was ~1/3 of fit)."""
+    from chimeraboost.tree import _descend_leaves
+
+    rng = np.random.default_rng(0)
+    for _ in range(300):
+        n = int(rng.integers(1, 6000))
+        d = int(rng.integers(0, 6))
+        leaf = rng.integers(0, 1 << d, size=n).astype(np.int64)
+        Xf = rng.integers(0, 260, size=n).astype(np.uint16)
+        t = int(rng.integers(-1, 260))
+        ref = (leaf << 1) + (Xf > t).astype(np.int64)
+        got = leaf.copy()
+        _descend_leaves(got, Xf, t)
+        assert np.array_equal(ref, got)
+
+
 def test_binning_transform_matches_searchsorted_reference():
     """The njit row-parallel binning kernel must be bit-identical to the old
     per-column np.searchsorted(side='right') logic, including NaN/+-inf routing to
