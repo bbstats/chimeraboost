@@ -113,3 +113,45 @@ class ChimeraBoostModel(AbstractModel):
         # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
         num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
         return num_cpus, 0
+
+    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
+        return self.estimate_memory_usage_static(
+            X=X,
+            problem_type=self.problem_type,
+            num_classes=self.num_classes,
+            hyperparameters=self._get_model_params(),
+            **kwargs,
+        )
+
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        num_classes: int | None = 1,
+        **kwargs,
+    ) -> int:
+        """Conservative peak-fit RAM estimate (bytes) for fold-parallel scheduling.
+
+        ChimeraBoost is a CPU GBDT; peak memory is dominated by O(n_samples *
+        n_features) terms — the input matrix, the quantized bin codes, and a few
+        per-row stat buffers (gradients, hessians, predictions, the validation
+        copy). The oblivious trees themselves are negligible (2**depth leaves *
+        n_estimators * a few bytes). We deliberately over-estimate (a 3x factor
+        on the input matrix + a 1 GB baseline) so the scheduler packs fewer folds
+        rather than risk OOM.
+        """
+        n, p = int(X.shape[0]), int(X.shape[1])
+        k = max(int(num_classes or 1), 1)
+        cell = 8  # float64 / object-pointer width
+        data = n * p * cell          # input matrix (object array when cats present)
+        binned = n * p * 2           # quantized bin codes (uint8/uint16)
+        stats = n * k * cell * 6     # grad / hess / pred / weight / val buffers
+        hist = p * 256 * 2 * cell    # transient per-level histograms
+        baseline = 1_000_000_000     # python + numba + autogluon overhead
+        return int(baseline + 3 * data + binned + stats + hist)
+
+    @classmethod
+    def _class_tags(cls) -> dict:
+        return {"can_estimate_memory_usage_static": True}
