@@ -13,7 +13,7 @@ We submit the **default** row first; the tuned row follows the full-tuned run.
 - ✅ Results: TabArena-Lite Elo 1211; full TabArena Elo 1220 (rank 39/70), 0 failures.
 
 ## The PR contents
-1. **Model package** — `upstream_pr/chimeraboost/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), copied to `tabarena/tabarena/models/chimeraboost/` in your fork. Plus the public-class registration. See [`upstream_pr/REGISTER.md`](upstream_pr/REGISTER.md).
+1. **Model package** — `upstream_pr/chimeraboost/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), copied to `packages/tabarena/src/tabarena/models/chimeraboost/` in your fork (upstream is now a src-layout). Plus the public-class registration. See [`upstream_pr/REGISTER.md`](upstream_pr/REGISTER.md). Validated in the fork: discovery + unit test 3/3.
 2. **Results** — full-default leaderboard (Elo 1220) posted as a PR comment + a link to the raw results zip (host the `chimera_full` artifacts somewhere public, e.g. a release asset).
 
 ---

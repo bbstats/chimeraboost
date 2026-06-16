@@ -3,17 +3,21 @@
 These files are the model package for a `[New Model]` PR to
 `github.com/autogluon/tabarena` (the OrionMSP PR #303 is the template).
 
+> Path note: upstream switched to a **src-layout**. The models dir is now
+> `packages/tabarena/src/tabarena/models/` (was `tabarena/tabarena/models/`).
+> The import path is unchanged (`tabarena.models.…`); only the file location moved.
+
 ## 1. Copy the package
 
-Copy the `chimeraboost/` dir to `tabarena/tabarena/models/chimeraboost/` in your
-fork. Auto-discovery (`tabarena/models/_registry.py::discover_models`) imports
-each `models/<name>/info.py` and registers its `<name>_info`, so the package is
-picked up without further wiring for the benchmark.
+Copy the `chimeraboost/` dir to `packages/tabarena/src/tabarena/models/chimeraboost/`
+in your fork. Auto-discovery (`tabarena/models/_registry.py::discover_models`)
+imports each `models/<name>/info.py` and registers its `<name>_info`, so the
+package is picked up without further wiring for the benchmark.
 
 ## 2. Register the public class export
 
 For the public API surface (mirrors every other model), add `ChimeraBoostModel`
-to `tabarena/tabarena/models/__init__.py`:
+to `packages/tabarena/src/tabarena/models/__init__.py`:
 
 - In the `TYPE_CHECKING` block:
   ```python
