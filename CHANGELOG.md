@@ -4,6 +4,8 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.13.0] - 2026-06-15
 ### Changed
 - **Faster inference (~1.9×) and fit (~1.4×).** Predict-time bin assignment and
   the per-level leaf descent during tree building are now parallel numba kernels
