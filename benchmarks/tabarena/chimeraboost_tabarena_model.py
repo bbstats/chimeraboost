@@ -6,11 +6,11 @@ MUST live in its own file (not the run script) because TabArena pickles it.
 """
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
-import numpy as np
+from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
-from autogluon.features import LabelEncoderFeatureGenerator
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -21,34 +21,33 @@ class ChimeraBoostModel(AbstractModel):
 
     ag_key = "CHIMERA"
     ag_name = "ChimeraBoost"
+    seed_name = "random_state"  # AutoGluon injects the framework seed here
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._feature_generator = None
-
-    def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> np.ndarray:
-        """Label-encode categoricals and hand the model an object matrix while
-        recording which columns are categorical, so ChimeraBoost applies its
-        NATIVE ordered-target-statistics encoding (and auto cat_combinations on
-        all-categorical data) rather than seeing cats as plain numbers."""
+    def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> pd.DataFrame:
+        """Pass the frame straight to ChimeraBoost with categoricals marked by
+        name. ChimeraBoost factorizes them with its native ordered-target-
+        statistics encoding and routes NaN to a dedicated missing bin, so we do
+        NOT label-encode or impute here (both would discard signal)."""
         X = super()._preprocess(X, **kwargs)
         if is_train:
-            self._feature_generator = LabelEncoderFeatureGenerator(verbosity=0)
-            self._feature_generator.fit(X=X)
-            # Positions of the categorical columns in the final column order,
-            # passed verbatim as cat_features to ChimeraBoost. Computed once on
-            # train and reused at predict (column order is identical).
-            self._cat_indices = [X.columns.get_loc(c)
-                                 for c in self._feature_generator.features_in]
-        if self._feature_generator.features_in:
-            X = X.copy()
-            X[self._feature_generator.features_in] = self._feature_generator.transform(X=X)
-        # object dtype: cat columns stay integer-coded categories (ChimeraBoost
-        # factorizes them), numeric columns stay float. fillna(0) for numerics;
-        # the label encoder already maps unseen/NaN cats to a reserved code.
-        return X.fillna(0).to_numpy(dtype=object)
+            # category-dtype columns (AutoGluon marks them; valid_raw_types keeps
+            # them as 'category'); recorded once and reused at predict.
+            self._cat_col_names = list(X.select_dtypes(include="category").columns)
+        return X
 
-    def _fit(self, X, y, num_cpus: int = 1, **kwargs):
+    def _fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame = None,
+        y_val: pd.Series = None,
+        time_limit: float | None = None,
+        num_cpus: int = 1,
+        num_gpus: float = 0,
+        verbosity: int = 2,
+        **kwargs,
+    ):
+        start_time = time.time()
         if self.problem_type in ["regression"]:
             from chimeraboost import ChimeraBoostRegressor
 
@@ -58,25 +57,44 @@ class ChimeraBoostModel(AbstractModel):
 
             model_cls = ChimeraBoostClassifier
 
-        X = self.preprocess(X, y=y, is_train=True)
+        X = self.preprocess(X, is_train=True)
         params = self._get_model_params()
+        # Run on the CPU budget TabArena allocates (thread_count<0 => all cores).
+        params["thread_count"] = num_cpus
         # Tuned configs may sample linear_leaves=True, which raises on multiclass;
         # None = auto (binary on, multiclass off) keeps the config valid everywhere.
         if self.problem_type == "multiclass" and params.get("linear_leaves") is True:
             params["linear_leaves"] = None
         self.model = model_cls(**params)
-        # early_stopping=True with no eval_set => ChimeraBoost auto-splits a
-        # validation fraction internally and stops on it. cat_features triggers
-        # native ordered-TS encoding + (on all-cat data) auto cat_combinations.
-        cat = self._cat_indices or None
-        self.model.fit(X, y, cat_features=cat)
+
+        cat = self._cat_col_names or None
+        # Use TabArena's validation split for early stopping when provided (don't
+        # carve a second holdout out of the training data); else ChimeraBoost
+        # auto-splits internally via early_stopping=True.
+        eval_set = None
+        if X_val is not None and y_val is not None:
+            X_val = self.preprocess(X_val)
+            eval_set = (X_val, y_val)
+
+        fit_kwargs = {}
+        # Honor TabArena's time budget via a wall-clock callback (unsupported with
+        # bagging, where members fit in worker processes).
+        if time_limit is not None and params.get("n_ensembles") in (None, 1):
+            deadline = start_time + time_limit
+
+            def _time_stop(iteration, train_loss, val_loss, model):
+                return time.time() >= deadline
+
+            fit_kwargs["callbacks"] = _time_stop
+
+        self.model.fit(X, y, cat_features=cat, eval_set=eval_set, **fit_kwargs)
 
     def _set_default_params(self):
         default_params = {
-            "n_estimators": 500,
+            # Cap only: early stopping picks the real count and the auto learning
+            # rate is pinned at 0.1 under ES, so a high cap is LR-neutral headroom.
+            "n_estimators": 10000,
             "early_stopping": True,
-            "thread_count": -1,
-            "random_state": 0,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
@@ -85,6 +103,15 @@ class ChimeraBoostModel(AbstractModel):
         default_auxiliary_params = super()._get_default_auxiliary_params()
         default_auxiliary_params.update({"valid_raw_types": ["int", "float", "category"]})
         return default_auxiliary_params
+
+    @classmethod
+    def supported_problem_types(cls) -> list[str] | None:
+        return ["binary", "multiclass", "regression"]
+
+    def _get_default_resources(self) -> tuple[int, int]:
+        # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
+        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
+        return num_cpus, 0
 
 
 class ChimeraBoostE10Model(ChimeraBoostModel):
@@ -99,7 +126,7 @@ class ChimeraBoostE10Model(ChimeraBoostModel):
         super()._set_default_params()  # identical default config ...
         self._set_default_param_value("n_ensembles", 10)  # ... + this one knob
         # ensemble_n_jobs left at 1: the 10 members run sequentially, each using
-        # all threads (thread_count=-1); avoids core oversubscription. ~10x train time.
+        # all allocated threads; avoids core oversubscription. ~10x train time.
 
 
 def get_configs_for_chimera_e10():
@@ -139,17 +166,13 @@ def get_configs_for_chimera(*, num_random_configs: int = 0):
 
 
 class ChimeraBoostTunedModel(ChimeraBoostModel):
-    """Tuned variant — distinct ag_name so it appears as a separate leaderboard entry."""
+    """Tuned variant — distinct ag_name so it appears as a separate leaderboard entry.
+
+    Inherits the n_estimators=10000 cap from the base; early stopping picks the
+    effective count, so low-lr tuned configs aren't truncated."""
 
     ag_key = "CHIMERATUNED"
     ag_name = "ChimeraBoost_tuned"
-
-    def _set_default_params(self):
-        # Fixed tree budget for every tuned config; early stopping picks the
-        # effective count, so low-lr configs aren't truncated by the 500 cap
-        # the default entry uses.
-        self._set_default_param_value("n_estimators", 1500)
-        super()._set_default_params()
 
 
 def get_configs_for_chimera_tuned(*, num_random_configs: int = 200):
@@ -170,7 +193,7 @@ def get_configs_for_chimera_tuned(*, num_random_configs: int = 200):
       binary) searched jointly with its regularizer linear_lambda.
     * ordered_boosting (CatBoost-style ordered target stats) — default off, a
       per-task lever for leakage-sensitive small data.
-    * n_estimators stays fixed (1500 cap + early stopping): searching a budget
+    * n_estimators stays fixed (10000 cap + early stopping): searching a budget
       cap under ES only adds noise.
 
     NOTE: the 8 default-off research flags (onehot_low_card, cat_aware_binning,
