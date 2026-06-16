@@ -54,15 +54,13 @@ def sample_config(rng):
         min_child_weight=float(rng.choice([0.0, 1.0, 5.0, 20.0])),
         leaf_estimation_iterations=int(rng.choice([1, 3, 5, 10])),
         ordered_boosting=bool(rng.choice([False, True])),
-        hs_lambda=float(rng.choice([0.0, 0.5, 1.0])),
     )
 
 
 # Knobs treated as ordinal/continuous for the correlation analysis (ordered_boosting
 # is binary and handled separately).
 NUMERIC_KNOBS = ["learning_rate", "depth", "l2_leaf_reg", "max_bins", "subsample",
-                 "colsample", "min_child_weight", "leaf_estimation_iterations",
-                 "hs_lambda"]
+                 "colsample", "min_child_weight", "leaf_estimation_iterations"]
 
 
 def _fit_score(task, X, y, cat, cfg, seed, threads):
@@ -209,7 +207,7 @@ def analyze(payload):
     print("\n=== Marginal: mean rel_impr by knob value (pooled; 0% = ties default) ===")
     discrete = {"max_bins": [64, 128, 254], "subsample": [0.6, 0.8, 1.0],
                 "colsample": [0.6, 0.8, 1.0], "min_child_weight": [0.0, 1.0, 5.0, 20.0],
-                "leaf_estimation_iterations": [1, 3, 5, 10], "hs_lambda": [0.0, 0.5, 1.0]}
+                "leaf_estimation_iterations": [1, 3, 5, 10]}
     for knob, vals in discrete.items():
         parts = []
         for v in vals:

@@ -1,8 +1,14 @@
-"""Run FULL TabArena (all folds/repeats) with 200 random HP configs (tuned entry).
+"""Run FULL TabArena (all folds/repeats) with the single DEFAULT config.
+
+This is the default-entry counterpart to run_chimera_tuned.py — the run that
+produces the leaderboard row for tabarena.ai (the Lite scripts are pre-flight
+only). Writes to its OWN output dir so it never collides with the Lite cache.
 
 Usage (from this directory, with the tabarena venv + A: env vars set):
-    python run_chimera_tuned.py --limit 2    # smoke test: 2 tasks
-    python run_chimera_tuned.py              # full 51-task run
+    python run_chimera_full.py --limit 1    # smoke: 1 task, full repetitions
+    python run_chimera_full.py              # full 51-task run
+Safe to kill and relaunch: each (task, fold, repeat) result is cached; a re-run
+skips completed work and refits only what's missing.
 """
 from __future__ import annotations
 
@@ -11,15 +17,12 @@ from pathlib import Path
 
 import openml
 import pandas as pd
-from chimeraboost_tabarena_model import get_configs_for_chimera_tuned
+from chimeraboost_tabarena_model import get_configs_for_chimera
 
 from tabarena.benchmark.experiment import run_experiments_new
 from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
 
-# Fresh dir for the fixed (post-de-slop) search space. The old chimera_tuned /
-# chimera_tuned_lite dirs hold killed-flag-space caches whose r-config IDs would
-# collide and silently load stale results — never reuse them for this run.
-OUTPUT_DIR = r"A:\code\tabarena_out\chimera_tuned_full"
+OUTPUT_DIR = r"A:\code\tabarena_out\chimera_full"
 
 
 def _task_ids_from_csv() -> list[int]:
@@ -32,8 +35,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None,
                     help="run only the first N tasks (smoke test); default = all 51")
-    ap.add_argument("--num-random-configs", type=int, default=200,
-                    help="number of random HP configs (default 200)")
     args = ap.parse_args()
 
     openml.config.set_root_cache_directory(r"A:\code\openml")
@@ -42,10 +43,8 @@ def main():
     if args.limit:
         task_ids = task_ids[: args.limit]
 
-    tasks_metadata = load_curated_task_metadata()
-
-    model_experiments = get_configs_for_chimera_tuned(num_random_configs=args.num_random_configs)
-    print(f"Running {len(model_experiments)} model configs on {len(task_ids)} tasks "
+    model_experiments = get_configs_for_chimera(num_random_configs=0)
+    print(f"Running {len(model_experiments)} config on {len(task_ids)} tasks "
           f"(repetitions_mode='TabArena' = all folds/repeats)")
 
     run_experiments_new(
@@ -53,7 +52,7 @@ def main():
         model_experiments=model_experiments,
         tasks=task_ids,
         repetitions_mode="TabArena",
-        tasks_metadata=tasks_metadata,
+        tasks_metadata=load_curated_task_metadata(),
     )
 
 
