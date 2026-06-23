@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 from .losses import LOSSES, MultiSoftmax
-from .preprocessing import FeaturePreprocessor
+from .preprocessing import FeaturePreprocessor, as_model_array
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    _linear_predict,
                    _predict_forest, pack_forest, _predict_forest_linear,
@@ -310,8 +310,7 @@ class GradientBoosting(_BaseBooster):
         `sample_weight` is a 1-D array of per-sample weights; None means uniform.
         Weights are normalized to mean 1 internally so the gradient scale stays
         comparable to the no-weight case."""
-        X = (np.asarray(X, dtype=object) if cat_features
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(cat_features))
         y = np.asarray(y, dtype=np.float64)
         n_samples = X.shape[0]
         w = self._normalize_weights(sample_weight, n_samples)
@@ -337,8 +336,7 @@ class GradientBoosting(_BaseBooster):
         Xvb = yv = Fv = None
         if eval_set is not None:
             Xv, yv = eval_set
-            Xv = (np.asarray(Xv, dtype=object) if cat_features
-                  else np.asarray(Xv, dtype=np.float64))
+            Xv = as_model_array(Xv, bool(cat_features))
             yv = np.asarray(yv, dtype=np.float64)
             Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
 
@@ -449,8 +447,7 @@ class GradientBoosting(_BaseBooster):
     def predict_raw(self, X):
         """Return raw additive scores (pre-link): the regression prediction, or
         the log-odds for binary classification."""
-        X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = np.ascontiguousarray(self.prep_.transform(X).T)
         if not self.trees_:
             return np.full(Xb.shape[1], self.init_, dtype=np.float64)
@@ -470,8 +467,7 @@ class GradientBoosting(_BaseBooster):
 
     def staged_predict_raw(self, X):
         """Yield the cumulative raw prediction after each tree (1..n_trees)."""
-        X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = np.ascontiguousarray(self.prep_.transform(X).T)
         F = np.full(Xb.shape[1], self.init_, dtype=np.float64)
         for tree in self.trees_:
@@ -492,8 +488,7 @@ class GradientBoosting(_BaseBooster):
         ``background`` is the reference distribution SHAP integrates over
         (defaults to the training-data sample captured at fit); ``max_background``
         subsamples it for speed (cost is linear in the background size)."""
-        X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = np.ascontiguousarray(self.prep_.transform(X).T)
         n_orig = self.prep_.n_input_features_
         if not self.trees_:
@@ -501,8 +496,7 @@ class GradientBoosting(_BaseBooster):
         if background is None:
             Rb = self._shap_background_
         else:
-            bg = (np.asarray(background, dtype=object) if self.prep_.cat_features_
-                  else np.asarray(background, dtype=np.float64))
+            bg = as_model_array(background, bool(self.prep_.cat_features_))
             Rb = np.ascontiguousarray(self.prep_.transform(bg).T)
         if Rb.shape[1] > max_background:
             sel = np.random.default_rng(random_state).choice(
@@ -530,8 +524,7 @@ class MulticlassBoosting(_BaseBooster):
         """Fit K trees per boosting round (one per class) under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
         scalar booster."""
-        X = (np.asarray(X, dtype=object) if cat_features
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(cat_features))
         y = np.asarray(y)
         self.classes_ = np.unique(y)
         K = self.classes_.size
@@ -557,8 +550,7 @@ class MulticlassBoosting(_BaseBooster):
         Xvb = Yv = Fv = yv_idx = None
         if eval_set is not None:
             Xv, yv = eval_set
-            Xv = (np.asarray(Xv, dtype=object) if cat_features
-                  else np.asarray(Xv, dtype=np.float64))
+            Xv = as_model_array(Xv, bool(cat_features))
             yv_idx = np.searchsorted(self.classes_, np.asarray(yv))
             Yv = np.eye(K)[yv_idx]
             Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
@@ -637,8 +629,7 @@ class MulticlassBoosting(_BaseBooster):
     def predict_raw(self, X):
         """Return the (n_samples, n_classes) matrix of raw per-class scores
         (pre-softmax)."""
-        X = (np.asarray(X, dtype=object) if self.prep_.cat_features_
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = np.ascontiguousarray(self.prep_.transform(X).T)
         F = np.tile(self.init_, (Xb.shape[1], 1))
         if not self.trees_:

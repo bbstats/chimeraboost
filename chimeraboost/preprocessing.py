@@ -21,6 +21,30 @@ from .binning import Binner
 from .target_encoding import OrderedTargetEncoder, factorize
 
 
+def as_model_array(X, want_object):
+    """Convert a raw feature matrix to the numpy array the model consumes.
+
+    ``want_object`` -> object dtype (categoricals present, decoded downstream);
+    otherwise -> float64. pandas nullable dtypes (Int64/Float64/boolean and the
+    ``string`` dtype) store missing values as ``pd.NA``/``NAType``, which neither
+    casts to float nor compares like ``np.nan`` -- a plain
+    ``np.asarray(df, dtype=float)`` raises a cryptic
+    "float() argument must be ... not 'NAType'". Routing through pandas'
+    ``to_numpy(na_value=np.nan)`` maps every flavor of NA to ``np.nan`` (the
+    missing value the binner/encoder already understand). Inputs without a
+    na_value-aware ``to_numpy`` (plain ndarrays, polars frames) fall back to
+    ``np.asarray`` unchanged.
+    """
+    dtype = object if want_object else np.float64
+    to_numpy = getattr(X, "to_numpy", None)
+    if to_numpy is not None and hasattr(X, "dtypes"):  # pandas DataFrame
+        try:
+            return to_numpy(dtype=dtype, na_value=np.nan)
+        except TypeError:
+            pass  # older pandas / polars: no na_value kwarg -> plain cast below
+    return np.asarray(X, dtype=dtype)
+
+
 class FeaturePreprocessor:
     """Converts raw mixed-type input into integer bins for the tree builder.
 

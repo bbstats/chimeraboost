@@ -717,6 +717,54 @@ def test_inf_rejected_at_predict(Est):
         assert np.isfinite(m.predict(Xinf)).shape == (1,)  # no raise
 
 
+@pytest.mark.parametrize("dtype", ["Int64", "Float64", "boolean"])
+def test_pandas_nullable_dtypes_treated_as_missing(dtype):
+    """pandas nullable dtypes (Int64/Float64/boolean) carry missing values as
+    pd.NA, which a plain ``np.asarray(df, float)`` cannot cast (cryptic
+    'float() argument ... not NAType'). They must be mapped to np.nan and routed
+    to the missing bin -- at fit AND predict -- exactly like an np.nan column."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(0)
+    n = 400
+    a = rng.normal(size=n)
+    raw = (rng.integers(0, 5, n) if dtype != "Float64" else rng.normal(size=n))
+    if dtype == "boolean":
+        raw = raw > raw.mean()
+    col = pd.array(raw, dtype=dtype)
+    mask = rng.random(n) < 0.2
+    col[mask] = pd.NA
+    y = 2 * a + rng.normal(scale=0.1, size=n)
+    X = pd.DataFrame({"a": a, "b": col})
+
+    m = ChimeraBoostRegressor(n_estimators=40, random_state=0).fit(X, y)
+    pred = m.predict(X.iloc[:20])
+
+    # Equivalent: replace NA with np.nan up front -> identical predictions.
+    Xnan = X.copy()
+    Xnan["b"] = Xnan["b"].to_numpy(dtype=float, na_value=np.nan)
+    assert np.allclose(pred, m.predict(Xnan.iloc[:20]))
+    # An all-NA nullable column (the degenerate "null column") must not crash.
+    Xnull = pd.DataFrame({"a": a, "b": pd.array([pd.NA] * n, dtype=dtype)})
+    ChimeraBoostRegressor(n_estimators=10).fit(Xnull, y).predict(Xnull.iloc[:5])
+
+
+def test_inf_rejected_in_numeric_column_with_cat_features():
+    """inf is rejected on the numeric path; it must also be rejected when
+    cat_features is set (the inf check previously skipped the whole matrix in
+    that case, silently routing inf to the missing bin) -- at fit and predict."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(0)
+    n = 200
+    X = pd.DataFrame({"a": rng.normal(size=n), "c": rng.integers(0, 3, n)})
+    y = rng.normal(size=n)
+    Xbad = X.copy(); Xbad.loc[0, "a"] = np.inf
+    with pytest.raises(ValueError, match="infinity"):
+        ChimeraBoostRegressor(n_estimators=10).fit(Xbad, y, cat_features=["c"])
+    m = ChimeraBoostRegressor(n_estimators=10).fit(X, y, cat_features=["c"])
+    with pytest.raises(ValueError, match="infinity"):
+        m.predict(Xbad.iloc[:5])
+
+
 def test_linear_leaves_warns_when_dropped_for_mae_quantile():
     X, yr, _ = _Xy()
     with pytest.warns(UserWarning, match="linear_leaves"):

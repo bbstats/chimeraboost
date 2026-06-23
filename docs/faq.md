@@ -16,7 +16,8 @@ does not show up on those pareto chart results.
 No.
 
 Pass your categorical columns to `fit(..., cat_features=[...])`, by integer position or by column name.
-NaNs route to a dedicated bin at fit and predict time, so no imputation is needed.
+NaNs route to a dedicated bin at fit and predict time, so no imputation is needed. pandas nullable
+dtypes (`Int64`/`Float64`/`boolean`) and their `pd.NA` are accepted and treated as missing.
 
 
 ## How can I make inference faster?

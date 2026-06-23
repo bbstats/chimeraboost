@@ -4,6 +4,7 @@ import warnings
 
 import numpy as np
 from .booster import GradientBoosting, MulticlassBoosting
+from .preprocessing import as_model_array
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
@@ -228,8 +229,7 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     from sklearn.base import clone
     from joblib import Parallel, delayed
 
-    X = (np.asarray(X, dtype=object) if cat_features
-         else np.asarray(X, dtype=np.float64))
+    X = as_model_array(X, bool(cat_features))
     y = np.asarray(y)
     groups = None if groups is None else np.asarray(groups)
     n = X.shape[0]
@@ -401,7 +401,7 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
     shape = getattr(X, "shape", None)
     Xc = None
     if shape is None or len(shape) != 2:
-        Xc = np.asarray(X, dtype=object if cat_features else np.float64)
+        Xc = as_model_array(X, bool(cat_features))
         shape = Xc.shape
     if len(shape) != 2:
         raise ValueError(
@@ -433,11 +433,15 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
         if np.iscomplexobj(Xraw):
             raise ValueError("Complex data not supported.")
         try:
-            Xc = np.asarray(Xraw, dtype=np.float64)
+            # Convert from the original X (not the object-dtype Xraw) so a pandas
+            # DataFrame's nullable NA is mapped to np.nan rather than crashing the
+            # float cast as an NAType object.
+            Xc = as_model_array(X if Xc is None else Xc, want_object=False)
         except (ValueError, TypeError) as e:
-            # A non-numeric column (string/category/datetime/pandas-NA) in a
-            # DataFrame with no cat_features: name the offending columns and
-            # point at cat_features. For bare arrays (no column metadata) keep
+            # A non-numeric column (string/category/datetime) in a DataFrame with
+            # no cat_features: name the offending columns and point at
+            # cat_features. (pandas nullable NA no longer lands here -- it maps to
+            # np.nan in as_model_array.) For bare arrays (no column metadata) keep
             # the original numpy error -- some sklearn estimator checks rely on
             # its exact type/message.
             bad = _describe_nonnumeric_columns(X)
@@ -452,6 +456,19 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
             raise ValueError(
                 "X contains infinity. NaN is accepted (treated as missing), but "
                 "inf is not -- clip or clean it first.")
+    else:
+        # cat_features present: cat columns are decoded as strings, but the
+        # remaining numeric columns must still be finite. Without this, inf in a
+        # numeric column slips silently to the missing bin (binning treats inf as
+        # NaN), contradicting the no-cat path's explicit rejection. Check only the
+        # numeric columns; the cat columns are not float-castable.
+        cat_set = set(int(c) for c in cat_features)
+        num_idx = [i for i in range(nf) if i not in cat_set]
+        num_block = _numeric_block(Xc if Xc is not None else X, num_idx)
+        if num_block is not None and np.isinf(num_block).any():
+            raise ValueError(
+                "X contains infinity. NaN is accepted (treated as missing), "
+                "but inf is not -- clip or clean it first.")
     y = np.asarray(y)
     if y.shape[0] != n:
         raise ValueError(
@@ -541,14 +558,41 @@ def _assume_finite():
         return False
 
 
-def _was_fit_with_cats(estimator):
-    """True if the fitted model used categorical features (so X is the object
-    path and a numeric finiteness check does not apply)."""
+def _numeric_block(X, num_idx):
+    """The numeric columns of X (positions ``num_idx``) as a float64 array, or
+    None if they aren't float-castable. Used for the inf check when categoricals
+    are present: it selects *only* the numeric columns so the (often string-
+    heavy) categorical columns aren't dragged through an expensive object
+    conversion. Maps pandas nullable NA to np.nan like the model's own path."""
+    if not num_idx:
+        return None
+    try:
+        iloc = getattr(X, "iloc", None)
+        if iloc is not None and hasattr(X, "dtypes"):     # pandas DataFrame
+            sub = iloc[:, num_idx]
+            try:
+                return sub.to_numpy(dtype=np.float64, na_value=np.nan)
+            except TypeError:
+                return np.asarray(sub, dtype=np.float64)
+        return np.asarray(np.asarray(X)[:, num_idx], dtype=np.float64)
+    except (ValueError, TypeError):
+        return None  # a "numeric" column holds strings; surfaced downstream
+
+
+def _fitted_prep(estimator):
+    """The fitted FeaturePreprocessor of a model (or the first bagged member),
+    or None if not available."""
     m = getattr(estimator, "model_", None)
     if m is None:
         members = getattr(estimator, "estimators_", None)
         m = members[0].model_ if members else None
-    return bool(getattr(getattr(m, "prep_", None), "cat_features_", None))
+    return getattr(m, "prep_", None)
+
+
+def _was_fit_with_cats(estimator):
+    """True if the fitted model used categorical features (so X is the object
+    path and a whole-matrix numeric finiteness check does not apply)."""
+    return bool(getattr(_fitted_prep(estimator), "cat_features_", None))
 
 
 def _check_predict_input(estimator, X):
@@ -583,11 +627,18 @@ def _check_predict_input(estimator, X):
     # bin and returns the "missing" prediction with no error. This is the only
     # O(n) check on the hot predict path, so it is skippable via sklearn's
     # ``assume_finite`` config for latency-critical serving.
-    if not _was_fit_with_cats(estimator) and not _assume_finite():
-        try:
-            Xf = np.asarray(X, dtype=np.float64)
-        except (ValueError, TypeError):
-            Xf = None
+    if not _assume_finite():
+        if not _was_fit_with_cats(estimator):
+            try:
+                Xf = as_model_array(X, want_object=False)
+            except (ValueError, TypeError):
+                Xf = None
+        else:
+            # Categorical fit: only the numeric columns need to be finite (the
+            # cat columns are strings). Pull their positions from the fitted
+            # preprocessor and check just those, mirroring the fit-time check.
+            num_idx = getattr(_fitted_prep(estimator), "num_features_", None)
+            Xf = _numeric_block(X, num_idx)
         if Xf is not None and np.isinf(Xf).any():
             raise ValueError(
                 "X contains infinity. NaN is accepted (treated as missing), but "
@@ -836,8 +887,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
                     callbacks=None):
         """Fit one (non-bagged) model on the data as given."""
-        X = (np.asarray(X, dtype=object) if cat_features
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(cat_features))
         y = np.asarray(y, dtype=np.float64)
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
@@ -1150,8 +1200,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
                     callbacks=None):
         """Fit one (non-bagged) classifier on the data as given."""
-        X = (np.asarray(X, dtype=object) if cat_features
-             else np.asarray(X, dtype=np.float64))
+        X = as_model_array(X, bool(cat_features))
         y = np.asarray(y)
         self.classes_ = np.unique(y)
         self.n_classes_ = self.classes_.size
