@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 
+# Import at module top: this happens before the benchmark's fit timer starts, so a
+# lazy import inside _fit would charge ~1s of import cost to every job's reported
+# train time. (The upstream AutoGluon template lazy-imports so its registry works
+# without optional deps installed — that concern doesn't apply to our own model
+# file wrapping our own library.)
+from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -49,12 +56,8 @@ class ChimeraBoostModel(AbstractModel):
     ):
         start_time = time.time()
         if self.problem_type in ["regression"]:
-            from chimeraboost import ChimeraBoostRegressor
-
             model_cls = ChimeraBoostRegressor
         else:  # 'binary' and 'multiclass'
-            from chimeraboost import ChimeraBoostClassifier
-
             model_cls = ChimeraBoostClassifier
 
         X = self.preprocess(X, is_train=True)
@@ -77,10 +80,11 @@ class ChimeraBoostModel(AbstractModel):
             eval_set = (X_val, y_val)
 
         fit_kwargs = {}
-        # Honor TabArena's time budget via a wall-clock callback (unsupported with
-        # bagging, where members fit in worker processes).
+        # Stop boosting once TabArena's fit budget runs out, leaving 5% headroom.
+        # Skipped for the E10 variant: ChimeraBoost disallows callbacks when
+        # n_ensembles>1 (members fit in worker processes).
         if time_limit is not None and params.get("n_ensembles") in (None, 1):
-            deadline = start_time + time_limit
+            deadline = start_time + 0.95 * time_limit
 
             def _time_stop(iteration, train_loss, val_loss, model):
                 return time.time() >= deadline

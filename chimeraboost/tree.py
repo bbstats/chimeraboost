@@ -177,6 +177,57 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
 
 
 @njit(cache=True)
+def _solve_small(A, b):
+    """Solve ``A x = b`` for a small dense system via LU with partial pivoting.
+
+    Drop-in replacement for ``np.linalg.solve`` on the tiny (d x d, d <= depth+1)
+    per-leaf normal equations. Same algorithm family as LAPACK's gesv (LU with
+    partial pivoting) but hand-rolled, which avoids instantiating numba's LAPACK
+    bindings: those alone account for several seconds of JIT compile time on the
+    first fit in a fresh environment. ``A`` and ``b`` are modified in place.
+    Returns the solution, or a vector of NaN if a pivot underflows (the caller
+    then falls back to the constant Newton leaf value; with the ridge + jitter
+    on the diagonal this cannot trigger in practice).
+    """
+    d = A.shape[0]
+    x = np.empty(d)
+    for c in range(d):
+        p = c
+        amax = abs(A[c, c])
+        for r in range(c + 1, d):
+            ar = abs(A[r, c])
+            if ar > amax:
+                amax = ar
+                p = r
+        if amax < 1e-300:
+            for j in range(d):
+                x[j] = np.nan
+            return x
+        if p != c:
+            for j in range(d):
+                tmp = A[c, j]
+                A[c, j] = A[p, j]
+                A[p, j] = tmp
+            tmp = b[c]
+            b[c] = b[p]
+            b[p] = tmp
+        inv = 1.0 / A[c, c]
+        for r in range(c + 1, d):
+            f = A[r, c] * inv
+            if f != 0.0:
+                A[r, c] = 0.0
+                for j in range(c + 1, d):
+                    A[r, j] -= f * A[c, j]
+                b[r] -= f * b[c]
+    for r in range(d - 1, -1, -1):
+        s = b[r]
+        for j in range(r + 1, d):
+            s -= A[r, j] * x[j]
+        x[r] = s / A[r, r]
+    return x
+
+
+@njit(cache=True)
 def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
                      l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
@@ -244,7 +295,13 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
             Ml[j, j] += lin_lambda
         for j in range(d):
             Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
-        beta = np.linalg.solve(Ml, rhs[l])
+        beta = _solve_small(Ml, rhs[l])
+        if np.isnan(beta[0]):
+            # Singular pivot (unreachable given the diagonal ridge + jitter):
+            # keep the plain constant Newton value rather than a broken slope.
+            if Htot[l] > 0.0:
+                coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
+            continue
         for j in range(d):
             coef[l, j] = lr * beta[j]
     return coef

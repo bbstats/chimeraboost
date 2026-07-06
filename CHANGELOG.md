@@ -4,6 +4,16 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Fixed
+- **pandas nullable dtypes no longer crash.** Columns of dtype `Int64`/`Float64`/
+  `boolean` (and the `string` dtype) carry missing values as `pd.NA`, which used
+  to fail the float cast with a cryptic `float() argument must be ... not
+  'NAType'`. `pd.NA` is now mapped to `np.nan` and routed to the missing bin, at
+  both fit and predict.
+- **`inf` is now rejected when `cat_features` is set.** The infinity check
+  previously skipped the whole matrix for categorical fits, silently routing an
+  `inf` in a numeric column to the missing bin. It now checks the numeric columns
+  at fit and predict, matching the no-`cat_features` behavior.
 
 ## [0.13.0] - 2026-06-15
 ### Changed
