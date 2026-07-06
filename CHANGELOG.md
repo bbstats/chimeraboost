@@ -4,6 +4,17 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.13.1] - 2026-07-06
+### Changed
+- **Faster cold start.** The single `np.linalg.solve` call in the linear-leaf
+  fit kernel is replaced with a hand-rolled LU solver (partial pivoting) that
+  runs inside numba without pulling in the LAPACK bindings. Those bindings were
+  the dominant cost of the first `fit()` in a fresh environment; eliminating
+  them cuts first-fit JIT time by ~25% on dev hardware. Fixed-seed predictions
+  may differ from 0.13.0 at the ~1e-15 level (solver elimination order); tree
+  structures are unchanged.
+
 ### Fixed
 - **pandas nullable dtypes no longer crash.** Columns of dtype `Int64`/`Float64`/
   `boolean` (and the `string` dtype) carry missing values as `pd.NA`, which used
