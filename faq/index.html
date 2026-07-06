@@ -899,7 +899,8 @@ does not show up on those pareto chart results.</p>
 <h2 id="do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values">Do I need to one-hot encode categoricals or impute missing values?<a class="headerlink" href="#do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values" title="Permanent link">&para;</a></h2>
 <p>No.</p>
 <p>Pass your categorical columns to <code>fit(..., cat_features=[...])</code>, by integer position or by column name.
-NaNs route to a dedicated bin at fit and predict time, so no imputation is needed.</p>
+NaNs route to a dedicated bin at fit and predict time, so no imputation is needed. pandas nullable
+dtypes (<code>Int64</code>/<code>Float64</code>/<code>boolean</code>) and their <code>pd.NA</code> are accepted and treated as missing.</p>
 <h2 id="how-can-i-make-inference-faster">How can I make inference faster?<a class="headerlink" href="#how-can-i-make-inference-faster" title="Permanent link">&para;</a></h2>
 <p>If you have already validated your serving data and want to skip it,
 use scikit's 'assume_finite'.</p>
