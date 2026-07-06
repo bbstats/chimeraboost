@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 
+# Import at module top: this happens before the benchmark's fit timer starts, so a
+# lazy import inside _fit would charge ~1s of import cost to every job's reported
+# train time. (The upstream AutoGluon template lazy-imports so its registry works
+# without optional deps installed — that concern doesn't apply to our own model
+# file wrapping our own library.)
+from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -49,12 +56,8 @@ class ChimeraBoostModel(AbstractModel):
     ):
         start_time = time.time()
         if self.problem_type in ["regression"]:
-            from chimeraboost import ChimeraBoostRegressor
-
             model_cls = ChimeraBoostRegressor
         else:  # 'binary' and 'multiclass'
-            from chimeraboost import ChimeraBoostClassifier
-
             model_cls = ChimeraBoostClassifier
 
         X = self.preprocess(X, is_train=True)
