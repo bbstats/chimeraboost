@@ -61,6 +61,16 @@ site-packages is read-only (`UserWideCacheLocator`), so no cache-dir
 workaround is needed in the library; ephemeral workers simply never share a
 cache, which warmup sidesteps entirely.
 
+## Relation to the 2026-07-06 draft PR (import hoist + 0.13.1 pin)
+
+`upstream_pr/PR_DESCRIPTION_0.13.1.md` (+ the .patch and verification notes
+alongside it) drafted the first half of this fix: hoisting the import out of
+the fit timer and pinning 0.13.1's LAPACK-free solver (~25% off cold-start
+JIT). Today's measurements show the remaining in-timer JIT is the dominant
+term, so any upstream PR should combine that draft with the `warmup()` call
+and a `chimeraboost>=0.14.1` pin — treat the draft as superseded input, not
+a separate PR.
+
 ## Repro scripts
 
 The probe/driver scripts used for the tables live in the session scratchpad;
