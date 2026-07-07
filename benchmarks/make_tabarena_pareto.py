@@ -28,15 +28,19 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-06-03 after shipping linear leaves (default-on for binary): ChimeraBoost
-# 1212 -> 1219. Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
+# Refreshed 2026-07-07 from a fresh 51-task run on 0.13.1 + the parallel-kernels branch,
+# with the post-PR-#358-review wrapper (TabArena validation split for early stopping +
+# native categoricals): ChimeraBoost 1219 (stale June-03 number) -> 1240. The gain is the
+# wrapper integration, not the kernels (those are bit-identical); train time is within the
+# historical run-to-run noise band (median Lite task is small and overhead-dominated).
+# Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
 DATA = {
-    "CatBoost":     (1349, 43, 43, 6.70, 0.088),
-    "ChimeraBoost": (1219, 45, 50, 0.59, 0.066),
-    "XGBoost":      (1190, 56, 53, 2.06, 0.122),
-    "LightGBM":     (1157, 51, 46, 2.20, 0.171),
+    "CatBoost":     (1348, 43, 43, 6.70, 0.088),
+    "ChimeraBoost": (1240, 49, 60, 0.65, 0.106),
+    "XGBoost":      (1188, 54, 53, 2.06, 0.122),
+    "LightGBM":     (1155, 52, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
-    "Linear":       (813, 81, 108, 1.23, 0.115),
+    "Linear":       (812, 81, 109, 1.23, 0.115),
 }
 
 
