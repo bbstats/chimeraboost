@@ -19,7 +19,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   quantile fits without a validation split are bit-identical to before
   (offset 0.0). SHAP additivity and `staged_predict` fold the offset in.
 
+### Fixed
+- **`feature_importances_` no longer counts trees discarded by early
+  stopping.** Gains were accumulated as trees were built, but the truncation
+  at the best iteration never subtracted the dead trees (up to `patience` of
+  them). Importances are now computed from the retained trees only.
+  Predictions are unaffected.
+- **Core booster default aligned with the sklearn wrappers.** `_BaseBooster`
+  defaulted `ordered_boosting=True` while `ChimeraBoostRegressor`/`Classifier`
+  default `False`; anyone driving `GradientBoosting`/`MulticlassBoosting`
+  directly silently got a different algorithm. The core now defaults `False`
+  too. (The sklearn wrappers always passed it explicitly — no change there.)
+
 ### Changed
+- **Column subsampling now skips masked features when building histograms**
+  (`_best_split` already honored the mask; the histogram kernel scanned every
+  feature anyway). Bit-identical trees; fits with `colsample<1` get the
+  proportional histogram work back — measured 1.44× end-to-end on a
+  histogram-dominated regression fit at `colsample=0.4` (less where other
+  kernels dominate, e.g. binary with linear leaves).
+- **MAE/Quantile leaf correction groups samples with one stable argsort**
+  instead of an n_leaves-pass boolean scan. Exactly the same values reach the
+  quantile estimator in the same order — predictions bit-identical.
 - **Linear-leaf fitting is now parallel — binary classification fits 1.4–1.8×
   faster** (5k rows 1.4×, 50k 1.8×, 200k 1.6×; regression with
   `linear_leaves=True` benefits equally). The two remaining serial kernels

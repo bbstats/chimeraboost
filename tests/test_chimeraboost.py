@@ -958,6 +958,33 @@ def test_quantile_offset_consistent_in_staged_and_shap():
     assert np.allclose(recon, pred, atol=1e-8)
 
 
+def test_feature_importances_exclude_early_stopping_discards():
+    """Importances must derive only from the RETAINED trees: trees built past
+    the best iteration and truncated by early stopping contribute nothing.
+    (The old running accumulator counted them at build time.)"""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(3000, 6))
+    y = X[:, 0] * 2 + X[:, 1] + 0.5 * rng.normal(size=3000)
+    m = ChimeraBoostRegressor(n_estimators=2000, random_state=0).fit(X, y)
+    booster = m.model_
+    assert len(booster.trees_) == m.best_iteration_ < 2000  # ES truncated
+    expected = np.zeros(booster.prep_.n_input_features_)
+    for tree in booster.trees_:
+        for f, g in zip(tree.splits_feat, tree.gains):
+            expected[booster.prep_.feature_map_[f]] += g
+    np.testing.assert_allclose(m.feature_importances_,
+                               expected / expected.sum(), rtol=1e-12)
+
+
+def test_core_booster_default_matches_sklearn_wrapper():
+    """_BaseBooster and the sklearn wrappers must agree on the
+    ordered_boosting default; a silent mismatch changes results for anyone
+    driving the core class directly."""
+    from chimeraboost.booster import GradientBoosting
+    assert GradientBoosting().ordered_boosting \
+        == ChimeraBoostRegressor().ordered_boosting == False  # noqa: E712
+
+
 def test_auto_min_child_weight_is_size_adaptive():
     """Classifier default min_child_weight=None resolves to a size-adaptive veto:
     full (~1) on small data, off (~0) on large -- monotone in training size."""

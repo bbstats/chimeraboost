@@ -18,7 +18,7 @@ from numba import njit, prange
 
 
 @njit(cache=True, parallel=True)
-def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist):
+def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
     """Fill per-feature gradient/hessian histograms into a pre-allocated buffer.
 
     `Xb` is feature-major (n_features, n_samples), so `Xb[f]` is a contiguous
@@ -29,10 +29,17 @@ def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist):
     cache line instead of two separate arrays. Reused across every tree and
     level; we zero only the (n_leaves) slice we are about to write. Parallelized
     over features so each thread owns a disjoint slice -- no write races.
+
+    Features with feat_mask[f] == 0 (column subsampling) are skipped entirely:
+    `_best_split` never reads their slice (it honors the same mask), so the
+    stale data left there is harmless and the whole scan is saved. At
+    colsample=c that removes a (1-c) fraction of histogram work.
     """
     n_features, n_samples = Xb.shape
     max_bins = hist.shape[2]
     for f in prange(n_features):
+        if feat_mask[f] == 0:
+            continue
         for l in range(n_leaves):
             for b in range(max_bins):
                 hist[f, l, b, 0] = 0.0
@@ -702,7 +709,8 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
 
     for d in range(max_depth):
         n_leaves = 1 << d
-        _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist)
+        _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist,
+                               feature_mask)
         f, t, gain = _best_split(hist, n_bins_per_feature, l2, feature_mask,
                                  min_child_weight, n_leaves)
         if gain <= min_gain or t < 0:
