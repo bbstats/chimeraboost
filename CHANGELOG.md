@@ -4,6 +4,21 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **Conformal quantile calibration.** `loss="Quantile"` predictions now include
+  a split-conformal offset (`quantile_offset_`) fitted on the early-stopping
+  validation split — the regression analog of the classifier's temperature
+  scaling. Boosting under-disperses quantiles (each round's per-leaf quantile
+  step is shrunk by the learning rate, so the tails converge slowly and early
+  stopping cuts them short); the conformal order statistic of the validation
+  residuals is both the coverage-restoring shift (distribution-free, Romano et
+  al. 2019) and the pinball-optimal constant correction, so calibration and
+  accuracy improve together. Measured at α=0.1/0.9 across four datasets:
+  tail coverage 0.12–0.23 → 0.08–0.11 and 0.80–0.90 → 0.88–0.91 (nominal
+  0.1/0.9), test pinball loss improved or flat everywhere. RMSE/MAE fits and
+  quantile fits without a validation split are bit-identical to before
+  (offset 0.0). SHAP additivity and `staged_predict` fold the offset in.
+
 ### Changed
 - **Linear-leaf fitting is now parallel — binary classification fits 1.4–1.8×
   faster** (5k rows 1.4×, 50k 1.8×, 200k 1.6×; regression with
