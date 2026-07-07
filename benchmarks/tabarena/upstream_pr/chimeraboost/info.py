@@ -25,5 +25,5 @@ chimeraboost_info = ModelInfo(
     model_cls=ChimeraBoostModel,
     search_space=gen_chimeraboost,
     method_metadata=chimeraboost_method_metadata,
-    pip_extra=("chimeraboost>=0.13.1",),
+    pip_extra=("chimeraboost>=0.14.1",),
 )

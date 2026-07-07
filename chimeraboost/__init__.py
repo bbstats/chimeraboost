@@ -15,9 +15,11 @@ from .sklearn_api import (
     ChimeraBoostRegressor,
     ChimeraBoostClassifier,
 )
+from .warmup import warmup
 
 __all__ = [
     "ChimeraBoostRegressor",
     "ChimeraBoostClassifier",
+    "warmup",
 ]
-__version__ = "0.14.0"
+__version__ = "0.14.1"
