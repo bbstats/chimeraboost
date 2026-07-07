@@ -4,6 +4,8 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.14.0] - 2026-07-07
 ### Added
 - **Conformal quantile calibration.** `loss="Quantile"` predictions now include
   a split-conformal offset (`quantile_offset_`) fitted on the early-stopping
