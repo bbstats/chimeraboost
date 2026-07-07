@@ -786,6 +786,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``shap_values``.
     estimators_ : list or None
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
+    quantile_offset_ : float
+        Split-conformal correction added to every prediction when
+        ``loss="Quantile"`` and a validation split was available: the conformal
+        order statistic of the validation residuals, restoring the nominal
+        coverage that learning-rate shrinkage of the per-leaf quantile steps
+        otherwise starves. 0.0 for other losses or without a validation set.
     """
 
     def __init__(self, n_estimators=2000, learning_rate=None, depth=None,
@@ -942,21 +948,46 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                        **kw)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight, callbacks=callbacks)
+
+        # Conformal quantile correction on the validation split -- the
+        # regression analog of the classifier's temperature scaling. Boosting
+        # under-disperses quantiles: each round's per-leaf quantile step is
+        # shrunk by the learning rate, so the additive model converges to the
+        # tail slowly and early stopping cuts it short (predictions collapse
+        # toward the median). The fix is the split-conformal step: shift every
+        # prediction by the k-th order statistic of the validation residuals,
+        # k = ceil((n+1) * alpha) -- the standard conformal rank, which also
+        # minimizes pinball loss over all constant shifts, so accuracy and
+        # coverage improve together. Distribution-free marginal coverage on
+        # exchangeable data (Romano, Patterson & Candes 2019).
+        self.quantile_offset_ = 0.0
+        if self.loss == "Quantile" and eval_set is not None:
+            resid = np.sort(
+                np.asarray(eval_set[1], dtype=np.float64)
+                - self.model_.predict_raw(eval_set[0]))
+            k = min(int(np.ceil((resid.shape[0] + 1) * self.alpha)),
+                    resid.shape[0])
+            if k >= 1:
+                self.quantile_offset_ = float(resid[k - 1])
         return self
 
     def predict(self, X):
         _check_predict_input(self, X)
         if self.estimators_ is not None:
+            # Members apply their own conformal offsets inside m.predict.
             return np.mean([m.predict(X) for m in self.estimators_], axis=0)
-        return self.model_.predict_raw(X)
+        return self.model_.predict_raw(X) + self.quantile_offset_
 
     def staged_predict(self, X):
-        """Yield the prediction after each successive tree."""
+        """Yield the prediction after each successive tree (the conformal
+        quantile offset, a post-fit constant, is included in every stage so the
+        final stage equals ``predict``)."""
         _check_predict_input(self, X)
         if self.estimators_ is not None:
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
-        yield from self.model_.staged_predict_raw(X)
+        for staged in self.model_.staged_predict_raw(X):
+            yield staged + self.quantile_offset_
 
     @property
     def best_iteration_(self):
@@ -996,10 +1027,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if self.estimators_ is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in self.estimators_]
-            self.expected_value_ = float(np.mean([b for _, b in out]))
+            # Fold each member's conformal quantile offset into the baseline so
+            # rows still sum to predict(X) - expected_value_.
+            self.expected_value_ = float(np.mean(
+                [b + m.quantile_offset_ for m, (_, b) in zip(self.estimators_, out)]))
             return np.mean([p for p, _ in out], axis=0)
         phi, base = self.model_.shap_values(X, background=X_background)
-        self.expected_value_ = base
+        # The conformal quantile offset is a constant shift; it belongs to the
+        # baseline, keeping rows summing to predict(X) - expected_value_.
+        self.expected_value_ = base + self.quantile_offset_
         return phi
 
 

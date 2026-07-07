@@ -70,7 +70,7 @@ The probabilities are temperature-scaled on the validation split:
 >>> import numpy as np
 >>> imp = reg.feature_importances_
 >>> [(int(j), round(float(imp[j]), 3)) for j in np.argsort(imp)[::-1][:3]]
-[(8, 0.402), (2, 0.235), (3, 0.108)]
+[(8, 0.438), (2, 0.252), (3, 0.107)]
 ```
 
 For a faithful, per-prediction explanation, use SHAP. The contributions plus the

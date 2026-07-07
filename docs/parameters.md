@@ -103,5 +103,6 @@ See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `
 | `best_iteration_` | Trees kept after early stopping. |
 | `classes_` *(classifier)* | Label values, in `predict_proba` column order. |
 | `temperature_` *(classifier)* | Calibration temperature; > 1 means scores were over-confident. |
+| `quantile_offset_` *(regressor)* | Split-conformal correction added to `loss="Quantile"` predictions, fitted on the validation split; 0.0 for other losses or without one. |
 | `expected_value_` | SHAP baseline; set after `shap_values` (see [SHAP](shap.md)). |
 | `estimators_` | Fitted members when `n_ensembles > 1`, else `None`. |

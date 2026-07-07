@@ -111,7 +111,7 @@ class _BaseBooster:
                  colsample=1.0, cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None, min_child_weight=1.0,
                  thread_count=None, random_state=None, verbose=False,
-                 ordered_boosting=True, cat_combinations=False,
+                 ordered_boosting=False, cat_combinations=False,
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0):
         self.n_estimators = int(n_estimators)
@@ -280,17 +280,21 @@ class _BaseBooster:
         w = np.where(mask, np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
         return grad * w, hess * w
 
-    def _accumulate_importance(self, tree):
-        """Add this tree's per-split gains to the running importance totals,
-        mapped from internal columns back to original input features."""
-        for f, g in zip(tree.splits_feat, tree.gains):
-            orig = self.prep_.feature_map_[f]
-            self._importance[orig] += g
-
     @property
     def feature_importances_(self):
-        """Total split gain per ORIGINAL input column, normalized to sum 1."""
-        imp = self._importance.copy()
+        """Total split gain per ORIGINAL input column, normalized to sum 1.
+
+        Computed lazily from the RETAINED trees, so trees discarded by early
+        stopping (built past the best iteration, then truncated) contribute
+        nothing. The old running accumulator counted them -- with patience 50,
+        up to 50 dead trees' gains skewed the ranking."""
+        imp = np.zeros(self.prep_.n_input_features_)
+        fmap = self.prep_.feature_map_
+        for item in self.trees_:
+            # scalar booster stores trees; multiclass stores rounds of K trees
+            for tree in (item if isinstance(item, list) else (item,)):
+                for f, g in zip(tree.splits_feat, tree.gains):
+                    imp[fmap[f]] += g
         s = imp.sum()
         return imp / s if s > 0 else imp
 
@@ -324,7 +328,6 @@ class GradientBoosting(_BaseBooster):
         Xb = np.ascontiguousarray(self.prep_.fit_transform(X, [y], cat_features).T)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
-        self._importance = np.zeros(self.prep_.n_input_features_)
         # Keep a small sample of the (binned) training rows as the default SHAP
         # background -- the reference distribution interventional TreeSHAP
         # integrates over. Capped so it never bloats the pickled model.
@@ -383,7 +386,6 @@ class GradientBoosting(_BaseBooster):
             if adjusts_leaves:
                 self._correct_leaves(tree, leaf, y - F, w)
             self.trees_.append(tree)
-            self._accumulate_importance(tree)
             # Ordered boosting and leaf adjustment are mutually exclusive: the
             # former rewrites the training step, the latter the leaf value.
             if ll_active and tree.lin_coef is not None:
@@ -436,13 +438,22 @@ class GradientBoosting(_BaseBooster):
         """Override Newton leaf values with the loss-appropriate residual
         statistic (median for MAE, alpha-quantile for Quantile). The tree
         structure was chosen by the gradient; this fixes the step size.
-        `leaf` is the training assignment from build_oblivious_tree."""
+        `leaf` is the training assignment from build_oblivious_tree.
+
+        Groups samples with ONE stable argsort instead of an n_leaves-pass
+        boolean scan (`leaf == l` allocated a mask + fancy-index copy per
+        leaf). Each leaf sees the identical residual subsequence in the
+        identical order, so the computed values are exactly unchanged."""
         n_leaves = tree.values.shape[0]
+        order = np.argsort(leaf, kind="stable")
+        counts = np.bincount(leaf, minlength=n_leaves)
+        stop = np.cumsum(counts)
+        r_sorted = residuals[order]
+        w_sorted = sample_weight[order] if sample_weight is not None else None
         for l in range(n_leaves):
-            mask = leaf == l
-            r = residuals[mask]
-            w = sample_weight[mask] if sample_weight is not None else None
-            tree.values[l] = self.lr_ * self.loss_.leaf_value(r, w)
+            lo, hi = stop[l] - counts[l], stop[l]
+            w = w_sorted[lo:hi] if w_sorted is not None else None
+            tree.values[l] = self.lr_ * self.loss_.leaf_value(r_sorted[lo:hi], w)
 
     def predict_raw(self, X):
         """Return raw additive scores (pre-link): the regression prediction, or
@@ -545,7 +556,6 @@ class MulticlassBoosting(_BaseBooster):
                                      cat_features).T)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
-        self._importance = np.zeros(self.prep_.n_input_features_)
 
         Xvb = Yv = Fv = yv_idx = None
         if eval_set is not None:
@@ -584,7 +594,6 @@ class MulticlassBoosting(_BaseBooster):
                                                   min_child_weight=self.min_child_weight,
                                                   hist_buffers=hist_buffers)
                 round_trees.append(tree)
-                self._accumulate_importance(tree)
                 if self.ordered_boosting and tree.depth > 0:
                     F[:, k] += self._loo_update(tree, leaf, g, h)
                 elif tree.depth > 0:

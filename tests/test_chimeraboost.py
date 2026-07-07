@@ -899,6 +899,92 @@ def test_quantile_calibration_beats_deep_trees():
     assert 0.05 <= lo_def <= 0.22
 
 
+def test_quantile_conformal_offset_restores_tail_coverage():
+    """The split-conformal offset (fitted on the early-stopping validation
+    split) restores near-nominal marginal coverage at the tails, where the
+    learning-rate-shrunk quantile steps otherwise under-disperse. It is also
+    the pinball-optimal constant shift, so test pinball must not degrade."""
+    rng = np.random.default_rng(3)
+    n = 4000
+    X = rng.normal(size=(n, 8))
+    y = 3.0 * X[:, 0] + np.abs(X[:, 1]) * rng.normal(0, 2.0, n)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    for a, lo, hi in ((0.1, 0.05, 0.16), (0.9, 0.84, 0.95)):
+        m = ChimeraBoostRegressor(loss="Quantile", alpha=a,
+                                  random_state=0).fit(Xtr, ytr)
+        q = m.predict(Xte)
+        cov = float(np.mean(yte <= q))
+        assert lo <= cov <= hi, f"alpha={a}: coverage {cov:.3f} outside [{lo},{hi}]"
+        # The offset pushes outward at the tails (down at 0.1, up at 0.9).
+        assert (m.quantile_offset_ < 0) == (a < 0.5)
+        # Pinball with the offset is no worse than without it.
+        r_with = yte - q
+        r_wo = yte - (q - m.quantile_offset_)
+        pb = lambda r: float(np.mean(np.maximum(a * r, (a - 1.0) * r)))
+        assert pb(r_with) <= pb(r_wo) * 1.02
+
+
+def test_quantile_offset_zero_for_other_losses_and_without_validation():
+    """The conformal offset only exists for quantile loss with a validation
+    split: RMSE/MAE fits and early_stopping=False quantile fits get 0.0 (and
+    therefore bit-identical predictions to before the feature)."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(500, 5))
+    y = X[:, 0] + rng.normal(size=500)
+    assert ChimeraBoostRegressor(n_estimators=30, random_state=0)\
+        .fit(X, y).quantile_offset_ == 0.0
+    assert ChimeraBoostRegressor(n_estimators=30, loss="MAE", random_state=0)\
+        .fit(X, y).quantile_offset_ == 0.0
+    assert ChimeraBoostRegressor(n_estimators=30, loss="Quantile", alpha=0.9,
+                                 early_stopping=False, random_state=0)\
+        .fit(X, y).quantile_offset_ == 0.0
+
+
+def test_quantile_offset_consistent_in_staged_and_shap():
+    """predict, the last staged_predict stage, and SHAP additivity
+    (sum(phi) + expected_value_) all agree under the conformal offset."""
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=(2000, 5))
+    y = X[:, 0] * 2 + rng.normal(size=2000)
+    m = ChimeraBoostRegressor(n_estimators=100, loss="Quantile", alpha=0.9,
+                              random_state=0).fit(X, y)
+    assert m.quantile_offset_ != 0.0
+    pred = m.predict(X[:50])
+    stages = list(m.staged_predict(X[:50]))
+    assert np.allclose(stages[-1], pred)
+    phi = m.shap_values(X[:50], X_background=X[:200])
+    recon = phi.sum(axis=1) + m.expected_value_
+    assert np.allclose(recon, pred, atol=1e-8)
+
+
+def test_feature_importances_exclude_early_stopping_discards():
+    """Importances must derive only from the RETAINED trees: trees built past
+    the best iteration and truncated by early stopping contribute nothing.
+    (The old running accumulator counted them at build time.)"""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(3000, 6))
+    y = X[:, 0] * 2 + X[:, 1] + 0.5 * rng.normal(size=3000)
+    m = ChimeraBoostRegressor(n_estimators=2000, random_state=0).fit(X, y)
+    booster = m.model_
+    assert len(booster.trees_) == m.best_iteration_ < 2000  # ES truncated
+    expected = np.zeros(booster.prep_.n_input_features_)
+    for tree in booster.trees_:
+        for f, g in zip(tree.splits_feat, tree.gains):
+            expected[booster.prep_.feature_map_[f]] += g
+    np.testing.assert_allclose(m.feature_importances_,
+                               expected / expected.sum(), rtol=1e-12)
+
+
+def test_core_booster_default_matches_sklearn_wrapper():
+    """_BaseBooster and the sklearn wrappers must agree on the
+    ordered_boosting default; a silent mismatch changes results for anyone
+    driving the core class directly."""
+    from chimeraboost.booster import GradientBoosting
+    assert GradientBoosting().ordered_boosting \
+        == ChimeraBoostRegressor().ordered_boosting == False  # noqa: E712
+
+
 def test_auto_min_child_weight_is_size_adaptive():
     """Classifier default min_child_weight=None resolves to a size-adaptive veto:
     full (~1) on small data, off (~0) on large -- monotone in training size."""

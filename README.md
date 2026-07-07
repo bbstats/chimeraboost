@@ -16,9 +16,9 @@ pip install chimeraboost
 * **Cold start**
 
     The first `fit()` in a fresh environment JIT-compiles the numba kernels — a
-    few seconds, machine-dependent (roughly halved by the hand-rolled linear-leaf
-    solver). The compiled kernels are cached on disk (`cache=True`), so every
-    later session in the same environment skips this and starts fast.
+    few seconds, machine-dependent. The compiled kernels are cached on disk
+    (`cache=True`), so every later session in the same environment skips this
+    and starts fast.
 
 * **Sample code:**
 

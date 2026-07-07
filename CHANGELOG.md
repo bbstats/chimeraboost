@@ -4,6 +4,53 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **Conformal quantile calibration.** `loss="Quantile"` predictions now include
+  a split-conformal offset (`quantile_offset_`) fitted on the early-stopping
+  validation split — the regression analog of the classifier's temperature
+  scaling. Boosting under-disperses quantiles (each round's per-leaf quantile
+  step is shrunk by the learning rate, so the tails converge slowly and early
+  stopping cuts them short); the conformal order statistic of the validation
+  residuals is both the coverage-restoring shift (distribution-free, Romano et
+  al. 2019) and the pinball-optimal constant correction, so calibration and
+  accuracy improve together. Measured at α=0.1/0.9 across four datasets:
+  tail coverage 0.12–0.23 → 0.08–0.11 and 0.80–0.90 → 0.88–0.91 (nominal
+  0.1/0.9), test pinball loss improved or flat everywhere. RMSE/MAE fits and
+  quantile fits without a validation split are bit-identical to before
+  (offset 0.0). SHAP additivity and `staged_predict` fold the offset in.
+
+### Fixed
+- **`feature_importances_` no longer counts trees discarded by early
+  stopping.** Gains were accumulated as trees were built, but the truncation
+  at the best iteration never subtracted the dead trees (up to `patience` of
+  them). Importances are now computed from the retained trees only.
+  Predictions are unaffected.
+- **Core booster default aligned with the sklearn wrappers.** `_BaseBooster`
+  defaulted `ordered_boosting=True` while `ChimeraBoostRegressor`/`Classifier`
+  default `False`; anyone driving `GradientBoosting`/`MulticlassBoosting`
+  directly silently got a different algorithm. The core now defaults `False`
+  too. (The sklearn wrappers always passed it explicitly — no change there.)
+
+### Changed
+- **Column subsampling now skips masked features when building histograms**
+  (`_best_split` already honored the mask; the histogram kernel scanned every
+  feature anyway). Bit-identical trees; fits with `colsample<1` get the
+  proportional histogram work back — measured 1.44× end-to-end on a
+  histogram-dominated regression fit at `colsample=0.4` (less where other
+  kernels dominate, e.g. binary with linear leaves).
+- **MAE/Quantile leaf correction groups samples with one stable argsort**
+  instead of an n_leaves-pass boolean scan. Exactly the same values reach the
+  quantile estimator in the same order — predictions bit-identical.
+- **Linear-leaf fitting is now parallel — binary classification fits 1.4–1.8×
+  faster** (5k rows 1.4×, 50k 1.8×, 200k 1.6×; regression with
+  `linear_leaves=True` benefits equally). The two remaining serial kernels
+  (`_linear_leaf_fit`, `_linear_predict`) were ~half of binary fit time; they
+  are now `parallel=True`. Bit-identical predictions: a stable counting sort
+  groups samples by leaf so every leaf's normal equations accumulate in the
+  exact float-add order the serial code used, and per-sample prediction is
+  embarrassingly parallel. Thread-count invariance preserved. Trade-off:
+  first-fit JIT in a fresh environment grows ~2s (parallel compilation is
+  costlier); the on-disk kernel cache still makes this once per environment.
 
 ## [0.13.1] - 2026-07-06
 ### Changed
