@@ -14,6 +14,7 @@ run at steady-state speed. Call it at import/startup time, outside anything
 you time or bill.
 """
 
+import threading
 import time
 
 import numpy as np
@@ -21,7 +22,7 @@ import numpy as np
 from .sklearn_api import ChimeraBoostClassifier, ChimeraBoostRegressor
 
 
-def warmup(verbose=False):
+def warmup(verbose=False, background=False):
     """Compile (or load from the on-disk cache) all default-path kernels.
 
     Covers binary classification with linear leaves, a categorical feature
@@ -29,16 +30,31 @@ def warmup(verbose=False):
     together these touch every fit- and predict-path numba kernel except the
     SHAP kernel (compiled on the first ``shap_values`` call).
 
+    Instead of calling this yourself, you can set the environment variable
+    ``CHIMERABOOST_WARMUP=1`` to start a background warmup automatically when
+    ``chimeraboost`` is imported (``=sync`` blocks the import instead).
+
     Parameters
     ----------
     verbose : bool, default False
         Print per-stage timings.
+    background : bool, default False
+        Run in a daemon thread and return it immediately, so compilation
+        overlaps the caller's own startup (data loading, connections). A fit
+        issued before the thread finishes simply blocks on numba's per-kernel
+        compile locks, so it is never slower than compiling inline.
 
     Returns
     -------
-    float
-        Wall-clock seconds spent warming up.
+    float or threading.Thread
+        Wall-clock seconds spent warming up, or the started daemon thread
+        when ``background=True`` (``.join()`` it to wait for readiness).
     """
+    if background:
+        t = threading.Thread(target=warmup, kwargs={"verbose": verbose},
+                             name="chimeraboost-warmup", daemon=True)
+        t.start()
+        return t
     t0 = time.perf_counter()
     rng = np.random.default_rng(0)
 
@@ -74,3 +90,17 @@ def warmup(verbose=False):
     _log("regression + ordered boosting")
 
     return time.perf_counter() - t0
+
+
+def _warmup_from_env(value):
+    """Dispatch the ``CHIMERABOOST_WARMUP`` env var (called at package import).
+
+    unset/``""``/``"0"`` — do nothing; ``"sync"`` — blocking warmup;
+    anything else truthy (``"1"``, ``"background"``, ...) — daemon-thread
+    warmup so the import returns immediately.
+    """
+    if not value or value.strip() == "0":
+        return None
+    if value.strip().lower() == "sync":
+        return warmup()
+    return warmup(background=True)

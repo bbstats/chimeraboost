@@ -1,8 +1,11 @@
 """warmup() must compile every default-path kernel without side effects."""
 
+import threading
+
 import numpy as np
 
 from chimeraboost import ChimeraBoostClassifier, warmup
+from chimeraboost.warmup import _warmup_from_env
 
 
 def test_warmup_compiles_all_default_path_kernels():
@@ -30,6 +33,23 @@ def test_warmup_compiles_all_default_path_kernels():
                    _linear_predict, _loo_leaf_step, _predict_tree,
                    _predict_forest, _predict_forest_linear):
         assert kernel.signatures, f"{kernel.py_func.__name__} not compiled by warmup()"
+
+
+def test_background_warmup_returns_daemon_thread_and_finishes():
+    t = warmup(background=True)
+    assert isinstance(t, threading.Thread) and t.daemon
+    t.join(timeout=300)
+    assert not t.is_alive()
+
+
+def test_warmup_env_dispatch():
+    assert _warmup_from_env(None) is None
+    assert _warmup_from_env("") is None
+    assert _warmup_from_env("0") is None
+    t = _warmup_from_env("1")
+    assert isinstance(t, threading.Thread)
+    t.join(timeout=300)
+    assert isinstance(_warmup_from_env("sync"), float)
 
 
 def test_warmup_does_not_disturb_global_rng_or_model_output():
