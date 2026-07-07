@@ -4,6 +4,17 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **Linear-leaf fitting is now parallel — binary classification fits 1.4–1.8×
+  faster** (5k rows 1.4×, 50k 1.8×, 200k 1.6×; regression with
+  `linear_leaves=True` benefits equally). The two remaining serial kernels
+  (`_linear_leaf_fit`, `_linear_predict`) were ~half of binary fit time; they
+  are now `parallel=True`. Bit-identical predictions: a stable counting sort
+  groups samples by leaf so every leaf's normal equations accumulate in the
+  exact float-add order the serial code used, and per-sample prediction is
+  embarrassingly parallel. Thread-count invariance preserved. Trade-off:
+  first-fit JIT in a fresh environment grows ~2s (parallel compilation is
+  costlier); the on-disk kernel cache still makes this once per environment.
 
 ## [0.13.1] - 2026-07-06
 ### Changed

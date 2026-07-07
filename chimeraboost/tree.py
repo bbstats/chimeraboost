@@ -227,7 +227,7 @@ def _solve_small(A, b):
     return x
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
                      l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
@@ -243,18 +243,20 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
     shape (n_leaves, 1 + len(lin_feats)) (column 0 = intercept).
 
     `centers_std` is the per-feature table of standardized bin-center values;
-    NaN (missing) bins are treated as 0 (= the feature mean)."""
+    NaN (missing) bins are treated as 0 (= the feature mean).
+
+    Parallel over leaves, bit-identically to the old serial global scan: a
+    stable counting sort groups sample indices by leaf in original order, so
+    each leaf's normal equations accumulate in exactly the same float-add
+    sequence the serial version used (a leaf only ever saw its own samples,
+    in increasing i). Thread-count invariant for the same reason. The
+    standardized design values are gathered per sample inside the leaf loop
+    (no (k, n) scratch matrix, and a single parallel region keeps the JIT
+    compile cost down)."""
     n = leaf.shape[0]
     k = lin_feats.shape[0]
     d = 1 + k
     coef = np.zeros((n_leaves, d))
-    # Standardized design columns (k, n); missing bins -> 0.
-    Xs = np.empty((k, n))
-    for j in range(k):
-        f = lin_feats[j]
-        for i in range(n):
-            v = centers_std[f, Xb[f, i]]
-            Xs[j, i] = v if np.isfinite(v) else 0.0
     # Per-leaf grad/hess totals (for the constant fallback) and counts.
     counts = np.zeros(n_leaves, dtype=np.int64)
     Gtot = np.zeros(n_leaves)
@@ -264,38 +266,52 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
         counts[l] += 1
         Gtot[l] += grad[i]
         Htot[l] += hess[i]
-    # Accumulate normal equations per leaf in one pass (M is d*d, rhs is d).
-    M = np.zeros((n_leaves, d, d))
-    rhs = np.zeros((n_leaves, d))
+    # Stable counting sort: order[start[l]:start[l+1]] = leaf-l samples in
+    # increasing original index.
+    start = np.zeros(n_leaves + 1, dtype=np.int64)
+    for l in range(n_leaves):
+        start[l + 1] = start[l] + counts[l]
+    pos = start[:n_leaves].copy()
+    order = np.empty(n, dtype=np.int64)
     for i in range(n):
         l = leaf[i]
-        if counts[l] < 2 * d or k == 0:
-            continue                      # this leaf will use the constant value
-        h = hess[i]
-        g = grad[i]
-        M[l, 0, 0] += h
-        rhs[l, 0] += -g
-        for j in range(k):
-            xj = Xs[j, i]
-            M[l, 0, 1 + j] += h * xj
-            M[l, 1 + j, 0] += h * xj
-            rhs[l, 1 + j] += -g * xj
-            for jj in range(k):
-                M[l, 1 + j, 1 + jj] += h * xj * Xs[jj, i]
-    for l in range(n_leaves):
+        order[pos[l]] = i
+        pos[l] += 1
+    # Per-leaf normal equations + solve; leaves are independent.
+    for l in prange(n_leaves):
         if counts[l] == 0:
             continue
         if counts[l] < 2 * d or k == 0:
             if Htot[l] > 0.0:
                 coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
             continue
-        Ml = M[l]
+        Ml = np.zeros((d, d))
+        rl = np.zeros(d)
+        xrow = np.empty(k)
+        for q in range(start[l], start[l + 1]):
+            i = order[q]
+            h = hess[i]
+            g = grad[i]
+            # Standardized design values for this sample; missing bins -> 0.
+            for j in range(k):
+                f = lin_feats[j]
+                v = centers_std[f, Xb[f, i]]
+                xrow[j] = v if np.isfinite(v) else 0.0
+            Ml[0, 0] += h
+            rl[0] += -g
+            for j in range(k):
+                xj = xrow[j]
+                Ml[0, 1 + j] += h * xj
+                Ml[1 + j, 0] += h * xj
+                rl[1 + j] += -g * xj
+                for jj in range(k):
+                    Ml[1 + j, 1 + jj] += h * xj * xrow[jj]
         Ml[0, 0] += l2_intercept
         for j in range(1, d):
             Ml[j, j] += lin_lambda
         for j in range(d):
             Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
-        beta = _solve_small(Ml, rhs[l])
+        beta = _solve_small(Ml, rl)
         if np.isnan(beta[0]):
             # Singular pivot (unreachable given the diagonal ridge + jitter):
             # keep the plain constant Newton value rather than a broken slope.
@@ -307,13 +323,16 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
     return coef
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def _linear_predict(leaf, lin_feats, lin_coef, centers_std, Xb):
-    """Per-sample output of a linear-leaf tree: intercept + slope . x_std."""
+    """Per-sample output of a linear-leaf tree: intercept + slope . x_std.
+
+    Parallel over samples; each out[i] is independent, so bit-identical to
+    the serial loop."""
     n = leaf.shape[0]
     k = lin_feats.shape[0]
     out = np.empty(n)
-    for i in range(n):
+    for i in prange(n):
         l = leaf[i]
         s = lin_coef[l, 0]
         for j in range(k):
