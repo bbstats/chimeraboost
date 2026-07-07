@@ -1262,6 +1262,10 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <td>Calibration temperature; &gt; 1 means scores were over-confident.</td>
 </tr>
 <tr>
+<td><code>quantile_offset_</code> <em>(regressor)</em></td>
+<td>Split-conformal correction added to <code>loss="Quantile"</code> predictions, fitted on the validation split; 0.0 for other losses or without one.</td>
+</tr>
+<tr>
 <td><code>expected_value_</code></td>
 <td>SHAP baseline; set after <code>shap_values</code> (see <a href="../shap/">SHAP</a>).</td>
 </tr>

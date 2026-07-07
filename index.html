@@ -728,9 +728,9 @@
 <li>
 <p><strong>Cold start</strong></p>
 <p>The first <code>fit()</code> in a fresh environment JIT-compiles the numba kernels — a
-few seconds, machine-dependent (roughly halved by the hand-rolled linear-leaf
-solver). The compiled kernels are cached on disk (<code>cache=True</code>), so every
-later session in the same environment skips this and starts fast.</p>
+few seconds, machine-dependent. The compiled kernels are cached on disk
+(<code>cache=True</code>), so every later session in the same environment skips this
+and starts fast.</p>
 </li>
 <li>
 <p><strong>Sample code:</strong></p>

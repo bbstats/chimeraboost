@@ -1050,9 +1050,11 @@ per quantile:</p>
 <p>Quantile models default to a shallower tree (<code>depth=4</code>) than the squared-error
 default (<code>depth=6</code>): an extreme conditional quantile is estimated from the points in
 each leaf, so deep, sparse leaves overfit the tails and the predicted quantiles
-collapse toward the median on held-out data. If your intervals still look too narrow,
-go shallower (<code>depth=3</code>); if they look too wide, raise <code>depth</code> and add more <code>n_estimators</code>.
-As with any tree-based quantile model, held-out coverage is approximate, not exact.</p>
+collapse toward the median on held-out data. Predictions also include a
+split-conformal correction (<code>quantile_offset_</code>) fitted on the early-stopping
+validation split, which restores near-nominal marginal coverage at the tails.
+With <code>early_stopping=False</code> and no <code>eval_set</code> there is no split to calibrate on,
+and the raw (typically under-dispersed) quantiles are returned.</p>
 <h2 id="multiclass-classification">Multiclass classification<a class="headerlink" href="#multiclass-classification" title="Permanent link">&para;</a></h2>
 <p>No configuration needed — the classifier switches to softmax when it sees 3 or more
 classes, and <code>classes_</code> preserves your original labels.</p>
