@@ -1150,7 +1150,8 @@ problems, raising depth is the biggest single lever:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">depth</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Per-leaf linear models add local slope inside each leaf (on by default for binary
-classification, opt-in for regression):</p>
+classification; the regression default picks the better of linear and constant on the
+validation split — force one variant to skip the double fit):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">linear_leaves</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="reproducibility-and-threads">Reproducibility and threads<a class="headerlink" href="#reproducibility-and-threads" title="Permanent link">&para;</a></h2>

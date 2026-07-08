@@ -879,8 +879,9 @@ default (<code>None</code>) turns them on automatically when the data is entirel
 <p>By default each leaf predicts a single constant value. With <code>linear_leaves</code>, a leaf
 instead fits a small ridge <strong>linear model</strong> over the numeric features the tree split on,
 adding local slope where a constant underfits smooth structure. Leaves with too few rows
-fall back to norma behavior to reduce overfitting small datasets. Linear leaves are on by
-default for binary classification, but off for regression.</p>
+fall back to constant behavior to reduce overfitting small datasets. Linear leaves are on
+by default for binary classification; the regression default fits both variants and keeps
+whichever reaches the lower validation loss (set <code>True</code>/<code>False</code> to skip the double fit).</p>
 <h2 id="probability-calibration">Probability calibration<a class="headerlink" href="#probability-calibration" title="Permanent link">&para;</a></h2>
 <p>After fitting, the classifier scales its raw scores by a single temperature chosen on
 the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
