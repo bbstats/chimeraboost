@@ -20,12 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   TabArena leaderboard, whose cluster re-times every fold in a fresh worker
   process (our identical run measured 0.6 s/1K train, 0.068 s/1K predict —
   faster at predict than every other tree model on the board).
-  `warmup(background=True)` runs it in a daemon thread so compilation
-  overlaps the caller's own startup (a fit issued mid-compile just waits on
-  numba's per-kernel locks — never slower than compiling inline), and setting
-  `CHIMERABOOST_WARMUP=1` starts the background warmup automatically at
-  import (`=sync` blocks the import instead) — no code changes needed in
-  worker fleets.
+  Setting `CHIMERABOOST_WARMUP=1` runs it automatically at import — no code
+  changes needed in worker fleets. `warmup(background=True)` (or
+  `CHIMERABOOST_WARMUP=background`) instead compiles in a daemon thread so
+  the JIT overlaps the caller's own startup work, for deployments with real
+  setup between import and first fit; a fit issued mid-compile just waits on
+  numba's per-kernel locks, never slower than compiling inline.
 ### Added
 - **Conformal quantile calibration.** `loss="Quantile"` predictions now include
   a split-conformal offset (`quantile_offset_`) fitted on the early-stopping

@@ -46,10 +46,10 @@ def test_warmup_env_dispatch():
     assert _warmup_from_env(None) is None
     assert _warmup_from_env("") is None
     assert _warmup_from_env("0") is None
-    t = _warmup_from_env("1")
+    assert isinstance(_warmup_from_env("1"), float)  # "1" = blocking
+    t = _warmup_from_env("background")
     assert isinstance(t, threading.Thread)
     t.join(timeout=300)
-    assert isinstance(_warmup_from_env("sync"), float)
 
 
 def test_warmup_does_not_disturb_global_rng_or_model_output():

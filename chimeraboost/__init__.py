@@ -19,9 +19,9 @@ from .sklearn_api import (
 )
 from .warmup import warmup, _warmup_from_env
 
-# CHIMERABOOST_WARMUP=1 -> compile the numba kernels in a background daemon
-# thread at import ("sync" blocks instead). For short-lived workers where the
-# first fit/predict would otherwise pay the JIT. See warmup().
+# CHIMERABOOST_WARMUP=1 -> compile the numba kernels at import ("background"
+# uses a daemon thread instead). For short-lived workers where the first
+# fit/predict would otherwise pay the JIT. See warmup().
 _warmup_from_env(_os.environ.get("CHIMERABOOST_WARMUP"))
 
 __all__ = [

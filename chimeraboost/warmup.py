@@ -31,8 +31,8 @@ def warmup(verbose=False, background=False):
     SHAP kernel (compiled on the first ``shap_values`` call).
 
     Instead of calling this yourself, you can set the environment variable
-    ``CHIMERABOOST_WARMUP=1`` to start a background warmup automatically when
-    ``chimeraboost`` is imported (``=sync`` blocks the import instead).
+    ``CHIMERABOOST_WARMUP=1`` to run it automatically when ``chimeraboost``
+    is imported (``=background`` uses the daemon thread instead).
 
     Parameters
     ----------
@@ -95,12 +95,14 @@ def warmup(verbose=False, background=False):
 def _warmup_from_env(value):
     """Dispatch the ``CHIMERABOOST_WARMUP`` env var (called at package import).
 
-    unset/``""``/``"0"`` — do nothing; ``"sync"`` — blocking warmup;
-    anything else truthy (``"1"``, ``"background"``, ...) — daemon-thread
-    warmup so the import returns immediately.
+    unset/``""``/``"0"`` — do nothing. ``"background"`` — daemon-thread warmup
+    so the import returns immediately (useful only when real startup work
+    follows the import for the compile to overlap with). Anything else truthy
+    (``"1"``) — plain blocking warmup: the import pays the compile once, and
+    every later fit/predict runs at steady-state speed.
     """
     if not value or value.strip() == "0":
         return None
-    if value.strip().lower() == "sync":
-        return warmup()
-    return warmup(background=True)
+    if value.strip().lower() in ("background", "thread", "bg"):
+        return warmup(background=True)
+    return warmup()
