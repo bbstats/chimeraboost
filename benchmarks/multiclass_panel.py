@@ -33,8 +33,8 @@ import run_benchmarks as rb  # noqa: E402  (dataset registry + single runners)
 
 from chimeraboost import ChimeraBoostClassifier  # noqa: E402
 
-RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "results", "multiclass_panel.jsonl")
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+RESULTS = os.path.join(RESULTS_DIR, "multiclass_panel.jsonl")
 
 # OpenML multiclass suite + PMLB multiclass sets (pm names resolved to their
 # fold-qualified registry keys at runtime). PMLB `nursery`/`segmentation`
@@ -164,7 +164,14 @@ def main():
                     default=["ChimeraBoost", "CatBoost", "LightGBM", "XGBoost"])
     ap.add_argument("--table-only", action="store_true",
                     help="skip runs; just print the aggregate table")
+    ap.add_argument("--out", default=None, metavar="NAME",
+                    help="results filename under benchmarks/results/ (default "
+                         "multiclass_panel.jsonl); use a separate file for "
+                         "A/B runs against a modified library")
     args = ap.parse_args()
+    if args.out:
+        global RESULTS
+        RESULTS = os.path.join(RESULTS_DIR, args.out)
 
     all_keys = _dataset_keys()          # also registers the dataset builders
     keys = args.datasets or all_keys

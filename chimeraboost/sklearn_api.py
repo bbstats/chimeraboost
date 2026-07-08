@@ -3,7 +3,8 @@
 import warnings
 
 import numpy as np
-from .booster import GradientBoosting, MulticlassBoosting
+from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
+                      MulticlassBoosting)
 from .preprocessing import as_model_array
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
@@ -751,11 +752,14 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
-    linear_leaves : bool, default False
+    linear_leaves : bool or None, default False
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant value, adding local slope where step leaves underfit. Leaves
         with too few rows fall back to a constant. Not available with MAE or
-        quantile loss.
+        quantile loss. ``None`` = validation-selected: both variants are fit and
+        the one with the lower validation loss is kept (~2x fit time; requires an
+        early-stopping split or ``eval_set``, RMSE loss, and >= 1000 rows —
+        otherwise constant leaves are used).
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
     early_stopping : bool, default True
@@ -792,6 +796,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         order statistic of the validation residuals, restoring the nominal
         coverage that learning-rate shrinkage of the per-leaf quantile steps
         otherwise starves. 0.0 for other losses or without a validation set.
+    linear_leaves_selected_ : bool or None
+        With ``linear_leaves=None``, whether the linear-leaf variant won the
+        validation selection. ``None`` when no selection took place.
     """
 
     def __init__(self, n_estimators=2000, learning_rate=None, depth=None,
@@ -944,10 +951,37 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if kw.get("cat_combinations") is None:
             kw["cat_combinations"] = _auto_cat_combinations(
                 cat_features, self.n_features_in_, len(X))
-        self.model_ = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
-                                       **kw)
-        self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight, callbacks=callbacks)
+        # linear_leaves=None -> validation-selected: fit constant-leaf and
+        # linear-leaf variants and keep whichever reaches the lower validation
+        # loss. Full-Grinsztajn breadth showed fixed linear leaves are a wash
+        # for regression (16W/12L) with real casualties; per-dataset selection
+        # on the already-held-out ES split banks the wins without them (the
+        # same post-fit-decision pattern as temperature scaling / conformal
+        # quantiles). Selection needs a validation set, RMSE (MAE/Quantile
+        # override leaf values), and enough rows for linear leaves to engage.
+        ll = kw.pop("linear_leaves")
+        select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
+                     and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+
+        def _fit_booster(linear):
+            b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
+                                 linear_leaves=linear, **kw)
+            b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
+                  sample_weight=sample_weight, callbacks=callbacks)
+            return b
+
+        self.linear_leaves_selected_ = None
+        if select_ll:
+            const = _fit_booster(False)
+            lin = _fit_booster(True)
+            # Each variant early-stops itself; compare the best validation loss
+            # reached. Tie goes to constant leaves (cheaper predictions).
+            best_const = min(const.valid_history_) if const.valid_history_ else np.inf
+            best_lin = min(lin.valid_history_) if lin.valid_history_ else np.inf
+            self.model_ = lin if best_lin < best_const else const
+            self.linear_leaves_selected_ = self.model_ is lin
+        else:
+            self.model_ = _fit_booster(bool(ll))
 
         # Conformal quantile correction on the validation split -- the
         # regression analog of the classifier's temperature scaling. Boosting

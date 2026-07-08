@@ -481,7 +481,14 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # it on when --chimera-cat-combinations is passed.
     if cat_combinations:
         kw["cat_combinations"] = True
-    if linear_leaves:
+    if linear_leaves == "auto":
+        # Regressor: linear_leaves=None = validation-selected (fit both, keep
+        # the val winner). The classifier's None default is already its own
+        # auto rule, so only regression needs the override.
+        if task == "regression":
+            kw["linear_leaves"] = None
+            kw["linear_lambda"] = linear_lambda
+    elif linear_leaves:
         # multiclass doesn't support linear leaves yet; fall back to constant
         # leaves there so a full-suite run doesn't crash on multiclass tasks.
         is_multiclass = task != "regression" and len(np.unique(ytr)) > 2
@@ -882,6 +889,11 @@ def main():
                     dest="linear_leaves",
                     help="enable per-leaf linear models (regression + binary; "
                          "multiclass falls back to constant leaves). Default off.")
+    ap.add_argument("--chimera-linear-leaves-auto", action="store_true",
+                    dest="linear_leaves_auto",
+                    help="regressor linear_leaves=None: fit constant + linear "
+                         "variants and keep the validation winner (~2x fit). "
+                         "Classifier keeps its own auto default.")
     ap.add_argument("--chimera-linear-lambda", type=float, default=1.0,
                     dest="linear_lambda",
                     help="ridge penalty on per-leaf linear slopes (default 1.0).")
@@ -977,7 +989,8 @@ def main():
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
-                       linear_leaves=args.linear_leaves,
+                       linear_leaves="auto" if args.linear_leaves_auto
+                       else args.linear_leaves,
                        linear_lambda=args.linear_lambda)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
