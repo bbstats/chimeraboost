@@ -1,0 +1,35 @@
+--- a/packages/tabarena/src/tabarena/models/chimeraboost/model.py
++++ b/packages/tabarena/src/tabarena/models/chimeraboost/model.py
+@@ -14,6 +14,10 @@
+ from autogluon.common.utils.resource_utils import ResourceManager
+ from autogluon.core.models import AbstractModel
+ 
++# Import at module top: this runs before the benchmark's fit timer starts, so a
++# lazy import inside _fit would charge ~1s of import cost to every job's train time.
++from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
++
+ if TYPE_CHECKING:
+     import pandas as pd
+ 
+@@ -52,12 +56,8 @@
+     ):
+         start_time = time.time()
+         if self.problem_type in ["regression"]:
+-            from chimeraboost import ChimeraBoostRegressor
+-
+             model_cls = ChimeraBoostRegressor
+         else:  # 'binary' and 'multiclass'
+-            from chimeraboost import ChimeraBoostClassifier
+-
+             model_cls = ChimeraBoostClassifier
+ 
+         X = self.preprocess(X, is_train=True)
+--- a/packages/tabarena/src/tabarena/models/chimeraboost/info.py
++++ b/packages/tabarena/src/tabarena/models/chimeraboost/info.py
+@@ -25,5 +25,5 @@
+     model_cls=ChimeraBoostModel,
+     search_space=gen_chimeraboost,
+     method_metadata=chimeraboost_method_metadata,
+-    pip_extra=("chimeraboost>=0.13.0",),
++    pip_extra=("chimeraboost>=0.13.1",),
+ )

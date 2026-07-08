@@ -40,8 +40,9 @@ default (`None`) turns them on automatically when the data is entirely categoric
 By default each leaf predicts a single constant value. With `linear_leaves`, a leaf
 instead fits a small ridge **linear model** over the numeric features the tree split on,
 adding local slope where a constant underfits smooth structure. Leaves with too few rows
-fall back to norma behavior to reduce overfitting small datasets. Linear leaves are on by
-default for binary classification, but off for regression.
+fall back to constant behavior to reduce overfitting small datasets. Linear leaves are on
+by default for binary classification; the regression default fits both variants and keeps
+whichever reaches the lower validation loss (set `True`/`False` to skip the double fit).
 
 ## Probability calibration
 

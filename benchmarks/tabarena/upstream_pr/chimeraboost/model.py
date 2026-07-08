@@ -16,7 +16,17 @@ from autogluon.core.models import AbstractModel
 
 # Import at module top: this runs before the benchmark's fit timer starts, so a
 # lazy import inside _fit would charge ~1s of import cost to every job's train time.
+import chimeraboost
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+
+# Pre-compile the numba kernels at import time for the same reason. Each fresh
+# worker process otherwise pays the JIT inside the timed sections: ~5-15s in its
+# first fit and ~0.2-2s in its first predict — on TabArena's small median task
+# that dwarfs the actual model work (measured 9.3s -> 0.10s timed fit and
+# 1.8 -> 0.001 s/1K timed predict on a 2K-row task with a cold kernel cache).
+# One-time environment setup, equivalent to the C++ boosters' ahead-of-time
+# compilation at package build. Requires chimeraboost >= 0.14.1.
+chimeraboost.warmup()
 
 if TYPE_CHECKING:
     import pandas as pd

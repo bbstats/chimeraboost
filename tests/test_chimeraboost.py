@@ -1065,7 +1065,7 @@ def test_linear_leaves_beat_constant_on_smooth_target():
     y = 3.0 * X[:, 0] - 2.0 * X[:, 1] + 0.5 * X[:, 2] + 0.05 * rng.normal(size=3000)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
     common = dict(n_estimators=60, depth=3, random_state=0, thread_count=4)
-    const = ChimeraBoostRegressor(**common).fit(Xtr, ytr)
+    const = ChimeraBoostRegressor(linear_leaves=False, **common).fit(Xtr, ytr)
     lin = ChimeraBoostRegressor(linear_leaves=True, **common).fit(Xtr, ytr)
     r_const = mean_squared_error(yte, const.predict(Xte)) ** 0.5
     r_lin = mean_squared_error(yte, lin.predict(Xte)) ** 0.5
@@ -1079,16 +1079,21 @@ def _big_reg(n=1500, d=4, seed=0):
     return X, y
 
 
-def test_linear_leaves_default_off_uses_fused_path():
-    """linear_leaves defaults to off: the fast fused-forest path is used
-    (no centers table built), so default behavior is unchanged."""
+def test_linear_leaves_explicit_false_uses_fused_path_and_default_selects():
+    """Explicit linear_leaves=False keeps the fast fused-forest path (no
+    centers table built); the default (None) runs validation selection and
+    keeps a model consistent with the recorded choice."""
     X, y = _big_reg()
-    off = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(X, y)
+    off = ChimeraBoostRegressor(n_estimators=30, linear_leaves=False,
+                                random_state=0).fit(X, y)
     on = ChimeraBoostRegressor(n_estimators=30, linear_leaves=True,
                                random_state=0).fit(X, y)
+    sel = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(X, y)
     assert off.model_._centers_std_ is None        # fused (constant) path
     assert on.model_._centers_std_ is not None      # linear path active (n>=1000)
     assert on.model_.linear_leaves is True
+    assert sel.linear_leaves_selected_ in (True, False)
+    assert (sel.model_._centers_std_ is not None) == sel.linear_leaves_selected_
 
 
 def test_linear_leaves_small_data_guard_falls_back_to_constant():

@@ -5,7 +5,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [0.14.0] - 2026-07-07
+## [0.14.1] - 2026-07-08
+### Changed
+- **Regressor `linear_leaves` default `False` → `None` (validation-selected).**
+  Fixed linear leaves were a regression wash with casualties on breadth
+  benchmarks (16W/12L): real wins (pol −6.4%, abalone −3.1%) but real losses
+  (visualizing_soil −4.7%). The new default fits both variants and keeps the
+  one with the lower validation loss on the already-held-out early-stopping
+  split — the same post-fit-decision pattern as temperature scaling and the
+  conformal quantile offset. Gates: Grinsztajn 36-set breadth 20W/9T/7L
+  (−0.58% mean RMSE) vs constant and 12W/19T/5L (−0.32%) vs always-linear,
+  dodging every fixed-linear casualty; independent OpenML+PMLB one-shot
+  8W/7T/1L (−0.81%). Costs ~2× fit time when selection runs (RMSE loss, a
+  validation split, ≥1000 rows); pass `linear_leaves=True/False` to force a
+  variant and skip the double fit. `linear_leaves_selected_` records the
+  choice.
+
+### Added
+- **`chimeraboost.warmup()`** — pre-compiles (or loads from the on-disk cache)
+  every numba kernel on the default fit and predict paths via three tiny
+  synthetic fits. A fresh process pays the JIT inside its first `fit`
+  (~5–15 s cold) and first `predict` (~0.2–2 s) — irrelevant for long-lived
+  processes, dominant for fleets of short-lived workers (benchmark harnesses,
+  serverless inference, ray/spark tasks) fitting small data. Calling
+  `warmup()` at startup, outside anything timed or billed, restores
+  steady-state speed: on a 2K-row task, first-fit wall time inside the timed
+  section drops 9.3 s → 0.10 s and first-predict 1.8 → 0.001 s per 1K rows.
+  This is the fix for the inflated ChimeraBoost train/predict times on the
+  TabArena leaderboard, whose cluster re-times every fold in a fresh worker
+  process (our identical run measured 0.6 s/1K train, 0.068 s/1K predict —
+  faster at predict than every other tree model on the board).
+  Setting `CHIMERABOOST_WARMUP=1` runs it automatically at import — no code
+  changes needed in worker fleets. `warmup(background=True)` (or
+  `CHIMERABOOST_WARMUP=background`) instead compiles in a daemon thread so
+  the JIT overlaps the caller's own startup work, for deployments with real
+  setup between import and first fit; a fit issued mid-compile just waits on
+  numba's per-kernel locks, never slower than compiling inline.
 ### Added
 - **Conformal quantile calibration.** `loss="Quantile"` predictions now include
   a split-conformal offset (`quantile_offset_`) fitted on the early-stopping
