@@ -54,9 +54,10 @@ def test_no_selection_for_mae_loss():
     assert m.linear_leaves_selected_ is None
 
 
-def test_default_false_behavior_unchanged():
+def test_default_is_validation_selected():
     X, y = _data()
-    a = _fit(False, X, y)
+    assert ChimeraBoostRegressor().linear_leaves is None
     b = ChimeraBoostRegressor(n_estimators=150, random_state=0).fit(X, y)
-    np.testing.assert_array_equal(a.predict(X), b.predict(X))
-    assert b.linear_leaves_selected_ is None
+    assert b.linear_leaves_selected_ in (True, False)
+    np.testing.assert_array_equal(
+        b.predict(X), _fit(None, X, y).predict(X))

@@ -52,7 +52,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `linear_leaves` | `False` (reg) / `None`→auto (clf) | Fit a ridge linear model per leaf over the numeric split features instead of a constant. On by default for binary classification; falls back to constant below ~1000 rows. Not available with MAE/Quantile or multiclass. |
+| `linear_leaves` | `None` → auto | Fit a ridge linear model per leaf over the numeric split features instead of a constant. Binary classification: on by default. Regression: the default fits both variants and keeps the validation winner (~2× fit; `True`/`False` skips the double fit). Falls back to constant below ~1000 rows. Not available with MAE/Quantile or multiclass. |
 | `linear_lambda` | `1.0` | Ridge penalty on per-leaf slopes; larger is closer to a constant. |
 
 ## Ordered boosting

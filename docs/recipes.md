@@ -211,7 +211,8 @@ reg = ChimeraBoostRegressor(depth=10, random_state=0).fit(X_train, y_train)
 ```
 
 Per-leaf linear models add local slope inside each leaf (on by default for binary
-classification, opt-in for regression):
+classification; the regression default picks the better of linear and constant on the
+validation split — force one variant to skip the double fit):
 
 ```python
 reg = ChimeraBoostRegressor(linear_leaves=True, random_state=0).fit(X_train, y_train)

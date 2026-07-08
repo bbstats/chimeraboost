@@ -752,14 +752,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force it on/off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
-    linear_leaves : bool or None, default False
+    linear_leaves : bool or None, default None
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant value, adding local slope where step leaves underfit. Leaves
         with too few rows fall back to a constant. Not available with MAE or
-        quantile loss. ``None`` = validation-selected: both variants are fit and
-        the one with the lower validation loss is kept (~2x fit time; requires an
-        early-stopping split or ``eval_set``, RMSE loss, and >= 1000 rows —
-        otherwise constant leaves are used).
+        quantile loss. ``None`` (the default) = validation-selected: both
+        variants are fit and the one with the lower validation loss is kept
+        (~2x fit time; requires an early-stopping split or ``eval_set``, RMSE
+        loss, and >= 1000 rows — otherwise constant leaves are used). Set
+        ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
     early_stopping : bool, default True
@@ -808,7 +809,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
-                 linear_leaves=False, linear_lambda=1.0,
+                 linear_leaves=None, linear_lambda=1.0,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators

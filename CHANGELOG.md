@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ## [0.14.1] - 2026-07-07
+### Changed
+- **Regressor `linear_leaves` default `False` → `None` (validation-selected).**
+  Fixed linear leaves were a regression wash with casualties on breadth
+  benchmarks (16W/12L): real wins (pol −6.4%, abalone −3.1%) but real losses
+  (visualizing_soil −4.7%). The new default fits both variants and keeps the
+  one with the lower validation loss on the already-held-out early-stopping
+  split — the same post-fit-decision pattern as temperature scaling and the
+  conformal quantile offset. Gates: Grinsztajn 36-set breadth 20W/9T/7L
+  (−0.58% mean RMSE) vs constant and 12W/19T/5L (−0.32%) vs always-linear,
+  dodging every fixed-linear casualty; independent OpenML+PMLB one-shot
+  8W/7T/1L (−0.81%). Costs ~2× fit time when selection runs (RMSE loss, a
+  validation split, ≥1000 rows); pass `linear_leaves=True/False` to force a
+  variant and skip the double fit. `linear_leaves_selected_` records the
+  choice.
+
 ### Added
 - **`chimeraboost.warmup()`** — pre-compiles (or loads from the on-disk cache)
   every numba kernel on the default fit and predict paths via three tiny
