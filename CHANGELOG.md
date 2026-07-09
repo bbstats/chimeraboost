@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [0.14.1] - 2026-07-08
+## [0.14.1] - 2026-07-09
 ### Changed
 - **Regressor `linear_leaves` default `False` → `None` (validation-selected).**
   Fixed linear leaves were a regression wash with casualties on breadth
