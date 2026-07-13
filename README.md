@@ -13,13 +13,6 @@
 pip install chimeraboost
 ```
 
-* **Cold start**
-
-    The first `fit()` in a fresh environment JIT-compiles the numba kernels — a
-    few seconds, machine-dependent. The compiled kernels are cached on disk
-    (`cache=True`), so every later session in the same environment skips this
-    and starts fast.
-
 * **Sample code:**
 
 ```python
@@ -44,16 +37,15 @@ reg.fit(X, y)
         * Automatic early stopping, with optional grouped splitting for the validation set
     * Supports regression, quantile regression, binary and multiclass classification
     * **Exact SHAP** explanations (`model.shap_values(X)`) — interventional TreeSHAP
-      computed exactly (not sampled) thanks to the oblivious tree structure, with
-      the linear-leaf slopes included
+      computed exactly thanks to the oblivious tree structure
 
 * **Tuning tips**
     * Interaction-heavy regression: raise `depth` to 8–10 (default 6 is conservative to protect small data).
 
 * **Inspirations / Citations**
+    * **CatBoost** — Prokhorenkova et al., *NeurIPS* 2018 — ordered boosting, ordered target statistics, oblivious trees
     * **XGBoost** — Chen & Guestrin, *KDD* 2016 — regularized objective, Newton leaf estimation, column subsampling
     * **LightGBM** — Ke et al., *NeurIPS* 2017 — histogram-based split finding
-    * **CatBoost** — Prokhorenkova et al., *NeurIPS* 2018 — ordered boosting, ordered target statistics, oblivious trees
     * **Linear-leaf trees** — Shi et al., *IJCAI* 2019 (arXiv:1802.05640) — piece-wise-linear regression trees (`linear_leaves`)
     * **TreeSHAP** — Lundberg et al., *Nature Machine Intelligence* 2020 (orig. SHAP, *NeurIPS* 2017) — exact additive feature attributions (`shap_values`)
     * **Hierarchical shrinkage** — Agarwal et al., *ICML* 2022 (arXiv:2202.00858) — leaf regularization (`hs_lambda`)
