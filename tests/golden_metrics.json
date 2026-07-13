@@ -7,45 +7,45 @@
   },
   "records": {
     "breast_cancer": {
-      "fit_ratio": 0.9131124548880297,
+      "fit_ratio": 0.9173583620319554,
       "metric": 0.1738867748769549,
-      "predict_ratio": 0.0200919051044768,
+      "predict_ratio": 0.015114499993417024,
       "task": "binary"
     },
     "cat_binary": {
-      "fit_ratio": 1.7469464272199275,
+      "fit_ratio": 1.7902086013390124,
       "metric": 0.43341502028372275,
-      "predict_ratio": 0.40980524817301894,
+      "predict_ratio": 0.4144903955986621,
       "task": "binary"
     },
     "cat_multiclass": {
-      "fit_ratio": 4.586964628447133,
+      "fit_ratio": 4.768702493011719,
       "metric": 0.6126281591744414,
-      "predict_ratio": 0.16347301510567552,
+      "predict_ratio": 0.1993516114098257,
       "task": "multiclass"
     },
     "diabetes": {
-      "fit_ratio": 5.3282117188538285,
+      "fit_ratio": 5.500879087951923,
       "metric": 64.35204700777045,
-      "predict_ratio": 0.19462790165637142,
+      "predict_ratio": 0.18927608744333532,
       "task": "regression"
     },
     "friedman1": {
-      "fit_ratio": 1.4825091006588338,
+      "fit_ratio": 1.5282522642392609,
       "metric": 1.3241497395174997,
-      "predict_ratio": 0.01126937119410373,
+      "predict_ratio": 0.010226086232525097,
       "task": "regression"
     },
     "synthetic_reg": {
-      "fit_ratio": 5.747421370567268,
+      "fit_ratio": 5.7640884905813214,
       "metric": 47.56559768714994,
-      "predict_ratio": 0.04851150764472986,
+      "predict_ratio": 0.042135554846425574,
       "task": "regression"
     },
     "wine": {
-      "fit_ratio": 0.15774881115967038,
+      "fit_ratio": 0.15966633454570822,
       "metric": 0.05672792188123265,
-      "predict_ratio": 0.009588414243843572,
+      "predict_ratio": 0.009109011971061906,
       "task": "multiclass"
     }
   },

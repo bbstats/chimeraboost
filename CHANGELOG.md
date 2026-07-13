@@ -4,6 +4,24 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **Predict is 1.35–1.6× faster end-to-end** (2M×30 batch, 200 trees;
+  default binary 1.35×, constant-leaf regressor/classifier 1.63×), from two
+  bit-identical changes — predictions are unchanged to the last bit,
+  verified by exact-equality kernel tests and the golden suite:
+  - The fused forest kernels now consume the binner's row-major output
+    directly (`_predict_forest_rm`/`_predict_forest_linear_rm`): each
+    sample's bins sit in one or two cache lines for the whole forest walk,
+    and the per-predict feature-major transpose copy is gone. Fit-side
+    kernels keep the feature-major layout (histograms want it).
+  - `FeaturePreprocessor` no longer gathers the numeric block with a
+    whole-matrix fancy-index copy when every column is numeric (the
+    no-categoricals case) — that copy was ~18% of end-to-end predict on
+    large batches.
+  Measured against the field (fit 200k / predict 2M / 200 trees, 12
+  threads): default binary predict 1.26 Mrows/s — 1.30× LightGBM, 3.0×
+  sklearn-HGB; constant-leaf paths ~2.6 Mrows/s, on par with XGBoost.
+  CatBoost's SIMD-fused C++ inference remains ~10× faster.
 
 ## [0.14.1] - 2026-07-09
 ### Changed

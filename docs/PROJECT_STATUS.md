@@ -27,8 +27,11 @@ Core design choices (all deliberate, all validated):
 - **Leave-one-out (LOO) leaf correction** as our tractable stand-in for CatBoost's
   ordered boosting (true ordered boosting needs O(log n) model snapshots; not doable as
   post-processing — see §5).
-- **Feature-major binned matrix** + **fused Numba forest predictor** (parallel over
-  *samples*, not trees) for speed.
+- **Feature-major binned matrix** for fit (histogram kernels stream contiguous
+  feature rows) + **fused Numba forest predictor** (parallel over *samples*,
+  not trees). Predict consumes the binner's row-major output directly — each
+  sample's bins stay in one or two cache lines for the whole walk, no
+  transpose copy.
 - **Temperature scaling** on `predict_proba` for calibration.
 
 ### Current shipped defaults (HEAD, main)
