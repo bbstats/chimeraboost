@@ -322,10 +322,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-if-catboost-was-slightly-worse-12-faster-and-all-in-python" class="md-nav__link">
+  <a href="#what-if-catboost-was-slightly-worse-4-faster-and-all-in-python" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What if CatBoost was slightly worse, 12× faster, and all in Python?
+        What if CatBoost was slightly worse, 4× faster, and all in Python?
       
     </span>
   </a>
@@ -680,10 +680,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-if-catboost-was-slightly-worse-12-faster-and-all-in-python" class="md-nav__link">
+  <a href="#what-if-catboost-was-slightly-worse-4-faster-and-all-in-python" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What if CatBoost was slightly worse, 12× faster, and all in Python?
+        What if CatBoost was slightly worse, 4× faster, and all in Python?
       
     </span>
   </a>
@@ -713,7 +713,7 @@
 <!-- The documentation homepage is the README verbatim, via a pymdownx.snippets
      include, so the two can never drift. Edit README.md to change this page. -->
 <h1 id="chimeraboost">chimeraboost<a class="headerlink" href="#chimeraboost" title="Permanent link">&para;</a></h1>
-<h3 id="what-if-catboost-was-slightly-worse-12-faster-and-all-in-python">What if CatBoost was slightly worse, 12× faster, and all in Python?<a class="headerlink" href="#what-if-catboost-was-slightly-worse-12-faster-and-all-in-python" title="Permanent link">&para;</a></h3>
+<h3 id="what-if-catboost-was-slightly-worse-4-faster-and-all-in-python">What if CatBoost was slightly worse, 4× faster, and all in Python?<a class="headerlink" href="#what-if-catboost-was-slightly-worse-4-faster-and-all-in-python" title="Permanent link">&para;</a></h3>
 <p>📖 <strong>Documentation:</strong> <a href="https://bbstats.github.io/chimeraboost/">bbstats.github.io/chimeraboost</a></p>
 <center>
 <img width="500" height="500" alt="chimeraboost logo" src="https://github.com/user-attachments/assets/ee98a4e2-9fa7-4ef1-9e64-e398f398966c" />
@@ -725,16 +725,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost
 </code></pre></div>
 <ul>
-<li>
-<p><strong>Cold start</strong></p>
-<p>The first <code>fit()</code> in a fresh environment JIT-compiles the numba kernels — a
-few seconds, machine-dependent. The compiled kernels are cached on disk
-(<code>cache=True</code>), so every later session in the same environment skips this
-and starts fast.</p>
-</li>
-<li>
-<p><strong>Sample code:</strong></p>
-</li>
+<li><strong>Sample code:</strong></li>
 </ul>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
@@ -761,8 +752,7 @@ and starts fast.</p>
 </li>
 <li>Supports regression, quantile regression, binary and multiclass classification</li>
 <li><strong>Exact SHAP</strong> explanations (<code>model.shap_values(X)</code>) — interventional TreeSHAP
-  computed exactly (not sampled) thanks to the oblivious tree structure, with
-  the linear-leaf slopes included</li>
+  computed exactly thanks to the oblivious tree structure</li>
 </ul>
 </li>
 <li>
@@ -774,9 +764,9 @@ and starts fast.</p>
 <li>
 <p><strong>Inspirations / Citations</strong></p>
 <ul>
+<li><strong>CatBoost</strong> — Prokhorenkova et al., <em>NeurIPS</em> 2018 — ordered boosting, ordered target statistics, oblivious trees</li>
 <li><strong>XGBoost</strong> — Chen &amp; Guestrin, <em>KDD</em> 2016 — regularized objective, Newton leaf estimation, column subsampling</li>
 <li><strong>LightGBM</strong> — Ke et al., <em>NeurIPS</em> 2017 — histogram-based split finding</li>
-<li><strong>CatBoost</strong> — Prokhorenkova et al., <em>NeurIPS</em> 2018 — ordered boosting, ordered target statistics, oblivious trees</li>
 <li><strong>Linear-leaf trees</strong> — Shi et al., <em>IJCAI</em> 2019 (arXiv:1802.05640) — piece-wise-linear regression trees (<code>linear_leaves</code>)</li>
 <li><strong>TreeSHAP</strong> — Lundberg et al., <em>Nature Machine Intelligence</em> 2020 (orig. SHAP, <em>NeurIPS</em> 2017) — exact additive feature attributions (<code>shap_values</code>)</li>
 <li><strong>Hierarchical shrinkage</strong> — Agarwal et al., <em>ICML</em> 2022 (arXiv:2202.00858) — leaf regularization (<code>hs_lambda</code>)</li>
