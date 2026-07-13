@@ -420,6 +420,36 @@ def _predict_forest(Xb, feats, thrs, depths, vals, voff, init):
     return out
 
 
+@njit(cache=True, parallel=True)
+def _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init):
+    """`_predict_forest` for a row-major (n_samples, n_features) binned matrix.
+
+    Predict-time binning produces row-major output; consuming it directly
+    keeps each sample's feature bins in one or two cache lines for the whole
+    forest walk and skips the feature-major transpose copy entirely. Same
+    arithmetic and per-sample accumulation order as `_predict_forest`, so the
+    two are bit-identical."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        acc = init
+        for t in range(n_trees):
+            # A depth-0 tree found no legal split; like ObliviousTree.predict it
+            # contributes nothing (its lone leaf value is never applied).
+            if depths[t] == 0:
+                continue
+            leaf = 0
+            for d in range(depths[t]):
+                if Xb[i, feats[t, d]] > thrs[t, d]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            acc += vals[voff[t] + leaf]
+        out[i] = acc
+    return out
+
+
 def pack_forest(trees, max_depth):
     """Flatten a list of ObliviousTrees into the arrays `_predict_forest` wants.
 
@@ -512,6 +542,41 @@ def _predict_forest_linear(Xb, feats, thrs, depths, lin_k, featoff,
             for j in range(k):
                 f = lin_feat_idx[fb + j]
                 v = centers_std[f, Xb[f, i]]
+                if np.isfinite(v):
+                    val += coef[row + 1 + j] * v
+            acc += val
+        out[i] = acc
+    return out
+
+
+@njit(cache=True, parallel=True)
+def _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k, featoff,
+                              lin_feat_idx, coefoff, coef, centers_std, init):
+    """`_predict_forest_linear` for a row-major (n_samples, n_features) binned
+    matrix — see `_predict_forest_rm` for why. Bit-identical to the
+    feature-major kernel (same arithmetic, same accumulation order)."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        acc = init
+        for t in range(n_trees):
+            d = depths[t]
+            if d == 0:
+                continue
+            leaf = 0
+            for dd in range(d):
+                if Xb[i, feats[t, dd]] > thrs[t, dd]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            k = lin_k[t]
+            row = coefoff[t] + leaf * (1 + k)
+            val = coef[row]                      # intercept
+            fb = featoff[t]
+            for j in range(k):
+                f = lin_feat_idx[fb + j]
+                v = centers_std[f, Xb[i, f]]
                 if np.isfinite(v):
                     val += coef[row + 1 + j] * v
             acc += val

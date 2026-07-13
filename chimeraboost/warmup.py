@@ -28,7 +28,7 @@ def warmup(verbose=False, background=False):
     Covers binary classification with linear leaves, a categorical feature
     and a validation set; multiclass; and regression with ordered boosting —
     together these touch every fit- and predict-path numba kernel except the
-    SHAP kernel (compiled on the first ``shap_values`` call).
+    SHAP kernels (compiled on the first ``shap_values`` call).
 
     Instead of calling this yourself, you can set the environment variable
     ``CHIMERABOOST_WARMUP=1`` to run it automatically when ``chimeraboost``

@@ -12,7 +12,8 @@ from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor, as_model_array
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    _linear_predict,
-                   _predict_forest, pack_forest, _predict_forest_linear,
+                   _predict_forest_rm, pack_forest, _predict_forest_linear,
+                   _predict_forest_linear_rm,
                    pack_forest_linear, _shap_forest_linear)
 
 
@@ -459,22 +460,26 @@ class GradientBoosting(_BaseBooster):
         """Return raw additive scores (pre-link): the regression prediction, or
         the log-odds for binary classification."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
-        Xb = np.ascontiguousarray(self.prep_.transform(X).T)
+        # The fused predict kernels consume the binner's row-major output
+        # directly (no feature-major transpose; each sample's bins stay in
+        # one or two cache lines for the whole forest walk).
+        Xb = self.prep_.transform(X)
         if not self.trees_:
-            return np.full(Xb.shape[1], self.init_, dtype=np.float64)
+            return np.full(Xb.shape[0], self.init_, dtype=np.float64)
         if getattr(self, "_centers_std_", None) is not None:
             # Linear-leaf path: a dedicated fused kernel walks the whole forest
             # in one parallel pass (constant trees ride along as k=0).
             if self._forest_ is None:
                 self._forest_ = pack_forest_linear(self.trees_, self.depth)
             feats, thrs, depths, lin_k, foff, lidx, coff, coef = self._forest_
-            return _predict_forest_linear(Xb, feats, thrs, depths, lin_k, foff,
-                                          lidx, coff, coef, self._centers_std_,
-                                          self.init_)
+            return _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k,
+                                             foff, lidx, coff, coef,
+                                             self._centers_std_, self.init_)
         if self._forest_ is None:
             self._forest_ = pack_forest(self.trees_, self.depth)
         feats, thrs, depths, vals, voff = self._forest_
-        return _predict_forest(Xb, feats, thrs, depths, vals, voff, self.init_)
+        return _predict_forest_rm(Xb, feats, thrs, depths, vals, voff,
+                                  self.init_)
 
     def staged_predict_raw(self, X):
         """Yield the cumulative raw prediction after each tree (1..n_trees)."""
@@ -639,8 +644,10 @@ class MulticlassBoosting(_BaseBooster):
         """Return the (n_samples, n_classes) matrix of raw per-class scores
         (pre-softmax)."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
-        Xb = np.ascontiguousarray(self.prep_.transform(X).T)
-        F = np.tile(self.init_, (Xb.shape[1], 1))
+        # Row-major binned matrix straight from the binner (see the scalar
+        # predict_raw); the K per-class walks reuse the same hot rows.
+        Xb = self.prep_.transform(X)
+        F = np.tile(self.init_, (Xb.shape[0], 1))
         if not self.trees_:
             return F
         if self._forests_ is None:
@@ -651,6 +658,6 @@ class MulticlassBoosting(_BaseBooster):
                 for k in range(self.n_classes_)]
         for k in range(self.n_classes_):
             feats, thrs, depths, vals, voff = self._forests_[k]
-            F[:, k] = _predict_forest(Xb, feats, thrs, depths, vals, voff,
-                                      self.init_[k])
+            F[:, k] = _predict_forest_rm(Xb, feats, thrs, depths, vals, voff,
+                                         self.init_[k])
         return F
