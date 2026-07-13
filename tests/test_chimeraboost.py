@@ -1377,3 +1377,48 @@ def test_validation_history_regressor_and_multiclass():
         n_estimators=25, early_stopping=False, random_state=0)
     c.fit(Xtr, ytr, eval_set=(Xte, yte))
     assert len(c.validation_history_) == 25
+
+
+def test_rowmajor_predict_kernels_match_feature_major_exactly():
+    """The row-major fused predict kernels must be bit-identical to the
+    feature-major originals on the same packed forest: same walks, same
+    accumulation order, only the matrix layout differs. Covers depth-0 trees,
+    constant (k=0) and linear (k>0) leaf blocks, NaN center entries, and
+    n in {0, 1, many}."""
+    from chimeraboost.tree import (_predict_forest, _predict_forest_rm,
+                                   _predict_forest_linear,
+                                   _predict_forest_linear_rm)
+    rng = np.random.default_rng(42)
+    n_feat, max_depth, init = 7, 4, 0.37
+    depths = np.array([3, 0, 4, 1], dtype=np.int64)
+    feats = rng.integers(0, n_feat, size=(4, max_depth)).astype(np.int64)
+    thrs = rng.integers(0, 128, size=(4, max_depth)).astype(np.int64)
+
+    # Constant-kernel packing: ragged leaf-value table.
+    n_leaves = [1 << d if d > 0 else 1 for d in depths]
+    voff = np.concatenate([[0], np.cumsum(n_leaves)]).astype(np.int64)
+    vals = rng.normal(size=voff[-1])
+
+    # Linear-kernel packing: k=0 constant trees ride along; one k=2, one k=1.
+    lin_k = np.array([0, 0, 2, 1], dtype=np.int64)
+    featoff = np.concatenate([[0], np.cumsum(lin_k)]).astype(np.int64)
+    lin_feat_idx = rng.integers(0, n_feat, size=featoff[-1]).astype(np.int64)
+    coef_sizes = [nl * (1 + k) for nl, k in zip(n_leaves, lin_k)]
+    coefoff = np.concatenate([[0], np.cumsum(coef_sizes)]).astype(np.int64)
+    coef = rng.normal(size=coefoff[-1])
+    centers_std = rng.normal(size=(n_feat, 130))
+    centers_std[rng.random(centers_std.shape) < 0.1] = np.nan  # missing bins
+
+    for n in (0, 1, 257):
+        Xb = rng.integers(0, 130, size=(n, n_feat)).astype(np.uint16)
+        Xb_fm = np.ascontiguousarray(Xb.T)
+        assert np.array_equal(
+            _predict_forest(Xb_fm, feats, thrs, depths, vals, voff, init),
+            _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init))
+        assert np.array_equal(
+            _predict_forest_linear(Xb_fm, feats, thrs, depths, lin_k, featoff,
+                                   lin_feat_idx, coefoff, coef, centers_std,
+                                   init),
+            _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k, featoff,
+                                      lin_feat_idx, coefoff, coef, centers_std,
+                                      init))

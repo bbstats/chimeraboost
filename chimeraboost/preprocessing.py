@@ -71,6 +71,17 @@ class FeaturePreprocessor:
         self.cat_combinations = bool(cat_combinations)
 
     # ---- helpers -------------------------------------------------------------
+    def _numeric_block(self, X):
+        """The numeric columns as float64. When every column is numeric (the
+        no-categoricals case) `num_features_` is exactly range(n_features), so
+        plain asarray suffices — the fancy-index gather `X[:, list]` would copy
+        the whole matrix (a large predict-time tax on wide batches)."""
+        if not self.num_features_:
+            return np.empty((X.shape[0], 0))
+        if len(self.num_features_) == X.shape[1]:
+            return np.asarray(X, dtype=np.float64)
+        return np.asarray(X[:, self.num_features_], dtype=np.float64)
+
     @staticmethod
     def _combo_values(X, f_a, f_b):
         """The synthetic "val_a_x_val_b" string column for a feature pair."""
@@ -87,8 +98,7 @@ class FeaturePreprocessor:
         self.cat_features_ = sorted(cat_set)
         self.num_features_ = [f for f in range(n_features) if f not in cat_set]
 
-        num = (np.asarray(X[:, self.num_features_], dtype=np.float64)
-               if self.num_features_ else np.empty((X.shape[0], 0)))
+        num = self._numeric_block(X)
 
         if self.cat_features_:
             codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
@@ -177,8 +187,7 @@ class FeaturePreprocessor:
 
     def transform(self, X):
         """Apply the fitted binning + categorical encoding to new data."""
-        num = (np.asarray(X[:, self.num_features_], dtype=np.float64)
-               if self.num_features_ else np.empty((X.shape[0], 0)))
+        num = self._numeric_block(X)
         encoded_blocks = []
         if self.cat_features_:
             codes = self._codes_for_transform(X)
