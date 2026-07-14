@@ -641,6 +641,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cross-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ordered-boosting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -864,6 +875,17 @@
     <span class="md-ellipsis">
       
         Leaf models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross features
       
     </span>
   </a>
@@ -1112,6 +1134,23 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <td><code>linear_lambda</code></td>
 <td><code>1.0</code></td>
 <td>Ridge penalty on per-leaf slopes; larger is closer to a constant.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cross-features">Cross features<a class="headerlink" href="#cross-features" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cross_features</code></td>
+<td><code>False</code></td>
+<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. RMSE regression and binary classification with ≥ 2000 rows; skipped otherwise, raises for multiclass.</td>
 </tr>
 </tbody>
 </table>
