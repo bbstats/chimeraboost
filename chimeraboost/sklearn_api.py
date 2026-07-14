@@ -39,7 +39,8 @@ def _fit_temperature(raw, y, multiclass):
 
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
-                           "n_ensembles", "ensemble_n_jobs", "cat_features"})
+                           "n_ensembles", "ensemble_n_jobs", "cat_features",
+                           "cross_features"})
 
 
 def _validate_hyperparams(estimator):
@@ -690,6 +691,47 @@ def _auto_cat_combinations(cat_features, n_features, n_samples):
     return True
 
 
+# Numeric cross features: pair the CROSS_TOP_M most important numeric columns
+# of the base fit; each pair contributes a difference and a product column.
+# Selection (base vs augmented, on the ES validation split) needs enough rows
+# for the val signal to be trustworthy -- below CROSS_MIN_SAMPLES the val set
+# is too small to referee and small data overfits extra columns first.
+CROSS_TOP_M = 6
+CROSS_MIN_SAMPLES = 2000
+
+
+def _cross_candidate_pairs(importances, cat_features, n_features):
+    """Candidate (i, j, op) cross features from base-fit importances.
+
+    Oblivious trees approximate numeric interactions with a depth-limited
+    staircase (one shared split per level); a difference column makes the
+    ``x_i < x_j`` boundary one split and a product column captures
+    multiplicative structure. Pairs are the C(m, 2) combinations of the top-m
+    numeric features by split-gain importance -- interactions among features
+    the trees already use are the plausible ones, and irrelevant crosses cost
+    only fit time (split search ignores them)."""
+    cat = set(cat_features or [])
+    num_idx = [i for i in range(n_features) if i not in cat]
+    if len(num_idx) < 2:
+        return []
+    imp = np.asarray(importances, dtype=np.float64)
+    key = np.zeros(n_features)
+    key[:imp.shape[0]] = imp
+    top = sorted(num_idx, key=lambda i: -key[i])[:CROSS_TOP_M]
+    pairs = []
+    for a in range(len(top)):
+        for b in range(a + 1, len(top)):
+            i, j = top[a], top[b]
+            pairs.append((i, j, "diff"))
+            pairs.append((i, j, "prod"))
+    return pairs
+
+
+def _best_val(booster):
+    """Best validation loss a fitted booster reached (inf when no history)."""
+    return min(booster.valid_history_) if booster.valid_history_ else np.inf
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -763,6 +805,14 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
+    cross_features : bool, default False
+        When True (RMSE loss, >= 2000 rows), refit with difference and product
+        columns for the pairs of the top numeric features of the base fit and
+        keep whichever model reaches the lower validation loss
+        (``cross_features_selected_`` records the outcome, ``cross_pairs_`` the
+        columns kept). Oblivious trees can only staircase a numeric interaction
+        such as ``x_i < x_j``; a cross column makes it a single split. Costs up
+        to ~2x fit time when the refit runs.
     early_stopping : bool, default True
         Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
@@ -809,7 +859,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
-                 linear_leaves=None, linear_lambda=1.0,
+                 linear_leaves=None, linear_lambda=1.0, cross_features=False,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -834,6 +884,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.leaf_estimation_iterations = leaf_estimation_iterations
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.cross_features = cross_features
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -964,9 +1015,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
 
-        def _fit_booster(linear):
+        def _fit_booster(linear, cross_pairs=None):
             b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
-                                 linear_leaves=linear, **kw)
+                                 linear_leaves=linear, cross_pairs=cross_pairs,
+                                 **kw)
             b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                   sample_weight=sample_weight, callbacks=callbacks)
             return b
@@ -983,6 +1035,28 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             self.linear_leaves_selected_ = self.model_ is lin
         else:
             self.model_ = _fit_booster(bool(ll))
+
+        # Numeric cross features (opt-in): refit with difference/product
+        # columns for the top numeric feature pairs of the base fit and keep
+        # whichever model reaches the lower validation loss -- the same
+        # selection-on-the-ES-split pattern as linear_leaves above. Evidence
+        # and rationale: oblivious trees staircase numeric interactions
+        # (benchmarks/probe_cross_features.py); selection dodges the variance
+        # cases. RMSE-only for now (the probed loss).
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+        if (self.cross_features and self.loss == "RMSE"
+                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
+            pairs = _cross_candidate_pairs(
+                self.model_.feature_importances_, cat_features, X.shape[1])
+            if pairs:
+                base_linear = (self.linear_leaves_selected_
+                               if select_ll else bool(ll))
+                aug = _fit_booster(base_linear, cross_pairs=pairs)
+                self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
+                if self.cross_features_selected_:
+                    self.model_ = aug
+                    self.cross_pairs_ = pairs
 
         # Conformal quantile correction on the validation split -- the
         # regression analog of the classifier's temperature scaling. Boosting
@@ -1132,6 +1206,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         back to constant leaves.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
+    cross_features : bool, default False
+        When True (binary only, >= 2000 rows), refit with difference and
+        product columns for the pairs of the top numeric features of the base
+        fit and keep whichever model reaches the lower validation loss
+        (``cross_features_selected_`` records the outcome, ``cross_pairs_`` the
+        columns kept). Raises for multiclass. Costs up to ~2x fit time when
+        the refit runs.
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1173,7 +1254,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
-                 linear_leaves=None, linear_lambda=1.0,
+                 linear_leaves=None, linear_lambda=1.0, cross_features=False,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1196,6 +1277,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.leaf_estimation_iterations = leaf_estimation_iterations
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
+        self.cross_features = cross_features
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1326,6 +1408,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+        if self.cross_features and self._multiclass:
+            raise NotImplementedError(
+                "cross_features is not supported for multiclass classification "
+                "yet; use it on regression or binary classification.")
         cal_Xv = cal_y = None   # validation set used to calibrate temperature
         if self._multiclass:
             self.model_ = MulticlassBoosting(**kw)
@@ -1344,6 +1430,25 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
                             sample_weight=sample_weight, callbacks=callbacks)
+
+        # Numeric cross features (opt-in, binary only): refit with
+        # difference/product columns for the top numeric feature pairs of the
+        # base fit and keep the lower-validation-loss model (the regressor's
+        # selection pattern; see _cross_candidate_pairs).
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+        if (self.cross_features and not self._multiclass
+                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
+            pairs = _cross_candidate_pairs(
+                self.model_.feature_importances_, cat_features, X.shape[1])
+            if pairs:
+                aug = GradientBoosting(loss="Logloss", cross_pairs=pairs, **kw)
+                aug.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
+                        sample_weight=sample_weight, callbacks=callbacks)
+                self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
+                if self.cross_features_selected_:
+                    self.model_ = aug
+                    self.cross_pairs_ = pairs
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
