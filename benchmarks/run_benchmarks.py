@@ -543,6 +543,9 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         if task == "regression":
             kw["linear_leaves"] = None
             kw["linear_lambda"] = linear_lambda
+    elif linear_leaves == "off":
+        # force constant leaves everywhere (ablation arm vs the class defaults)
+        kw["linear_leaves"] = False
     elif linear_leaves:
         # multiclass doesn't support linear leaves yet; fall back to constant
         # leaves there so a full-suite run doesn't crash on multiclass tasks.
@@ -551,8 +554,11 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
             kw["linear_leaves"] = True
             kw["linear_lambda"] = linear_lambda
     # cross_features raises on multiclass (unsupported); skip it there so a
-    # full-suite run doesn't crash on multiclass tasks.
-    if cross_features:
+    # full-suite run doesn't crash on multiclass tasks. "off" forces it off
+    # (ablation arm vs the shipped default None = on where applicable).
+    if cross_features == "off":
+        kw["cross_features"] = False
+    elif cross_features:
         if task == "regression" or len(np.unique(ytr)) == 2:
             kw["cross_features"] = True
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
@@ -977,9 +983,17 @@ def main():
                     help="ridge penalty on per-leaf linear slopes (default 1.0).")
     ap.add_argument("--chimera-cross-features", action="store_true",
                     dest="cross_features",
-                    help="validation-selected numeric difference/product cross "
-                         "columns (regression + binary; multiclass skips). "
-                         "Default off.")
+                    help="force cross_features=True (regression + binary; "
+                         "multiclass skips). Default: class default (None = "
+                         "on where applicable).")
+    ap.add_argument("--chimera-no-cross-features", action="store_true",
+                    dest="no_cross_features",
+                    help="force cross_features=False (ablation arm vs the "
+                         "shipped on-where-applicable default).")
+    ap.add_argument("--chimera-no-linear-leaves", action="store_true",
+                    dest="no_linear_leaves",
+                    help="force linear_leaves=False for both classes (ablation "
+                         "arm vs the class defaults).")
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
@@ -1090,9 +1104,11 @@ def main():
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto
-                       else args.linear_leaves,
+                       else ("off" if args.no_linear_leaves
+                             else args.linear_leaves),
                        linear_lambda=args.linear_lambda,
-                       cross_features=args.cross_features)
+                       cross_features="off" if args.no_cross_features
+                       else args.cross_features)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.

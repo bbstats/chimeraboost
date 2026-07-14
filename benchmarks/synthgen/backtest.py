@@ -32,10 +32,15 @@ EPS = 1e-9
 # kinds: "win" (sign test should lean +), "loss" (lean -), "flat" (|mean|~0),
 #        "not_win" (must NOT decisively win)
 ARMS = [
-    (1, "crossfeat", ["--chimera-cross-features"], "win",
-     "cross_features shipped: Grinsztajn 51W/8L +1.5% (signal: crossfeat-scope slice)"),
-    (2, "linleaves", ["--chimera-linear-leaves"], "win",
-     "linear_leaves shipped for smooth regression (signal: reg, func linear/neural)"),
+    # NOTE: the shipped defaults already include cross_features (None = on
+    # where applicable) and linear-leaves selection, so the ledger contrast is
+    # reproduced by forcing them OFF and expecting a LOSS.
+    (1, "crossfeat_off", ["--chimera-no-cross-features"], "loss",
+     "cross_features shipped (Grinsztajn 51W/8L +1.5% when added); removing it "
+     "must hurt (signal: crossfeat-scope slice)"),
+    (2, "linleaves_off", ["--chimera-no-linear-leaves"], "loss",
+     "linear leaves shipped (binary default-on, regression validation-selected); "
+     "forcing constant leaves must hurt"),
     (3, "catcombo", ["--chimera-cat-combinations"], "not_win",
      "cat_combinations auto-on ONLY for all-cat data; forced-on is mixed on real "
      "data; canary slice (saturated&cats) must NOT be positive"),
@@ -43,8 +48,9 @@ ARMS = [
      "patience 300 = flat (cascade selftest anchor)"),
     (5, "orderedboost", ["--chimera-ordered-boosting"], "not_win",
      "ordered boosting tested, never shipped as forced default"),
-    (6, "mcw1", ["--chimera-mcw", "1"], "loss",
-     "disabling size-adaptive min_child_weight hurts small-n classification"),
+    (6, "mcw1", ["--chimera-mcw", "1"], "slice_loss",
+     "size-adaptive min_child_weight veto helps SMALL-N CLASSIFICATION (the "
+     "pre-registered slice; regressor default is already 1.0 so reg = all ties)"),
     (7, "depth8", ["--chimera-depth", "8"], "not_win",
      "depth U-shape, default 6 at the bottom (PMLB/knob characterization)"),
     (8, "depth4", ["--chimera-depth", "4"], "loss",
@@ -83,6 +89,13 @@ def _slice_mean(deltas, metas, pred):
     return (float(np.mean(d)), len(d)) if d else (0.0, 0)
 
 
+def _slice_wl(deltas, metas, pred):
+    d = np.array([v for ds, v in deltas.items() if pred(metas[ds]["synth"])])
+    if not len(d):
+        return 0, 0, 0.0, 0
+    return int((d > EPS).sum()), int((d < -EPS).sum()), float(d.mean()), len(d)
+
+
 def score(arm_names):
     base_path = os.path.join(RESULTS, "synv1-baseline.json")
     base, metas = _per_dataset(base_path)
@@ -101,7 +114,16 @@ def score(arm_names):
         for ds in set(base) & set(new):
             b = base[ds]
             deltas[ds] = (new[ds] - b) / max(abs(b), 1e-12)
-        d = np.array(list(deltas.values()))
+        deltas_judge = deltas
+        if name == "catcombo":
+            # judge the mixed-expected verdict on ordinary datasets; the
+            # cat_cross-saturated sets are designed cat-interaction wins
+            # (car analogs) and are scored as their own "+" slice below.
+            deltas_judge = {
+                ds: v for ds, v in deltas.items()
+                if not (metas[ds]["synth"]["saturated"]
+                        and metas[ds]["synth"].get("rule_kind") == "cat_cross")}
+        d = np.array(list(deltas_judge.values()))
         w, l = int((d > EPS).sum()), int((d < -EPS).sum())
         mean = float(d.mean())
         decisive_win = w > l and mean > 0.001
@@ -112,16 +134,39 @@ def score(arm_names):
             ok = decisive_loss
         elif kind == "flat":
             ok = abs(mean) < 0.001 and abs(w - l) <= max(3, 0.15 * len(d))
+        elif kind == "slice_loss":
+            ok = True  # judged purely on the pre-registered slice below
         else:  # not_win
             ok = not decisive_win
         note = f"W{w}-L{l} mean {mean:+.3%}"
+        if name == "mcw1":
+            sw, sl, smean, sn = _slice_wl(
+                deltas, metas,
+                lambda s: s["task"] != "regression" and s["n"] < 2000)
+            ok = sn > 0 and (sl > sw or smean < 0)
+            note += f" | small-n clf W{sw}-L{sl} {smean:+.3%}"
+            bw, bl, bmean, bn = _slice_wl(
+                deltas, metas,
+                lambda s: s["task"] != "regression" and s["n"] >= 2000)
+            note += f" | large-n {bmean:+.3%}"  # registered ~neutral; watch it
         if name == "catcombo":
+            # canary = saturated datasets whose deterministic rule the baseline
+            # provably learns to the ceiling (axis_cells; the rule columns are
+            # numeric) AND that carry categorical columns for combos to chew on.
+            # cat_cross-rule saturated sets are genuinely-hard cat interactions
+            # (car-like) and belong to the "+" slice instead, not the canary.
             cm, cn = _slice_mean(deltas, metas,
-                                 lambda s: s["saturated"] and s["n_cat"] > 0)
+                                 lambda s: s["saturated"] and s["n_cat"] > 0
+                                 and s.get("rule_kind") == "axis_cells")
             canary_ok = cn == 0 or cm <= EPS
             note += f" | canary {cm:+.3%}@{cn} {'OK' if canary_ok else 'FAIL'}"
             ok = ok and canary_ok
-        if name == "crossfeat":
+            pm, pn = _slice_mean(deltas, metas,
+                                 lambda s: s["saturated"]
+                                 and s.get("rule_kind") == "cat_cross")
+            note += f" | car-analog {pm:+.3%}@{pn}"
+            ok = ok and (pn == 0 or pm > 0)
+        if name == "crossfeat_off":
             sm, sn = _slice_mean(
                 deltas, metas,
                 lambda s: (s["task"] in ("regression", "binary")
