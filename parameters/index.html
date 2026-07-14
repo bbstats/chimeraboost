@@ -1149,8 +1149,8 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tbody>
 <tr>
 <td><code>cross_features</code></td>
-<td><code>False</code></td>
-<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. RMSE regression and binary classification with ≥ 2000 rows; skipped otherwise, raises for multiclass.</td>
+<td><code>None</code> → auto</td>
+<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. Auto applies to RMSE regression and binary classification with ≥ 2000 rows and ≥ 2 numeric features, and skips everything else (multiclass included). <code>False</code> turns it off; explicit <code>True</code> raises for multiclass.</td>
 </tr>
 </tbody>
 </table>
