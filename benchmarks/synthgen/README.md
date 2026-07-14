@@ -62,12 +62,24 @@ rows (~45–60 min). smoke ⊂ screen ⊂ full, so pairing stays valid across ti
 ## Validation (adoption gate)
 
 `backtest.py` re-runs the screen with one known-outcome lever flipped per arm
-(cross_features, linear_leaves, cat_combinations, patience, ordered boosting,
-min_child_weight, depth×2, lr) and scores sign agreement against the project
-ledger. Gate: ≥7/9 agreement AND the cat_combinations canary slice
-(saturated & cats) not positive. Failures re-weight the meta-distribution into
-VERSION+1. Suite verdicts never ship anything alone — Grinsztajn remains the
-decision suite, OpenML the independent gate.
+(cross_features/linear-leaves ablations, cat_combinations, patience, ordered
+boosting, min_child_weight, depth×2, lr) and scores sign agreement against the
+project ledger. Gate: ≥7/9 agreement AND the canary slice not positive.
+Failures re-weight the meta-distribution into VERSION+1. Suite verdicts never
+ship anything alone — Grinsztajn remains the decision suite, OpenML the gate.
+
+**v1 verdict (2026-07-14): PASS, 8/9 arms.** Highlights: `crossfeat_off`
+−0.94% overall, **−3.30% on the pre-registered interaction-depth≥2 numeric
+slice (n=50)**; `catcombo` mixed on ordinary data (W18-L17) with +27.4% on the
+six car-analog cat-interaction sets; `patience300` flat; `lr03` −0.99%.
+Sole disagree: `depth4` (+0.31% — wins concentrate on saturated cell-rules and
+small/categorical lookups where 4 levels suffice; reality-shaped slices agree
+with the ledger). Known v1 biases for the v2 freeze: (1) targets run slightly
+shallow — raise interaction-depth/width mix; (2) categorical columns are
+discretized latents, not entity effects — CatBoost's high-card moat is absent;
+(3) the screen has zero cat-bearing verified-at-ceiling canaries — require ≥3,
+and earn canary status by a freeze-time fit check instead of by construction;
+(4) mcw large-n slice leans positive (registered ~neutral) — watch.
 
 ## Files
 

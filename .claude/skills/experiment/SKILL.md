@@ -5,9 +5,18 @@ description: Run the validated A/B experiment protocol for a proposed library ch
 
 The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_features; skipping tiers shipped nothing):
 
-1. **Mechanism probe** (cheap): synthetic or a ≤6-dataset dev panel, or an external-augmentation
-   probe script under `benchmarks/` that needs zero library changes (cf. `probe_cross_features.py`).
-   Kill here if the mechanism story doesn't show up.
+1. **Mechanism probe** (cheap): the SynthGen screen —
+   `python benchmarks/run_benchmarks.py --synth --seeds 3 --save` (182 frozen prior-sampled
+   datasets, ~30 min) vs the newest synth baseline, then
+   `python benchmarks/compare_runs.py BASE.json NEW.json --model ChimeraBoost` and
+   `python benchmarks/synth_report.py BASE.json NEW.json` — the factor table must show the
+   effect concentrated in the slice the mechanism predicts (validated 8/9 vs the ledger,
+   2026-07-14; e.g. removing cross_features = −3.3% exactly on the interaction-depth≥2 numeric
+   slice). Kill here if the mechanism story doesn't show up. Fall back to a ≤6-dataset dev
+   panel or a zero-library-change probe script (cf. `probe_cross_features.py`) only where no
+   recipe factor can express the idea. Known v1 biases (don't over-read): targets run slightly
+   shallow (depth-4 arm disagrees), synthetic cats lack entity effects (CatBoost's high-card
+   moat absent), mcw large-n slice leans positive — see `benchmarks/synthgen/README.md`.
 2. **Full Grinsztajn A/B** (the decision suite):
    - Baseline: reuse the newest clean `benchmarks/results/*.json` if the field/seeds match, else run one.
    - `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save` (flags for the variant:

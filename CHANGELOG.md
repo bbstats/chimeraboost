@@ -19,7 +19,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   kr-vs-kp-style canaries where the baseline sits at the ceiling, so
   complexity-adding flags that "win" there are exposed as variance injection.
   `compare_runs.py` gains `--model`; the summary caption now names the suite
-  it aggregated instead of always saying Grinsztajn.
+  it aggregated instead of always saying Grinsztajn. **Validated 2026-07-14:
+  8/9 ledger arms agree** (removing cross_features: −3.3% exactly on the
+  pre-registered interaction slice; forced cat_combinations: mixed on ordinary
+  data, +27% on the car-analog cat-interaction sets). Known v1 biases queued
+  for v2: targets slightly shallow (depth-4 arm disagrees), no entity-effect
+  categoricals, no cat-bearing verified-at-ceiling canaries in the screen.
 - **`cross_features` (default `None` = on where applicable):
   validation-selected numeric interaction columns.** For RMSE regression and
   binary classification with ≥ 2000 rows and ≥ 2 numeric features, the
