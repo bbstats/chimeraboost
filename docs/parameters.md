@@ -55,6 +55,12 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 | `linear_leaves` | `None` → auto | Fit a ridge linear model per leaf over the numeric split features instead of a constant. Binary classification: on by default. Regression: the default fits both variants and keeps the validation winner (~2× fit; `True`/`False` skips the double fit). Falls back to constant below ~1000 rows. Not available with MAE/Quantile or multiclass. |
 | `linear_lambda` | `1.0` | Ridge penalty on per-leaf slopes; larger is closer to a constant. |
 
+## Cross features
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `cross_features` | `False` | Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (`cross_features_selected_`, `cross_pairs_` record the outcome). Oblivious trees can only staircase a numeric interaction like `x_i < x_j`; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. RMSE regression and binary classification with ≥ 2000 rows; skipped otherwise, raises for multiclass. |
+
 ## Ordered boosting
 
 | Parameter | Default | Effect |

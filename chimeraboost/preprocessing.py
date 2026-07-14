@@ -60,15 +60,25 @@ class FeaturePreprocessor:
         before target encoding. Mirrors CatBoost's feature combination step;
         gives the tree access to interaction effects that individual categoricals
         can't capture. Only active when ≥2 categorical columns are present.
+    cross_pairs : list[(int, int, str)] | None
+        Numeric cross features: each (i, j, op) appends the column
+        ``X[:, i] - X[:, j]`` (op="diff") or ``X[:, i] * X[:, j]`` (op="prod"),
+        binned like any numeric column. Oblivious trees can only approximate a
+        numeric interaction with a depth-limited staircase (the same split is
+        applied to every leaf of a level); a cross column turns e.g. the
+        ``x_i < x_j`` boundary into a single split. Indices refer to ORIGINAL
+        input columns and must be numeric (not in ``cat_features``).
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
-                 cat_n_permutations=4, cat_combinations=False):
+                 cat_n_permutations=4, cat_combinations=False,
+                 cross_pairs=None):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
         self.cat_n_permutations = int(cat_n_permutations)
         self.cat_combinations = bool(cat_combinations)
+        self.cross_pairs = list(cross_pairs) if cross_pairs else []
 
     # ---- helpers -------------------------------------------------------------
     def _numeric_block(self, X):
@@ -131,6 +141,19 @@ class FeaturePreprocessor:
                     [codes, np.column_stack(combo_cols).astype(np.int64)])
         return num, codes
 
+    def _cross_block(self, X):
+        """Compute the numeric cross-feature columns (float64) from raw input.
+        NaN in either parent propagates to the cross (binned to the missing
+        bucket like any numeric NaN)."""
+        if not self.cross_pairs:
+            return np.empty((X.shape[0], 0))
+        cols = []
+        for i, j, op in self.cross_pairs:
+            a = np.asarray(X[:, i], dtype=np.float64)
+            b = np.asarray(X[:, j], dtype=np.float64)
+            cols.append(a - b if op == "diff" else a * b)
+        return np.column_stack(cols)
+
     def _codes_for_transform(self, X):
         """Map categorical columns to the codes learned at fit time; unseen
         categories get -1 (the encoder then falls back to the prior).
@@ -159,6 +182,9 @@ class FeaturePreprocessor:
     def fit_transform(self, X, encode_targets, cat_features):
         """encode_targets: list of 1D arrays used for ordered TS (len T)."""
         num, codes = self._split_columns_fit(X, cat_features)
+        cross = self._cross_block(X)
+        if cross.shape[1]:
+            num = np.hstack([num, cross]) if num.shape[1] else cross
 
         encoded_blocks = []
         self.encoders_ = []
@@ -188,6 +214,9 @@ class FeaturePreprocessor:
     def transform(self, X):
         """Apply the fitted binning + categorical encoding to new data."""
         num = self._numeric_block(X)
+        cross = self._cross_block(X)
+        if cross.shape[1]:
+            num = np.hstack([num, cross]) if num.shape[1] else cross
         encoded_blocks = []
         if self.cat_features_:
             codes = self._codes_for_transform(X)
@@ -209,11 +238,12 @@ class FeaturePreprocessor:
 
     def _build_feature_map(self, n_targets):
         """Map each combined-matrix column back to its original input column.
-        Block order is [numeric | per-target (cat + combo)]. Combo columns map to
-        the lower-indexed feature of their pair, so their split gains fold into
-        the right importance bucket."""
+        Block order is [numeric | cross | per-target (cat + combo)]. Cross and
+        combo columns map to the lower-indexed feature of their pair, so their
+        split gains fold into the right importance bucket."""
         combo_orig = [min(i, j) for i, j in self.combo_pairs_]
         fmap = list(self.num_features_)
+        fmap.extend(min(i, j) for i, j, _op in self.cross_pairs)
         for _ in range(n_targets):
             fmap.extend(self.cat_features_)
             fmap.extend(combo_orig)

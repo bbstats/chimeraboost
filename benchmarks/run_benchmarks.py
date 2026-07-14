@@ -500,7 +500,7 @@ PATIENCE = 50
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  ordered_boosting=None, depth=6, subsample=1.0, mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
-                 linear_leaves=False, linear_lambda=1.0):
+                 linear_leaves=False, linear_lambda=1.0, cross_features=False):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -529,6 +529,11 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         if not is_multiclass:
             kw["linear_leaves"] = True
             kw["linear_lambda"] = linear_lambda
+    # cross_features raises on multiclass (unsupported); skip it there so a
+    # full-suite run doesn't crash on multiclass tasks.
+    if cross_features:
+        if task == "regression" or len(np.unique(ytr)) == 2:
+            kw["cross_features"] = True
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
     # with NO explicit eval_set, so ChimeraBoost performs its own internal
     # early-stopping split (early_stopping=True, validation_fraction default) —
@@ -931,6 +936,11 @@ def main():
     ap.add_argument("--chimera-linear-lambda", type=float, default=1.0,
                     dest="linear_lambda",
                     help="ridge penalty on per-leaf linear slopes (default 1.0).")
+    ap.add_argument("--chimera-cross-features", action="store_true",
+                    dest="cross_features",
+                    help="validation-selected numeric difference/product cross "
+                         "columns (regression + binary; multiclass skips). "
+                         "Default off.")
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
@@ -1025,7 +1035,8 @@ def main():
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto
                        else args.linear_leaves,
-                       linear_lambda=args.linear_lambda)
+                       linear_lambda=args.linear_lambda,
+                       cross_features=args.cross_features)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.
