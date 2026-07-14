@@ -231,5 +231,8 @@ site/
 # Research-cascade dataset/baseline cache (regenerable, large)
 benchmarks/research/cache/
 
+# Local Grinsztajn CSV cache (download-once, regenerable, large)
+benchmarks/data_cache/
+
 # AutoGluon scratch dirs created when running the TabArena scripts locally
 AutogluonModels/
