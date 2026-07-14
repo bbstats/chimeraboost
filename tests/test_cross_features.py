@@ -79,7 +79,8 @@ def test_regressor_selects_crosses_on_interaction_data():
     assert m.cross_pairs_
     # predicts on ORIGINAL-width input, no user-side augmentation.
     assert m.predict(X[:20]).shape == (20,)
-    base = ChimeraBoostRegressor(n_estimators=200, random_state=0).fit(X, y)
+    base = ChimeraBoostRegressor(n_estimators=200, random_state=0,
+                                 cross_features=False).fit(X, y)
     Xte, yte = _interaction_reg(seed=1)
     rmse = lambda mm: np.sqrt(np.mean((yte - mm.predict(Xte)) ** 2))
     assert rmse(m) < rmse(base)
@@ -94,13 +95,33 @@ def test_classifier_selects_crosses_on_interaction_data():
     assert proba.shape == (20, 2)
 
 
-def test_default_off_is_identical():
+def test_default_is_auto_and_matches_explicit_true():
     X, y = _interaction_reg()
+    assert ChimeraBoostRegressor().cross_features is None
     a = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
     b = ChimeraBoostRegressor(n_estimators=100, random_state=0,
-                              cross_features=False).fit(X, y)
+                              cross_features=True).fit(X, y)
+    assert a.cross_features_selected_ in (True, False)
     np.testing.assert_array_equal(a.predict(X[:50]), b.predict(X[:50]))
-    assert b.cross_features_selected_ is None
+
+
+def test_explicit_false_disables():
+    X, y = _interaction_reg()
+    off = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                                cross_features=False).fit(X, y)
+    assert off.cross_features_selected_ is None
+    default = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
+    if default.cross_features_selected_:
+        assert not np.array_equal(off.predict(X[:50]), default.predict(X[:50]))
+
+
+def test_multiclass_default_silently_skips():
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((2500, 4))
+    y = rng.integers(0, 3, 2500)
+    m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
+    assert m.cross_features_selected_ is None
+    assert m.predict_proba(X[:5]).shape == (5, 3)
 
 
 def test_selection_can_reject_crosses():

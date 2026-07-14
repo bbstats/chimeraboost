@@ -59,7 +59,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `cross_features` | `False` | Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (`cross_features_selected_`, `cross_pairs_` record the outcome). Oblivious trees can only staircase a numeric interaction like `x_i < x_j`; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. RMSE regression and binary classification with ≥ 2000 rows; skipped otherwise, raises for multiclass. |
+| `cross_features` | `None` → auto | Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (`cross_features_selected_`, `cross_pairs_` record the outcome). Oblivious trees can only staircase a numeric interaction like `x_i < x_j`; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. Auto applies to RMSE regression and binary classification with ≥ 2000 rows and ≥ 2 numeric features, and skips everything else (multiclass included). `False` turns it off; explicit `True` raises for multiclass. |
 
 ## Ordered boosting
 

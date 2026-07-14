@@ -5,23 +5,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
-- **`cross_features` (opt-in): validation-selected numeric interaction
-  columns.** With `cross_features=True` (RMSE regression and binary
-  classification, ≥ 2000 rows) the estimator refits with difference and
-  product columns for the pairs of the base fit's top-6 numeric features and
-  keeps whichever model reaches the lower validation loss
-  (`cross_features_selected_` / `cross_pairs_` record the outcome; predict
-  and SHAP take the original columns unchanged). Oblivious trees can only
-  approximate a numeric interaction such as `x_i < x_j` with a depth-limited
-  staircase — one shared split per level — so boundaries between features
-  cost many levels and many trees; a cross column makes them a single split.
+- **`cross_features` (default `None` = on where applicable):
+  validation-selected numeric interaction columns.** For RMSE regression and
+  binary classification with ≥ 2000 rows and ≥ 2 numeric features, the
+  estimator refits with difference and product columns for the pairs of the
+  base fit's top-6 numeric features and keeps whichever model reaches the
+  lower validation loss (`cross_features_selected_` / `cross_pairs_` record
+  the outcome; predict and SHAP take the original columns unchanged;
+  multiclass, MAE/Quantile, and small data are skipped — bit-identical to
+  the previous release there; `cross_features=False` restores the old
+  behavior everywhere). Oblivious trees can only approximate a numeric
+  interaction such as `x_i < x_j` with a depth-limited staircase — one
+  shared split per level — so boundaries between features cost many levels
+  and many trees; a cross column makes them a single split.
   Full-suite A/B (Grinsztajn 59, 3 seeds): **51W/8L, mean +1.5%**, with the
   historical regression trouble spots largely resolved (sulfur +13%,
   Brazilian_houses +7–8%, pol +6.4%, nyc-taxi +0.7/+3.3%, covertype F1
   +3.1%); independent OpenML one-shot 8W/4L on the datasets where the refit
-  engages (guards keep everything else bit-identical). Costs ~2.2× fit time
-  in aggregate when enabled (absolute: 160 s → 348 s across the whole
-  59-dataset suite).
+  engages (guards keep everything else bit-identical). With this default the
+  blended-strength Pareto reads 99.4 vs CatBoost's 98.1 with every accuracy
+  column ranked first. Costs ~2.2× fit time in aggregate where it engages
+  (absolute: 160 s → 348 s across the whole 59-dataset suite).
 ### Changed
 - **Small-data fit is 1.2–1.35× faster** (2k×30 rows: regressor 196→146 ms =
   1.34×, classifier 85→71 ms = 1.20×; single tree build 347→220 µs = 1.58×),
