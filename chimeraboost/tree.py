@@ -17,9 +17,22 @@ import numpy as np
 from numba import njit, prange
 
 
+# Below this many samples, per-level work is fixed-cost bound (kernel launches,
+# empty-leaf zero/scan, strided split scans) rather than sample bound;
+# build_oblivious_tree switches to the small-n variants (occupied-leaf lists,
+# serial descend). Both sides of every dispatch are bit-identical, so the
+# threshold only affects speed. 32768 sits comfortably between the measured
+# regimes (1.7x fused win at 2k, parity at 200k).
+_SMALL_N = 32768
+
+
 @njit(cache=True, parallel=True)
 def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
     """Fill per-feature gradient/hessian histograms into a pre-allocated buffer.
+
+    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`; this
+    is kept (with `_best_split`) as the plainly-readable equivalence oracle for
+    tests/test_tree_kernels.py.
 
     `Xb` is feature-major (n_features, n_samples), so `Xb[f]` is a contiguous
     row and the inner sample loop reads bins, grads, and hessians sequentially.
@@ -67,10 +80,120 @@ def _descend_leaves(leaf, Xf, t):
         leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > t else 0)
 
 
+@njit(cache=True)
+def _descend_leaves_serial(leaf, Xf, t):
+    """Serial twin of `_descend_leaves` for small n, where the parallel
+    fork/join costs more than the pass itself (~4.7us vs 0.9us at n=2k).
+    Every write is independent, so serial and parallel are bit-identical;
+    `build_oblivious_tree` dispatches on `_SMALL_N`."""
+    for i in range(leaf.shape[0]):
+        leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > t else 0)
+
+
+@njit(cache=True, parallel=True)
+def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
+                     n_bins_per_feature, l2, min_child_weight):
+    """Fused histogram build + best-split search: one parallel launch per
+    level instead of two, and the split scan runs on the hist slice the same
+    thread just wrote (cache-hot).
+
+    Produces EXACTLY the outputs of `_build_histograms_into` followed by
+    `_best_split` (the retained reference kernels in this module) — verified
+    by an exact-equality test — while cutting the small-n fixed cost three
+    ways:
+
+      * `active` lists the leaf rows that actually contain samples (callers
+        may pass any superset, e.g. arange(n_leaves) when counting isn't
+        worth it). Empty leaves are all-zero histogram rows: skipping them
+        skips zeroing and scanning cells that contribute nothing. Occupancy
+        is feature-independent, so one list serves every feature.
+      * Only bins [0, n_bins_[f]) are zeroed and scanned per feature — the
+        scatter never writes past a feature's actual bin count.
+      * The split scan is transposed (leaf-outer, bin-inner): the prefix and
+        gain passes stream each hist row sequentially instead of striding
+        across leaf rows per threshold. gain[t] still accumulates leaves in
+        ascending order, so every floating-point sum matches the reference
+        `_best_split` bit for bit; the parent term gl*gl/(ht+l2) is computed
+        once per leaf (identical value, one divide instead of nb-1).
+
+    Legality (`min_child_weight`) matches the reference: a threshold dies if
+    ANY contributing leaf would gain a sparse non-empty child; leaves with no
+    hessian mass contribute neither gain nor legality vetoes.
+    """
+    n_features, n_samples = Xb.shape
+    max_bins = hist.shape[2]
+    n_active = active.shape[0]
+    feat_gain = np.full(n_features, -np.inf)
+    feat_thr = np.zeros(n_features, dtype=np.int64)
+
+    for f in prange(n_features):
+        if feat_mask[f] == 0:
+            continue
+        nb = n_bins_per_feature[f]
+        for k in range(n_active):
+            l = active[k]
+            for b in range(nb):
+                hist[f, l, b, 0] = 0.0
+                hist[f, l, b, 1] = 0.0
+        Xf = Xb[f]
+        for i in range(n_samples):
+            l = leaf[i]
+            b = Xf[i]
+            hist[f, l, b, 0] += grad[i]
+            hist[f, l, b, 1] += hess[i]
+
+        gain = np.zeros(max_bins)
+        legal = np.ones(max_bins, dtype=np.uint8)
+        for k in range(n_active):
+            l = active[k]
+            gt = 0.0
+            ht = 0.0
+            for b in range(nb):
+                gt += hist[f, l, b, 0]
+                ht += hist[f, l, b, 1]
+            if ht <= 0.0:
+                continue
+            par = gt * gt / (ht + l2)
+            gl = 0.0
+            hl = 0.0
+            for t in range(nb - 1):
+                gl += hist[f, l, t, 0]
+                hl += hist[f, l, t, 1]
+                hr = ht - hl
+                if (hl > 0.0 and hl < min_child_weight) or \
+                   (hr > 0.0 and hr < min_child_weight):
+                    legal[t] = 0
+                else:
+                    gr = gt - gl
+                    gain[t] += (gl * gl / (hl + l2)
+                                + gr * gr / (hr + l2)
+                                - par)
+
+        best_g = -np.inf
+        best_t = -1
+        for t in range(nb - 1):
+            if legal[t] and gain[t] > best_g:
+                best_g = gain[t]
+                best_t = t
+        feat_gain[f] = best_g
+        feat_thr[f] = best_t
+
+    best_f = 0
+    best_gain = -np.inf
+    for f in range(n_features):
+        if feat_gain[f] > best_gain:
+            best_gain = feat_gain[f]
+            best_f = f
+    return best_f, feat_thr[best_f], best_gain
+
+
 @njit(cache=True, parallel=True)
 def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
                 n_leaves):
     """Find the (feature, threshold) with the highest total gain.
+
+    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`; kept
+    as the equivalence oracle for tests/test_tree_kernels.py.
 
     `hist` is the interleaved (n_features, max_leaves, max_bins, 2) buffer:
     [..., 0] is grad, [..., 1] is hess. `n_leaves` says how many leaf rows are
@@ -772,12 +895,20 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     splits_gain = []
     leaf = np.zeros(n_samples, dtype=np.int64)
 
+    small = n_samples < _SMALL_N
     for d in range(max_depth):
         n_leaves = 1 << d
-        _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist,
-                               feature_mask)
-        f, t, gain = _best_split(hist, n_bins_per_feature, l2, feature_mask,
-                                 min_child_weight, n_leaves)
+        if small and n_leaves > 1:
+            # Occupied-leaf list: lets the fused kernel skip zeroing/scanning
+            # empty leaf rows. Any superset is exact (empty rows are all-zero
+            # once zeroed), so at large n we skip the O(n) count and pass all
+            # rows — there the scatter dominates and the trim is noise.
+            active = np.flatnonzero(np.bincount(leaf, minlength=n_leaves))
+        else:
+            active = np.arange(n_leaves, dtype=np.int64)
+        f, t, gain = _build_and_split(Xb, grad, hess, leaf, active, hist,
+                                      feature_mask, n_bins_per_feature, l2,
+                                      min_child_weight)
         if gain <= min_gain or t < 0:
             break
         splits_feat.append(f)
@@ -786,7 +917,10 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
         # Push each sample one bit deeper from the just-chosen split. Xb[f] is
         # a contiguous row, so this re-bucketing reads sequentially. In-place
         # njit pass (no per-level n-sample temporaries); see _descend_leaves.
-        _descend_leaves(leaf, Xb[f], t)
+        if small:
+            _descend_leaves_serial(leaf, Xb[f], t)
+        else:
+            _descend_leaves(leaf, Xb[f], t)
 
     sf = np.array(splits_feat, dtype=np.int64)
     st = np.array(splits_thr, dtype=np.int64)
