@@ -48,7 +48,7 @@ reg.fit(X, y)
     * **LightGBM** — Ke et al., *NeurIPS* 2017 — histogram-based split finding
     * **Linear-leaf trees** — Shi et al., *IJCAI* 2019 (arXiv:1802.05640) — piece-wise-linear regression trees (`linear_leaves`)
     * **TreeSHAP** — Lundberg et al., *Nature Machine Intelligence* 2020 (orig. SHAP, *NeurIPS* 2017) — exact additive feature attributions (`shap_values`)
-    * **Hierarchical shrinkage** — Agarwal et al., *ICML* 2022 (arXiv:2202.00858) — leaf regularization (`hs_lambda`)
+    * **OpenFE** — Zhang et al., *ICML* 2023 (arXiv:2211.12507) — automated pairwise feature generation (`cross_features`)
     * **TabArena** — Erickson et al., *NeurIPS* 2025 (arXiv:2506.16791) — tabular benchmark used for evaluation
 
 * **Why?**

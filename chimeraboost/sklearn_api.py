@@ -805,14 +805,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
-    cross_features : bool, default False
-        When True (RMSE loss, >= 2000 rows), refit with difference and product
-        columns for the pairs of the top numeric features of the base fit and
-        keep whichever model reaches the lower validation loss
-        (``cross_features_selected_`` records the outcome, ``cross_pairs_`` the
-        columns kept). Oblivious trees can only staircase a numeric interaction
-        such as ``x_i < x_j``; a cross column makes it a single split. Costs up
-        to ~2x fit time when the refit runs.
+    cross_features : bool or None, default None
+        Numeric interaction columns. ``None`` (the default) and ``True`` refit
+        with difference and product columns for the pairs of the top numeric
+        features of the base fit and keep whichever model reaches the lower
+        validation loss (``cross_features_selected_`` records the outcome,
+        ``cross_pairs_`` the columns kept); applies to RMSE loss with >= 2000
+        rows and >= 2 numeric features, and is skipped otherwise. ``False``
+        turns it off. Oblivious trees can only staircase a numeric interaction
+        such as ``x_i < x_j``; a cross column makes it a single split. Costs
+        up to ~2x fit time when the refit runs.
     early_stopping : bool, default True
         Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
@@ -859,7 +861,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
-                 linear_leaves=None, linear_lambda=1.0, cross_features=False,
+                 linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1036,16 +1038,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         else:
             self.model_ = _fit_booster(bool(ll))
 
-        # Numeric cross features (opt-in): refit with difference/product
-        # columns for the top numeric feature pairs of the base fit and keep
-        # whichever model reaches the lower validation loss -- the same
-        # selection-on-the-ES-split pattern as linear_leaves above. Evidence
-        # and rationale: oblivious trees staircase numeric interactions
-        # (benchmarks/probe_cross_features.py); selection dodges the variance
-        # cases. RMSE-only for now (the probed loss).
+        # Numeric cross features (default-on auto): refit with
+        # difference/product columns for the top numeric feature pairs of the
+        # base fit and keep whichever model reaches the lower validation loss
+        # -- the same selection-on-the-ES-split pattern as linear_leaves
+        # above. Evidence and rationale: oblivious trees staircase numeric
+        # interactions (benchmarks/probe_cross_features.py; Grinsztajn A/B
+        # 51W/8L, mean +1.5%); selection dodges the variance cases. RMSE-only
+        # (the probed loss). None (auto) and True behave the same here.
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
-        if (self.cross_features and self.loss == "RMSE"
+        if (self.cross_features is not False and self.loss == "RMSE"
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
@@ -1206,13 +1209,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         back to constant leaves.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
-    cross_features : bool, default False
-        When True (binary only, >= 2000 rows), refit with difference and
-        product columns for the pairs of the top numeric features of the base
-        fit and keep whichever model reaches the lower validation loss
-        (``cross_features_selected_`` records the outcome, ``cross_pairs_`` the
-        columns kept). Raises for multiclass. Costs up to ~2x fit time when
-        the refit runs.
+    cross_features : bool or None, default None
+        Numeric interaction columns. ``None`` (the default) refits binary
+        models with difference and product columns for the pairs of the top
+        numeric features of the base fit and keeps whichever model reaches
+        the lower validation loss (``cross_features_selected_`` records the
+        outcome, ``cross_pairs_`` the columns kept); needs >= 2000 rows and
+        >= 2 numeric features, and silently skips multiclass (unsupported).
+        ``False`` turns it off; explicit ``True`` raises for multiclass.
+        Costs up to ~2x fit time when the refit runs.
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1254,7 +1259,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
-                 linear_leaves=None, linear_lambda=1.0, cross_features=False,
+                 linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1408,7 +1413,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
-        if self.cross_features and self._multiclass:
+        # cross_features: None (auto default) silently skips multiclass, like
+        # linear_leaves; only an explicit True is a user error there.
+        if self.cross_features is True and self._multiclass:
             raise NotImplementedError(
                 "cross_features is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
@@ -1431,13 +1438,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
                             sample_weight=sample_weight, callbacks=callbacks)
 
-        # Numeric cross features (opt-in, binary only): refit with
+        # Numeric cross features (default-on auto, binary only): refit with
         # difference/product columns for the top numeric feature pairs of the
         # base fit and keep the lower-validation-loss model (the regressor's
-        # selection pattern; see _cross_candidate_pairs).
+        # selection pattern; see _cross_candidate_pairs). None (auto) and
+        # True behave the same on binary.
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
-        if (self.cross_features and not self._multiclass
+        if (self.cross_features is not False and not self._multiclass
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
