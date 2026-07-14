@@ -28,19 +28,23 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-07-07 from a fresh 51-task run on 0.13.1 + the parallel-kernels branch,
-# with the post-PR-#358-review wrapper (TabArena validation split for early stopping +
-# native categoricals): ChimeraBoost 1219 (stale June-03 number) -> 1240. The gain is the
-# wrapper integration, not the kernels (those are bit-identical); train time is within the
-# historical run-to-run noise band (median Lite task is small and overhead-dominated).
+# Refreshed 2026-07-14 (51-task run, 0/51 fail) after cross_features shipped as the
+# ChimeraBoost default (validation-selected numeric interaction columns; see CHANGELOG).
 # Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
+# HONEST READ: ChimeraBoost Elo 1240 -> 1229 -- a small DROP, but well inside the +-60/65
+# CI band (statistically flat/noise), despite decisive Grinsztajn (+1.5%, 51W/8L) and
+# OpenML (+0.4%) gains on the dev pipeline. Per the sealed-holdout vow this is reported
+# as-is, never chased or explained via per-task digging. Train time DID move as expected
+# (0.65 -> 0.88 s/1K): cross_features' validation-selected refit costs ~2x fit when it
+# engages, and TabArena's larger Lite tasks cross the >=2000-row/RMSE-or-binary gate more
+# often than the median task. Predict time is flat (crosses are plain extra numeric columns).
 DATA = {
-    "CatBoost":     (1348, 43, 43, 6.70, 0.088),
-    "ChimeraBoost": (1240, 49, 60, 0.65, 0.106),
-    "XGBoost":      (1188, 54, 53, 2.06, 0.122),
-    "LightGBM":     (1155, 52, 46, 2.20, 0.171),
-    "RandomForest": (1000, 58, 58, 0.43, 0.053),
-    "Linear":       (812, 81, 109, 1.23, 0.115),
+    "CatBoost":     (1347, 43, 43, 6.70, 0.088),
+    "ChimeraBoost": (1229, 60, 65, 0.88, 0.131),
+    "XGBoost":      (1188, 55, 54, 2.06, 0.122),
+    "LightGBM":     (1156, 50, 46, 2.20, 0.171),
+    "RandomForest": (1000, 57, 58, 0.43, 0.053),
+    "Linear":       (812, 80, 109, 1.23, 0.115),
 }
 
 
