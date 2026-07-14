@@ -314,10 +314,44 @@ GRINSZTAJN_TASKS = {}   # "gr:<folder>/<name>" -> task, filled at registration
 _GRINSZTAJN_MAX_ROWS = 50000
 
 
+_GRINSZTAJN_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "data_cache", "grinsztajn")
+
+
+def _grinsztajn_local_csv(folder, name):
+    """Download-once local copy of one Grinsztajn CSV. HuggingFace rate-limits
+    anonymous bursts (parallel workers saw HTTP 401s), so each file is fetched
+    at most once ever: raw bytes to a temp file, then an atomic rename that is
+    race-safe across worker processes. Retries with backoff for flaky links."""
+    import time as _time
+    import urllib.request
+    path = os.path.join(_GRINSZTAJN_CACHE_DIR, f"{folder}__{name}.csv")
+    if os.path.exists(path):
+        return path
+    os.makedirs(_GRINSZTAJN_CACHE_DIR, exist_ok=True)
+    url = f"{GRINSZTAJN_HF}/{folder}/{name}.csv"
+    tmp = f"{path}.{os.getpid()}.tmp"
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r, open(tmp, "wb") as f:
+                f.write(r.read())
+            os.replace(tmp, path)
+            return path
+        except Exception:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            if os.path.exists(path):   # another worker won the race
+                return path
+            if attempt == 3:
+                raise
+            _time.sleep(3 * (attempt + 1))
+    return path
+
+
 def _make_grinsztajn_builder(folder, name, task, has_cats):
     def builder(scale, rng):
         import pandas as pd
-        df = pd.read_csv(f"{GRINSZTAJN_HF}/{folder}/{name}.csv")
+        df = pd.read_csv(_grinsztajn_local_csv(folder, name))
         if len(df) > _GRINSZTAJN_MAX_ROWS:
             df = df.sample(_GRINSZTAJN_MAX_ROWS, random_state=0).reset_index(drop=True)
         return _frame_to_dataset(df.iloc[:, :-1], df.iloc[:, -1],
