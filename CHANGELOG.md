@@ -4,6 +4,8 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.14.2] - 2026-07-13
 ### Changed
 - **Predict is 1.35–1.6× faster end-to-end** (2M×30 batch, 200 trees;
   default binary 1.35×, constant-leaf regressor/classifier 1.63×), from two
