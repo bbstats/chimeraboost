@@ -2,33 +2,46 @@
 
 Usage:
     python benchmarks/compare_runs.py BASE.json NEW.json [base_label new_label]
+                                      [--model ChimeraBoost]
 
 Compares the per-dataset mean of the 'primary' metric (always higher-is-better:
 negative RMSE for regression, F1/accuracy for classification). Reports per-dataset
 deltas and a sign test (how many datasets NEW beats BASE).
+
+--model filters records to one model first. Without it, a multi-model JSON
+blends every model's records into the per-dataset mean (fine when both runs
+hold the other models fixed, but the deltas are diluted).
 """
+import argparse
 import json
-import sys
 from collections import defaultdict
 
 import numpy as np
 
 
-def per_dataset_primary(path):
+def per_dataset_primary(path, model=None):
     recs = json.load(open(path))["records"]
     bucket = defaultdict(list)
     for r in recs:
+        if model is not None and r["model"] != model:
+            continue
         bucket[r["dataset"]].append(r["metrics"]["primary"])
     return {ds: float(np.mean(v)) for ds, v in bucket.items()}
 
 
 def main():
-    base_path, new_path = sys.argv[1], sys.argv[2]
-    base_label = sys.argv[3] if len(sys.argv) > 3 else "BASE"
-    new_label = sys.argv[4] if len(sys.argv) > 4 else "NEW"
+    ap = argparse.ArgumentParser()
+    ap.add_argument("base_path")
+    ap.add_argument("new_path")
+    ap.add_argument("base_label", nargs="?", default="BASE")
+    ap.add_argument("new_label", nargs="?", default="NEW")
+    ap.add_argument("--model", default=None,
+                    help="restrict to one model's records (e.g. ChimeraBoost).")
+    args = ap.parse_args()
+    base_label, new_label = args.base_label, args.new_label
 
-    base = per_dataset_primary(base_path)
-    new = per_dataset_primary(new_path)
+    base = per_dataset_primary(args.base_path, args.model)
+    new = per_dataset_primary(args.new_path, args.model)
     shared = sorted(set(base) & set(new))
 
     wins = losses = ties = 0
@@ -50,7 +63,8 @@ def main():
 
     n = len(shared)
     print(f"\n{new_label} vs {base_label}: {wins} wins / {losses} losses / {ties} ties  "
-          f"(of {n} datasets)")
+          f"(of {n} datasets)"
+          + (f"  [model={args.model}]" if args.model else ""))
     print(f"mean relative change in primary: {np.mean(rel_deltas):+.3%}")
     need = n // 2 + 1
     verdict = "PASS" if wins >= need else "FAIL"

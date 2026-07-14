@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **SynthGen decision suite (benchmarks only, no library change):**
+  `benchmarks/synthgen/` generates unlimited SCM-prior synthetic datasets
+  (TabPFN/TabICLv2/Mitra recipe family, numpy-only, deterministic per key)
+  with observable marginals bootstrapped from 1,644 harvested public OpenML
+  dataset profiles (TabArena's 51 members excluded at the source — the sealed
+  holdout stays untouched in every form) and exact Bayes floors in the
+  per-dataset meta. Frozen suites `syn:v1` (smoke 6 / screen 182 / full 242
+  datasets) run via `run_benchmarks.py --synth`; `synth_report.py` attributes
+  A/B deltas to generative factors (interaction depth, cats, noise,
+  saturation…); `synthgen/backtest.py` scores the suite against ledger
+  verdicts before it gates anything. ~10% of ids are saturated
+  kr-vs-kp-style canaries where the baseline sits at the ceiling, so
+  complexity-adding flags that "win" there are exposed as variance injection.
+  `compare_runs.py` gains `--model`; the summary caption now names the suite
+  it aggregated instead of always saying Grinsztajn.
 - **`cross_features` (default `None` = on where applicable):
   validation-selected numeric interaction columns.** For RMSE regression and
   binary classification with ≥ 2000 rows and ≥ 2 numeric features, the
