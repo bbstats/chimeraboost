@@ -16,9 +16,9 @@ def test_warmup_compiles_all_default_path_kernels():
     from chimeraboost.losses import _sigmoid
     from chimeraboost.target_encoding import _ordered_ts
     from chimeraboost.tree import (
-        _best_split,
-        _build_histograms_into,
+        _build_and_split,
         _descend_leaves,
+        _descend_leaves_serial,
         _leaf_values,
         _linear_leaf_fit,
         _linear_predict,
@@ -28,10 +28,11 @@ def test_warmup_compiles_all_default_path_kernels():
         _predict_tree,
     )
 
-    for kernel in (_bin_matrix, _sigmoid, _ordered_ts, _build_histograms_into,
-                   _descend_leaves, _best_split, _leaf_values, _linear_leaf_fit,
-                   _linear_predict, _loo_leaf_step, _predict_tree,
-                   _predict_forest_rm, _predict_forest_linear_rm):
+    for kernel in (_bin_matrix, _sigmoid, _ordered_ts, _build_and_split,
+                   _descend_leaves, _descend_leaves_serial, _leaf_values,
+                   _linear_leaf_fit, _linear_predict, _loo_leaf_step,
+                   _predict_tree, _predict_forest_rm,
+                   _predict_forest_linear_rm):
         assert kernel.signatures, f"{kernel.py_func.__name__} not compiled by warmup()"
 
 

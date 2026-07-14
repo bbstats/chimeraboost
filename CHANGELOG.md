@@ -4,8 +4,22 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
-
-## [0.14.2] - 2026-07-13
+### Changed
+- **Small-data fit is 1.2–1.35× faster** (2k×30 rows: regressor 196→146 ms =
+  1.34×, classifier 85→71 ms = 1.20×; single tree build 347→220 µs = 1.58×),
+  bit-identical — predictions verified exactly equal across 17 fit
+  configurations (reg/clf/multiclass, categoricals, subsample, colsample,
+  min_child_weight, depth 8), golden suite untouched. One fused kernel
+  (`_build_and_split`) replaces the per-level histogram-build + best-split
+  pair: one parallel launch instead of two, empty leaf rows skipped (zeroing
+  and scanning), only each feature's actual `n_bins_` zeroed/scanned, and the
+  split scan transposed (leaf-outer/bin-inner) so it streams each histogram
+  row sequentially with the per-leaf parent term computed once. Sample
+  descent runs serially below 32k rows (the parallel fork/join costs more
+  than the pass). Large-n is unaffected (20k and 200k A/B at parity). The
+  original kernels remain as the exact-equality oracle
+  (`tests/test_tree_kernels.py`). This targets the TabArena-scale regime
+  where per-level fixed cost, not sample count, dominates fit time.
 ### Changed
 - **Predict is 1.35–1.6× faster end-to-end** (2M×30 batch, 200 trees;
   default binary 1.35×, constant-leaf regressor/classifier 1.63×), from two
