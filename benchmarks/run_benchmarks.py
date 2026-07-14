@@ -161,6 +161,8 @@ def _task_of(ds_name):
         return GRINSZTAJN_TASKS[ds_name]
     if ds_name.startswith("pm:"):
         return PMLB_TASKS[ds_name]
+    if ds_name.startswith("syn:"):
+        return SYN_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
 
 
@@ -442,6 +444,25 @@ def _add_pmlb_datasets():
 
 
 # --------------------------------------------------------------------------
+# SynthGen: frozen prior-sampled synthetic suite (decision tier 1). Content is
+# deterministic per key (harness seed only moves the split); recipe factors +
+# Bayes floors ride in the per-dataset meta. See benchmarks/synthgen/.
+# --------------------------------------------------------------------------
+SYN_TASKS = {}    # "syn:<ver>/<id>" -> task, filled at registration
+
+
+def _add_synth_datasets():
+    """Register every frozen synthgen id as syn:<version>/<id>. Idempotent;
+    registration builds closures only (no data generation)."""
+    if any(k.startswith("syn:") for k in DATASETS):
+        return
+    import synthgen
+    for key in synthgen.all_frozen_keys():
+        DATASETS[key] = synthgen.make_builder(key)
+        SYN_TASKS[key] = synthgen.task_of(key)
+
+
+# --------------------------------------------------------------------------
 # Model runners. Each returns (metrics_dict, fit_seconds, best_iter). The
 # metrics dict always includes "primary" (higher=better; -RMSE for regression,
 # F1-macro for classification) which the summary/sign-test logic uses. For
@@ -522,6 +543,9 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         if task == "regression":
             kw["linear_leaves"] = None
             kw["linear_lambda"] = linear_lambda
+    elif linear_leaves == "off":
+        # force constant leaves everywhere (ablation arm vs the class defaults)
+        kw["linear_leaves"] = False
     elif linear_leaves:
         # multiclass doesn't support linear leaves yet; fall back to constant
         # leaves there so a full-suite run doesn't crash on multiclass tasks.
@@ -530,8 +554,11 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
             kw["linear_leaves"] = True
             kw["linear_lambda"] = linear_lambda
     # cross_features raises on multiclass (unsupported); skip it there so a
-    # full-suite run doesn't crash on multiclass tasks.
-    if cross_features:
+    # full-suite run doesn't crash on multiclass tasks. "off" forces it off
+    # (ablation arm vs the shipped default None = on where applicable).
+    if cross_features == "off":
+        kw["cross_features"] = False
+    elif cross_features:
         if task == "regression" or len(np.unique(ytr)) == 2:
             kw["cross_features"] = True
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
@@ -745,7 +772,7 @@ def _run_seed_task(task):
     (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
-     ensemble_n, need_openml, need_grinsztajn, need_pmlb) = task
+     ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
@@ -754,6 +781,8 @@ def _run_seed_task(task):
         _add_grinsztajn_datasets()
     if need_pmlb:
         _add_pmlb_datasets()
+    if need_synth:
+        _add_synth_datasets()
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
@@ -768,6 +797,9 @@ def _run_seed_task(task):
     # RMSE ratio explodes a negligible absolute gap. See summarize.NEAR_SOLVED_NRMSE.
     if ttype == "regression":
         meta["y_std"] = float(np.std(y))
+    if ds_name.startswith("syn:"):
+        import synthgen
+        meta["synth"] = synthgen.recipe_meta(ds_name)  # LRU hit: builder just ran
 
     out = {}
     for name, runner in _make_runners(model_names, chimera_cfg).items():
@@ -888,6 +920,15 @@ def main():
                          "--pmlb-fold to restrict to tune/holdout.")
     ap.add_argument("--pmlb-fold", choices=["tune", "holdout"], default=None,
                     help="with --pmlb, run only this fold (default: both).")
+    ap.add_argument("--synth", action="store_true",
+                    help="run the frozen synthgen prior-sampled suite "
+                         "(decision tier 1; see benchmarks/synthgen/).")
+    ap.add_argument("--synth-suite", choices=["smoke", "screen", "full"],
+                    default="screen",
+                    help="with --synth, which frozen suite (default: screen).")
+    ap.add_argument("--synth-n", type=int, default=None,
+                    help="with --synth, run only the first N suite ids "
+                         "(deterministic prefix, pairing-safe).")
     ap.add_argument("--models", nargs="+", default=None,
                     metavar="MODEL",
                     help=("limit to specific runners, e.g. "
@@ -906,6 +947,10 @@ def main():
     ap.add_argument("--no-ordered-boosting", dest="ordered_boosting",
                     action="store_false", default=True,
                     help="disable ChimeraBoost's LOO leaf correction.")
+    ap.add_argument("--chimera-ordered-boosting", action="store_true",
+                    dest="force_ordered",
+                    help="force ordered_boosting=True for BOTH estimator classes "
+                         "(default: each class default; backtest arm).")
     ap.add_argument("--chimera-subsample", type=float, default=1.0,
                     dest="chimera_subsample",
                     help="ChimeraBoost row subsample fraction; "
@@ -938,9 +983,17 @@ def main():
                     help="ridge penalty on per-leaf linear slopes (default 1.0).")
     ap.add_argument("--chimera-cross-features", action="store_true",
                     dest="cross_features",
-                    help="validation-selected numeric difference/product cross "
-                         "columns (regression + binary; multiclass skips). "
-                         "Default off.")
+                    help="force cross_features=True (regression + binary; "
+                         "multiclass skips). Default: class default (None = "
+                         "on where applicable).")
+    ap.add_argument("--chimera-no-cross-features", action="store_true",
+                    dest="no_cross_features",
+                    help="force cross_features=False (ablation arm vs the "
+                         "shipped on-where-applicable default).")
+    ap.add_argument("--chimera-no-linear-leaves", action="store_true",
+                    dest="no_linear_leaves",
+                    help="force linear_leaves=False for both classes (ablation "
+                         "arm vs the class defaults).")
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
@@ -1010,6 +1063,21 @@ def main():
             for k in [k for k in DATASETS if not k.startswith(keep_fold)]:
                 del DATASETS[k]
 
+    # SynthGen suite: same convention — register, then (unless specific
+    # --datasets were named) run ONLY the chosen frozen suite.
+    need_synth = args.synth or bool(
+        args.datasets and any(d.startswith("syn:") for d in args.datasets))
+    if need_synth:
+        _add_synth_datasets()
+        if args.synth and not args.datasets:
+            import synthgen
+            keep = set(synthgen.frozen_keys(args.synth_suite)[: args.synth_n])
+            if not keep:
+                ap.error(f"--synth suite {args.synth_suite!r} is empty -- "
+                         "freeze it first (benchmarks/synthgen/freeze.py).")
+            for k in [k for k in DATASETS if k not in keep]:
+                del DATASETS[k]
+
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
     available = (list(_ALWAYS)
@@ -1027,16 +1095,20 @@ def main():
         ap.error("ChimeraBoost must be one of the models (it is the baseline).")
 
     # None = use each class's default (Regressor=False, Classifier=True).
-    # --no-ordered-boosting forces False for both.
-    ob_override = None if args.ordered_boosting else False
+    # --no-ordered-boosting forces False for both; --chimera-ordered-boosting
+    # forces True for both (backtest arm).
+    ob_override = True if args.force_ordered else (
+        None if args.ordered_boosting else False)
     chimera_cfg = dict(lr=args.lr, ordered_boosting=ob_override,
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto
-                       else args.linear_leaves,
+                       else ("off" if args.no_linear_leaves
+                             else args.linear_leaves),
                        linear_lambda=args.linear_lambda,
-                       cross_features=args.cross_features)
+                       cross_features="off" if args.no_cross_features
+                       else args.cross_features)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.
@@ -1058,11 +1130,13 @@ def main():
           + ("  ordered_boosting=off" if not args.ordered_boosting else "")
           + (f"  subsample={args.chimera_subsample}" if args.chimera_subsample < 1.0 else "")
           + ("  cat_combinations=on" if args.cat_combinations else "")
+          + (f"  synth={args.synth_suite}" if args.synth else "")
           + "\n")
 
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
-              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb)
+              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
+              need_synth)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 

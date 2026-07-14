@@ -167,8 +167,22 @@ def aggregate(data):
             "seeds": cfg.get("seeds"),
             "max_iters": cfg.get("max_iters", 2000),
             "patience": cfg.get("patience", 50),
-            "threads_per_model": cfg.get("threads_per_model")}
+            "threads_per_model": cfg.get("threads_per_model"),
+            "suite": _suite_label(all_ds)}
     return cols, meta
+
+
+def _suite_label(ds_names):
+    """Human label for the caption, inferred from dataset key prefixes."""
+    tags = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
+            "oml:": "OpenML suite", "syn:": "SynthGen suite"}
+    found = {label for pre, label in tags.items()
+             if any(d.startswith(pre) for d in ds_names)}
+    if not found:
+        return "Built-in panel"
+    if len(found) == 1:
+        return found.pop()
+    return "Mixed suites"
 
 
 def _fmt(v, col):
@@ -203,7 +217,7 @@ def format_table(data, label=None):
         row = f"{m:<22}" + "".join(_fmt(cols[c].get(m), c) for c in COLS)
         lines.append(row)
     seeds = f" | {meta['seeds']} seeds" if meta.get("seeds") else ""
-    cap = (f"Grinsztajn et al. (2022) — {meta['n_total']} datasets "
+    cap = (f"{meta['suite']} — {meta['n_total']} datasets "
            f"({meta['n_reg']} reg, {meta['n_bin']} binary, "
            f"{meta['n_mul']} multiclass){seeds} | "
            f"100% = best | Calib MCB x10^-3 lower=better | Speed vs fastest")
