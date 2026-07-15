@@ -110,16 +110,16 @@ def _bucket_specs(metas):
     return specs
 
 
-def _rel_delta(base, new):
+def _rel_delta(base, new, denom_floor=1e-12):
     out = {}
     for ds in set(base) & set(new):
         b = base[ds]
-        out[ds] = (new[ds] - b) / max(abs(b), 1e-12)
+        out[ds] = (new[ds] - b) / max(abs(b), denom_floor)
     return out
 
 
-def ab_report(metas, base, new):
-    deltas = _rel_delta(base, new)
+def ab_report(metas, base, new, denom_floor=1e-12):
+    deltas = _rel_delta(base, new, denom_floor)
     if not deltas:
         raise SystemExit("no shared syn: datasets between the two runs")
     print(f"{'slice':18s} {'n':>4s} {'W-L-T':>9s} {'mean d':>9s} {'p':>7s}")
@@ -264,7 +264,11 @@ def main():
     tag = args.model if model_new == args.model else f"{args.model}->{model_new}"
     print(f"A/B attribution: {args.base} -> {args.new} "
           f"[model={tag}, metric={args.metric}]\n")
-    ab_report(metas, base, new)
+    # Brier can be ~0 on saturated sets (model at the floor); an unfloored
+    # relative delta there explodes and swamps every mean. 0.01 caps the
+    # per-set delta while leaving ordinary sets (brier >> 0.01) untouched.
+    ab_report(metas, base, new, denom_floor=0.01 if args.metric == "brier"
+              else 1e-12)
 
 
 if __name__ == "__main__":

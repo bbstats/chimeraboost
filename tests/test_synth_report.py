@@ -142,6 +142,27 @@ def test_brier_mode_recovers_planted_slice_and_skips_regression(tmp_path):
     assert by_label["all"][5] > 0
 
 
+def test_brier_denom_floor_tames_zero_base(tmp_path):
+    """A saturated set with base Brier ~0 must not explode the slice means."""
+    metas = _metas()
+    primary = {ds: 0.70 for ds in metas}
+    ds0 = sorted(metas)[0]
+    base_brier = {ds: (0.0 if ds == ds0 else 0.20) for ds in metas}
+    new_brier = {ds: (0.004 if ds == ds0 else 0.20) for ds in metas}
+    pb = _fake_run(str(tmp_path), "b.json", primary, metas,
+                   brier_by_ds=base_brier)
+    pn = _fake_run(str(tmp_path), "n.json", primary, metas,
+                   brier_by_ds=new_brier)
+    m, per_b = synth_report.load_run(pb)
+    _, per_n = synth_report.load_run(pn)
+    base = synth_report.metric_means(per_b, "ChimeraBoost", "brier")
+    new = synth_report.metric_means(per_n, "ChimeraBoost", "brier")
+    rows = synth_report.ab_report(m, base, new, denom_floor=0.01)
+    all_row = {r[0]: r for r in rows}["all"]
+    # unfloored this would be -4e9%; floored it is -0.004/0.01/8 = -5%
+    assert abs(all_row[5]) < 0.10
+
+
 def test_model_new_compares_across_model_names(tmp_path):
     metas = _metas()
     primary = {ds: 0.70 for ds in metas}
