@@ -17,12 +17,25 @@ The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_feat
    recipe factor can express the idea. Known v1 biases (don't over-read): targets run slightly
    shallow (depth-4 arm disagrees), synthetic cats lack entity effects (CatBoost's high-card
    moat absent), mcw large-n slice leans positive — see `benchmarks/synthgen/README.md`.
-2. **Full Grinsztajn A/B** (the decision suite):
-   - Baseline: reuse the newest clean `benchmarks/results/*.json` if the field/seeds match, else run one.
-   - `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save` (flags for the variant:
-     see `--chimera-*` args in run_benchmarks.py).
-   - **Sequential only** — never two benchmarks at once. Progress: `python benchmarks/bench_status.py`.
-   - Compare: `python benchmarks/compare_runs.py BASE.json NEW.json` (per-dataset sign test).
+2. **Decision-suite A/B — Grinsztajn + HC (run BOTH, sign-test SEPARATELY):**
+   - Grinsztajn (the low/no-card, 0-multiclass suite):
+     `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save`.
+   - HC (the real high-cardinality suite: entity cats, high card, multiclass — the
+     regime Grinsztajn is blind to; `benchmarks/HIGHCARD_PLAN.md`):
+     `python benchmarks/run_benchmarks.py --highcard --seeds 3 --save`.
+     Confirmed 2026-07-15 to faithfully express the CatBoost high-card Brier moat
+     the synth entity prior predicted (86–88% CB Brier winrate; `hc_gap.py`).
+   - Baselines: reuse the newest clean `*.json` per suite if field/seeds match, else run one.
+     Variant flags: see `--chimera-*` args in run_benchmarks.py.
+   - **Sequential only** — never two benchmarks at once (HC's CatBoost fits run
+     50–240 s on card 7k–15k). Progress: `python benchmarks/bench_status.py`.
+   - Compare each suite: `python benchmarks/compare_runs.py BASE.json NEW.json`
+     (per-dataset sign test). **Report the two sign tests separately**, then a
+     pooled union verdict. A change that wins on only ONE suite needs a mechanism
+     story for why (e.g. a high-card lever helps HC but is inert on Grinsztajn).
+     Exact ship-rule weighting Grinsztajn vs HC = Nathan's call at first live use
+     (not hardcoded). HC multiclass Brier/F1 columns are report-only — the blended
+     north star (make_pareto) is unchanged.
 3. **Independent one-shot gate**: `--openml` (never re-run until it passes — it's one-shot to stay independent).
    PMLB (`--pmlb --pmlb-fold tune`) is only for HP tuning, with `holdout` as its confirm fold.
 
