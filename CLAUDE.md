@@ -2,6 +2,21 @@
 
 Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 
+## Speak English in chat (Nathan's standing complaint — honor it)
+- Benchmark-speak belongs in files and tables, not in replies. Lead every
+  report with the plain-English takeaway ("depth-4 stopped beating the suite —
+  it now loses slightly on average"), then the numbers as support.
+- Unpack project shorthand on first use in a message. Not "canary slice
+  +0.000%@3 clean" — say "the three canary datasets, where any win would mean
+  the suite rewards overfitting, came out exactly flat: what we want."
+- No stat fragments as sentences ("W61-L57 mean −0.113%"), no arrow chains,
+  no @-counts without saying what's counted. Numbers ride inside sentences
+  with their referents, or live in a table whose meaning the prose states.
+- Self-check before sending: would this sentence survive being read aloud to
+  someone who didn't watch the run? If not, rewrite it.
+- Docs, verdict files, and memory stay terse — this rule is about talking to
+  a human.
+
 ## Hard constraints
 - **Pure Python, no heavy deps.** No torch/onnx/foundation-model anything. Filter every idea through this first.
 - **TabArena (Lite and Full) is a SEALED HOLDOUT.** Report-only. Its results — aggregate or per-task — must never influence a source change. Decisions run on synthetic → dev panel → Grinsztajn, gated by an independent OpenML one-shot. PMLB is the HP-tuning suite only.
@@ -34,3 +49,10 @@ Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 
 ## Skills
 `/bench` progress+table · `/experiment` A/B gate protocol · `/pareto` refresh headline chart · `/tabarena` holdout run recipe · `/release` cut a release
+
+## Output language (final step, non-negotiable)
+You may think, draft, or reason internally in whatever form is most efficient for you — including shorthand, symbols, or non-English fragments. That is fine and expected.
+
+However, the **final response shown to the user must be complete, fluent, natural English** — no shorthand, no untranslated fragments, no mixed-language output.
+
+Before emitting your final answer, do a silent self-check: "Is every word of this response fluent, grammatical English a non-technical reader could parse?" If not, rewrite it in English before sending. This check applies to the very last thing you output, not to intermediate reasoning. Applies regardless of which model is running this session.
