@@ -174,6 +174,8 @@ Grinsztajn — kill on the screen, never tune the library on synth.
   until then, treat in-suite entity-slice gaps as report-only color, not
   targets. Also: synth speed ratios are NOT decision-grade (CatBoost 50-80x
   slow on synth vs 11.8x on Grinsztajn — tiny-set anomaly).
+## Generator v3 watch items (do NOT act now; only at the next re-freeze)
+
 - mcw1 arm disagreed in v2: its pre-registered small-n clf slice shrank to 10
   sets under the 0.35 small-n cap (W5-L5 +0.41%). Either widen the slice
   definition (n<3000?) or seed more small-n clf sets.
