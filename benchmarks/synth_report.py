@@ -22,6 +22,8 @@ from collections import defaultdict
 import numpy as np
 from scipy.stats import binomtest
 
+from synthgen.suites import CANARIES, VERSION
+
 EPS = 1e-9
 
 
@@ -60,11 +62,19 @@ def _bucket_specs(metas):
         ("task=binary", lambda ds: metas[ds]["task"] == "binary"),
         ("task=multiclass", lambda ds: metas[ds]["task"] == "multiclass"),
         ("saturated", lambda ds: synth(ds, "saturated")),
-        ("saturated&cats", lambda ds: synth(ds, "saturated") and synth(ds, "n_cat") > 0),
+        # canary status is freeze-time knowledge (suites.CANARIES), valid only
+        # for keys of the current generator version
+        ("canary&cats", lambda ds: synth(ds, "gen_version") == VERSION
+         and synth(ds, "recipe_id") in CANARIES and synth(ds, "n_cat") > 0),
+        ("car-analog+", lambda ds: synth(ds, "saturated")
+         and synth(ds, "rule_kind") == "cat_cross"
+         and not (synth(ds, "gen_version") == VERSION
+                  and synth(ds, "recipe_id") in CANARIES)),
         ("cats=none", lambda ds: synth(ds, "n_cat") == 0),
         ("cats=mixed", lambda ds: 0 < synth(ds, "cat_fraction") < 1.0),
         ("cats=all", lambda ds: synth(ds, "cat_fraction") >= 1.0),
         ("card>16", lambda ds: synth(ds, "max_cardinality") > 16),
+        ("cats=entity", lambda ds: (synth(ds, "n_cat_entity") or 0) > 0),
         ("depth<=2", lambda ds: synth(ds, "interaction_depth") <= 2),
         ("depth>=3", lambda ds: synth(ds, "interaction_depth") >= 3),
         ("n<2000", lambda ds: synth(ds, "n") < 2000),
@@ -109,7 +119,8 @@ def ab_report(metas, base, new):
     fields = [("interaction_depth", "num"), ("cat_fraction", "num"),
               ("max_cardinality", "num"), ("irrelevant_fraction", "num"),
               ("noise_level", "num"), ("missing_fraction", "num"),
-              ("imbalance", "num"), ("n", "log"), ("saturated", "bool")]
+              ("imbalance", "num"), ("n", "log"), ("saturated", "bool"),
+              ("entity_strength", "num")]
     ds_list = sorted(deltas)
     cols, names = [np.ones(len(ds_list))], ["intercept"]
     for f, kind in fields:

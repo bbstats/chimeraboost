@@ -23,6 +23,12 @@ from synthgen import filters          # noqa: E402
 
 TASK_MIX = {"regression": 0.35, "binary": 0.40, "multiclass": 0.25}
 SAT_SHARE = 0.12
+# workstream A (v2): the screen's n-mix follows the corpus shape within
+# [600, 8000] instead of greedy small-n packing -- v1's small-n skew is where
+# the depth4 disagree lived. Cap the n<2000 share.
+SMALL_N = 2000
+SMALL_SHARE_CAP = 0.35
+MIN_CAT_CANARIES = 3
 
 
 def scan(start, count):
@@ -51,6 +57,14 @@ def scan(start, count):
             ok, detail = filters.learnable(X, y, cat, task)
             why = "" if ok else f"unlearnable {detail}"
             rec["learn"] = detail
+        if ok and meta["saturated"]:
+            # workstream C: canary status is EARNED (baseline verified at the
+            # ceiling), never assumed from the construction
+            t1 = time.time()
+            can, detail = filters.at_ceiling(X, y, cat, task, meta)
+            rec["canary"] = bool(can)
+            rec.update(detail)
+            rec["fit_s"] = round(time.time() - t1, 1)
         rec["accept"] = bool(ok)
         rec["why"] = why
         records.append(rec)
@@ -80,10 +94,24 @@ def report(records):
           f"saturated: {np.mean([r['saturated'] for r in ok]):.2f}", flush=True)
     gen_s = np.array([r["gen_s"] for r in ok]) if ok else np.array([0])
     print(f"  gen time: median {np.median(gen_s):.2f}s max {gen_s.max():.2f}s", flush=True)
+    sat_ok = [r for r in ok if r["saturated"]]
+    n_can = sum(r.get("canary", False) for r in sat_ok)
+    n_can_cat = sum(r.get("canary", False) and r["n_cat"] > 0 for r in sat_ok)
+    print(f"  canaries: {n_can}/{len(sat_ok)} saturated verified at ceiling "
+          f"({n_can_cat} cat-bearing)", flush=True)
 
 
-def _fill(pool_by_task, sat_pool, row_budget, n_cap, already, rng):
-    """Greedy stratified fill honoring task mix, saturated share, row budget."""
+def _pop(pool, need_large):
+    for i in range(len(pool) - 1, -1, -1):
+        if not need_large or pool[i]["n"] >= SMALL_N:
+            return pool.pop(i)
+    return None
+
+
+def _fill(pool_by_task, sat_pool, row_budget, n_cap, already, rng, small_cap=None):
+    """Stratified fill honoring task mix, saturated share, row budget and
+    (screen tier only) the small-n share cap -- a hard cap: fill stops early
+    rather than pack more n<2000 sets once it binds."""
     chosen = list(already)
     rows = sum(r["n"] for r in chosen)
     pools = {t: [r for r in v if r["n"] <= n_cap and r not in chosen]
@@ -96,19 +124,20 @@ def _fill(pool_by_task, sat_pool, row_budget, n_cap, already, rng):
         counts = Counter(r["task"] for r in chosen)
         total = max(1, len(chosen))
         n_sat = sum(r["saturated"] for r in chosen)
-        take = None
+        n_small = sum(r["n"] < SMALL_N for r in chosen)
+        need_large = small_cap is not None and n_small / total >= small_cap
+        sources = []
         if sats and n_sat / total < SAT_SHARE:
-            take = sats.pop()
-        else:
-            deficit = {t: TASK_MIX[t] - counts.get(t, 0) / total for t in TASK_MIX}
-            for t in sorted(deficit, key=deficit.get, reverse=True):
-                if pools[t]:
-                    take = pools[t].pop()
-                    break
+            sources.append(sats)
+        deficit = {t: TASK_MIX[t] - counts.get(t, 0) / total for t in TASK_MIX}
+        sources += [pools[t] for t in sorted(deficit, key=deficit.get, reverse=True)]
+        take = None
+        for src in sources:
+            take = _pop(src, need_large)
+            if take is not None:
+                break
         if take is None:
             break
-        if take in chosen:
-            continue
         chosen.append(take)
         rows += take["n"]
         for t in pools:
@@ -124,7 +153,18 @@ def select(records, budget_screen, budget_full):
                          key=lambda r: r["id"]) for t in TASK_MIX}
     sat_pool = sorted([r for r in ok if r["saturated"]], key=lambda r: r["id"])
 
-    screen, screen_rows = _fill(by_task, sat_pool, budget_screen, 8000, [], rng)
+    # workstream C: the screen is seeded with cat-bearing VERIFIED canaries so
+    # the catcombo canary slice can never be vacuously empty again
+    cat_canaries = [r for r in sat_pool
+                    if r.get("canary") and r["n_cat"] > 0 and r["n"] <= 8000]
+    if len(cat_canaries) < MIN_CAT_CANARIES:
+        print(f"\nFREEZE WARNING: only {len(cat_canaries)} cat-bearing verified "
+              f"canaries in the pool (need >= {MIN_CAT_CANARIES}) -- raise "
+              "--count or iterate workstream C before freezing", flush=True)
+    seed = cat_canaries[:MIN_CAT_CANARIES]
+
+    screen, screen_rows = _fill(by_task, sat_pool, budget_screen, 8000, seed,
+                                rng, small_cap=SMALL_SHARE_CAP)
     full, full_rows = _fill(by_task, sat_pool, budget_full, 32000, screen, rng)
 
     smoke, want = [], {"regression": 2, "binary": 3, "multiclass": 1}
@@ -143,7 +183,10 @@ def select(records, budget_screen, budget_full):
     print(f"\nscreen: {len(screen)} datasets, {screen_rows} rows "
           f"(tasks {dict(Counter(r['task'] for r in screen))}, "
           f"sat {sum(r['saturated'] for r in screen)}, "
-          f"cats {sum(r['n_cat'] > 0 for r in screen)})", flush=True)
+          f"cats {sum(r['n_cat'] > 0 for r in screen)}, "
+          f"n<{SMALL_N} share {np.mean([r['n'] < SMALL_N for r in screen]):.2f}, "
+          f"cat-canaries {sum(r.get('canary', False) and r['n_cat'] > 0 for r in screen)})",
+          flush=True)
     print(f"full:   {len(full)} datasets, {full_rows} rows "
           f"(tasks {dict(Counter(r['task'] for r in full))})", flush=True)
     est = 0.9 * 2.9 * 3 / 1000  # s/row: chimera s-per-1K x all-model factor x seeds
@@ -156,6 +199,9 @@ def select(records, budget_screen, budget_full):
     for name, rs in (("smoke", smoke), ("screen", screen), ("full", full)):
         print(f"    {name!r}: {ids(rs)},", flush=True)
     print("}", flush=True)
+    canary_ids = sorted(r["id"] for r in full if r.get("canary"))
+    canary_lit = ("{" + ", ".join(map(str, canary_ids)) + "}") if canary_ids else "set()"
+    print(f"CANARIES = {canary_lit}", flush=True)
 
     golden_ids = ids(smoke) + [r["id"] for r in screen
                                if r["n_cat"] > 0 and r not in smoke][:2]

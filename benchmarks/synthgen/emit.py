@@ -70,6 +70,43 @@ def _irrelevant_columns(n, count, rng):
     return cols, kinds
 
 
+def _entity_column(n, log_card_mu, max_card, rng):
+    """Latent-entity categorical (v2): the category IS an entity, not a view.
+
+    Level frequencies are Zipf-ish (exponent ~1.2-2), each level carries a
+    target effect e_l ~ N(0, sigma_e); the per-row effect vector is injected
+    into the target readout (phi contributor) by the caller, so the OBSERVED
+    label column is informative only through its per-level effect -- the
+    mechanism ordered target statistics exist for. A few singleton "rare"
+    levels stress unseen-level handling (they land in the harness test split
+    ~25% of the time).
+
+    Returns (codes, realized_card, effect_rows, sigma_e).
+    """
+    # entity columns are the HIGH-card kind (ids, products, regions): center
+    # the level count at >= 8 regardless of the view-cat calibration, since
+    # the realism gap this mechanism fixes lives on the card>8 slice
+    card = int(np.clip(round(rng.lognormal(max(log_card_mu + 0.4, np.log(8.0)),
+                                           0.4)), 3, max_card))
+    zipf_a = rng.uniform(1.2, 2.0)
+    w = np.arange(1, card + 1, dtype=np.float64) ** -zipf_a
+    codes = rng.choice(card, size=n, p=w / w.sum())
+    sigma_e = float(np.exp(rng.uniform(np.log(0.3), np.log(1.0))))
+    effects = rng.normal(0.0, sigma_e, size=card)
+    # compact empty levels away, then append singleton rare levels
+    uniq, codes = np.unique(codes, return_inverse=True)
+    effects = effects[uniq]
+    n_rare = int(rng.integers(2, 7))
+    rare_rows = rng.choice(n, size=min(n_rare, n // 10), replace=False)
+    base = int(codes.max()) + 1
+    codes = codes.copy()
+    for i, row in enumerate(rare_rows):
+        codes[row] = base + i
+    effects = np.concatenate([effects, rng.normal(0.0, sigma_e,
+                                                  size=len(rare_rows))])
+    return codes.astype(np.int64), base + len(rare_rows), effects[codes], sigma_e
+
+
 def _discretize(col, card, mode, rng):
     """Return integer codes in [0, realized_card) for one column."""
     if mode == "quantile_shuffled":
@@ -277,10 +314,19 @@ def emit_dataset(recipe, seed_seq):
     cat_idx = sorted(cat_rng.choice(recipe.d, size=min(recipe.n_cat, recipe.d),
                                     replace=False).tolist()) if recipe.n_cat else []
     cat_codes, cards = {}, []
+    entity_idx, entity_effect, entity_sigmas = [], np.zeros(recipe.n), []
     for j in cat_idx:
-        card = int(np.clip(round(cat_rng.lognormal(recipe.log_card_mu, 0.3)),
-                           2, recipe.max_cardinality))
-        codes, realized = _discretize(cols[:, j], card, recipe.cat_encode_mode, cat_rng)
+        if cat_rng.random() < recipe.entity_cat_fraction:
+            codes, realized, eff, sigma_e = _entity_column(
+                recipe.n, recipe.log_card_mu, recipe.max_cardinality, cat_rng)
+            entity_idx.append(j)
+            entity_effect += eff
+            entity_sigmas.append(sigma_e)
+        else:
+            card = int(np.clip(round(cat_rng.lognormal(recipe.log_card_mu, 0.3)),
+                               2, recipe.max_cardinality))
+            codes, realized = _discretize(cols[:, j], card,
+                                          recipe.cat_encode_mode, cat_rng)
         cat_codes[j] = codes
         cards.append(realized)
 
@@ -290,6 +336,11 @@ def emit_dataset(recipe, seed_seq):
     r = int(target_rng.choice([1, 2, 3], p=[0.4, 0.4, 0.2]))
     phi_nodes = [dag.target] + list(t_parents[: r - 1])
     phi = np.column_stack([_zscore(M[:, j]) for j in phi_nodes])
+    if entity_idx:
+        # entity effects enter the readout BEFORE noise, so stored floors stay
+        # exact generative bounds; sigma_e (not a re-zscore per column) sets
+        # each entity column's share of the signal
+        phi[:, 0] = _zscore(phi[:, 0] + entity_effect)
 
     meta = {
         "gen_version": recipe.version, "recipe_id": recipe.id, "task": recipe.task,
@@ -336,7 +387,11 @@ def emit_dataset(recipe, seed_seq):
                 cat_fraction=round(len(cat_idx) / recipe.d, 4),
                 max_cardinality=int(max(cards)) if cards else 0,
                 card_gmean=round(float(np.exp(np.mean(np.log(cards)))), 2)
-                if cards else 0.0)
+                if cards else 0.0,
+                n_cat_entity=len(entity_idx),
+                entity_strength=round(
+                    float(np.sqrt(np.sum(np.square(entity_sigmas)))), 4)
+                if entity_sigmas else 0.0)
 
     # missingness (MCAR, per-column rates around the calibrated fraction)
     miss_rng = np.random.default_rng(ss_miss)
