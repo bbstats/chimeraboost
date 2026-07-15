@@ -28,21 +28,34 @@ results, or metadata). Sealed holdout stays sealed.
   N(0, σ) (floor = σ); classification = softmax of distances to class
   references, y sampled from the true p (floor = its sum-form Brier, the
   harness convention).
-- ~10% of ids are **saturated canaries** (kr-vs-kp analogs): y is a
-  deterministic cell rule over 2–4 final columns (cat-cross lookup or
-  axis-aligned cells), floor 0, baseline fits near the ceiling — a flag that
-  "wins" there is injecting variance.
+- **Entity categoricals (v2):** ~40% of cat columns are latent entities, not
+  discretized views — Zipf-ish level frequencies (levels centered ≥8, ≤64),
+  per-level effect ~N(0, σₑ), σₑ ~ loguniform(0.3, 1.0), injected into the
+  target readout before noise (floors stay exact); the observed column is the
+  label string only, plus a few singleton rare levels (the unseen-at-train
+  stress ordered target statistics exist for).
+- ~13% of ids are **saturated sets** (kr-vs-kp analogs): y is a deterministic
+  cell rule over 2–4 final columns (cat-cross lookup or axis-aligned cells),
+  floor 0. Canary status is **earned, not assumed** (v2): freeze fits the
+  default baseline on every saturated candidate and only ids verified at the
+  ceiling (excess Brier ≤ 0.02 / RMSE ≤ 1.1σ) enter `suites.CANARIES` — a
+  flag that "wins" there is injecting variance. Unverified cat-cross sets are
+  genuinely-hard cat interactions (car analogs), scored as their own slice.
 - Freeze-time filters (TabICLv2): degeneracy, ExtraTrees-learnability,
-  cat-combination tractability. ~20% of candidates rejected.
+  cat-combination tractability. ~21% of candidates rejected. The screen's
+  n-mix is stratified (n<2000 share capped at 35%) so greedy small-n packing
+  can't skew the suite tiny.
 
 ## Determinism & versioning
 
 Content is a pure function of (VERSION, id) via `SeedSequence([VERSION_SEED,
 id])` with per-stage/per-node child streams; the harness seed only moves the
 train/test split, and builders ignore `--scale`. Keys carry the version
-(`syn:v1/031`) so a generator change can never silently pair against old data
+(`syn:v2/031`) so a generator change can never silently pair against old data
 in `compare_runs.py`. Golden hashes (`tests/golden_synthgen.json`) trip on
-numpy RNG stream drift → bump VERSION, re-freeze, never re-pin.
+numpy RNG stream drift → bump VERSION, re-freeze, never re-pin. Canary ids
+live in `suites.CANARIES` (freeze-time knowledge; meta stays a pure function
+of the key).
 
 ## Usage
 
@@ -55,18 +68,22 @@ python benchmarks/synth_report.py RUN.json              # excess-vs-floor view
 python benchmarks/synth_report.py RUN.json --realism    # cross-model checks
 ```
 
-Suites (frozen 2026-07-14, `suites.py`): smoke 6 sets (~3 min), screen 182
-sets / 401K rows (~15 min wall, all models, jobs 5), full 242 sets / 1.63M
-rows (~45–60 min). smoke ⊂ screen ⊂ full, so pairing stays valid across tiers.
+Suites (v2, frozen 2026-07-14, `suites.py`): smoke 6 sets (~3 min), screen
+136 sets / 401K rows (~30 min wall, all models, jobs 5 — CatBoost is 50–70×
+ChimeraBoost on synthetic targets and dominates the wall clock), full 211
+sets / 1.61M rows (~1–2 h). smoke ⊂ screen ⊂ full, so pairing stays valid
+across tiers.
 
 ## Validation (adoption gate)
 
 `backtest.py` re-runs the screen with one known-outcome lever flipped per arm
 (cross_features/linear-leaves ablations, cat_combinations, patience, ordered
 boosting, min_child_weight, depth×2, lr) and scores sign agreement against the
-project ledger. Gate: ≥7/9 agreement AND the canary slice not positive.
-Failures re-weight the meta-distribution into VERSION+1. Suite verdicts never
-ship anything alone — Grinsztajn remains the decision suite, OpenML the gate.
+project ledger. Capacity/lr arms (depth4/depth8/lr03) are judged excluding
+saturated sets, which reward low capacity by design. Gate: ≥7/9 agreement AND
+the canary slice (CANARIES & cats) non-empty and not positive. Failures
+re-weight the meta-distribution into VERSION+1. Suite verdicts never ship
+anything alone — Grinsztajn remains the decision suite, OpenML the gate.
 
 **v1 verdict (2026-07-14): PASS, 8/9 arms.** Highlights: `crossfeat_off`
 −0.94% overall, **−3.30% on the pre-registered interaction-depth≥2 numeric
