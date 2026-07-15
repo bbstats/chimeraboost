@@ -111,6 +111,41 @@ Grinsztajn — kill on the screen, never tune the library on synth.
 - Any DEFAULT change that ships: refresh `images/pareto.png` (`/pareto`) and
   get user sign-off on speed trades.
 
+## Results log (2026-07-15, branch brier-refinement)
+
+- **Step 0 shipped**: `synth_report.py`/`compare_runs.py` `--metric brier`
+  + `--model-new`; `--chimera-cat-smoothing` harness flag; brier rel-delta
+  denominator floored at 0.01 (saturated sets sit at Brier ~0 and exploded
+  the means). Tests extended (planted Brier slice, zero-floor case).
+- **Step 1 verdict** (`brier_gap.py` on synv2-full-baseline): the gap is
+  CATEGORICAL. cats=none dead flat (+0.0001/set, 54% winrate). Concentration:
+  entity_strength Q4 conc 5.24 (CatBoost 91% winrate), card>16 3.70,
+  saturated/cellrule 3.88, cats=entity 3.03. No MCB-heavy slice -> L4
+  calibration LOCKED OUT (refinement, not calibration, everywhere).
+  Pre-registration flipped L3 ahead of L1.
+- **L3 cat_smoothing KILLED** (x{0.25,2,4,8,16} full dose curve): mechanism
+  real (entity_strength top OLS factor every arm, t=+5.1 at cs4) but the
+  clf-Brier sign test never clears p<=0.2 (best: all 19W-15L p=0.61; binary
+  15W-7L p=0.13 at cs4), the dose curve is non-monotone around the default
+  (cs2 reads -0.68%), and cs16 buys Brier with an accuracy breach (F1 entity
+  -1.44%, reg -1.40%). Magnitude ceiling ~+0.2% binary Brier = not worth a
+  PMLB retune.
+- **L2 leaf_estimation_iterations KILLED**: premise was wrong (clf default
+  is already 3; 1 is the regressor's). lei=5: Brier 9W-15L, entity slice
+  -2.1% (p=0.049 AGAINST); lei=2: 12W-12L noise. Multiclass path ignores lei
+  entirely (0-0-34 exact ties, both arms).
+- **L1 ensembles PROMOTED off the screen**: Ens2 clf-Brier 64W-24L p<0.001
+  (binary +2.89%); Ens5 82W-6L (binary +7.54%), accuracy also up (+0.82%
+  p<0.001, reg +2.09%). Canary clean (F1 exact ties; canary Brier worse =
+  safe direction; bootstrap thinning hurts near-floor sets, explains the
+  negative slice means under floored rel-deltas). Screen percent-of-best:
+  Ens2 Bin Brier% 93.4 vs CatBoost 93.5 at 4.4x vs 81.6x (gap CLOSED);
+  Ens5 95.9 (BEATS CatBoost) at 11.2x, Reg RMSE% 96.0->98.0.
+- **Next**: Grinsztajn A/B (baseline `merged-crossfeat-20260713.json` —
+  its ChimeraBoost records match today's cross_features-on default; the
+  22:45 sibling is flag-off) -> OpenML one-shot -> Pareto evidence; the
+  n_ensembles default flip (1->2?) is the user's speed-trade call.
+
 ## Generator v3 watch items (do NOT act now; only at the next re-freeze)
 
 - mcw1 arm disagreed in v2: its pre-registered small-n clf slice shrank to 10
