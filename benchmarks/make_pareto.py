@@ -26,6 +26,7 @@ Run:
     python benchmarks/make_pareto.py --no-image           # text table only
 """
 import argparse
+import math
 import os
 import sys
 
@@ -161,6 +162,27 @@ def format_text(data, label=None):
     return "\n".join(lines)
 
 
+# Gap-to-best ticks (percentage points below 100), log-spaced; filtered per-plot
+# to whatever range the data actually spans.
+GAP_TICKS = [16, 8, 4, 2, 1, 0.5, 0.25, 0.1, 0.05]
+
+
+def _gap_to_y(blended):
+    """Log gap-to-best: y grows as the shortfall from 100 shrinks.
+
+    All models here are near Bayes-optimal on Grinsztajn (ratios-to-best cluster
+    in a ~97-100 band), so a linear axis crams every model's real, hard-won
+    ranking gap into a couple of pixels. This is a monotonic display-only
+    transform of the same blended number (floor gap at 0.05pp so it never hits
+    -inf) - frontier/dominance are computed on raw blended, never on this.
+    """
+    return -math.log10(max(100.0 - blended, 0.05))
+
+
+def _y_to_blended(y):
+    return 100.0 - 10 ** (-y)
+
+
 def render_image(data, out_path):
     cols, meta = summarize.aggregate(data)
     scored = blended_strength(cols)
@@ -174,7 +196,7 @@ def render_image(data, out_path):
     fr = sorted(front, key=lambda m: pts[m]["slowdown"])
     if len(fr) >= 2:
         fx = [pts[m]["slowdown"] for m in fr]
-        fy = [pts[m]["blended"] for m in fr]
+        fy = [_gap_to_y(pts[m]["blended"]) for m in fr]
         ax.plot(fx, fy, color="#888", linestyle="--", linewidth=1.4,
                 zorder=1, label="Pareto frontier")
 
@@ -182,7 +204,8 @@ def render_image(data, out_path):
         color = MODEL_COLOR.get(m, "#777777")
         on_front = m in front
         is_us = m == "ChimeraBoost"
-        ax.scatter(s["slowdown"], s["blended"],
+        y = _gap_to_y(s["blended"])
+        ax.scatter(s["slowdown"], y,
                    s=260 if is_us else 170,
                    color=color, edgecolor="#222" if on_front else "white",
                    linewidth=1.8 if on_front else 1.0,
@@ -193,7 +216,7 @@ def render_image(data, out_path):
             "ChimeraBoostEns2": (-9, 5, "right"),
         }
         ox, oy, ha = _offsets.get(m, (9, 5, "left"))
-        ax.annotate(label, (s["slowdown"], s["blended"]),
+        ax.annotate(label, (s["slowdown"], y),
                     textcoords="offset points", xytext=(ox, oy), ha=ha,
                     fontsize=9.5,
                     fontweight="bold" if m.startswith("ChimeraBoost") else "normal",
@@ -213,7 +236,17 @@ def render_image(data, out_path):
     # best corner (strong + fast) is up-and-to-the-left. No inversion needed.
     ax.set_xlabel("← Slowdown — mean fit-time multiple vs fastest model "
                   "(log scale, lower = better)", fontsize=10.5)
-    ax.set_ylabel("Blended model strength  (higher = better) →", fontsize=10.5)
+
+    gaps = [max(100.0 - s["blended"], 0.05) for s in pts.values()]
+    glo, ghi = min(gaps), max(gaps)
+    gap_ticks = [g for g in GAP_TICKS if glo / 1.6 <= g <= ghi * 1.6]
+    if len(gap_ticks) < 2:
+        gap_ticks = GAP_TICKS
+    ax.yaxis.set_major_locator(FixedLocator([_gap_to_y(100.0 - g) for g in gap_ticks]))
+    ax.yaxis.set_minor_locator(FixedLocator([]))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{_y_to_blended(v):g}"))
+    ax.set_ylabel("Blended model strength  (log gap-to-best, higher = better) →",
+                  fontsize=10.5)
 
     # Up-and-to-the-left is best; annotate that corner.
     ax.text(0.02, 0.98, "stronger + faster", transform=ax.transAxes,
