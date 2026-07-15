@@ -70,10 +70,11 @@ python benchmarks/synth_report.py RUN.json --realism    # cross-model checks
 ```
 
 Suites (v2, frozen 2026-07-14, `suites.py`): smoke 6 sets (~3 min), screen
-136 sets / 401K rows (~30 min wall, all models, jobs 5 — CatBoost is 50–70×
-ChimeraBoost on synthetic targets and dominates the wall clock), full 211
-sets / 1.61M rows (~1–2 h). smoke ⊂ screen ⊂ full, so pairing stays valid
-across tiers.
+136 sets / 401K rows (~15 min wall measured, all models, jobs 5; CatBoost is
+50–70× ChimeraBoost on synthetic targets and dominates the wall clock — arms
+that lengthen training, e.g. patience 300, run ~50 min), full 211 sets /
+1.61M rows (~1 h). smoke ⊂ screen ⊂ full, so pairing stays valid across
+tiers.
 
 ## Validation (adoption gate)
 
@@ -85,6 +86,19 @@ saturated sets, which reward low capacity by design. Gate: ≥7/9 agreement AND
 the canary slice (CANARIES & cats) non-empty and not positive. Failures
 re-weight the meta-distribution into VERSION+1. Suite verdicts never ship
 anything alone — Grinsztajn remains the decision suite, OpenML the gate.
+
+**v2 verdict (2026-07-15): PASS, 7/9 arms + canary clean; all three V2.md
+acceptance lines met.** depth4 flipped from v1's wrong-sign win to a
+mean-negative not-win (W61-L57, −0.11%, judged excluding saturated); the
+high-card realism CHECK now passes (CatBoost>LGBM winrate 0.71 on card>8 vs
+0.60 numeric — v1 was inverted, so the entity-cat mechanism closed the gap it
+targeted); the canary slice is non-empty and exactly flat (+0.000% @ 3).
+Canary lesson: at-ceiling must be verified under the benchmark's own 3-seed
+protocol — a single-seed check admitted three cat_cross sets whose residual
+multi-seed headroom (excess 0.009–0.025) forced cat_combinations then
+captured. Disagrees: depth4 (near-miss above) and mcw1 (small-n clf slice
+W5-L5 +0.41% @ 10 sets — the slice shrank under the n-mix cap; v3 watch
+item). The v1 mcw large-n watch item improved +0.22% → +0.08%.
 
 **v1 verdict (2026-07-14): PASS, 8/9 arms.** Highlights: `crossfeat_off`
 −0.94% overall, **−3.30% on the pre-registered interaction-depth≥2 numeric
