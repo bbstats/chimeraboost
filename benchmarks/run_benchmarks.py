@@ -521,7 +521,8 @@ PATIENCE = 50
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  ordered_boosting=None, depth=6, subsample=1.0, mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
-                 linear_leaves=False, linear_lambda=1.0, cross_features=False):
+                 linear_leaves=False, linear_lambda=1.0, cross_features=False,
+                 cat_smoothing=None):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -532,6 +533,8 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
     if mcw is not None:
         kw["min_child_weight"] = mcw
+    if cat_smoothing is not None:
+        kw["cat_smoothing"] = cat_smoothing
     # None = use the class auto-default (on for all-categorical data); only force
     # it on when --chimera-cat-combinations is passed.
     if cat_combinations:
@@ -963,6 +966,10 @@ def main():
                     default=False, dest="cat_combinations",
                     help="enable 2-way categorical feature combinations "
                          "(default: off).")
+    ap.add_argument("--chimera-cat-smoothing", type=float, default=None,
+                    dest="cat_smoothing",
+                    help="Bayesian pseudocount in the ordered target-statistic "
+                         "denominator (default: None = class default 1.0).")
     ap.add_argument("--chimera-lei", type=int, default=None,
                     dest="leaf_estimation_iterations",
                     help="leaf estimation iterations: additional Newton steps to "
@@ -1102,6 +1109,7 @@ def main():
     chimera_cfg = dict(lr=args.lr, ordered_boosting=ob_override,
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
+                       cat_smoothing=args.cat_smoothing,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto
                        else ("off" if args.no_linear_leaves
@@ -1130,6 +1138,8 @@ def main():
           + ("  ordered_boosting=off" if not args.ordered_boosting else "")
           + (f"  subsample={args.chimera_subsample}" if args.chimera_subsample < 1.0 else "")
           + ("  cat_combinations=on" if args.cat_combinations else "")
+          + (f"  cat_smoothing={args.cat_smoothing}"
+             if args.cat_smoothing is not None else "")
           + (f"  synth={args.synth_suite}" if args.synth else "")
           + "\n")
 

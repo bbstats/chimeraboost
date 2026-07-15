@@ -7,6 +7,10 @@ Modes (all read standard run_benchmarks --save JSONs, syn: datasets only):
   python benchmarks/synth_report.py BASE.json NEW.json [--model ChimeraBoost]
       A/B attribution: per-dataset primary deltas sliced by recipe factors,
       sign tests per slice, plus an OLS pass ranking factors by |t|.
+      --metric brier restricts to classification sets and judges on Brier
+      (sign flipped so + still means "arm better").
+      --model-new compares different model names across the runs (e.g.
+      baseline ChimeraBoost records vs an arm's ChimeraBoostEns2 records).
   python benchmarks/synth_report.py RUN.json --realism
       Cross-model ordering checks (is the suite shaped like real data?).
 
@@ -41,11 +45,26 @@ def load_run(path):
     return ds_meta, per
 
 
-def primary_means(per_model, model):
+def metric_means(per_model, model, metric="primary"):
+    """Per-dataset mean of `metric`, oriented so higher = better.
+
+    "brier" is lower-better, so it is negated; datasets whose records lack the
+    metric (regression sets have no Brier) are dropped, which restricts the
+    brier view to classification.
+    """
     if model not in per_model:
         raise SystemExit(f"model {model!r} not in run; have {sorted(per_model)}")
-    return {ds: float(np.mean([m["primary"] for m in v]))
-            for ds, v in per_model[model].items()}
+    sign = -1.0 if metric == "brier" else 1.0
+    out = {}
+    for ds, v in per_model[model].items():
+        vals = [m[metric] for m in v if m.get(metric) is not None]
+        if vals:
+            out[ds] = sign * float(np.mean(vals))
+    return out
+
+
+def primary_means(per_model, model):
+    return metric_means(per_model, model, "primary")
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +236,13 @@ def main():
     ap.add_argument("base")
     ap.add_argument("new", nargs="?", default=None)
     ap.add_argument("--model", default="ChimeraBoost")
+    ap.add_argument("--model-new", default=None,
+                    help="model name for the NEW run's records (default: "
+                         "--model). Lets an ensemble arm compare e.g. base "
+                         "ChimeraBoost vs new ChimeraBoostEns2.")
+    ap.add_argument("--metric", choices=["primary", "brier"], default="primary",
+                    help="A/B judge metric. brier = classification sets only, "
+                         "delta sign flipped so + means the arm is better.")
     ap.add_argument("--realism", action="store_true")
     args = ap.parse_args()
 
@@ -232,9 +258,12 @@ def main():
         return
     metas_new, per_new = load_run(args.new)
     metas.update(metas_new)
-    base = primary_means(per_model, args.model)
-    new = primary_means(per_new, args.model)
-    print(f"A/B attribution: {args.base} -> {args.new} [model={args.model}]\n")
+    model_new = args.model_new or args.model
+    base = metric_means(per_model, args.model, args.metric)
+    new = metric_means(per_new, model_new, args.metric)
+    tag = args.model if model_new == args.model else f"{args.model}->{model_new}"
+    print(f"A/B attribution: {args.base} -> {args.new} "
+          f"[model={tag}, metric={args.metric}]\n")
     ab_report(metas, base, new)
 
 
