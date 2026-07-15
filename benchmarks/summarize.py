@@ -28,6 +28,12 @@ RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"
 MODEL_ORDER = ["ChimeraBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                "ChimeraBoostEns10", "CatBoost", "LightGBM", "sklearn_HGB", "XGBoost"]
 COLS = ["Reg RMSE%", "Bin F1%", "Bin Brier%", "Bin Calib", "Speed"]
+# Multiclass columns, rendered ONLY when the results contain multiclass datasets
+# (the HC suite adds them; Grinsztajn has none). They are report-only: the
+# blended north star (make_pareto) is unchanged and ignores these. Inserted
+# before Speed by _display_cols so Speed stays the last column.
+MULTI_COLS = ["Multi F1%", "Multi Brier%"]
+COL_W = 13
 
 # Regression datasets where the BEST model's NRMSE (best_RMSE / y_std) is below
 # this are "near-solved": every model nails them (R^2 ~ 1), so the "% vs best"
@@ -159,6 +165,11 @@ def aggregate(data):
         "Bin F1%": _pct_vs_best(f1, bin_ds, lower=False),
         "Bin Brier%": _pct_vs_best(brier, bin_ds, lower=True, skip_below=1e-3),
         "Bin Calib": _mean_over(cal, bin_ds),
+        # Multiclass columns use the SAME per-class-sum Brier and macro-F1 as the
+        # binary ones (run_benchmarks._compute_metrics computes both for K>2). The
+        # same near-solved Brier guard (skip_below) applies per column.
+        "Multi F1%": _pct_vs_best(f1, mul_ds, lower=False),
+        "Multi Brier%": _pct_vs_best(brier, mul_ds, lower=True, skip_below=1e-3),
         "Speed": _mult_vs_best(speed, all_ds),
     }
     cfg = data.get("config", {})
@@ -175,7 +186,8 @@ def aggregate(data):
 def _suite_label(ds_names):
     """Human label for the caption, inferred from dataset key prefixes."""
     tags = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
-            "oml:": "OpenML suite", "syn:": "SynthGen suite"}
+            "oml:": "OpenML suite", "syn:": "SynthGen suite",
+            "hc:": "HC high-cardinality suite"}
     found = {label for pre, label in tags.items()
              if any(d.startswith(pre) for d in ds_names)}
     if not found:
@@ -185,14 +197,23 @@ def _suite_label(ds_names):
     return "Mixed suites"
 
 
+def _display_cols(meta):
+    """Column order for the table: the base five, with the two multiclass columns
+    inserted before Speed only when the run actually has multiclass datasets."""
+    cols = list(COLS)
+    if meta.get("n_mul", 0) > 0:
+        cols[cols.index("Speed"):cols.index("Speed")] = MULTI_COLS
+    return cols
+
+
 def _fmt(v, col):
     if v is None:
-        return f"{'--':>11}"
+        return f"{'--':>{COL_W}}"
     if col == "Bin Calib":
-        return f"{v * 1000:>10.2f}m"
+        return f"{v * 1000:>{COL_W - 1}.2f}m"
     if col == "Speed":
-        return f"{v:>10.1f}x"
-    return f"{v:>10.1f}%"
+        return f"{v:>{COL_W - 1}.1f}x"
+    return f"{v:>{COL_W - 1}.1f}%"
 
 
 def _models_present(cols):
@@ -207,14 +228,15 @@ def format_table(data, label=None):
     """Return a printable string for one results JSON."""
     cols, meta = aggregate(data)
     models = _models_present(cols)
+    show = _display_cols(meta)
     lines = []
     if label:
         lines.append(label)
-    hdr = f"{'Model':<22}" + "".join(f"{c:>11}" for c in COLS)
+    hdr = f"{'Model':<22}" + "".join(f"{c:>{COL_W}}" for c in show)
     lines.append(hdr)
     lines.append("-" * len(hdr))
     for m in models:
-        row = f"{m:<22}" + "".join(_fmt(cols[c].get(m), c) for c in COLS)
+        row = f"{m:<22}" + "".join(_fmt(cols[c].get(m), c) for c in show)
         lines.append(row)
     seeds = f" | {meta['seeds']} seeds" if meta.get("seeds") else ""
     cap = (f"{meta['suite']} — {meta['n_total']} datasets "
@@ -233,12 +255,15 @@ def format_table(data, label=None):
 def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
                    focus="ChimeraBoost"):
     """Return before/after tables plus a per-column delta for `focus` model."""
-    base_cols, _ = aggregate(base_data)
-    new_cols, _ = aggregate(new_data)
+    base_cols, base_meta = aggregate(base_data)
+    new_cols, new_meta = aggregate(new_data)
     out = [format_table(base_data, f"=== {base_label} ==="), "",
            format_table(new_data, f"=== {new_label} ==="), "",
            f"=== {focus} delta ({new_label} vs {base_label}) ==="]
-    for c in COLS:
+    # Show whichever column set is richer (multiclass columns appear if either
+    # run has multiclass datasets).
+    show = _display_cols(base_meta if base_meta.get("n_mul") else new_meta)
+    for c in show:
         bv = base_cols[c].get(focus)
         nv = new_cols[c].get(focus)
         if bv is None or nv is None:

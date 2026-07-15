@@ -161,6 +161,8 @@ def _task_of(ds_name):
         return GRINSZTAJN_TASKS[ds_name]
     if ds_name.startswith("pm:"):
         return PMLB_TASKS[ds_name]
+    if ds_name.startswith("hc:"):
+        return HC_TASKS[ds_name]
     if ds_name.startswith("syn:"):
         return SYN_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
@@ -216,6 +218,16 @@ OPENML_SUITE = {
 }
 
 
+def _is_categorical_dtype(dtype):
+    """True for a pandas dtype that should be treated as categorical. pandas 3.0
+    returns free-text columns as the new "str" dtype (repr "str"); object,
+    category, and pyarrow "string[...]" all mean categorical too. Missing "str"
+    silently routed text columns to the numeric branch -> astype(float) crash on
+    high-card free-text datasets."""
+    s = str(dtype).lower()
+    return s in ("category", "object", "str") or s.startswith("string")
+
+
 def _frame_to_dataset(X_df, y, cats, task):
     """Turn a (features DataFrame, target Series) into (X, y, cat_idx, task).
     Shared by the OpenML and Grinsztajn/HuggingFace builders.
@@ -226,10 +238,8 @@ def _frame_to_dataset(X_df, y, cats, task):
     bucket, so both see missing the same way. Numerics stay float.
     """
     if cats == "auto":
-        def _is_cat(dtype):
-            s = str(dtype).lower()
-            return s in ("category", "object") or s.startswith("string")
-        cat_idx = [i for i, c in enumerate(X_df.columns) if _is_cat(X_df[c].dtype)]
+        cat_idx = [i for i, c in enumerate(X_df.columns)
+                   if _is_categorical_dtype(X_df[c].dtype)]
     else:
         cat_idx = cats
 
@@ -460,6 +470,100 @@ def _add_synth_datasets():
     for key in synthgen.all_frozen_keys():
         DATASETS[key] = synthgen.make_builder(key)
         SYN_TASKS[key] = synthgen.task_of(key)
+
+
+# --------------------------------------------------------------------------
+# HC: REAL high-cardinality-categorical datasets (decision tier). Added so the
+# decision stack has a real-data expression of the entity-cat / high-card regime
+# where the CatBoost Brier gap lives: Grinsztajn curates high-card cats OUT and
+# has 0 multiclass, so no lever targeting that gap can clear the protocol on
+# Grinsztajn alone (see benchmarks/HIGHCARD_PLAN.md + synthgen/PAYOFF.md). This
+# suite is NEITHER synthetic (the generator's prior must not vote on ships) NOR a
+# Grinsztajn split (both halves would inherit the same blind spot).
+#
+# Every dataset passed a HARD overlap audit: zero intersection with TabArena (the
+# sealed holdout -- its DATASETS must never enter a decision suite), the
+# Grinsztajn 59, the OpenML one-shot gate (29), or the PMLB tuning suite (25),
+# matched by OpenML id AND normalized/substring name. Selection was by DATA
+# PROPERTIES ONLY (n, cardinality, task, missingness) measured WITHOUT fitting any
+# model; degenerate sets (undefined/empty target, zero-support classes, pure-ID
+# columns, structural target leakage, inactive OpenML versions) were dropped. The
+# audit matrix + rationale live in benchmarks/HIGHCARD_PLAN.md. The frozen list
+# only changes with a version bump + re-audit (synthgen-freeze discipline).
+#
+# Loaded via fetch_openml(as_frame=True); cats auto-detected from dtype; a 100k
+# deterministic subsample (random_state=0, NOT the harness seed -- the train/test
+# split stays the only seed-dependent step). Keys are "hc:<name>".
+# --------------------------------------------------------------------------
+HC_DATASETS = {
+    # binary, high-card real categoricals
+    "kick":                  dict(data_id=41162, task="binary"),      # Model card 1063
+    "porto-seguro":          dict(data_id=42742, task="binary"),      # ps_car_11_cat 104
+    "sf-police-incidents":   dict(data_id=42344, task="binary"),      # Address 15165
+    "kdd_ipums_la_97-small": dict(data_id=993,   task="binary"),      # occ/ind codes 191
+    # multiclass, the regime Grinsztajn lacks entirely
+    "okcupid-stem":          dict(data_id=42734, task="multiclass"),  # speaks 7019 (3-class)
+    "Traffic_violations":    dict(data_id=42345, task="multiclass"),  # Model 3830 (3-class)
+    "cjs":                   dict(data_id=473,   task="multiclass"),  # TREE 57 (6-class)
+    "eucalyptus":            dict(data_id=188,   task="multiclass"),  # Sp 27 (5-class)
+    # regression with categoricals
+    "wine-reviews":          dict(data_id=41275, task="regression"),  # winery 15633
+    "colleges":              dict(data_id=42727, task="regression"),  # zip 6039 / state 59
+    "house_prices_nominal":  dict(data_id=42563, task="regression"),  # Ames, Neighborhood 25
+    "black_friday":          dict(data_id=41540, task="regression"),  # low-card cats
+    "employee_salaries":     dict(data_id=42125, task="regression"),  # department 37
+    "Moneyball":             dict(data_id=41021, task="regression"),  # Team 39
+}
+HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
+_HIGHCARD_MAX_ROWS = 100000
+# Categorical columns whose nunique/n exceeds this are row identifiers / free
+# text (e.g. wine-reviews' `description`/`title`, ~94% unique). They carry no
+# repeated-level signal -- the opposite of the entity-cat regime this suite
+# targets -- and only add noise + fit cost, so the loader drops them. The
+# threshold sits well above every genuine high-card cat in the frozen suite
+# (the highest is colleges' zip at ~0.855), so no real categorical is dropped.
+_HIGHCARD_ID_FRAC = 0.9
+# sklearn's OpenML cache lands on C: by default, which has ~4 GB free while
+# porto/sf-police/wine-reviews are 100-500 MB fetches, so default the cache to A:
+# (override with the standard SCIKIT_LEARN_DATA env var on a box where C: is fine).
+_HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
+
+
+def _make_highcard_builder(spec):
+    """Build a dataset-builder closure for one HC spec (fetched by data_id, with
+    a deterministic 100k subsample). Mirrors the Grinsztajn/PMLB builders."""
+    def builder(scale, rng):
+        from sklearn.datasets import fetch_openml
+        ds = fetch_openml(data_id=spec["data_id"], as_frame=True,
+                          data_home=_HIGHCARD_DATA_HOME)
+        frame = ds.frame
+        target = ds.target.name
+        # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
+        # harness rng), so the train/test split stays the only seed-dependent step.
+        if len(frame) > _HIGHCARD_MAX_ROWS:
+            frame = frame.sample(_HIGHCARD_MAX_ROWS, random_state=0
+                                 ).reset_index(drop=True)
+        X_df = frame.drop(columns=[target])
+        # Drop near-unique categorical columns (row identifiers / free text).
+        n = len(X_df)
+        id_cols = [c for c in X_df.columns
+                   if _is_categorical_dtype(X_df[c].dtype)
+                   and X_df[c].nunique(dropna=True) > _HIGHCARD_ID_FRAC * n]
+        if id_cols:
+            X_df = X_df.drop(columns=id_cols)
+        return _frame_to_dataset(X_df, frame[target], "auto", spec["task"])
+    return builder
+
+
+def _add_highcard_datasets():
+    """Register the frozen HC suite into DATASETS as hc:<name>. Idempotent so
+    workers can call it once cheaply."""
+    if any(k.startswith("hc:") for k in DATASETS):
+        return
+    for name, spec in HC_DATASETS.items():
+        key = f"hc:{name}"
+        DATASETS[key] = _make_highcard_builder(spec)
+        HC_TASKS[key] = spec["task"]
 
 
 # --------------------------------------------------------------------------
@@ -775,7 +879,8 @@ def _run_seed_task(task):
     (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
-     ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth) = task
+     ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth,
+     need_highcard) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
@@ -786,6 +891,8 @@ def _run_seed_task(task):
         _add_pmlb_datasets()
     if need_synth:
         _add_synth_datasets()
+    if need_highcard:
+        _add_highcard_datasets()
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
@@ -806,7 +913,19 @@ def _run_seed_task(task):
 
     out = {}
     for name, runner in _make_runners(model_names, chimera_cfg).items():
-        out[name] = runner(ttype, Xtr, ytr, Xte, yte, cat, threads)
+        try:
+            out[name] = runner(ttype, Xtr, ytr, Xte, yte, cat, threads)
+        except Exception as e:
+            # A model that structurally cannot handle a dataset -- e.g. sklearn
+            # HGB's hard 255-category cap on high-cardinality categoricals, or a
+            # competitor OOM on a huge cat -- is recorded as SKIPPED (None), not
+            # allowed to abort the whole run. Downstream aggregation already
+            # treats None as "did not run" (like an uninstalled competitor). The
+            # HC suite deliberately exercises regimes that break some native-cat
+            # paths (the plan's "record, don't fix"); the print keeps them visible.
+            print(f"  [skip] {name} on {ds_name} (seed {seed}): "
+                  f"{type(e).__name__}: {e}")
+            out[name] = None
     return ds_name, seed, meta, out
 
 
@@ -858,6 +977,7 @@ class _Progress:
                        f"grinsztajn={args.grinsztajn} "
                        f"pmlb={args.pmlb}"
                        f"{('/' + args.pmlb_fold) if args.pmlb_fold else ''} "
+                       f"highcard={args.highcard} "
                        f"depth={args.chimera_depth} "
                        f"lei={'default' if lei is None else lei} "
                        f"ob={'off' if not args.ordered_boosting else 'on'}")
@@ -923,6 +1043,11 @@ def main():
                          "--pmlb-fold to restrict to tune/holdout.")
     ap.add_argument("--pmlb-fold", choices=["tune", "holdout"], default=None,
                     help="with --pmlb, run only this fold (default: both).")
+    ap.add_argument("--highcard", action="store_true",
+                    help="run the frozen HC suite (real high-cardinality-"
+                         "categorical datasets; decision tier 2 alongside "
+                         "Grinsztajn). Fetched from OpenML, cached on A: "
+                         "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
     ap.add_argument("--synth", action="store_true",
                     help="run the frozen synthgen prior-sampled suite "
                          "(decision tier 1; see benchmarks/synthgen/).")
@@ -1070,6 +1195,16 @@ def main():
             for k in [k for k in DATASETS if not k.startswith(keep_fold)]:
                 del DATASETS[k]
 
+    # HC suite: same convention as Grinsztajn/PMLB — register, then (unless
+    # specific --datasets were named) run ONLY it.
+    need_highcard = args.highcard or bool(
+        args.datasets and any(d.startswith("hc:") for d in args.datasets))
+    if need_highcard:
+        _add_highcard_datasets()
+        if args.highcard and not args.datasets:
+            for k in [k for k in DATASETS if not k.startswith("hc:")]:
+                del DATASETS[k]
+
     # SynthGen suite: same convention — register, then (unless specific
     # --datasets were named) run ONLY the chosen frozen suite.
     need_synth = args.synth or bool(
@@ -1146,7 +1281,7 @@ def main():
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
-              need_synth)
+              need_synth, need_highcard)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 

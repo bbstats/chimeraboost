@@ -174,8 +174,21 @@ Grinsztajn — kill on the screen, never tune the library on synth.
   until then, treat in-suite entity-slice gaps as report-only color, not
   targets. Also: synth speed ratios are NOT decision-grade (CatBoost 50-80x
   slow on synth vs 11.8x on Grinsztajn — tiny-set anomaly).
-## Generator v3 watch items (do NOT act now; only at the next re-freeze)
-
+  - **RESOLVED (2026-07-15): the entity-cat prior is CONFIRMED faithful.** The
+    decision stack gained the real high-card `hc` suite (14 sets, `--highcard`;
+    see `benchmarks/HIGHCARD_PLAN.md`, zero TabArena/Grinsztajn/gate overlap).
+    First-read (`benchmarks/hc_gap.py hc-baseline.json`): synth predicted
+    entity_str Q4 = **91%** CatBoost Brier winrate; real hc = **86%** (max-card
+    ≥50, 6/7) / **88%** (all 8 clf) / **100%** (multiclass, 4/4). Percent-of-best
+    Brier: CatBoost 99.8 vs ChimeraBoost 99.5 (binary), 100 vs 98.5 (multiclass).
+    So the regime is REAL on real data and REVERSES the Grinsztajn read (where CB
+    is ChimeraBoost's, 98.4 Brier vs CB 95.4) — Grinsztajn was simply blind to it.
+    The v2 entity-cat prior is a faithful predictor of the real-data gap; the
+    entity-cat weight does NOT need to be re-justified against marginals for
+    fidelity (it may still be re-weighted for representativeness). The gap
+    magnitude is small (mean +0.0029 Brier/set) and CatBoost pays 111x slowdown
+    for it, so it is a real-but-cheap-to-cede edge on the Pareto — but a lever
+    targeting high-card Brier can now be A/B'd on a suite that EXPRESSES it.
 - mcw1 arm disagreed in v2: its pre-registered small-n clf slice shrank to 10
   sets under the 0.35 small-n cap (W5-L5 +0.41%). Either widen the slice
   definition (n<3000?) or seed more small-n clf sets.

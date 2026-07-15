@@ -24,7 +24,7 @@ Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 - **Always print the aggregate results table after every benchmark run**, unprompted.
 
 ## Benchmarks
-- Decision suite: `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save` → `benchmarks/results/<stamp>.json` (gitignored). Independent gate: `--openml`. HP tuning: `--pmlb --pmlb-fold tune|holdout`.
+- Decision suites (run both, sign-test separately): `--grinsztajn` (low/no-card, no multiclass) and `--highcard` (real high-cardinality cats + multiclass — the regime Grinsztajn is blind to; see `benchmarks/HIGHCARD_PLAN.md`, `benchmarks/hc_gap.py`). `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save` → `benchmarks/results/<stamp>.json` (gitignored). Independent gate: `--openml`. HP tuning: `--pmlb --pmlb-fold tune|holdout`.
 - Mechanism probe (tier 1): `--synth` = frozen SynthGen prior-sampled suite (`benchmarks/synthgen/`, NO TabArena in any form incl. metadata). Attribute deltas: `benchmarks/synth_report.py BASE NEW`. Any generator change ⇒ VERSION bump + re-freeze + `benchmarks/synthgen/backtest.py` re-validation (gate ≥7/9 vs ledger).
 - Sign-test two runs: `python benchmarks/compare_runs.py BASE.json NEW.json [--model ChimeraBoost]`.
 - Progress / latest table: `python benchmarks/bench_status.py` (the `/bench` skill).
