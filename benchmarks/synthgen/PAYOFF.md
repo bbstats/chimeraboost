@@ -111,6 +111,69 @@ Grinsztajn — kill on the screen, never tune the library on synth.
 - Any DEFAULT change that ships: refresh `images/pareto.png` (`/pareto`) and
   get user sign-off on speed trades.
 
+## Results log (2026-07-15, branch brier-refinement)
+
+- **Step 0 shipped**: `synth_report.py`/`compare_runs.py` `--metric brier`
+  + `--model-new`; `--chimera-cat-smoothing` harness flag; brier rel-delta
+  denominator floored at 0.01 (saturated sets sit at Brier ~0 and exploded
+  the means). Tests extended (planted Brier slice, zero-floor case).
+- **Step 1 verdict** (`brier_gap.py` on synv2-full-baseline): the gap is
+  CATEGORICAL. cats=none dead flat (+0.0001/set, 54% winrate). Concentration:
+  entity_strength Q4 conc 5.24 (CatBoost 91% winrate), card>16 3.70,
+  saturated/cellrule 3.88, cats=entity 3.03. No MCB-heavy slice -> L4
+  calibration LOCKED OUT (refinement, not calibration, everywhere).
+  Pre-registration flipped L3 ahead of L1.
+- **L3 cat_smoothing KILLED** (x{0.25,2,4,8,16} full dose curve): mechanism
+  real (entity_strength top OLS factor every arm, t=+5.1 at cs4) but the
+  clf-Brier sign test never clears p<=0.2 (best: all 19W-15L p=0.61; binary
+  15W-7L p=0.13 at cs4), the dose curve is non-monotone around the default
+  (cs2 reads -0.68%), and cs16 buys Brier with an accuracy breach (F1 entity
+  -1.44%, reg -1.40%). Magnitude ceiling ~+0.2% binary Brier = not worth a
+  PMLB retune.
+- **L2 leaf_estimation_iterations KILLED**: premise was wrong (clf default
+  is already 3; 1 is the regressor's). lei=5: Brier 9W-15L, entity slice
+  -2.1% (p=0.049 AGAINST); lei=2: 12W-12L noise. Multiclass path ignores lei
+  entirely (0-0-34 exact ties, both arms).
+- **L1 ensembles PROMOTED off the screen**: Ens2 clf-Brier 64W-24L p<0.001
+  (binary +2.89%); Ens5 82W-6L (binary +7.54%), accuracy also up (+0.82%
+  p<0.001, reg +2.09%). Canary clean (F1 exact ties; canary Brier worse =
+  safe direction; bootstrap thinning hurts near-floor sets, explains the
+  negative slice means under floored rel-deltas). Screen percent-of-best:
+  Ens2 Bin Brier% 93.4 vs CatBoost 93.5 at 4.4x vs 81.6x (gap CLOSED);
+  Ens5 95.9 (BEATS CatBoost) at 11.2x, Reg RMSE% 96.0->98.0.
+- **L1 KILLED at Grinsztajn (the decision suite; screen verdict REVERSED).**
+  Baseline `merged-crossfeat-20260713.json` (flag-on ChimeraBoost = today's
+  default; same-run control 0W-0L-59T bit-identical, clean A/B). Ens2 Brier
+  7W-16L mean -1.15% FAIL (bootstrap-thinned members + in-bag ES cost more
+  than 2-way averaging recovers on real data); Ens2 primary 23W-36L FAIL.
+  Ens5 Brier 12W-11L coin flip; Ens5 primary 43W-16L +1.89% decisive but at
+  43.1x slowdown = Pareto-dominated as a default (opt-in n_ensembles already
+  ships). OpenML one-shot NOT burned (nothing to ship). Synth speed ratios
+  DO NOT transfer: Ens2 read 4.4x-vs-CatBoost-81.6x on synth, 17.2x-vs-11.8x
+  (slower than CatBoost) on Grinsztajn.
+- **PROGRAM CONCLUSION**: the Bin Brier gap in the target table is a
+  SYNTH-SUITE phenomenon (entity cats / high card / cellrule — regimes
+  Grinsztajn lacks). On Grinsztajn, post-cross_features ChimeraBoost is
+  ALREADY #1 on Bin Brier (98.4 vs CatBoost 95.4). Every pre-registered
+  lever is now killed or non-transferring; nothing ships from this program.
+  Residual honest options, all deferred: (a) treat the entity-cat Brier gap
+  as a documented suite blind spot (v3 watch item below), (b) an ensemble
+  variant with shared held-out ES instead of in-bag (new lever, would need
+  its own program; cf. the 2026-07-08 GES data-tax kill), (c) revisit only
+  if a real-data suite with entity cats enters the decision stack (TabArena
+  stays sealed).
+
+## Generator v3 watch items (do NOT act now; only at the next re-freeze)
+
+- **Suite-vs-decision-stack divergence (2026-07-15, from this program):** the
+  v2 entity-cat/high-card Brier gap vs CatBoost is real IN-SUITE but has no
+  expression on Grinsztajn (no entity cats there), so no lever targeting it
+  can clear the decision protocol. Either v3 justifies the entity-cat weight
+  against harvested real-data marginals (is 44/137 clf sets with entity cats
+  representative?), or the decision stack gains a real high-card suite;
+  until then, treat in-suite entity-slice gaps as report-only color, not
+  targets. Also: synth speed ratios are NOT decision-grade (CatBoost 50-80x
+  slow on synth vs 11.8x on Grinsztajn — tiny-set anomaly).
 ## Generator v3 watch items (do NOT act now; only at the next re-freeze)
 
 - mcw1 arm disagreed in v2: its pre-registered small-n clf slice shrank to 10

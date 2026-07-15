@@ -7,6 +7,10 @@ Modes (all read standard run_benchmarks --save JSONs, syn: datasets only):
   python benchmarks/synth_report.py BASE.json NEW.json [--model ChimeraBoost]
       A/B attribution: per-dataset primary deltas sliced by recipe factors,
       sign tests per slice, plus an OLS pass ranking factors by |t|.
+      --metric brier restricts to classification sets and judges on Brier
+      (sign flipped so + still means "arm better").
+      --model-new compares different model names across the runs (e.g.
+      baseline ChimeraBoost records vs an arm's ChimeraBoostEns2 records).
   python benchmarks/synth_report.py RUN.json --realism
       Cross-model ordering checks (is the suite shaped like real data?).
 
@@ -41,11 +45,26 @@ def load_run(path):
     return ds_meta, per
 
 
-def primary_means(per_model, model):
+def metric_means(per_model, model, metric="primary"):
+    """Per-dataset mean of `metric`, oriented so higher = better.
+
+    "brier" is lower-better, so it is negated; datasets whose records lack the
+    metric (regression sets have no Brier) are dropped, which restricts the
+    brier view to classification.
+    """
     if model not in per_model:
         raise SystemExit(f"model {model!r} not in run; have {sorted(per_model)}")
-    return {ds: float(np.mean([m["primary"] for m in v]))
-            for ds, v in per_model[model].items()}
+    sign = -1.0 if metric == "brier" else 1.0
+    out = {}
+    for ds, v in per_model[model].items():
+        vals = [m[metric] for m in v if m.get(metric) is not None]
+        if vals:
+            out[ds] = sign * float(np.mean(vals))
+    return out
+
+
+def primary_means(per_model, model):
+    return metric_means(per_model, model, "primary")
 
 
 # ---------------------------------------------------------------------------
@@ -91,16 +110,16 @@ def _bucket_specs(metas):
     return specs
 
 
-def _rel_delta(base, new):
+def _rel_delta(base, new, denom_floor=1e-12):
     out = {}
     for ds in set(base) & set(new):
         b = base[ds]
-        out[ds] = (new[ds] - b) / max(abs(b), 1e-12)
+        out[ds] = (new[ds] - b) / max(abs(b), denom_floor)
     return out
 
 
-def ab_report(metas, base, new):
-    deltas = _rel_delta(base, new)
+def ab_report(metas, base, new, denom_floor=1e-12):
+    deltas = _rel_delta(base, new, denom_floor)
     if not deltas:
         raise SystemExit("no shared syn: datasets between the two runs")
     print(f"{'slice':18s} {'n':>4s} {'W-L-T':>9s} {'mean d':>9s} {'p':>7s}")
@@ -217,6 +236,13 @@ def main():
     ap.add_argument("base")
     ap.add_argument("new", nargs="?", default=None)
     ap.add_argument("--model", default="ChimeraBoost")
+    ap.add_argument("--model-new", default=None,
+                    help="model name for the NEW run's records (default: "
+                         "--model). Lets an ensemble arm compare e.g. base "
+                         "ChimeraBoost vs new ChimeraBoostEns2.")
+    ap.add_argument("--metric", choices=["primary", "brier"], default="primary",
+                    help="A/B judge metric. brier = classification sets only, "
+                         "delta sign flipped so + means the arm is better.")
     ap.add_argument("--realism", action="store_true")
     args = ap.parse_args()
 
@@ -232,10 +258,17 @@ def main():
         return
     metas_new, per_new = load_run(args.new)
     metas.update(metas_new)
-    base = primary_means(per_model, args.model)
-    new = primary_means(per_new, args.model)
-    print(f"A/B attribution: {args.base} -> {args.new} [model={args.model}]\n")
-    ab_report(metas, base, new)
+    model_new = args.model_new or args.model
+    base = metric_means(per_model, args.model, args.metric)
+    new = metric_means(per_new, model_new, args.metric)
+    tag = args.model if model_new == args.model else f"{args.model}->{model_new}"
+    print(f"A/B attribution: {args.base} -> {args.new} "
+          f"[model={tag}, metric={args.metric}]\n")
+    # Brier can be ~0 on saturated sets (model at the floor); an unfloored
+    # relative delta there explodes and swamps every mean. 0.01 caps the
+    # per-set delta while leaving ordinary sets (brier >> 0.01) untouched.
+    ab_report(metas, base, new, denom_floor=0.01 if args.metric == "brier"
+              else 1e-12)
 
 
 if __name__ == "__main__":
