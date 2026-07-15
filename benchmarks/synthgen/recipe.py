@@ -14,8 +14,8 @@ import numpy as np
 
 from . import calibration
 
-VERSION = "v1"
-VERSION_SEED = 0x53594E31  # "SYN1"; bump alongside VERSION on ANY recipe change
+VERSION = "v2"
+VERSION_SEED = 0x53594E32  # "SYN2"; bump alongside VERSION on ANY recipe change
 
 N_CAP = 32000       # full-tier row cap (screen selection additionally caps at 8000)
 D_CAP = 100
@@ -48,6 +48,7 @@ class Recipe:
     log_card_mu: float
     max_cardinality: int
     cat_encode_mode: str       # "quantile_shuffled" | "nearest_ref"
+    entity_cat_fraction: float  # share of cat columns that are latent entities
     # target (latent noise, calibrated imbalance)
     noise_level: float         # reg: sigma/std(y_clean); clf: softmax temperature
     majority_frac: float       # target majority-class share (clf)
@@ -77,7 +78,10 @@ def sample_recipe(dataset_id, rng):
     d_informative = max(2, d - int(round(irrelevant_fraction * d)))
     irrelevant_fraction = (d - d_informative) / d
 
-    interaction_depth = int(rng.choice([1, 2, 3, 4], p=[0.15, 0.35, 0.35, 0.15]))
+    # v2: shifted deep (v1's {.15,.35,.35,.15} over 1-4 let depth-4 ablations
+    # WIN the backtest -- targets were too easy for the default capacity)
+    interaction_depth = int(rng.choice([1, 2, 3, 4, 5],
+                                       p=[0.10, 0.30, 0.35, 0.15, 0.10]))
     root_dist = str(rng.choice(["normal", "uniform", "mog", "heavy"],
                                p=[0.40, 0.20, 0.25, 0.15]))
     func_weights = _dirichlet_around(
@@ -94,6 +98,10 @@ def sample_recipe(dataset_id, rng):
     card_center = np.clip(row["max_card"], 2, max_cardinality)
     log_card_mu = float(np.log(card_center) * rng.uniform(0.55, 0.95))
     cat_encode_mode = str(rng.choice(["quantile_shuffled", "nearest_ref"]))
+    # v2: ~40% of cat columns are latent ENTITIES (Zipf frequencies, per-level
+    # target effect) instead of discretized views of smooth latents -- the
+    # mechanism real high-card cats have and v1 lacked (realism CHECK failed)
+    entity_cat_fraction = float(rng.uniform(0.2, 0.6))
 
     if task == "regression":
         n_classes = 1
@@ -131,10 +139,11 @@ def sample_recipe(dataset_id, rng):
     return Recipe(
         id=dataset_id, version=VERSION, task=task, n=n, n_classes=n_classes,
         d=d, d_informative=d_informative, irrelevant_fraction=irrelevant_fraction,
-        n_nodes=n_nodes, max_in_degree=int(rng.integers(2, 5)),
+        n_nodes=n_nodes, max_in_degree=int(rng.integers(2, 6)),
         interaction_depth=interaction_depth, root_dist=root_dist,
         func_weights=func_weights, agg_weights=agg_weights,
         n_cat=n_cat, log_card_mu=log_card_mu, max_cardinality=max_cardinality,
-        cat_encode_mode=cat_encode_mode, noise_level=noise_level,
+        cat_encode_mode=cat_encode_mode,
+        entity_cat_fraction=entity_cat_fraction, noise_level=noise_level,
         majority_frac=majority_frac, saturated=saturated,
         missing_fraction=missing_fraction, heavy_tail_cols=heavy_tail_cols)

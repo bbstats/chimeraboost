@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "benchmarks"))
 
 import synthgen
 from synthgen import filters
-from synthgen.suites import SUITES
+from synthgen.suites import CANARIES, SUITES
 
 GOLDEN_PATH = os.path.join(os.path.dirname(__file__), "golden_synthgen.json")
 
@@ -164,6 +164,53 @@ def test_irrelevant_columns_uncorrelated():
             return
         synthgen.build_dataset.cache_clear()
     pytest.skip("no qualifying dataset in probe range")
+
+
+def test_entity_column_mechanism():
+    from synthgen import emit
+    rng = np.random.default_rng(7)
+    codes, card, effect_rows, sigma_e = emit._entity_column(
+        5000, np.log(10.0), 64, rng)
+    assert codes.shape == (5000,) and codes.max() == card - 1
+    assert 0.3 <= sigma_e <= 1.0
+    counts = np.bincount(codes, minlength=card)
+    # Zipf-ish frequencies: the heaviest level dwarfs the median level
+    assert counts.max() > 5 * max(1.0, float(np.median(counts)))
+    # singleton rare levels exist (the unseen-at-train stress)
+    assert (counts == 1).sum() >= 2
+    # per-row effect is a per-level lookup: constant within each level
+    for lvl in range(min(card, 5)):
+        v = effect_rows[codes == lvl]
+        if len(v):
+            assert np.allclose(v, v[0])
+
+
+def test_entity_cats_present_in_meta():
+    seen = 0
+    for did in range(30):
+        _, _, _, _, meta = synthgen.build_dataset(synthgen.key_for(did))
+        if meta["n_cat_entity"] > 0:
+            seen += 1
+            assert meta["entity_strength"] > 0
+            assert meta["n_cat_entity"] <= meta["n_cat"]
+        synthgen.build_dataset.cache_clear()
+        if seen >= 3:
+            break
+    assert seen >= 1
+
+
+def test_canaries_contract():
+    # canary status is earned at freeze time and frozen into suites.py
+    assert CANARIES, "CANARIES empty -- freeze.py paste missing"
+    assert set(CANARIES) <= set(SUITES["full"])
+    for i in sorted(CANARIES)[:5]:
+        assert synthgen.sample_recipe(i).saturated
+    n_cat_bearing = 0
+    for i in sorted(set(CANARIES) & set(SUITES["screen"])):
+        _, _, _, _, meta = synthgen.build_dataset(synthgen.key_for(i))
+        n_cat_bearing += meta["n_cat"] > 0
+        synthgen.build_dataset.cache_clear()
+    assert n_cat_bearing >= 3, "screen needs >=3 cat-bearing verified canaries"
 
 
 def test_suite_nesting_and_registration():

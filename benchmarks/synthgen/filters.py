@@ -68,6 +68,51 @@ def learnable(X, y, cat_idx, task, seed=0, max_rows=2000):
     return acc >= prior + 0.03, {"acc": round(acc, 4), "prior": round(prior, 4)}
 
 
+# "Provably done" bounds. Verified across the SAME 3 seeds the benchmark
+# harness runs: a single-seed check at a loose 0.02 admitted sets with real
+# multi-seed headroom (excess 0.009-0.025) that forced cat_combinations then
+# genuinely captured -- a canary must have nothing left to capture.
+CANARY_SEEDS = (0, 1, 2)
+CANARY_XS_BRIER_MEAN = 0.005   # clf: mean excess Brier over the stored floor
+CANARY_XS_BRIER_MAX = 0.01     # clf: worst single seed
+CANARY_RMSE_RATIO = 1.1        # reg: mean RMSE vs the generative sigma
+
+
+def at_ceiling(X, y, cat_idx, task, meta, seeds=CANARY_SEEDS):
+    """Freeze-time canary verification: default ChimeraBoost must provably
+    reach the known floor on the harness's own splits (test 25%, one per
+    benchmark seed). Saturated sets that fail are genuinely hard
+    (car-analogs), not canaries -- v1's canary-by-construction assumption is
+    exactly what this replaces.
+    """
+    from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+    from sklearn.model_selection import train_test_split
+
+    strat = None if task == "regression" else y
+    Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
+    vals = []
+    for seed in seeds:
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                              random_state=seed, stratify=strat)
+        m = Est(n_estimators=2000, early_stopping_rounds=50, random_state=0)
+        m.fit(Xtr, ytr, cat_features=cat_idx)
+        if task == "regression":
+            rmse = float(np.sqrt(np.mean((yte - m.predict(Xte)) ** 2)))
+            vals.append(rmse / max(float(meta["noise_sigma"] or 0.0), 1e-12))
+        else:
+            proba = m.predict_proba(Xte)
+            classes = getattr(m, "classes_", np.unique(yte))
+            onehot = (np.asarray(yte)[:, None]
+                      == np.asarray(classes)[None, :]).astype(float)
+            brier = float(np.mean(((proba - onehot) ** 2).sum(axis=1)))
+            vals.append(brier - float(meta["bayes_brier"] or 0.0))
+    mean, worst = float(np.mean(vals)), float(np.max(vals))
+    if task == "regression":
+        return mean <= CANARY_RMSE_RATIO, {"rmse_ratio": round(mean, 3)}
+    ok = mean <= CANARY_XS_BRIER_MEAN and worst <= CANARY_XS_BRIER_MAX
+    return ok, {"excess_brier": round(mean, 4), "excess_max": round(worst, 4)}
+
+
 def tractable(meta):
     """Cap combinatorics so forced cat_combinations arms can't explode."""
     if meta["n_cat"] >= 2 and meta["cat_fraction"] >= 1.0:

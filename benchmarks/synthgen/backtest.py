@@ -3,14 +3,15 @@
 Runs the screen suite baseline + one arm per known-outcome lever, sequentially
 (one benchmark at a time), then scores sign agreement. The suite earns its
 place in the /experiment protocol only if >= 7/9 arms agree AND the
-cat_combinations canary slice (saturated & cats) is not positive.
+cat_combinations canary slice (suites.CANARIES & cats -- freeze-verified at
+ceiling) is non-empty and not positive.
 
 Usage:
   python benchmarks/synthgen/backtest.py                 # run everything
   python benchmarks/synthgen/backtest.py --arms 1 4 9    # subset
   python benchmarks/synthgen/backtest.py --score-only    # re-score existing JSONs
 
-Each run saves to benchmarks/results/synv1-<arm>.txt/.json (kept out of git).
+Each run saves to benchmarks/results/synv2-<arm>.txt/.json (kept out of git).
 All models run in every arm (user decision 2026-07-14); verdicts read
 ChimeraBoost records only via the --model filter.
 """
@@ -25,6 +26,9 @@ import numpy as np
 
 _BENCH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _BENCH)
+
+from synthgen.suites import CANARIES  # noqa: E402
+
 RESULTS = os.path.join(_BENCH, "results")
 EPS = 1e-9
 
@@ -61,7 +65,7 @@ ARMS = [
 
 
 def _run(name, extra, seeds, suite, jobs):
-    out = os.path.join(RESULTS, f"synv1-{name}.txt")
+    out = os.path.join(RESULTS, f"synv2-{name}.txt")
     if os.path.exists(out.replace(".txt", ".json")):
         print(f"[{name}] exists, skipping run", flush=True)
         return
@@ -97,13 +101,13 @@ def _slice_wl(deltas, metas, pred):
 
 
 def score(arm_names):
-    base_path = os.path.join(RESULTS, "synv1-baseline.json")
+    base_path = os.path.join(RESULTS, "synv2-baseline.json")
     base, metas = _per_dataset(base_path)
     agree, results = 0, []
     for num, name, extra, kind, why in ARMS:
         if name not in arm_names:
             continue
-        path = os.path.join(RESULTS, f"synv1-{name}.json")
+        path = os.path.join(RESULTS, f"synv2-{name}.json")
         if not os.path.exists(path):
             results.append((num, name, kind, "MISSING", False, ""))
             continue
@@ -123,6 +127,12 @@ def score(arm_names):
                 ds: v for ds, v in deltas.items()
                 if not (metas[ds]["synth"]["saturated"]
                         and metas[ds]["synth"].get("rule_kind") == "cat_cross")}
+        if name in ("depth8", "depth4", "lr03"):
+            # capacity/lr arms are judged on ordinary datasets only: saturated
+            # sets reward LOW capacity by design (v2 fix for the v1 depth4
+            # disagree, whose "wins" were concentrated on saturated cell-rules)
+            deltas_judge = {ds: v for ds, v in deltas.items()
+                           if not metas[ds]["synth"]["saturated"]}
         d = np.array(list(deltas_judge.values()))
         w, l = int((d > EPS).sum()), int((d < -EPS).sum())
         mean = float(d.mean())
@@ -150,20 +160,22 @@ def score(arm_names):
                 lambda s: s["task"] != "regression" and s["n"] >= 2000)
             note += f" | large-n {bmean:+.3%}"  # registered ~neutral; watch it
         if name == "catcombo":
-            # canary = saturated datasets whose deterministic rule the baseline
-            # provably learns to the ceiling (axis_cells; the rule columns are
-            # numeric) AND that carry categorical columns for combos to chew on.
-            # cat_cross-rule saturated sets are genuinely-hard cat interactions
-            # (car-like) and belong to the "+" slice instead, not the canary.
+            # canary = saturated & cat-bearing & VERIFIED at ceiling at freeze
+            # time (suites.CANARIES, the earned status -- v2 replaces the v1
+            # rule_kind reconstruction). At-ceiling + cats: combos can only
+            # inject variance, so the slice must not be positive.
             cm, cn = _slice_mean(deltas, metas,
-                                 lambda s: s["saturated"] and s["n_cat"] > 0
-                                 and s.get("rule_kind") == "axis_cells")
+                                 lambda s: s["recipe_id"] in CANARIES
+                                 and s["n_cat"] > 0)
             canary_ok = cn == 0 or cm <= EPS
             note += f" | canary {cm:+.3%}@{cn} {'OK' if canary_ok else 'FAIL'}"
-            ok = ok and canary_ok
+            ok = ok and canary_ok and cn > 0
+            # unverified cat_cross saturated sets are genuinely-hard cat
+            # interactions (car-like): the "+" slice where combos SHOULD help
             pm, pn = _slice_mean(deltas, metas,
                                  lambda s: s["saturated"]
-                                 and s.get("rule_kind") == "cat_cross")
+                                 and s.get("rule_kind") == "cat_cross"
+                                 and s["recipe_id"] not in CANARIES)
             note += f" | car-analog {pm:+.3%}@{pn}"
             ok = ok and (pn == 0 or pm > 0)
         if name == "crossfeat_off":

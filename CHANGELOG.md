@@ -25,6 +25,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   data, +27% on the car-analog cat-interaction sets). Known v1 biases queued
   for v2: targets slightly shallow (depth-4 arm disagrees), no entity-effect
   categoricals, no cat-bearing verified-at-ceiling canaries in the screen.
+  **v2 (2026-07-15, re-frozen as `syn:v2`, smoke 6 / screen 136 / full 211):**
+  deeper interaction prior and wider in-degree; ~40% of categorical columns
+  are latent *entities* (Zipf-frequency levels with per-level target effects
+  and singleton rare levels — the mechanism behind ordered target statistics;
+  the CatBoost high-card realism check flipped to PASS, winrate 0.71 vs 0.60);
+  screen n-mix stratified (n<2000 share ≤ 35%); canary status *earned* by a
+  freeze-time at-ceiling fit check across the harness's 3 seed-splits
+  (`suites.CANARIES`; the loose single-seed criterion admitted sets whose
+  residual headroom forced cat_combinations then captured — tightening cut
+  the list 18 → 8). Gate re-passed 7/9 with the canary slice exactly flat;
+  depth4 flipped from its v1 wrong-sign win to a mean-negative not-win.
 - **`cross_features` (default `None` = on where applicable):
   validation-selected numeric interaction columns.** For RMSE regression and
   binary classification with ≥ 2000 rows and ≥ 2 numeric features, the

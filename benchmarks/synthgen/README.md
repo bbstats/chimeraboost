@@ -28,21 +28,35 @@ results, or metadata). Sealed holdout stays sealed.
   N(0, σ) (floor = σ); classification = softmax of distances to class
   references, y sampled from the true p (floor = its sum-form Brier, the
   harness convention).
-- ~10% of ids are **saturated canaries** (kr-vs-kp analogs): y is a
-  deterministic cell rule over 2–4 final columns (cat-cross lookup or
-  axis-aligned cells), floor 0, baseline fits near the ceiling — a flag that
-  "wins" there is injecting variance.
+- **Entity categoricals (v2):** ~40% of cat columns are latent entities, not
+  discretized views — Zipf-ish level frequencies (levels centered ≥8, ≤64),
+  per-level effect ~N(0, σₑ), σₑ ~ loguniform(0.3, 1.0), injected into the
+  target readout before noise (floors stay exact); the observed column is the
+  label string only, plus a few singleton rare levels (the unseen-at-train
+  stress ordered target statistics exist for).
+- ~13% of ids are **saturated sets** (kr-vs-kp analogs): y is a deterministic
+  cell rule over 2–4 final columns (cat-cross lookup or axis-aligned cells),
+  floor 0. Canary status is **earned, not assumed** (v2): freeze fits the
+  default baseline on every saturated candidate across the harness's own 3
+  seed-splits and only ids verified at the ceiling (mean excess Brier ≤ 0.005,
+  worst seed ≤ 0.01 / mean RMSE ≤ 1.1σ) enter `suites.CANARIES` — a
+  flag that "wins" there is injecting variance. Unverified cat-cross sets are
+  genuinely-hard cat interactions (car analogs), scored as their own slice.
 - Freeze-time filters (TabICLv2): degeneracy, ExtraTrees-learnability,
-  cat-combination tractability. ~20% of candidates rejected.
+  cat-combination tractability. ~21% of candidates rejected. The screen's
+  n-mix is stratified (n<2000 share capped at 35%) so greedy small-n packing
+  can't skew the suite tiny.
 
 ## Determinism & versioning
 
 Content is a pure function of (VERSION, id) via `SeedSequence([VERSION_SEED,
 id])` with per-stage/per-node child streams; the harness seed only moves the
 train/test split, and builders ignore `--scale`. Keys carry the version
-(`syn:v1/031`) so a generator change can never silently pair against old data
+(`syn:v2/031`) so a generator change can never silently pair against old data
 in `compare_runs.py`. Golden hashes (`tests/golden_synthgen.json`) trip on
-numpy RNG stream drift → bump VERSION, re-freeze, never re-pin.
+numpy RNG stream drift → bump VERSION, re-freeze, never re-pin. Canary ids
+live in `suites.CANARIES` (freeze-time knowledge; meta stays a pure function
+of the key).
 
 ## Usage
 
@@ -55,18 +69,36 @@ python benchmarks/synth_report.py RUN.json              # excess-vs-floor view
 python benchmarks/synth_report.py RUN.json --realism    # cross-model checks
 ```
 
-Suites (frozen 2026-07-14, `suites.py`): smoke 6 sets (~3 min), screen 182
-sets / 401K rows (~15 min wall, all models, jobs 5), full 242 sets / 1.63M
-rows (~45–60 min). smoke ⊂ screen ⊂ full, so pairing stays valid across tiers.
+Suites (v2, frozen 2026-07-14, `suites.py`): smoke 6 sets (~3 min), screen
+136 sets / 401K rows (~15 min wall measured, all models, jobs 5; CatBoost is
+50–70× ChimeraBoost on synthetic targets and dominates the wall clock — arms
+that lengthen training, e.g. patience 300, run ~50 min), full 211 sets /
+1.61M rows (~1 h). smoke ⊂ screen ⊂ full, so pairing stays valid across
+tiers.
 
 ## Validation (adoption gate)
 
 `backtest.py` re-runs the screen with one known-outcome lever flipped per arm
 (cross_features/linear-leaves ablations, cat_combinations, patience, ordered
 boosting, min_child_weight, depth×2, lr) and scores sign agreement against the
-project ledger. Gate: ≥7/9 agreement AND the canary slice not positive.
-Failures re-weight the meta-distribution into VERSION+1. Suite verdicts never
-ship anything alone — Grinsztajn remains the decision suite, OpenML the gate.
+project ledger. Capacity/lr arms (depth4/depth8/lr03) are judged excluding
+saturated sets, which reward low capacity by design. Gate: ≥7/9 agreement AND
+the canary slice (CANARIES & cats) non-empty and not positive. Failures
+re-weight the meta-distribution into VERSION+1. Suite verdicts never ship
+anything alone — Grinsztajn remains the decision suite, OpenML the gate.
+
+**v2 verdict (2026-07-15): PASS, 7/9 arms + canary clean; all three V2.md
+acceptance lines met.** depth4 flipped from v1's wrong-sign win to a
+mean-negative not-win (W61-L57, −0.11%, judged excluding saturated); the
+high-card realism CHECK now passes (CatBoost>LGBM winrate 0.71 on card>8 vs
+0.60 numeric — v1 was inverted, so the entity-cat mechanism closed the gap it
+targeted); the canary slice is non-empty and exactly flat (+0.000% @ 3).
+Canary lesson: at-ceiling must be verified under the benchmark's own 3-seed
+protocol — a single-seed check admitted three cat_cross sets whose residual
+multi-seed headroom (excess 0.009–0.025) forced cat_combinations then
+captured. Disagrees: depth4 (near-miss above) and mcw1 (small-n clf slice
+W5-L5 +0.41% @ 10 sets — the slice shrank under the n-mix cap; v3 watch
+item). The v1 mcw large-n watch item improved +0.22% → +0.08%.
 
 **v1 verdict (2026-07-14): PASS, 8/9 arms.** Highlights: `crossfeat_off`
 −0.94% overall, **−3.30% on the pre-registered interaction-depth≥2 numeric
