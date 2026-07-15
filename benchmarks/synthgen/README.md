@@ -37,8 +37,9 @@ results, or metadata). Sealed holdout stays sealed.
 - ~13% of ids are **saturated sets** (kr-vs-kp analogs): y is a deterministic
   cell rule over 2–4 final columns (cat-cross lookup or axis-aligned cells),
   floor 0. Canary status is **earned, not assumed** (v2): freeze fits the
-  default baseline on every saturated candidate and only ids verified at the
-  ceiling (excess Brier ≤ 0.02 / RMSE ≤ 1.1σ) enter `suites.CANARIES` — a
+  default baseline on every saturated candidate across the harness's own 3
+  seed-splits and only ids verified at the ceiling (mean excess Brier ≤ 0.005,
+  worst seed ≤ 0.01 / mean RMSE ≤ 1.1σ) enter `suites.CANARIES` — a
   flag that "wins" there is injecting variance. Unverified cat-cross sets are
   genuinely-hard cat interactions (car analogs), scored as their own slice.
 - Freeze-time filters (TabICLv2): degeneracy, ExtraTrees-learnability,

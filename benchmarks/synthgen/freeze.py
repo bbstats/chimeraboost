@@ -211,15 +211,44 @@ def select(records, budget_screen, budget_full):
     print(json.dumps(goldens, indent=2), flush=True)
 
 
+def verify_canaries():
+    """Re-verify canary status over the ALREADY-FROZEN suites (no membership
+    change): re-runs filters.at_ceiling on every saturated frozen id and
+    prints the CANARIES literal. Use after tightening the verification
+    criteria -- canary status is freeze-time knowledge, not dataset content,
+    so run JSONs stay valid."""
+    from synthgen.suites import SUITES
+    out = []
+    for did in sorted(set(SUITES["full"])):
+        if not synthgen.sample_recipe(did).saturated:
+            continue
+        key = synthgen.key_for(did)
+        X, y, cat, task, meta = synthgen.build_dataset(key)
+        can, detail = filters.at_ceiling(X, y, cat, task, meta)
+        print(f"  id {did}: canary={can} cats={meta['n_cat']} "
+              f"rule={meta.get('rule_kind')} {detail}", flush=True)
+        if can:
+            out.append(did)
+        synthgen.build_dataset.cache_clear()
+    lit = ("{" + ", ".join(map(str, out)) + "}") if out else "set()"
+    print(f"\n# ---- paste into suites.py ----\nCANARIES = {lit}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--count", type=int, default=400)
     ap.add_argument("--scan-only", action="store_true")
+    ap.add_argument("--canaries-only", action="store_true",
+                    help="re-verify CANARIES over the frozen suites (no "
+                         "membership change) and print the literal")
     ap.add_argument("--row-budget-screen", type=int, default=400_000)
     ap.add_argument("--row-budget-full", type=int, default=1_600_000)
     args = ap.parse_args()
 
+    if args.canaries_only:
+        verify_canaries()
+        return
     print(f"scanning ids {args.start}..{args.start + args.count - 1} "
           f"(generator {synthgen.VERSION})", flush=True)
     records = scan(args.start, args.count)
