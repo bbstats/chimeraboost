@@ -1150,7 +1150,12 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>cross_features</code></td>
 <td><code>None</code> → auto</td>
-<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units); up to ~2–3× fit when the refit runs. Auto applies to RMSE regression and binary classification with ≥ 2000 rows and ≥ 2 numeric features, and skips everything else (multiclass included). <code>False</code> turns it off; explicit <code>True</code> raises for multiclass.</td>
+<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units). Auto applies to RMSE regression and binary classification with ≥ 2000 rows and ≥ 2 numeric features, and skips everything else (multiclass included). <code>False</code> turns it off; explicit <code>True</code> raises for multiclass.</td>
+</tr>
+<tr>
+<td><code>selection_rounds</code></td>
+<td><code>100</code></td>
+<td>Round budget for the internal selection fits (the linear-leaves double fit and the pre-cross base fit). Candidates are judged on their best validation loss within the budget; only the winner continues to full early stopping (~1.5× faster fits). An audition that early-stops before the budget already is the full fit. <code>None</code> runs every variant to full early stopping; the audition can occasionally pick a different variant than full runs would.</td>
 </tr>
 </tbody>
 </table>
