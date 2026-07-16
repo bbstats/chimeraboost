@@ -740,6 +740,20 @@ def _stop_after(k):
     return cb
 
 
+def _stop_if_behind(k, target_best):
+    """Fit callback killing a challenger at round k unless its best validation
+    loss has beaten ``target_best`` by then (the raced-selection rule: the
+    winner at the shared budget continues, the loser stops). A best-so-far
+    only improves, so a challenger ahead at k is never stopped later."""
+    state = {"best": np.inf}
+
+    def cb(iteration, train_loss, val_loss, model):
+        if val_loss is not None and val_loss < state["best"]:
+            state["best"] = val_loss
+        return iteration + 1 >= k and not state["best"] < target_best
+    return cb
+
+
 def _add_callback(callbacks, extra):
     """Compose the user callbacks argument (None, a callable, or a sequence)
     with one internal callback; extra=None returns callbacks unchanged."""
@@ -1090,9 +1104,21 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                             cat_features, X.shape[1])
                      if cross_ok else [])
             if pairs:
-                aug = _fit_booster(base_linear, cross_pairs=pairs)
-                self.cross_features_selected_ = \
-                    _best_val(aug) < _best_val(audition)
+                # Symmetric race at the shared budget (the rule the step-0
+                # race sim validated): both candidates are judged on their
+                # best val loss within the first selection_rounds; a trailing
+                # augmented fit is killed at the budget, a leading one
+                # continues to its own full early stop. Comparing the
+                # augmented fit's FULL best against a capped audition would
+                # bias the selection toward it (its extra rounds are not
+                # evidence the audition couldn't have matched).
+                base_best = _best_val(audition)
+                aug = _fit_booster(base_linear, cross_pairs=pairs,
+                                   stop=_stop_if_behind(self.selection_rounds,
+                                                        base_best))
+                self.cross_features_selected_ = (
+                    min(aug.valid_history_[:self.selection_rounds])
+                    < base_best) if aug.valid_history_ else False
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
@@ -1546,9 +1572,25 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
                 aug = GradientBoosting(loss="Logloss", cross_pairs=pairs, **kw)
-                aug.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight, callbacks=callbacks)
-                self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
+                if fast:
+                    # Symmetric race at the shared budget (see the regressor):
+                    # judge both candidates on their first selection_rounds;
+                    # kill a trailing augmented fit at the budget.
+                    base_best = _best_val(self.model_)
+                    aug.fit(X, y01, cat_features=cat_features,
+                            eval_set=eval_set, sample_weight=sample_weight,
+                            callbacks=_add_callback(
+                                callbacks, _stop_if_behind(
+                                    self.selection_rounds, base_best)))
+                    self.cross_features_selected_ = (
+                        min(aug.valid_history_[:self.selection_rounds])
+                        < base_best) if aug.valid_history_ else False
+                else:
+                    aug.fit(X, y01, cat_features=cat_features,
+                            eval_set=eval_set, sample_weight=sample_weight,
+                            callbacks=callbacks)
+                    self.cross_features_selected_ = \
+                        _best_val(aug) < _best_val(self.model_)
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
