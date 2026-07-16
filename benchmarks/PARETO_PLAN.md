@@ -164,6 +164,40 @@ Target: default regression ~3 fits -> ~1.3-1.5 effective; binary ~2 -> ~1.2.
 Plausible frontier move: 7.9x -> ~4-5x at the same 99.4 blended. That strictly
 dominates today's point and re-widens the moat over CatBoost on the chart.
 
+### Step 2 RESULTS (2026-07-16) — implemented, gated, AWAITING NATHAN'S SHIP CALL
+
+Implemented as `selection_rounds` (opt-in, default None = old behavior; harness
+`--chimera-selection-rounds`). Final design after two protocol-driven fixes:
+auditions capped at k=100; an audition that early-stops before the cap is
+reused as the full fit (no refit); the cross decision is a SYMMETRIC race
+(both candidates judged on their first k rounds; trailing aug killed at k) —
+the asymmetric full-vs-capped comparison first implemented let a worse aug
+model steal selections (caught by the OpenML gate on synthetic_reg, −12.8%).
+
+Evidence (all at k=100, 3 seeds, controls tied canonical baselines 59/59+14/14):
+- Synth screen: 22W/9L/180T, +0.010% — accuracy flat, guards bit-identical.
+- Grinsztajn: fit **351→235 s = 1.50x**; headline **Speed 7.9x→6.0x at
+  blended ~99.4** (RMSE 99.5→99.4, F1 99.8 flat, Brier 99.2→99.1, Calib
+  better). Sign test 8W/22L/29T mean −0.087% — loss-leaning, all deltas small
+  (worst real: cpu_act −1.44%).
+- HC: fit 1.11x, slowdown 2.9x→2.4x, 3W/1L/10T −0.068%, columns flat ±0.2pp.
+- OpenML gate (**burned pre-fix**): 4W/6L/26T mean −0.396%, dominated by the
+  since-fixed compound bug case. Post-fix the same set still loses ~−10.6% to
+  the residual ll-audition mispick, so a re-run would still be negative-mean
+  on the strict reading.
+
+Known residual (characterized, no cheap fix): the const-vs-linear race
+genuinely crosses late on ~1/3 of regression selections; no k=100 margin rule
+separates them (measured on step-0 curves — overlap is total), and k_ll=500
+fixes fidelity but collapses the speedup to a projected 1.11x. Real-data cost
+~0.5–1.5%/set on the susceptible minority; adversarial pure-linear synthetics
+can lose ~10%.
+
+Nathan's decision points: (a) ship opt-in only (protocol-clean; headline
+unchanged), (b) flip default to 100 — requires waiving the strict
+non-negative-gate rule (gate mean excl. the sklearn linear toy ≈ −0.06% =
+noise; 26/36 exact ties) and accepting the ll-mispick tail, (c) kill.
+
 ### Step 3 — kernel profiling (opportunistic, bit-identical)
 
 The 2026-07-13 predict work (row-major kernels) took predict to ~LightGBM
@@ -209,8 +243,8 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
 ## Acceptance
 
 - [x] Step 0 attribution table committed here (time split + selection flip rates) — 2026-07-16
-- [ ] Step 1 reuse shipped bit-identical (goldens green) with measured fit-time wins
-- [ ] Step 2 raced selection through /experiment (both suites + gate) or killed with data
+- [ ] Step 1 reuse shipped bit-identical (goldens green) with measured fit-time wins — DEMOTED by step 0 (3–17% upside only)
+- [x] Step 2 raced selection through /experiment (both suites + gate) — 2026-07-16, implemented opt-in, evidence in "Step 2 RESULTS"; default flip = Nathan's call
 - [ ] Pareto chart refreshed; frontier point dominates 99.4 @ 7.9x or program verdict says why not
 - [ ] M1 multiclass cross_features screened + decided on hc, or explicitly deferred
 - [ ] Memory + CLAUDE.md updated with verdicts (wins AND kills)
