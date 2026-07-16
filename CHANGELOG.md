@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.15.0] - 2026-07-16
 ### Added
 - **`selection_rounds` (default `100`): raced internal selections, ~1.5x
   faster fits at the same accuracy.** The constant/linear-leaf variants and
