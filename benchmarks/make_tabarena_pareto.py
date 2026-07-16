@@ -28,23 +28,22 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-07-14 (51-task run, 0/51 fail) after cross_features shipped as the
-# ChimeraBoost default (validation-selected numeric interaction columns; see CHANGELOG).
+# Refreshed 2026-07-16 (51-task run, 0/51 fail) after selection_rounds=100 shipped as the
+# ChimeraBoost default (raced selection auditions, ~1.5x faster fits; see CHANGELOG).
 # Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
-# HONEST READ: ChimeraBoost Elo 1240 -> 1229 -- a small DROP, but well inside the +-60/65
-# CI band (statistically flat/noise), despite decisive Grinsztajn (+1.5%, 51W/8L) and
-# OpenML (+0.4%) gains on the dev pipeline. Per the sealed-holdout vow this is reported
-# as-is, never chased or explained via per-task digging. Train time DID move as expected
-# (0.65 -> 0.88 s/1K): cross_features' validation-selected refit costs ~2x fit when it
-# engages, and TabArena's larger Lite tasks cross the >=2000-row/RMSE-or-binary gate more
-# often than the median task. Predict time is flat (crosses are plain extra numeric columns).
+# HONEST READ: ChimeraBoost Elo 1229 -> 1256 (+27) -- inside the +-54/57 CI band, i.e.
+# statistically flat, reported as-is per the sealed-holdout vow (no per-task digging).
+# The meaningful check passed: accuracy did NOT drop after the fit-speed change. Median
+# train time 0.88 -> 0.84 s/1K only ticks down because Lite's MEDIAN task is small and
+# early-stops inside the 100-round audition budget (the cap saves nothing there); the
+# 1.5x fit-time win expresses on larger tasks (Grinsztajn suite 351->235 s). Predict flat.
 DATA = {
     "CatBoost":     (1347, 43, 43, 6.70, 0.088),
-    "ChimeraBoost": (1229, 60, 65, 0.88, 0.131),
+    "ChimeraBoost": (1256, 54, 57, 0.84, 0.107),
     "XGBoost":      (1188, 55, 54, 2.06, 0.122),
-    "LightGBM":     (1156, 50, 46, 2.20, 0.171),
-    "RandomForest": (1000, 57, 58, 0.43, 0.053),
-    "Linear":       (812, 80, 109, 1.23, 0.115),
+    "LightGBM":     (1155, 50, 46, 2.20, 0.171),
+    "RandomForest": (1000, 58, 58, 0.43, 0.053),
+    "Linear":       (813, 81, 109, 1.23, 0.115),
 }
 
 
