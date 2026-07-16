@@ -91,6 +91,26 @@ def test_binary_base_refit_full_when_cross_loses():
         assert segments[-1] > 25
 
 
+def test_uncapped_auditions_bit_identical_to_full_selection():
+    # An audition that never hits the cap early-stops on its own, so it IS the
+    # full fit; with the cap at the whole budget the fast path must reproduce
+    # the default selection exactly, cross features included.
+    Xr, yr = _reg_linear()
+    fast_r = ChimeraBoostRegressor(selection_rounds=2000,
+                                   random_state=0).fit(Xr, yr)
+    full_r = ChimeraBoostRegressor(random_state=0).fit(Xr, yr)
+    np.testing.assert_array_equal(fast_r.predict(Xr), full_r.predict(Xr))
+    assert bool(fast_r.cross_features_selected_) \
+        == bool(full_r.cross_features_selected_)
+
+    Xb, yb = _bin_interaction()
+    fast_b = ChimeraBoostClassifier(selection_rounds=2000,
+                                    random_state=0).fit(Xb, yb)
+    full_b = ChimeraBoostClassifier(random_state=0).fit(Xb, yb)
+    np.testing.assert_array_equal(fast_b.predict_proba(Xb),
+                                  full_b.predict_proba(Xb))
+
+
 def test_multiclass_is_unaffected():
     rng = np.random.default_rng(0)
     X = rng.normal(size=(1500, 5))

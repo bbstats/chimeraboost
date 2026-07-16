@@ -1082,6 +1082,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             else:
                 base_linear = bool(ll)
                 audition = _fit_booster(base_linear, stop=stop)
+            # An audition that early-stopped on its own BEFORE the cap already
+            # IS the full fit (same config/seed/curve) -- refitting it would
+            # only re-pay for the identical model. Refit only when truncated.
+            capped = len(audition.valid_history_) >= self.selection_rounds
             pairs = (_cross_candidate_pairs(audition.feature_importances_,
                                             cat_features, X.shape[1])
                      if cross_ok else [])
@@ -1093,9 +1097,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     self.model_ = aug
                     self.cross_pairs_ = pairs
                 else:
-                    self.model_ = _fit_booster(base_linear)
+                    self.model_ = (_fit_booster(base_linear) if capped
+                                   else audition)
             else:
-                self.model_ = _fit_booster(base_linear)
+                self.model_ = (_fit_booster(base_linear) if capped
+                               else audition)
         elif select_ll:
             const = _fit_booster(False)
             lin = _fit_booster(True)
@@ -1546,9 +1552,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
-                elif fast:
-                    # The incumbent is a capped audition; give the winning
-                    # base variant its full fit.
+                elif fast and len(self.model_.valid_history_) >= self.selection_rounds:
+                    # The incumbent audition was actually truncated by the cap
+                    # (an audition that early-stopped on its own already IS the
+                    # full fit); give the winning base variant its full fit.
                     self.model_ = GradientBoosting(loss="Logloss", **kw)
                     self.model_.fit(X, y01, cat_features=cat_features,
                                     eval_set=eval_set,
