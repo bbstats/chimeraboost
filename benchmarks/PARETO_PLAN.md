@@ -49,6 +49,86 @@ dataset size on ~6 Grinsztajn sets + 3 hc sets:
 
 Deliverable: a table in this file; pre-registers which sub-lever runs first.
 
+### Step 0 RESULTS (2026-07-16)
+
+Measured: `python benchmarks/profile_fit.py --attribution --seeds 3 --out
+pareto-step0` (full records incl. per-variant val curves in
+`benchmarks/results/pareto-step0.{json,md}`, gitignored). Default estimator,
+same loaders/splits as the decision suites, warm JIT.
+
+Time split (secs are means over 3 seeds; phases are % of estimator fit):
+
+| dataset | task | n_train | fit_s | const/base | linear | cross | grow% | prep%* | other% |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| gr:reg_num/cpu_act | reg | 6144 | 0.8 | 0.2 | 0.2 | 0.3 | 82.9 | 5.5 | 11.6 |
+| gr:reg_num/diamonds | reg | 37500 | 1.9 | 0.5 | 0.4 | 0.9 | 86.9 | 4.4 | 8.7 |
+| gr:reg_cat/nyc-taxi | reg | 37500 | 5.5 | 1.4 | 1.2 | 2.9 | 92.1 | 1.0 | 6.9 |
+| gr:clf_num/MagicTelescope | bin | 10032 | 0.6 | 0.2 | — | 0.3 | 73.6 | 6.1 | 20.3 |
+| gr:clf_num/Higgs | bin | 37500 | 1.7 | 0.7 | — | 1.0 | 77.1 | 8.8 | 14.1 |
+| gr:clf_cat/road-safety | bin | 37500 | 2.6 | 1.2 | — | 1.4 | 83.7 | 2.9 | 13.4 |
+| hc:kick | bin | 54737 | 2.2 | 0.7 | — | 1.3 | 51.2 | 32.9 | 15.9 |
+| hc:wine-reviews | reg | 75000 | 2.0 | 1.0 | 1.0 | 0** | 66.6 | 21.2 | 12.2 |
+| hc:okcupid-stem | multi | 38091 | 1.8 | 1.7 | — | — | 48.6 | 18.6 | 32.8 |
+
+\* prep = ordered-TS encode + binning + cat-code mapping + val-set transform,
+summed across all variant fits. \** wine-reviews has 1 numeric column → no
+cross pairs. okcupid's other% is softmax grad/hess + per-round val eval.
+
+Rounds actually run per fit (min/mean/max over the panel): const 338/601/977,
+linear 220/391/608, cross 152/320/786, binary base 114/247/454, multiclass
+93/99/105.
+
+**Selection flip rates:** linear_leaves selected 8/12 regression fits;
+cross_features selected 20/21 eligible fits. The extra fits are not
+tie-breakers — the augmented model nearly always IS the shipped model, so
+"run every variant to full ES" mostly buys confirmation, not models.
+
+**Race preview** (offline, from the recorded val curves: would truncating both
+variants at k rounds pick the same winner as today's full fits?):
+
+| selection | k=50 | k=100 | k=200 | k=500 |
+|---|---|---|---|---|
+| linear-vs-const | 8/12 (max regret 0.51%) | 8/12 (0.51%) | 8/12 (0.51%) | 12/12 |
+| cross-vs-plain | 20/21 (4.25%) | 21/21 | 21/21 | 21/21 |
+
+Regret = full-run best-val loss conceded on a mispick, % of the better
+variant's best val loss (pre-cross for the ll stage; suite impact TBD).
+
+**Projected fit speedup** (from the recorded per-round costs; assumes cost
+linear in rounds and truncated picks match today's — validated above):
+
+| design | k=100 | k=200 | k=500 |
+|---|--:|--:|--:|
+| fallback: all selection fits @k, cross full, refit plain winner only if cross loses | 1.38x | 1.20x | 0.99x |
+| race: kill loser @k, winner continues to its own ES | 1.27x | 1.16x | 1.04x |
+
+(Time-weighted panel totals; per-dataset fallback@k=100 ranges 1.28–1.69x on
+Grinsztajn, 1.00–1.40x on hc; multiclass untouched at 1.00x.)
+
+**Pre-registration (what the data says runs first):**
+
+1. **Step 2 goes first**, with the FALLBACK design at k≈100 rounds (5% of the
+   2000 budget), not the race design — the flipped 20/21 cross rate means the
+   fallback's "never run a plain variant to full ES unless cross loses"
+   exploits the structure harder (1.38x vs 1.27x projected). Known risks to
+   screen on synth tier 1 before /experiment: (a) cross pairs will now come
+   from a 100-round fit's feature_importances_ — measure pair overlap vs
+   full-fit pairs first; (b) the ll stage mispicks 4/12 at k=100 (≤0.51% val
+   regret pre-cross) — check it stays noise-level through the cross stage.
+2. **Step 1 (reuse) is demoted to opportunistic hygiene.** Measured redundant
+   prep across variant fits is ~3–6% of fit on Grinsztajn, ~10–17% on hc —
+   real but NOT "a large slice of the 2-3x" (that expectation is refuted:
+   73–92% of fit is tree growth, which is per-variant, not shared state).
+3. **Step 3 (grow kernel) is the only lever bigger than selection** — after
+   step 2 lands, profile inside build_oblivious_tree.
+4. Track 2 costing note: the multiclass base fit is short (~100 rounds) but
+   ~33% of its time is non-kernel overhead; M1's extra cross fit under the
+   k=100 selector adds roughly one short fit, not a 2x.
+
+Shape check from the plan: regression = 3 full boosting runs and binary = 2
+confirmed; but per-tree cost is ~2-3x HIGHER for binary (3.6 vs 1.2–1.7
+ms/tree), so regression wall time is NOT 3x binary — the two roughly cancel.
+
 ### Step 1 — zero-risk reuse (bit-identical, ship on goldens + timing)
 
 The three fits rebuild shared state from scratch. Reuse across fits within one
@@ -128,7 +208,7 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
 
 ## Acceptance
 
-- [ ] Step 0 attribution table committed here (time split + selection flip rates)
+- [x] Step 0 attribution table committed here (time split + selection flip rates) — 2026-07-16
 - [ ] Step 1 reuse shipped bit-identical (goldens green) with measured fit-time wins
 - [ ] Step 2 raced selection through /experiment (both suites + gate) or killed with data
 - [ ] Pareto chart refreshed; frontier point dominates 99.4 @ 7.9x or program verdict says why not
