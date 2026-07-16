@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **`selection_rounds` (default `100`): raced internal selections, ~1.5x
+  faster fits at the same accuracy.** The constant/linear-leaf variants and
+  the pre-cross base fit now run as capped auditions instead of to full early
+  stopping; candidates are judged on their best validation loss within the
+  shared budget, only the winner continues, and an audition that early-stops
+  before the cap is reused as the finished fit (that path is bit-identical to
+  the old behavior). Grinsztajn suite fit time 351→235 s (accuracy columns
+  flat: RMSE 99.4/F1 99.8/Brier 99.1 vs best, calibration slightly better);
+  headline slowdown 7.9x→6.0x at unchanged blended strength; high-card suite
+  1.11x faster, columns flat. Trade-off (measured, accepted): on a minority of
+  regression datasets the 100-round audition can pick the leaf variant a full
+  run would have rejected, typically costing 0.5–1.5% there (cpu_act −1.4% is
+  the worst observed on real data). `selection_rounds=None` restores the old
+  run-everything-to-full-early-stopping behavior.
 - **SynthGen decision suite (benchmarks only, no library change):**
   `benchmarks/synthgen/` generates unlimited SCM-prior synthetic datasets
   (TabPFN/TabICLv2/Mitra recipe family, numpy-only, deterministic per key)

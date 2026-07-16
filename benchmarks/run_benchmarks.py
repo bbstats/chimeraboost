@@ -626,7 +626,7 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  ordered_boosting=None, depth=6, subsample=1.0, mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
-                 cat_smoothing=None):
+                 cat_smoothing=None, selection_rounds=None):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -639,6 +639,12 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         kw["min_child_weight"] = mcw
     if cat_smoothing is not None:
         kw["cat_smoothing"] = cat_smoothing
+    # None = class default (now 100). "full" = explicit selection_rounds=None
+    # (every variant to full early stopping -- the pre-0.15 ablation arm).
+    if selection_rounds == "full":
+        kw["selection_rounds"] = None
+    elif selection_rounds is not None:
+        kw["selection_rounds"] = selection_rounds
     # None = use the class auto-default (on for all-categorical data); only force
     # it on when --chimera-cat-combinations is passed.
     if cat_combinations:
@@ -1126,6 +1132,14 @@ def main():
                     dest="no_linear_leaves",
                     help="force linear_leaves=False for both classes (ablation "
                          "arm vs the class defaults).")
+    ap.add_argument("--chimera-selection-rounds", type=int, default=None,
+                    dest="selection_rounds",
+                    help="cap the internal selection fits at this many rounds; "
+                         "default None = class default (100).")
+    ap.add_argument("--chimera-full-selection", action="store_true",
+                    dest="full_selection",
+                    help="selection_rounds=None: every selection variant runs "
+                         "to full early stopping (pre-0.15 ablation arm).")
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
@@ -1251,7 +1265,9 @@ def main():
                              else args.linear_leaves),
                        linear_lambda=args.linear_lambda,
                        cross_features="off" if args.no_cross_features
-                       else args.cross_features)
+                       else args.cross_features,
+                       selection_rounds="full" if args.full_selection
+                       else args.selection_rounds)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.

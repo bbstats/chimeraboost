@@ -40,7 +40,7 @@ def _fit_temperature(raw, y, multiclass):
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "cat_features",
-                           "cross_features"})
+                           "cross_features", "selection_rounds"})
 
 
 def _validate_hyperparams(estimator):
@@ -98,6 +98,7 @@ def _validate_hyperparams(estimator):
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
     _in_range("early_stopping_rounds", 1, np.inf, allow_none=True)
+    _in_range("selection_rounds", 1, np.inf, allow_none=True)
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
@@ -732,6 +733,37 @@ def _best_val(booster):
     return min(booster.valid_history_) if booster.valid_history_ else np.inf
 
 
+def _stop_after(k):
+    """Fit callback halting boosting after k rounds (selection auditions)."""
+    def cb(iteration, train_loss, val_loss, model):
+        return iteration + 1 >= k
+    return cb
+
+
+def _stop_if_behind(k, target_best):
+    """Fit callback killing a challenger at round k unless its best validation
+    loss has beaten ``target_best`` by then (the raced-selection rule: the
+    winner at the shared budget continues, the loser stops). A best-so-far
+    only improves, so a challenger ahead at k is never stopped later."""
+    state = {"best": np.inf}
+
+    def cb(iteration, train_loss, val_loss, model):
+        if val_loss is not None and val_loss < state["best"]:
+            state["best"] = val_loss
+        return iteration + 1 >= k and not state["best"] < target_best
+    return cb
+
+
+def _add_callback(callbacks, extra):
+    """Compose the user callbacks argument (None, a callable, or a sequence)
+    with one internal callback; extra=None returns callbacks unchanged."""
+    if extra is None:
+        return callbacks
+    base = ([] if callbacks is None else list(callbacks)
+            if isinstance(callbacks, (list, tuple)) else [callbacks])
+    return base + [extra]
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -815,6 +847,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         turns it off. Oblivious trees can only staircase a numeric interaction
         such as ``x_i < x_j``; a cross column makes it a single split. Costs
         up to ~2x fit time when the refit runs.
+    selection_rounds : int or None, default 100
+        Round budget for the internal selection fits. The constant/linear-leaf
+        variants and the pre-cross base fit run at most this many rounds
+        (auditions, judged on their best validation loss within the budget);
+        the winning candidate continues to full early stopping, and the
+        audition winner is refit in full only when the cross-augmented model
+        loses or cross features do not apply. An audition that early-stops
+        before the budget is the full fit already (no extra cost). ``None``
+        runs every variant to full early stopping instead (the pre-0.15
+        behavior, ~1.5x slower fits); an audition can occasionally pick a
+        different variant than full fits would.
     early_stopping : bool, default True
         Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
@@ -862,6 +905,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
+                 selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -887,6 +931,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1016,17 +1061,76 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ll = kw.pop("linear_leaves")
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+        # Cross-features applicability, decidable before any fit: pair
+        # candidates exist iff there are >= 2 numeric columns.
+        n_cats = len(cat_features) if cat_features else 0
+        cross_ok = (self.cross_features is not False and self.loss == "RMSE"
+                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                    and X.shape[1] - n_cats >= 2)
 
-        def _fit_booster(linear, cross_pairs=None):
+        def _fit_booster(linear, cross_pairs=None, stop=None):
             b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                  linear_leaves=linear, cross_pairs=cross_pairs,
                                  **kw)
             b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                  sample_weight=sample_weight, callbacks=callbacks)
+                  sample_weight=sample_weight,
+                  callbacks=_add_callback(callbacks, stop))
             return b
 
         self.linear_leaves_selected_ = None
-        if select_ll:
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+        if self.selection_rounds is not None and (select_ll or cross_ok):
+            # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
+            # design): every selection fit runs as a short audition; the
+            # cross-augmented candidate -- which wins the full selection on
+            # the vast majority of datasets -- gets the one full fit, and the
+            # audition winner is refit in full only when the augmented model
+            # loses or cross features do not apply.
+            stop = _stop_after(self.selection_rounds)
+            if select_ll:
+                const = _fit_booster(False, stop=stop)
+                lin = _fit_booster(True, stop=stop)
+                # Tie goes to constant leaves, as in the full selection.
+                self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
+                audition = lin if self.linear_leaves_selected_ else const
+                base_linear = self.linear_leaves_selected_
+            else:
+                base_linear = bool(ll)
+                audition = _fit_booster(base_linear, stop=stop)
+            # An audition that early-stopped on its own BEFORE the cap already
+            # IS the full fit (same config/seed/curve) -- refitting it would
+            # only re-pay for the identical model. Refit only when truncated.
+            capped = len(audition.valid_history_) >= self.selection_rounds
+            pairs = (_cross_candidate_pairs(audition.feature_importances_,
+                                            cat_features, X.shape[1])
+                     if cross_ok else [])
+            if pairs:
+                # Symmetric race at the shared budget (the rule the step-0
+                # race sim validated): both candidates are judged on their
+                # best val loss within the first selection_rounds; a trailing
+                # augmented fit is killed at the budget, a leading one
+                # continues to its own full early stop. Comparing the
+                # augmented fit's FULL best against a capped audition would
+                # bias the selection toward it (its extra rounds are not
+                # evidence the audition couldn't have matched).
+                base_best = _best_val(audition)
+                aug = _fit_booster(base_linear, cross_pairs=pairs,
+                                   stop=_stop_if_behind(self.selection_rounds,
+                                                        base_best))
+                self.cross_features_selected_ = (
+                    min(aug.valid_history_[:self.selection_rounds])
+                    < base_best) if aug.valid_history_ else False
+                if self.cross_features_selected_:
+                    self.model_ = aug
+                    self.cross_pairs_ = pairs
+                else:
+                    self.model_ = (_fit_booster(base_linear) if capped
+                                   else audition)
+            else:
+                self.model_ = (_fit_booster(base_linear) if capped
+                               else audition)
+        elif select_ll:
             const = _fit_booster(False)
             lin = _fit_booster(True)
             # Each variant early-stops itself; compare the best validation loss
@@ -1046,10 +1150,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # interactions (benchmarks/probe_cross_features.py; Grinsztajn A/B
         # 51W/8L, mean +1.5%); selection dodges the variance cases. RMSE-only
         # (the probed loss). None (auto) and True behave the same here.
-        self.cross_features_selected_ = None
-        self.cross_pairs_ = None
-        if (self.cross_features is not False and self.loss == "RMSE"
-                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
+        # (Already handled above when a selection_rounds audition ran.)
+        if (self.selection_rounds is None and cross_ok):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
@@ -1218,6 +1320,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         >= 2 numeric features, and silently skips multiclass (unsupported).
         ``False`` turns it off; explicit ``True`` raises for multiclass.
         Costs up to ~2x fit time when the refit runs.
+    selection_rounds : int or None, default 100
+        Round budget for the pre-cross base fit when the cross-features refit
+        will run (binary only). The base fit is an audition capped at this
+        many rounds; the candidates are judged on their best validation loss
+        within the budget, the winner continues to full early stopping, and
+        the base is refit in full only if the augmented model loses after
+        being truncated by the cap. ``None`` runs the base fit to full early
+        stopping instead (the pre-0.15 behavior). Multiclass fits are
+        unaffected (no selection exists there yet).
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1260,6 +1371,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
+                 selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1283,6 +1395,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1434,9 +1547,21 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_Xv = eval_set[0]
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
                 eval_set = (cal_Xv, cal_y)
+            # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
+            # selection_rounds is set and the cross refit will run (pair
+            # candidates exist iff >= 2 numeric columns), the base fit is only
+            # an audition -- cap it; it is refit in full below only if the
+            # augmented model loses the selection.
+            n_cats = len(cat_features) if cat_features else 0
+            fast = (self.selection_rounds is not None
+                    and self.cross_features is not False
+                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                    and X.shape[1] - n_cats >= 2)
+            stop = _stop_after(self.selection_rounds) if fast else None
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight, callbacks=callbacks)
+                            sample_weight=sample_weight,
+                            callbacks=_add_callback(callbacks, stop))
 
         # Numeric cross features (default-on auto, binary only): refit with
         # difference/product columns for the top numeric feature pairs of the
@@ -1451,12 +1576,37 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
                 aug = GradientBoosting(loss="Logloss", cross_pairs=pairs, **kw)
-                aug.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight, callbacks=callbacks)
-                self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
+                if fast:
+                    # Symmetric race at the shared budget (see the regressor):
+                    # judge both candidates on their first selection_rounds;
+                    # kill a trailing augmented fit at the budget.
+                    base_best = _best_val(self.model_)
+                    aug.fit(X, y01, cat_features=cat_features,
+                            eval_set=eval_set, sample_weight=sample_weight,
+                            callbacks=_add_callback(
+                                callbacks, _stop_if_behind(
+                                    self.selection_rounds, base_best)))
+                    self.cross_features_selected_ = (
+                        min(aug.valid_history_[:self.selection_rounds])
+                        < base_best) if aug.valid_history_ else False
+                else:
+                    aug.fit(X, y01, cat_features=cat_features,
+                            eval_set=eval_set, sample_weight=sample_weight,
+                            callbacks=callbacks)
+                    self.cross_features_selected_ = \
+                        _best_val(aug) < _best_val(self.model_)
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
+                elif fast and len(self.model_.valid_history_) >= self.selection_rounds:
+                    # The incumbent audition was actually truncated by the cap
+                    # (an audition that early-stopped on its own already IS the
+                    # full fit); give the winning base variant its full fit.
+                    self.model_ = GradientBoosting(loss="Logloss", **kw)
+                    self.model_.fit(X, y01, cat_features=cat_features,
+                                    eval_set=eval_set,
+                                    sample_weight=sample_weight,
+                                    callbacks=callbacks)
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
