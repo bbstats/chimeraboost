@@ -164,7 +164,14 @@ Target: default regression ~3 fits -> ~1.3-1.5 effective; binary ~2 -> ~1.2.
 Plausible frontier move: 7.9x -> ~4-5x at the same 99.4 blended. That strictly
 dominates today's point and re-widens the moat over CatBoost on the chart.
 
-### Step 2 RESULTS (2026-07-16) — implemented, gated, AWAITING NATHAN'S SHIP CALL
+### Step 2 RESULTS (2026-07-16) — SHIPPED AS DEFAULT (Nathan's sign-off, same day)
+
+Nathan approved the default flip (selection_rounds=100), explicitly waiving
+the strict non-negative-gate rule (the burned gate's mean decomposes to one
+sklearn pure-linear toy + the since-fixed asymmetric-race bug) and accepting
+the ll-mispick tail. `selection_rounds=None` = old behavior; ablation arm
+`--chimera-full-selection`. pareto.png refreshed: **99.4 @ 6.0x**, every
+accuracy column #1, CatBoost dominated. Evidence below is the record.
 
 Implemented as `selection_rounds` (opt-in, default None = old behavior; harness
 `--chimera-selection-rounds`). Final design after two protocol-driven fixes:
@@ -244,7 +251,7 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
 
 - [x] Step 0 attribution table committed here (time split + selection flip rates) — 2026-07-16
 - [ ] Step 1 reuse shipped bit-identical (goldens green) with measured fit-time wins — DEMOTED by step 0 (3–17% upside only)
-- [x] Step 2 raced selection through /experiment (both suites + gate) — 2026-07-16, implemented opt-in, evidence in "Step 2 RESULTS"; default flip = Nathan's call
-- [ ] Pareto chart refreshed; frontier point dominates 99.4 @ 7.9x or program verdict says why not
+- [x] Step 2 raced selection through /experiment (both suites + gate) — 2026-07-16, SHIPPED as default (Nathan's sign-off); evidence in "Step 2 RESULTS"
+- [x] Pareto chart refreshed — 2026-07-16: **99.4 @ 6.0x strictly dominates 99.4 @ 7.9x**
 - [ ] M1 multiclass cross_features screened + decided on hc, or explicitly deferred
 - [ ] Memory + CLAUDE.md updated with verdicts (wins AND kills)
