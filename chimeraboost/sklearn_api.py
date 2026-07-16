@@ -40,7 +40,7 @@ def _fit_temperature(raw, y, multiclass):
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "cat_features",
-                           "cross_features"})
+                           "cross_features", "selection_rounds"})
 
 
 def _validate_hyperparams(estimator):
@@ -98,6 +98,7 @@ def _validate_hyperparams(estimator):
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
     _in_range("early_stopping_rounds", 1, np.inf, allow_none=True)
+    _in_range("selection_rounds", 1, np.inf, allow_none=True)
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
@@ -732,6 +733,23 @@ def _best_val(booster):
     return min(booster.valid_history_) if booster.valid_history_ else np.inf
 
 
+def _stop_after(k):
+    """Fit callback halting boosting after k rounds (selection auditions)."""
+    def cb(iteration, train_loss, val_loss, model):
+        return iteration + 1 >= k
+    return cb
+
+
+def _add_callback(callbacks, extra):
+    """Compose the user callbacks argument (None, a callable, or a sequence)
+    with one internal callback; extra=None returns callbacks unchanged."""
+    if extra is None:
+        return callbacks
+    base = ([] if callbacks is None else list(callbacks)
+            if isinstance(callbacks, (list, tuple)) else [callbacks])
+    return base + [extra]
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -815,6 +833,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         turns it off. Oblivious trees can only staircase a numeric interaction
         such as ``x_i < x_j``; a cross column makes it a single split. Costs
         up to ~2x fit time when the refit runs.
+    selection_rounds : int or None, default None
+        Round budget for the internal selection fits. When set, the
+        constant/linear-leaf variants and the pre-cross base fit run at most
+        this many rounds (auditions); the cross-augmented candidate still runs
+        to full early stopping, and the audition winner is refit in full only
+        when the augmented model loses or cross features do not apply.
+        ``None`` runs every variant to full early stopping. An audition can
+        occasionally pick a different variant than full fits would; the final
+        model is still validation-selected.
     early_stopping : bool, default True
         Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
@@ -862,6 +889,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
+                 selection_rounds=None,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -887,6 +915,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1016,17 +1045,58 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ll = kw.pop("linear_leaves")
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+        # Cross-features applicability, decidable before any fit: pair
+        # candidates exist iff there are >= 2 numeric columns.
+        n_cats = len(cat_features) if cat_features else 0
+        cross_ok = (self.cross_features is not False and self.loss == "RMSE"
+                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                    and X.shape[1] - n_cats >= 2)
 
-        def _fit_booster(linear, cross_pairs=None):
+        def _fit_booster(linear, cross_pairs=None, stop=None):
             b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                  linear_leaves=linear, cross_pairs=cross_pairs,
                                  **kw)
             b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                  sample_weight=sample_weight, callbacks=callbacks)
+                  sample_weight=sample_weight,
+                  callbacks=_add_callback(callbacks, stop))
             return b
 
         self.linear_leaves_selected_ = None
-        if select_ll:
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+        if self.selection_rounds is not None and (select_ll or cross_ok):
+            # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
+            # design): every selection fit runs as a short audition; the
+            # cross-augmented candidate -- which wins the full selection on
+            # the vast majority of datasets -- gets the one full fit, and the
+            # audition winner is refit in full only when the augmented model
+            # loses or cross features do not apply.
+            stop = _stop_after(self.selection_rounds)
+            if select_ll:
+                const = _fit_booster(False, stop=stop)
+                lin = _fit_booster(True, stop=stop)
+                # Tie goes to constant leaves, as in the full selection.
+                self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
+                audition = lin if self.linear_leaves_selected_ else const
+                base_linear = self.linear_leaves_selected_
+            else:
+                base_linear = bool(ll)
+                audition = _fit_booster(base_linear, stop=stop)
+            pairs = (_cross_candidate_pairs(audition.feature_importances_,
+                                            cat_features, X.shape[1])
+                     if cross_ok else [])
+            if pairs:
+                aug = _fit_booster(base_linear, cross_pairs=pairs)
+                self.cross_features_selected_ = \
+                    _best_val(aug) < _best_val(audition)
+                if self.cross_features_selected_:
+                    self.model_ = aug
+                    self.cross_pairs_ = pairs
+                else:
+                    self.model_ = _fit_booster(base_linear)
+            else:
+                self.model_ = _fit_booster(base_linear)
+        elif select_ll:
             const = _fit_booster(False)
             lin = _fit_booster(True)
             # Each variant early-stops itself; compare the best validation loss
@@ -1046,10 +1116,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # interactions (benchmarks/probe_cross_features.py; Grinsztajn A/B
         # 51W/8L, mean +1.5%); selection dodges the variance cases. RMSE-only
         # (the probed loss). None (auto) and True behave the same here.
-        self.cross_features_selected_ = None
-        self.cross_pairs_ = None
-        if (self.cross_features is not False and self.loss == "RMSE"
-                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
+        # (Already handled above when a selection_rounds audition ran.)
+        if (self.selection_rounds is None and cross_ok):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
@@ -1218,6 +1286,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         >= 2 numeric features, and silently skips multiclass (unsupported).
         ``False`` turns it off; explicit ``True`` raises for multiclass.
         Costs up to ~2x fit time when the refit runs.
+    selection_rounds : int or None, default None
+        Round budget for the pre-cross base fit when the cross-features refit
+        will run (binary only). When set, the base fit is an audition capped
+        at this many rounds; the cross-augmented candidate runs to full early
+        stopping and the base is refit in full only if the augmented model
+        loses. ``None`` runs the base fit to full early stopping. Multiclass
+        fits are unaffected (no selection exists there yet).
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1260,6 +1335,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
+                 selection_rounds=None,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1283,6 +1359,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
@@ -1434,9 +1511,21 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_Xv = eval_set[0]
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
                 eval_set = (cal_Xv, cal_y)
+            # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
+            # selection_rounds is set and the cross refit will run (pair
+            # candidates exist iff >= 2 numeric columns), the base fit is only
+            # an audition -- cap it; it is refit in full below only if the
+            # augmented model loses the selection.
+            n_cats = len(cat_features) if cat_features else 0
+            fast = (self.selection_rounds is not None
+                    and self.cross_features is not False
+                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                    and X.shape[1] - n_cats >= 2)
+            stop = _stop_after(self.selection_rounds) if fast else None
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight, callbacks=callbacks)
+                            sample_weight=sample_weight,
+                            callbacks=_add_callback(callbacks, stop))
 
         # Numeric cross features (default-on auto, binary only): refit with
         # difference/product columns for the top numeric feature pairs of the
@@ -1457,6 +1546,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
+                elif fast:
+                    # The incumbent is a capped audition; give the winning
+                    # base variant its full fit.
+                    self.model_ = GradientBoosting(loss="Logloss", **kw)
+                    self.model_.fit(X, y01, cat_features=cat_features,
+                                    eval_set=eval_set,
+                                    sample_weight=sample_weight,
+                                    callbacks=callbacks)
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
