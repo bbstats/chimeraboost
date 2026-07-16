@@ -54,7 +54,9 @@ def test_matches_full_selection_when_auditions_agree():
     X, y = _reg_linear()
     fast = ChimeraBoostRegressor(selection_rounds=50, cross_features=False,
                                  random_state=0).fit(X, y)
-    full = ChimeraBoostRegressor(cross_features=False, random_state=0).fit(X, y)
+    full = ChimeraBoostRegressor(selection_rounds=None,
+                                 cross_features=False,
+                                 random_state=0).fit(X, y)
     # The linear signal is decisive at every budget, so both arms pick the
     # linear variant and ship the identical full fit.
     assert bool(fast.linear_leaves_selected_) is True
@@ -98,7 +100,8 @@ def test_uncapped_auditions_bit_identical_to_full_selection():
     Xr, yr = _reg_linear()
     fast_r = ChimeraBoostRegressor(selection_rounds=2000,
                                    random_state=0).fit(Xr, yr)
-    full_r = ChimeraBoostRegressor(random_state=0).fit(Xr, yr)
+    full_r = ChimeraBoostRegressor(selection_rounds=None,
+                                   random_state=0).fit(Xr, yr)
     np.testing.assert_array_equal(fast_r.predict(Xr), full_r.predict(Xr))
     assert bool(fast_r.cross_features_selected_) \
         == bool(full_r.cross_features_selected_)
@@ -106,7 +109,8 @@ def test_uncapped_auditions_bit_identical_to_full_selection():
     Xb, yb = _bin_interaction()
     fast_b = ChimeraBoostClassifier(selection_rounds=2000,
                                     random_state=0).fit(Xb, yb)
-    full_b = ChimeraBoostClassifier(random_state=0).fit(Xb, yb)
+    full_b = ChimeraBoostClassifier(selection_rounds=None,
+                                    random_state=0).fit(Xb, yb)
     np.testing.assert_array_equal(fast_b.predict_proba(Xb),
                                   full_b.predict_proba(Xb))
 
@@ -116,7 +120,8 @@ def test_multiclass_is_unaffected():
     X = rng.normal(size=(1500, 5))
     y = rng.integers(0, 3, size=1500)
     fast = ChimeraBoostClassifier(selection_rounds=50, random_state=0).fit(X, y)
-    full = ChimeraBoostClassifier(random_state=0).fit(X, y)
+    full = ChimeraBoostClassifier(selection_rounds=None,
+                                  random_state=0).fit(X, y)
     np.testing.assert_array_equal(fast.predict_proba(X), full.predict_proba(X))
 
 
@@ -125,7 +130,8 @@ def test_small_data_is_bit_identical():
     # exists, so selection_rounds must change nothing at all.
     X, y = _reg_linear(n=800)
     fast = ChimeraBoostRegressor(selection_rounds=100, random_state=0).fit(X, y)
-    full = ChimeraBoostRegressor(random_state=0).fit(X, y)
+    full = ChimeraBoostRegressor(selection_rounds=None,
+                                 random_state=0).fit(X, y)
     np.testing.assert_array_equal(fast.predict(X), full.predict(X))
 
 

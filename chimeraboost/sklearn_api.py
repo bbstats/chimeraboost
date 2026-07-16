@@ -847,15 +847,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         turns it off. Oblivious trees can only staircase a numeric interaction
         such as ``x_i < x_j``; a cross column makes it a single split. Costs
         up to ~2x fit time when the refit runs.
-    selection_rounds : int or None, default None
-        Round budget for the internal selection fits. When set, the
-        constant/linear-leaf variants and the pre-cross base fit run at most
-        this many rounds (auditions); the cross-augmented candidate still runs
-        to full early stopping, and the audition winner is refit in full only
-        when the augmented model loses or cross features do not apply.
-        ``None`` runs every variant to full early stopping. An audition can
-        occasionally pick a different variant than full fits would; the final
-        model is still validation-selected.
+    selection_rounds : int or None, default 100
+        Round budget for the internal selection fits. The constant/linear-leaf
+        variants and the pre-cross base fit run at most this many rounds
+        (auditions, judged on their best validation loss within the budget);
+        the winning candidate continues to full early stopping, and the
+        audition winner is refit in full only when the cross-augmented model
+        loses or cross features do not apply. An audition that early-stops
+        before the budget is the full fit already (no extra cost). ``None``
+        runs every variant to full early stopping instead (the pre-0.15
+        behavior, ~1.5x slower fits); an audition can occasionally pick a
+        different variant than full fits would.
     early_stopping : bool, default True
         Hold out a validation split and stop when its score stops improving.
     validation_fraction : float, default 0.2
@@ -903,7 +905,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
-                 selection_rounds=None,
+                 selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
@@ -1318,13 +1320,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         >= 2 numeric features, and silently skips multiclass (unsupported).
         ``False`` turns it off; explicit ``True`` raises for multiclass.
         Costs up to ~2x fit time when the refit runs.
-    selection_rounds : int or None, default None
+    selection_rounds : int or None, default 100
         Round budget for the pre-cross base fit when the cross-features refit
-        will run (binary only). When set, the base fit is an audition capped
-        at this many rounds; the cross-augmented candidate runs to full early
-        stopping and the base is refit in full only if the augmented model
-        loses. ``None`` runs the base fit to full early stopping. Multiclass
-        fits are unaffected (no selection exists there yet).
+        will run (binary only). The base fit is an audition capped at this
+        many rounds; the candidates are judged on their best validation loss
+        within the budget, the winner continues to full early stopping, and
+        the base is refit in full only if the augmented model loses after
+        being truncated by the cap. ``None`` runs the base fit to full early
+        stopping instead (the pre-0.15 behavior). Multiclass fits are
+        unaffected (no selection exists there yet).
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1367,7 +1371,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=3,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
-                 selection_rounds=None,
+                 selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
         self.n_estimators = n_estimators
