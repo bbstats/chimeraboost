@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.16.1] - 2026-07-17
 ### Changed
 - **Faster fits at identical output: internal model selection no longer
   recomputes preprocessing.** The variant auditions, the cross-feature
