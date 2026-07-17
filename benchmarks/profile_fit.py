@@ -26,6 +26,13 @@ validation curve so a raced selector can be simulated offline.
 
 Writes benchmarks/results/<out>.json (full records incl. val curves) and
 benchmarks/results/<out>.md (the report tables), and prints the tables.
+
+Bagged attribution mode (BAGGING_PLAN.md Phase 0): fit the DEFAULT single
+estimator AND an n_ensembles=K bag on the same split, and attribute the bag's
+cost ratio — per-member selection overhead vs winner fit, phase split (grow /
+TS encode / bin / OOB-eval), and member round counts vs the single model's.
+
+    python benchmarks/profile_fit.py --bag-attribution --seeds 2 --out bagging-phase0
 """
 import argparse
 import collections
@@ -199,6 +206,186 @@ def _install_attribution_patches():
         "ts_encode", temod.OrderedTargetEncoder.fit_transform)
     bnmod.Binner.fit_transform = _phase_wrap(
         "bin_fit", bnmod.Binner.fit_transform)
+
+
+# --------------------------------------------------------------------------
+# Bagged attribution mode (BAGGING_PLAN.md Phase 0)
+# --------------------------------------------------------------------------
+# Panel: the ratio suspects from the Phase 0 baselines — Grinsztajn spread
+# (where the bag/single ratio read 5.4x) plus the hc sets behind the 10x read,
+# including colleges (members built 769 trees vs the single model's 233).
+BAG_ATTR_DATASETS = [
+    "gr:reg_num/cpu_act",
+    "gr:reg_cat/nyc-taxi-green-dec-2016",
+    "gr:clf_num/MagicTelescope",
+    "gr:clf_cat/road-safety",
+    "hc:kick",
+    "hc:wine-reviews",
+    "hc:colleges",
+    "hc:okcupid-stem",
+]
+
+# sklearn-level fits nest during a bagged fit (outer estimator -> member
+# clones), so a depth counter lets us drop a marker into the booster-fit
+# stream where each member begins.
+_SK_DEPTH = {"d": 0}
+
+
+def _sk_fit_wrap(orig_fit):
+    def wrapped(self, *a, **kw):
+        if _SK_DEPTH["d"] and _ATTR["fits"] is not None:
+            _ATTR["fits"].append({"label": "__member__"})
+        _SK_DEPTH["d"] += 1
+        try:
+            return orig_fit(self, *a, **kw)
+        finally:
+            _SK_DEPTH["d"] -= 1
+    return wrapped
+
+
+def _install_bag_patches():
+    import chimeraboost.sklearn_api as skmod
+    skmod.ChimeraBoostRegressor.fit = _sk_fit_wrap(
+        skmod.ChimeraBoostRegressor.fit)
+    skmod.ChimeraBoostClassifier.fit = _sk_fit_wrap(
+        skmod.ChimeraBoostClassifier.fit)
+
+
+def _split_members(fits):
+    """Group a bag's booster-fit stream into per-member lists using the
+    __member__ markers. A single (unbagged) fit has no markers and comes back
+    as one group."""
+    groups, cur = [], []
+    for f in fits:
+        if f.get("label") == "__member__":
+            groups.append(cur)
+            cur = []
+        else:
+            cur.append(f)
+    groups.append(cur)
+    return [g for g in groups if g]
+
+
+def run_bag_attribution(args):
+    import numpy as np
+    import run_benchmarks as rb
+    from sklearn.model_selection import train_test_split
+
+    rb._add_grinsztajn_datasets()
+    rb._add_highcard_datasets()
+    keys = args.datasets or BAG_ATTR_DATASETS
+    K = args.n_ensembles
+
+    print("Warmup (compiling numba kernels)...")
+    from chimeraboost.warmup import warmup
+    warmup()
+    _install_attribution_patches()
+    _install_bag_patches()
+
+    results = []
+    for key in keys:
+        print(f"Loading {key}...")
+        X, y, cat, task = rb.DATASETS[key](1, np.random.default_rng(0))
+        for seed in range(args.seeds):
+            strat = y if task != "regression" else None
+            Xtr, _, ytr, _ = train_test_split(
+                X, y, test_size=0.25, random_state=seed, stratify=strat)
+            Est = (ChimeraBoostRegressor if task == "regression"
+                   else ChimeraBoostClassifier)
+            rec = {"dataset": key, "task": task, "seed": seed,
+                   "n_train": int(Xtr.shape[0]),
+                   "n_cats": len(cat) if cat else 0, "K": K}
+            for mode, kw in (("single", {}), ("bag", {"n_ensembles": K})):
+                _ATTR["fits"] = []
+                t0 = time.perf_counter()
+                Est(random_state=0, **kw).fit(Xtr, ytr, cat_features=cat)
+                rec[mode + "_s"] = time.perf_counter() - t0
+                rec[mode + "_fits"], _ATTR["fits"] = _ATTR["fits"], None
+            results.append(rec)
+            print(f"  seed {seed}: single {rec['single_s']:.1f}s, "
+                  f"bag {rec['bag_s']:.1f}s "
+                  f"(x{rec['bag_s'] / rec['single_s']:.1f})")
+
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "results", args.out)
+    os.makedirs(os.path.dirname(base), exist_ok=True)
+    with open(base + ".json", "w") as f:
+        json.dump(results, f)
+    report = bag_attr_report(results)
+    with open(base + ".md", "w", newline="\n") as f:
+        f.write(report)
+    print(report)
+    print(f"Saved {base}.json and {base}.md")
+
+
+def bag_attr_report(results):
+    """Render the Phase 0 bagged-attribution tables."""
+    by_ds = collections.defaultdict(list)
+    for r in results:
+        by_ds[r["dataset"]].append(r)
+
+    def phase_sums(fit_groups):
+        ph = collections.defaultdict(float)
+        for g in fit_groups:
+            for f in g:
+                for k, v in f["phases"].items():
+                    ph[k] += v
+        return ph
+
+    lines = ["# Bagged fit attribution (BAGGING_PLAN.md Phase 0)", ""]
+
+    # ---- Table 1: where the bag/single ratio comes from -------------------
+    lines += ["## Ratio decomposition (secs are means over seeds; "
+              "shares are % of BAG fit)",
+              "",
+              "| dataset | task | single_s | bag_s | ratio | select% | grow% "
+              "| prep% | eval% | other% |",
+              "|---|---|--:|--:|--:|--:|--:|--:|--:|--:|"]
+    for ds, recs in by_ds.items():
+        n = len(recs)
+        single_s = sum(r["single_s"] for r in recs) / n
+        bag_s = sum(r["bag_s"] for r in recs) / n
+        sel = grow = prep = ev = 0.0
+        for r in recs:
+            members = _split_members(r["bag_fits"])
+            # Selection overhead = every booster fit except each member's
+            # final one (the winner run; an audition reused as the full fit
+            # simply contributes fewer fits). Robust to the raced designs.
+            sel += sum(f["secs"] for m in members for f in m[:-1]) / n
+            ph = phase_sums(members)
+            grow += ph["grow"] / n
+            prep += ph["prep_fit"] / n
+            ev += (ph["val_transform"] + ph["val_predict"]) / n
+        lines.append(
+            f"| {ds} | {recs[0]['task']} | {single_s:.1f} | {bag_s:.1f} "
+            f"| x{bag_s / single_s:.1f} | {_pct(sel, bag_s)} "
+            f"| {_pct(grow, bag_s)} | {_pct(prep, bag_s)} "
+            f"| {_pct(ev, bag_s)} "
+            f"| {_pct(bag_s - grow - prep - ev, bag_s)} |")
+    lines += ["", "select% overlaps grow/prep/eval (auditions also grow "
+              "trees); it answers 'what would sharing the selection remove'.",
+              ""]
+
+    # ---- Table 2: member round counts vs the single model -----------------
+    lines += ["## Rounds: members vs single (final booster fit per member)",
+              "",
+              "| dataset | single_rounds | member min/mean/max | "
+              "member fits each |",
+              "|---|--:|---|--:|"]
+    for ds, recs in by_ds.items():
+        srounds, mrounds, nfits = [], [], []
+        for r in recs:
+            sgroups = _split_members(r["single_fits"])
+            srounds.append(sgroups[0][-1]["rounds"])
+            members = _split_members(r["bag_fits"])
+            mrounds += [m[-1]["rounds"] for m in members]
+            nfits += [len(m) for m in members]
+        lines.append(
+            f"| {ds} | {sum(srounds) / len(srounds):.0f} "
+            f"| {min(mrounds)}/{sum(mrounds) / len(mrounds):.0f}/"
+            f"{max(mrounds)} | {sum(nfits) / len(nfits):.1f} |")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _attr_roles(task, fits):
@@ -446,6 +633,11 @@ def main():
     ap.add_argument("--attribution", action="store_true",
                     help="run the PARETO_PLAN step-0 attribution suite "
                          "instead of the single-dataset cProfile mode")
+    ap.add_argument("--bag-attribution", action="store_true",
+                    help="run the BAGGING_PLAN Phase 0 bagged-vs-single "
+                         "attribution suite")
+    ap.add_argument("--n-ensembles", type=int, default=5,
+                    help="bag-attribution mode: members per bag (default 5)")
     ap.add_argument("--seeds", type=int, default=3,
                     help="attribution mode: splits per dataset")
     ap.add_argument("--datasets", nargs="*", default=None,
@@ -455,6 +647,9 @@ def main():
                     help="attribution mode: results/<out>.json|.md")
     args = ap.parse_args()
 
+    if args.bag_attribution:
+        run_bag_attribution(args)
+        return
     if args.attribution:
         run_attribution(args)
         return
