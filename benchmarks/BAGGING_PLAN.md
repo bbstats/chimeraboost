@@ -711,9 +711,28 @@ sets, single AND Ens8. Fit time: hc singles −17/−32/−21%
 (kick/wine-reviews/colleges — the TS re-encode was the waste), gr singles
 −4/−6%, Ens8 bags −4 to −13% (parallel members amortize wall-clock).
 
-**Tier-2 identity gate + canonical timing** (in flight): full 5-arm gr + hc
-runs vs the program-close baselines (`20260717-112941`, `115025`) — all
-accuracy columns must tie exactly; fit-time delta is the payload.
+**Tier-2 identity gate + canonical timing** (gr `20260717-153114`, hc
+`155202`, 5 arms, 3 seeds): **identity PERFECT — 73/73 datasets exact ties**
+(gr 59/59 single + 59/59 Ens8 + 23/23 Brier; hc 14/14 + 14/14 + 8/8).
+Raw summed fit time (`fit_time_delta.py`): **gr single 0.976 / Ens8 0.977;
+hc single 0.881 / Ens8 0.886**. Honesty note: LightGBM itself drifted
+0.941 (gr) / 0.912 (hc) between these runs (box conditions), so the
+suite-level net-of-drift read is ~flat on gr and ~−6% normalized on hc; the
+CONTROLLED measurement is the clean-box smoke (−17/−32/−21% on the TS-heavy
+hc singles), and the suite pools in multiclass sets (no selection → no
+reuse win) which dilutes it. OpenML gate: **vacuous by the B4 precedent**
+(bit-identical output ⇒ no strength surface; timing is the only change).
+
+### B-prep VERDICT (2026-07-17): SHIP — intra-fit prep reuse, bit-identical.
+
+Ships (branch bagging-bprep → main): `prep_cache` sharing across the booster
+fits of one sklearn fit + `FeaturePreprocessor.from_base_with_cross` splice
+for the cross-augmented candidate. 445 tests green incl. goldens; 73/73
+suite identity; hc fits ~12% cheaper raw (single AND every bagged member),
+gr ~2%. The registered cross-member border-sharing shape is retired
+permanently: measured ceiling ~1-3%, and it is the diversity-risk class
+this program killed four times. Prep redundancy INSIDE a fit was the real
+slice, and it was free.
 
 ## Phase 2 — strength levers (make it goated)
 
@@ -813,4 +832,4 @@ no-replacement samples, parallel workers.**
 - [x] pareto.png shows the blessed bagged point on the frontier — **DONE 2026-07-17**: canonical 5-arm runs (gr `20260717-112941`, hc `115025`, single-arm canary 59/59 ties vs Phase 0); **Ens8 sweeps Grinsztajn 100.0/100.0/100.0/100.0 @ 30.1x** (CatBoost off the frontier); **hc 99.6 @ 14.5x vs CatBoost 98.6 @ 118.7x**; chart refreshed, README examples fixed (n_ensembles 2→8), FAQ updated. NOTE: the Ens8 arm raises the in-chart yardstick, so the single-model row reads 97.0 — the default did not change.
 - [x] Verdicts → memory (CLAUDE.md unchanged: no protocol changes needed)
 - [x] B-samp `max_samples=0.8` — **SHIPPED 2026-07-17** (added post-plan; Nathan's idea, lit-validated)
-- [ ] B-prep shared binning — OPEN (future session; last known fit-cost headroom)
+- [x] B-prep — **SHIPPED 2026-07-17 as intra-fit prep reuse** (design pivot: cross-member border sharing SKIPPED on measured-ceiling + diversity-risk grounds; the real slice was prep recomputation ACROSS booster fits within one sklearn fit; bit-identical, 73/73 suite identity ties, hc fits ~12% cheaper raw)
