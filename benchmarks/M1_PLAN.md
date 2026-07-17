@@ -177,13 +177,38 @@ bagged sampling, so single-model arms are comparable across every 2026-07-17
 run; any doubt → run a fresh BASE. Aggregate table printed after every run,
 per standing rule.
 
+## Implementation log (2026-07-17, branch m1-multiclass-cross)
+
+Shape exactly as registered: `_prep_matrices` hoisted to `_BaseBooster`
+(generalized to a list of encode targets — `[y]` scalar, K one-hot columns
+multiclass); `MulticlassBoosting.fit` gains `prep_cache`; the classifier's
+binary selection block unified over both tasks via a local `_make` factory
+(binary constructs `GradientBoosting(loss="Logloss")`, multiclass
+`MulticlassBoosting`; same `fast` gate, raced budget, refit rule; the
+`NotImplementedError` removed). 454 tests green (16 new: multiclass
+selection semantics, raced-budget equivalences, booster cross_pairs
+roundtrip, multiclass prep-cache identity, preps-once) incl. all goldens —
+the golden panel runs `early_stopping=False`, so no golden can see the new
+path; reg/binary bit-identity verified by the suite.
+
+Smoke (`m1_smoke.py`, 1 seed, not decision-grade): okcupid-stem SELECTS its
+1 pair (fit 1.9s→4.1s = 2.1x; holdout F1 −0.009/logloss −0.002 = seed
+noise, the protocol will judge); syn 531/663 audition and REJECT (metrics
+exact ties, as designed). Envelope note, investigated per the registered
+bar: 663 hit 3.0x fit (vs ~2.5x registered) — its natural fit is short
+(0.35s) so the fixed 100-round challenger race dominates, and the augmented
+matrix is ~1.8x wider (30 cross columns on 36 numerics). Structural, same
+trade shape binary accepted at ship; absolute cost trivial on synth
+(CatBoost is 50–70x there). Revisit only if the screen's fit-cost pattern
+reads worse. Bagged multiclass members select per-member in parallel
+workers (`m1_bagged_smoke.py`).
+
 ## Acceptance checklist
 
-- [ ] Implementation on branch `m1-multiclass-cross`: selection block +
-      prep_cache hoist + tests (multiclass selection, splice identity,
-      explicit-flag semantics, bagged inheritance); full suite green incl.
-      goldens (reg/binary goldens must be bit-identical; check no multiclass
-      golden crosses the eligibility gates)
+- [x] Implementation on branch `m1-multiclass-cross`: selection block +
+      prep_cache hoist + tests — **DONE 2026-07-17** (454 green incl.
+      goldens; golden panel runs early_stopping=False so no golden crosses
+      the gates; see implementation log)
 - [ ] Tier-1 screen vs kill bar — verdict recorded here
 - [ ] Tier-2 hc + gr identity — verdict recorded here
 - [ ] OpenML one-shot gate — verdict recorded here

@@ -189,6 +189,66 @@ class _BaseBooster:
                                    self.random_state, self.cat_n_permutations,
                                    self.cat_combinations, self.cross_pairs)
 
+    def _prep_matrices(self, X, encode_targets, cat_features, eval_set,
+                       prep_cache):
+        """Fit ``self.prep_`` and return the feature-major binned train/eval
+        matrices ``(Xb, Xvb)`` (``Xvb`` is None without an eval set).
+        ``encode_targets`` is the list of TS-encoding targets: ``[y]`` for the
+        scalar booster, the K one-hot columns for multiclass.
+
+        ``prep_cache`` (internal) is a dict shared across the booster fits of
+        one sklearn-level fit -- the selection auditions, the cross-augmented
+        candidate, and the winner refit -- which all see identical
+        ``(X, y, cat_features, eval_set)`` and identical prep parameters
+        except ``cross_pairs``. Entries are keyed by ``cross_pairs``: a
+        repeat fit reuses the cached preprocessor and matrices outright, and
+        the cross-augmented fit builds on the no-cross base entry, computing
+        only the cross columns (``FeaturePreprocessor.from_base_with_cross``;
+        bit-identical either way because every prep artifact is per-column).
+        Callers that cannot guarantee identical inputs must pass None.
+        """
+        key = tuple(self.cross_pairs) if self.cross_pairs else ()
+        if prep_cache is not None and key in prep_cache:
+            self.prep_, Xb, Xvb = prep_cache[key]
+            if eval_set is not None and Xvb is None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+            return Xb, Xvb
+
+        base = prep_cache.get(()) if (prep_cache is not None and key) else None
+        if base is not None:
+            base_prep, base_Xb, base_Xvb = base
+            self.prep_, cross_binner, crossb = \
+                FeaturePreprocessor.from_base_with_cross(
+                    base_prep, list(self.cross_pairs), X)
+            nb = len(self.prep_.num_features_)
+            # Stacked column order is [numeric | cross | TS]; splice the new
+            # cross rows into the feature-major base matrix (concatenate
+            # returns a fresh C-contiguous array, as the kernels require).
+            Xb = np.concatenate([base_Xb[:nb], crossb.T, base_Xb[nb:]], axis=0)
+            Xvb = None
+            if eval_set is not None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                if base_Xvb is not None:
+                    crossvb = cross_binner.transform(
+                        self.prep_._cross_block(Xv))
+                    Xvb = np.concatenate(
+                        [base_Xvb[:nb], crossvb.T, base_Xvb[nb:]], axis=0)
+                else:
+                    Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+        else:
+            self.prep_ = self._new_preprocessor()
+            # Tree kernels consume a feature-major matrix; transpose once here.
+            Xb = np.ascontiguousarray(
+                self.prep_.fit_transform(X, encode_targets, cat_features).T)
+            Xvb = None
+            if eval_set is not None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+        if prep_cache is not None:
+            prep_cache[key] = (self.prep_, Xb, Xvb)
+        return Xb, Xvb
+
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):
         """Scale weights to mean 1 so the gradient magnitude matches the
@@ -309,63 +369,6 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def _prep_matrices(self, X, y, cat_features, eval_set, prep_cache):
-        """Fit ``self.prep_`` and return the feature-major binned train/eval
-        matrices ``(Xb, Xvb)`` (``Xvb`` is None without an eval set).
-
-        ``prep_cache`` (internal) is a dict shared across the booster fits of
-        one sklearn-level fit -- the selection auditions, the cross-augmented
-        candidate, and the winner refit -- which all see identical
-        ``(X, y, cat_features, eval_set)`` and identical prep parameters
-        except ``cross_pairs``. Entries are keyed by ``cross_pairs``: a
-        repeat fit reuses the cached preprocessor and matrices outright, and
-        the cross-augmented fit builds on the no-cross base entry, computing
-        only the cross columns (``FeaturePreprocessor.from_base_with_cross``;
-        bit-identical either way because every prep artifact is per-column).
-        Callers that cannot guarantee identical inputs must pass None.
-        """
-        key = tuple(self.cross_pairs) if self.cross_pairs else ()
-        if prep_cache is not None and key in prep_cache:
-            self.prep_, Xb, Xvb = prep_cache[key]
-            if eval_set is not None and Xvb is None:
-                Xv = as_model_array(eval_set[0], bool(cat_features))
-                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
-            return Xb, Xvb
-
-        base = prep_cache.get(()) if (prep_cache is not None and key) else None
-        if base is not None:
-            base_prep, base_Xb, base_Xvb = base
-            self.prep_, cross_binner, crossb = \
-                FeaturePreprocessor.from_base_with_cross(
-                    base_prep, list(self.cross_pairs), X)
-            nb = len(self.prep_.num_features_)
-            # Stacked column order is [numeric | cross | TS]; splice the new
-            # cross rows into the feature-major base matrix (concatenate
-            # returns a fresh C-contiguous array, as the kernels require).
-            Xb = np.concatenate([base_Xb[:nb], crossb.T, base_Xb[nb:]], axis=0)
-            Xvb = None
-            if eval_set is not None:
-                Xv = as_model_array(eval_set[0], bool(cat_features))
-                if base_Xvb is not None:
-                    crossvb = cross_binner.transform(
-                        self.prep_._cross_block(Xv))
-                    Xvb = np.concatenate(
-                        [base_Xvb[:nb], crossvb.T, base_Xvb[nb:]], axis=0)
-                else:
-                    Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
-        else:
-            self.prep_ = self._new_preprocessor()
-            # Tree kernels consume a feature-major matrix; transpose once here.
-            Xb = np.ascontiguousarray(
-                self.prep_.fit_transform(X, [y], cat_features).T)
-            Xvb = None
-            if eval_set is not None:
-                Xv = as_model_array(eval_set[0], bool(cat_features))
-                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
-        if prep_cache is not None:
-            prep_cache[key] = (self.prep_, Xb, Xvb)
-        return Xb, Xvb
-
     def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
             callbacks=None, prep_cache=None):
         """Fit the additive model. Optionally pass `cat_features` (column indices
@@ -383,7 +386,8 @@ class GradientBoosting(_BaseBooster):
         self.loss_ = LOSSES[self.loss_name](**self.loss_kwargs)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
-        Xb, Xvb = self._prep_matrices(X, y, cat_features, eval_set, prep_cache)
+        Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
+                                      prep_cache)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         # Keep a small sample of the (binned) training rows as the default SHAP
@@ -590,10 +594,10 @@ class MulticlassBoosting(_BaseBooster):
     """Softmax multiclass booster: fits K trees per round (one per class)."""
 
     def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
-            callbacks=None):
+            callbacks=None, prep_cache=None):
         """Fit K trees per boosting round (one per class) under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
-        scalar booster."""
+        scalar booster; `prep_cache` is internal -- see `_prep_matrices`."""
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y)
         self.classes_ = np.unique(y)
@@ -609,20 +613,15 @@ class MulticlassBoosting(_BaseBooster):
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
         # One ordered-TS target per class (CatBoost-style per-class statistics).
-        self.prep_ = self._new_preprocessor()
-        Xb = np.ascontiguousarray(
-            self.prep_.fit_transform(X, [Y[:, k] for k in range(K)],
-                                     cat_features).T)
+        Xb, Xvb = self._prep_matrices(X, [Y[:, k] for k in range(K)],
+                                      cat_features, eval_set, prep_cache)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
 
-        Xvb = Yv = Fv = yv_idx = None
+        Yv = Fv = yv_idx = None
         if eval_set is not None:
-            Xv, yv = eval_set
-            Xv = as_model_array(Xv, bool(cat_features))
-            yv_idx = np.searchsorted(self.classes_, np.asarray(yv))
+            yv_idx = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
             Yv = np.eye(K)[yv_idx]
-            Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
 
         self.init_ = self.loss_.init(Y, w)         # (K,)
         F = np.tile(self.init_, (n_samples, 1))    # (n, K)

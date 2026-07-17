@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
-from chimeraboost.booster import GradientBoosting
+from chimeraboost.booster import GradientBoosting, MulticlassBoosting
 from chimeraboost.preprocessing import FeaturePreprocessor
 import chimeraboost.preprocessing as pmod
 
@@ -25,7 +25,10 @@ def _mixed_data(n=3000, seed=0, classification=False):
     X[:, 6] = np.array([f"b{v}" for v in cb], dtype=object)
     signal = (np.nan_to_num(Xn[:, 0] - Xn[:, 1]) + 0.5 * ca
               + np.nan_to_num(Xn[:, 2] * Xn[:, 3]))
-    if classification:
+    if classification == "multiclass":
+        noisy = signal + 0.3 * rng.standard_normal(n)
+        y = np.digitize(noisy, np.quantile(noisy, [1 / 3, 2 / 3]))
+    elif classification:
         y = (signal + 0.3 * rng.standard_normal(n) > np.median(signal)).astype(int)
     else:
         y = signal + 0.3 * rng.standard_normal(n)
@@ -123,6 +126,46 @@ def test_prep_cache_augments_from_base():
     assert plain.valid_history_ == aug.valid_history_
 
 
+def test_prep_cache_multiclass_hit_is_identical():
+    X, y = _mixed_data(classification="multiclass")
+    ev = (X[-600:], y[-600:])
+    Xtr, ytr = X[:-600], y[:-600]
+    kw = dict(n_estimators=40, random_state=3, early_stopping_rounds=20)
+
+    plain = MulticlassBoosting(**kw)
+    plain.fit(Xtr, ytr, cat_features=CAT, eval_set=ev)
+
+    cache = {}
+    first = MulticlassBoosting(**kw)
+    first.fit(Xtr, ytr, cat_features=CAT, eval_set=ev, prep_cache=cache)
+    second = MulticlassBoosting(**kw)
+    second.fit(Xtr, ytr, cat_features=CAT, eval_set=ev, prep_cache=cache)
+
+    assert second.prep_ is first.prep_          # the hit reused the object
+    np.testing.assert_array_equal(plain.predict_raw(X), first.predict_raw(X))
+    np.testing.assert_array_equal(plain.predict_raw(X), second.predict_raw(X))
+    assert plain.valid_history_ == second.valid_history_
+
+
+def test_prep_cache_multiclass_augments_from_base():
+    X, y = _mixed_data(classification="multiclass")
+    ev = (X[-600:], y[-600:])
+    Xtr, ytr = X[:-600], y[:-600]
+    kw = dict(n_estimators=40, random_state=3, early_stopping_rounds=20)
+
+    plain = MulticlassBoosting(cross_pairs=PAIRS, **kw)
+    plain.fit(Xtr, ytr, cat_features=CAT, eval_set=ev)
+
+    cache = {}
+    MulticlassBoosting(**kw).fit(Xtr, ytr, cat_features=CAT, eval_set=ev,
+                                 prep_cache=cache)
+    aug = MulticlassBoosting(cross_pairs=PAIRS, **kw)
+    aug.fit(Xtr, ytr, cat_features=CAT, eval_set=ev, prep_cache=cache)
+
+    np.testing.assert_array_equal(plain.predict_raw(X), aug.predict_raw(X))
+    assert plain.valid_history_ == aug.valid_history_
+
+
 # ---- sklearn-level: prep runs once per fit -------------------------------
 
 def _count_prep_fits(monkeypatch):
@@ -154,6 +197,17 @@ def test_classifier_preps_once(monkeypatch):
     X, y = _mixed_data(classification=True)
     m = ChimeraBoostClassifier(n_estimators=60, random_state=0)
     m.fit(X, y, cat_features=CAT)
+    assert calls["n"] == 1
+
+
+def test_multiclass_classifier_preps_once(monkeypatch):
+    # M1: the multiclass selection (audition + cross candidate + possible
+    # refit) shares one prep exactly like binary.
+    calls = _count_prep_fits(monkeypatch)
+    X, y = _mixed_data(classification="multiclass")
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0)
+    m.fit(X, y, cat_features=CAT)
+    assert m.cross_features_selected_ in (True, False)
     assert calls["n"] == 1
 
 

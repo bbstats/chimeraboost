@@ -1391,23 +1391,22 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
     cross_features : bool or None, default None
-        Numeric interaction columns. ``None`` (the default) refits binary
-        models with difference and product columns for the pairs of the top
-        numeric features of the base fit and keeps whichever model reaches
-        the lower validation loss (``cross_features_selected_`` records the
-        outcome, ``cross_pairs_`` the columns kept); needs >= 2000 rows and
-        >= 2 numeric features, and silently skips multiclass (unsupported).
-        ``False`` turns it off; explicit ``True`` raises for multiclass.
-        Costs up to ~2x fit time when the refit runs.
+        Numeric interaction columns. ``None`` (the default) refits the model
+        with difference and product columns for the pairs of the top numeric
+        features of the base fit and keeps whichever model reaches the lower
+        validation loss (``cross_features_selected_`` records the outcome,
+        ``cross_pairs_`` the columns kept); needs >= 2000 rows and >= 2
+        numeric features. Binary judges on binary log loss, multiclass on
+        softmax log loss. ``False`` turns it off. Costs up to ~2x fit time
+        when the refit runs.
     selection_rounds : int or None, default 100
         Round budget for the pre-cross base fit when the cross-features refit
-        will run (binary only). The base fit is an audition capped at this
-        many rounds; the candidates are judged on their best validation loss
-        within the budget, the winner continues to full early stopping, and
-        the base is refit in full only if the augmented model loses after
-        being truncated by the cap. ``None`` runs the base fit to full early
-        stopping instead (the pre-0.15 behavior). Multiclass fits are
-        unaffected (no selection exists there yet).
+        will run. The base fit is an audition capped at this many rounds;
+        the candidates are judged on their best validation loss within the
+        budget, the winner continues to full early stopping, and the base is
+        refit in full only if the augmented model loses after being
+        truncated by the cap. ``None`` runs the base fit to full early
+        stopping instead (the pre-0.15 behavior).
     early_stopping : bool, default True
         Hold out a stratified validation split and stop when it stops improving.
         ``StratifiedGroupKFold`` is used when ``groups`` is passed to ``fit``.
@@ -1626,67 +1625,68 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
-        # cross_features: None (auto default) silently skips multiclass, like
-        # linear_leaves; only an explicit True is a user error there.
-        if self.cross_features is True and self._multiclass:
-            raise NotImplementedError(
-                "cross_features is not supported for multiclass classification "
-                "yet; use it on regression or binary classification.")
+        # cross_features: None (auto default) and True run the same
+        # validation-selected race everywhere, multiclass included (M1);
+        # explicit False disables.
         cal_Xv = cal_y = None   # validation set used to calibrate temperature
+        # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
+        # selection_rounds is set and the cross refit will run (pair
+        # candidates exist iff >= 2 numeric columns), the base fit is only
+        # an audition -- cap it; it is refit in full below only if the
+        # augmented model loses the selection.
+        n_cats = len(cat_features) if cat_features else 0
+        fast = (self.selection_rounds is not None
+                and self.cross_features is not False
+                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                and X.shape[1] - n_cats >= 2)
+        stop = _stop_after(self.selection_rounds) if fast else None
+        # Shared across the base fit, the cross-augmented candidate, and
+        # the possible refit below -- identical inputs, so preprocessing
+        # is computed once (see _BaseBooster._prep_matrices).
+        prep_cache = {}
         if self._multiclass:
-            self.model_ = MulticlassBoosting(**kw)
-            self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight, callbacks=callbacks)
-            self.classes_ = self.model_.classes_
+            def _make(**extra):
+                return MulticlassBoosting(**extra, **kw)
+            y_fit = y
             if eval_set is not None:
                 cal_Xv = eval_set[0]
-                cal_y = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
         else:
-            y01 = (y == self.classes_[1]).astype(np.float64)
+            def _make(**extra):
+                return GradientBoosting(loss="Logloss", **extra, **kw)
+            y_fit = (y == self.classes_[1]).astype(np.float64)
             if eval_set is not None:
                 cal_Xv = eval_set[0]
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
                 eval_set = (cal_Xv, cal_y)
-            # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
-            # selection_rounds is set and the cross refit will run (pair
-            # candidates exist iff >= 2 numeric columns), the base fit is only
-            # an audition -- cap it; it is refit in full below only if the
-            # augmented model loses the selection.
-            n_cats = len(cat_features) if cat_features else 0
-            fast = (self.selection_rounds is not None
-                    and self.cross_features is not False
-                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
-                    and X.shape[1] - n_cats >= 2)
-            stop = _stop_after(self.selection_rounds) if fast else None
-            # Shared across the base fit, the cross-augmented candidate, and
-            # the possible refit below -- identical inputs, so preprocessing
-            # is computed once (see GradientBoosting._prep_matrices).
-            prep_cache = {}
-            self.model_ = GradientBoosting(loss="Logloss", **kw)
-            self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight,
-                            callbacks=_add_callback(callbacks, stop),
-                            prep_cache=prep_cache)
+        self.model_ = _make()
+        self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
+                        sample_weight=sample_weight,
+                        callbacks=_add_callback(callbacks, stop),
+                        prep_cache=prep_cache)
+        if self._multiclass:
+            self.classes_ = self.model_.classes_
+            if eval_set is not None:
+                cal_y = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
 
-        # Numeric cross features (default-on auto, binary only): refit with
-        # difference/product columns for the top numeric feature pairs of the
-        # base fit and keep the lower-validation-loss model (the regressor's
-        # selection pattern; see _cross_candidate_pairs). None (auto) and
-        # True behave the same on binary.
+        # Numeric cross features (default-on auto): refit with difference/
+        # product columns for the top numeric feature pairs of the base fit
+        # and keep the lower-validation-loss model (the regressor's selection
+        # pattern; see _cross_candidate_pairs). Binary judges on binary
+        # logloss, multiclass on softmax logloss -- same raced budget.
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
-        if (self.cross_features is not False and not self._multiclass
+        if (self.cross_features is not False
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
-                aug = GradientBoosting(loss="Logloss", cross_pairs=pairs, **kw)
+                aug = _make(cross_pairs=pairs)
                 if fast:
                     # Symmetric race at the shared budget (see the regressor):
                     # judge both candidates on their first selection_rounds;
                     # kill a trailing augmented fit at the budget.
                     base_best = _best_val(self.model_)
-                    aug.fit(X, y01, cat_features=cat_features,
+                    aug.fit(X, y_fit, cat_features=cat_features,
                             eval_set=eval_set, sample_weight=sample_weight,
                             callbacks=_add_callback(
                                 callbacks, _stop_if_behind(
@@ -1696,7 +1696,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                         min(aug.valid_history_[:self.selection_rounds])
                         < base_best) if aug.valid_history_ else False
                 else:
-                    aug.fit(X, y01, cat_features=cat_features,
+                    aug.fit(X, y_fit, cat_features=cat_features,
                             eval_set=eval_set, sample_weight=sample_weight,
                             callbacks=callbacks, prep_cache=prep_cache)
                     self.cross_features_selected_ = \
@@ -1708,17 +1708,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     # The incumbent audition was actually truncated by the cap
                     # (an audition that early-stopped on its own already IS the
                     # full fit); give the winning base variant its full fit.
-                    self.model_ = GradientBoosting(loss="Logloss", **kw)
-                    self.model_.fit(X, y01, cat_features=cat_features,
+                    self.model_ = _make()
+                    self.model_.fit(X, y_fit, cat_features=cat_features,
                                     eval_set=eval_set,
                                     sample_weight=sample_weight,
                                     callbacks=callbacks,
                                     prep_cache=prep_cache)
 
-        if not self._multiclass:
-            # The winner is chosen; free the cached binned matrices rather
-            # than holding them through temperature scaling below.
-            prep_cache.clear()
+        # The winner is chosen; free the cached binned matrices rather than
+        # holding them through temperature scaling below.
+        prep_cache.clear()
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes

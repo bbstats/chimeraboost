@@ -2,10 +2,9 @@
 difference/product columns for top numeric feature pairs."""
 
 import numpy as np
-import pytest
 
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
-from chimeraboost.booster import GradientBoosting
+from chimeraboost.booster import GradientBoosting, MulticlassBoosting
 
 
 def _interaction_reg(n=4000, seed=0):
@@ -26,6 +25,19 @@ def _interaction_clf(n=6000, seed=0):
     z = (X[:, 0] > X[:, 1]) != (X[:, 2] * X[:, 3] > 0)
     p = np.where(z, 0.9, 0.1)
     y = (rng.random(n) < p).astype(int)
+    return X, y
+
+
+def _interaction_mc(n=6000, seed=0):
+    """3-class target whose class boundaries are a comparison and a product
+    sign -- the same staircase-vs-one-split geometry, per softmax margin."""
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((n, 5))
+    a = X[:, 0] > X[:, 1]
+    b = X[:, 2] * X[:, 3] > 0
+    y = np.where(a & b, 0, np.where(a | b, 1, 2))
+    flip = rng.random(n) < 0.05
+    y[flip] = rng.integers(0, 3, flip.sum())
     return X, y
 
 
@@ -58,6 +70,19 @@ def test_booster_cross_pairs_help_interaction_data():
     crossed.fit(Xtr, ytr)
     rmse = lambda m: np.sqrt(np.mean((yte - m.predict_raw(Xte)) ** 2))
     assert rmse(crossed) < rmse(plain) * 0.9
+
+
+def test_multiclass_booster_cross_pairs_transform_roundtrip():
+    X, y = _interaction_mc(n=2500)
+    pairs = [(0, 1, "diff"), (2, 3, "prod")]
+    b = MulticlassBoosting(n_estimators=20, random_state=0, cross_pairs=pairs)
+    b.fit(X, y)
+    # binned width = 5 numerics + 2 crosses; importances in ORIGINAL space.
+    Xb = b.prep_.transform(X[:10])
+    assert Xb.shape == (10, 7)
+    assert list(b.prep_.feature_map_) == [0, 1, 2, 3, 4, 0, 2]
+    assert b.feature_importances_.shape == (5,)
+    assert b.predict_raw(X[:10]).shape == (10, 3)
 
 
 def test_cross_block_nan_propagates():
@@ -115,13 +140,43 @@ def test_explicit_false_disables():
         assert not np.array_equal(off.predict(X[:50]), default.predict(X[:50]))
 
 
-def test_multiclass_default_silently_skips():
+def test_multiclass_default_runs_selection():
+    # Noise multiclass above the row floor: selection RUNS (M1) and records a
+    # verdict either way; the model stays usable.
     rng = np.random.default_rng(0)
-    X = rng.standard_normal((2500, 4))
-    y = rng.integers(0, 3, 2500)
+    X = rng.standard_normal((2600, 4))
+    y = rng.integers(0, 3, 2600)
     m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
-    assert m.cross_features_selected_ is None
+    assert m.cross_features_selected_ in (True, False)
     assert m.predict_proba(X[:5]).shape == (5, 3)
+
+
+def test_multiclass_selects_crosses_on_interaction_data():
+    X, y = _interaction_mc()
+    m = ChimeraBoostClassifier(n_estimators=200, random_state=0,
+                               cross_features=True).fit(X, y)
+    assert m.cross_features_selected_ is True
+    assert m.cross_pairs_
+    proba = m.predict_proba(X[:20])
+    assert proba.shape == (20, 3)
+    assert np.all(np.isfinite(proba))
+
+
+def test_multiclass_default_matches_explicit_true():
+    X, y = _interaction_mc()
+    a = ChimeraBoostClassifier(n_estimators=100, random_state=0).fit(X, y)
+    b = ChimeraBoostClassifier(n_estimators=100, random_state=0,
+                               cross_features=True).fit(X, y)
+    np.testing.assert_array_equal(a.predict_proba(X[:50]),
+                                  b.predict_proba(X[:50]))
+
+
+def test_multiclass_explicit_false_disables():
+    X, y = _interaction_mc()
+    off = ChimeraBoostClassifier(n_estimators=100, random_state=0,
+                                 cross_features=False).fit(X, y)
+    assert off.cross_features_selected_ is None
+    assert off.predict_proba(X[:5]).shape == (5, 3)
 
 
 def test_selection_can_reject_crosses():
@@ -158,12 +213,14 @@ def test_skipped_for_mae_loss():
     assert m.cross_features_selected_ is None
 
 
-def test_multiclass_raises():
-    rng = np.random.default_rng(0)
-    X = rng.standard_normal((600, 4))
-    y = rng.integers(0, 3, 600)
-    with pytest.raises(NotImplementedError):
-        ChimeraBoostClassifier(cross_features=True).fit(X, y)
+def test_multiclass_small_data_skips():
+    # Below CROSS_MIN_SAMPLES no selection exists, even with an explicit True
+    # (the binary/regression semantics, now shared by multiclass).
+    X, y = _interaction_mc(n=900)
+    m = ChimeraBoostClassifier(n_estimators=30, random_state=0,
+                               cross_features=True).fit(X, y)
+    assert m.cross_features_selected_ is None
+    assert m.predict_proba(X[:5]).shape == (5, 3)
 
 
 def test_crosses_skip_categorical_columns():
