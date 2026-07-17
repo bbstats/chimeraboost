@@ -751,6 +751,41 @@ slice, and it was free.
   per-member post-fit; any reweighting/flattening must recompute it. Listed
   so it is not forgotten (regression Quantile/MAE losses).
 
+### B7 probe — pre-registered design (2026-07-17, run now per Nathan)
+
+Zero-library-change probe, regression first (the bag's strength lives there
+and flattening is clean; clf adds per-member temperatures — only explored if
+regression shows signal). Per dataset × 3 seeds: 75/25 train/test, then
+train → 80% member-fit / 20% reweight split. Arms: **bag100** (Ens8 on full
+train = the shipped mode), **bag80** (Ens8 on the 80% — the fair
+data-tax baseline), **rw** (bag80's flattened K×T trees reweighted by
+nonnegative LassoCV fit on the 20% split; intercept absorbs the inits).
+Identity guard: flattened member sums must reproduce member.predict.
+**Kill bar (registered before the run): B7 dies unless rw beats bag100 on
+a majority of (set, seed) pairs** — beating only bag80 is not shippable
+because shipping pays the 20% data tax. Record tree-compression
+(% zero-weight trees) either way; B8 (quantile offsets) stays moot unless
+this survives. Panel: cpu_act, house_sales, wine_quality (a gr repeat
+loser), hc wine-reviews, hc colleges (the long-stop set — reweighting is
+the one remaining lever that could tame its 1377-round members post hoc).
+
+### B7 VERDICT (2026-07-17): KILL — 0/15 against the kill bar; uniform averaging wins outright.
+
+Probe run (`b7_reweight_probe.py`, results `benchmarks/results/b7_probe.json`,
+identity guard passed on every member): reweighting beat the shipped bag100
+on **0/15 (set, seed) pairs** (registered bar: majority), mean RMSE
+**−6.30% vs bag100** — and, decisively, **−2.30% vs bag80 on the SAME
+training data**: the lasso hurts before the data tax is even counted. The
+only near-parity was wine-reviews (rw ≈ bag80, still behind bag100). The
+lasso pruned 88–99% of trees (mean 93%), confirming the correlation study's
+near-collinear structure — but the sparse solution the small holdout
+supports is strictly worse than uniform 1/K averaging. Even as a
+predict-compression story it is dead: −6.3% RMSE for the pruning is far
+worse than just using the single model. Consistent with every kill in this
+program: the ensemble's uniform structure IS the machinery; replacing any
+part of it with holdout-optimized selection loses. **B8 moot. Program has
+no open items left.**
+
 ## Phase 3 — predict-side flat forest (optional engineering; NOT the Pareto axis)
 
 Slowdown on the chart is FIT time; this phase is for the predict story
@@ -828,7 +863,7 @@ no-replacement samples, parallel workers.**
 - [x] B2 ES-budget design picked by A/B, through /experiment — **ALL THREE KILLED at screen 2026-07-16** (b: Brier p=0.000; c: regression p=0.002; a: −1.42% p=0.000); stopping variance = working machinery; colleges long-stop carried to B3
 - [x] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites — **SHIPPED 2026-07-17** (Ens8-C3: lr .15 + colsample .85 members, K=8 blessed; suites 54W-17L +0.28% pooled; gate 18W-9L PASS)
 - [x] B6 recalibration decided — **SKIP 2026-07-17**: the Brier leg swept 23-0/8-0 at tier 2; no weak leg exists to fix
-- [ ] B7 reweighting decided (queued: OOB-masked probe, low expectation — see the lasso discussion section)
+- [x] B7 reweighting decided — **KILLED 2026-07-17** (probe: 0/15 vs the registered bar, −2.3% even against the same-data bag; 93% pruning confirms collinearity but the sparse solution loses; B8 moot)
 - [x] pareto.png shows the blessed bagged point on the frontier — **DONE 2026-07-17**: canonical 5-arm runs (gr `20260717-112941`, hc `115025`, single-arm canary 59/59 ties vs Phase 0); **Ens8 sweeps Grinsztajn 100.0/100.0/100.0/100.0 @ 30.1x** (CatBoost off the frontier); **hc 99.6 @ 14.5x vs CatBoost 98.6 @ 118.7x**; chart refreshed, README examples fixed (n_ensembles 2→8), FAQ updated. NOTE: the Ens8 arm raises the in-chart yardstick, so the single-model row reads 97.0 — the default did not change.
 - [x] Verdicts → memory (CLAUDE.md unchanged: no protocol changes needed)
 - [x] B-samp `max_samples=0.8` — **SHIPPED 2026-07-17** (added post-plan; Nathan's idea, lit-validated)
