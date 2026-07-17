@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.16.0] - 2026-07-17
 ### Changed
 - **Bagged members now train on 80% row subsamples drawn without replacement**
   (new `max_samples` parameter, default `0.8`; `1.0` restores the classic
