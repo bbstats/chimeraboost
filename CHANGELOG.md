@@ -3,6 +3,19 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **Faster fits at identical output: internal model selection no longer
+  recomputes preprocessing.** The variant auditions, the cross-feature
+  candidate, and the winner refit inside one `fit` previously each reran the
+  full preprocessing pipeline (target encoding, quantile borders, binning) on
+  the same data; they now share it, and the cross-feature candidate only
+  computes its added columns. Models are bit-identical to before (verified
+  by the numerical-identity test goldens and exact prediction matches on
+  benchmark data). Biggest on categorical-heavy data, where repeated target
+  encoding was the waste (17–32% faster single-model fits measured there);
+  bagged ensembles save it in every member.
+
 ## [0.16.0] - 2026-07-17
 ### Changed
 - **Bagged members now train on 80% row subsamples drawn without replacement**

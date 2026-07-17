@@ -1135,13 +1135,20 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
                     and X.shape[1] - n_cats >= 2)
 
+        # One prep cache for every booster fit below: the auditions, the
+        # cross-augmented candidate, and the winner refit all see identical
+        # (X, y, cat_features, eval_set), so their preprocessing is computed
+        # once and reused bit-identically (see GradientBoosting._prep_matrices).
+        prep_cache = {}
+
         def _fit_booster(linear, cross_pairs=None, stop=None):
             b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
                                  linear_leaves=linear, cross_pairs=cross_pairs,
                                  **kw)
             b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                   sample_weight=sample_weight,
-                  callbacks=_add_callback(callbacks, stop))
+                  callbacks=_add_callback(callbacks, stop),
+                  prep_cache=prep_cache)
             return b
 
         self.linear_leaves_selected_ = None
@@ -1229,6 +1236,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
+        # The winner is chosen; free the cached binned matrices now rather
+        # than holding them through the conformal step below.
+        prep_cache.clear()
 
         # Conformal quantile correction on the validation split -- the
         # regression analog of the classifier's temperature scaling. Boosting
@@ -1648,10 +1658,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
                     and X.shape[1] - n_cats >= 2)
             stop = _stop_after(self.selection_rounds) if fast else None
+            # Shared across the base fit, the cross-augmented candidate, and
+            # the possible refit below -- identical inputs, so preprocessing
+            # is computed once (see GradientBoosting._prep_matrices).
+            prep_cache = {}
             self.model_ = GradientBoosting(loss="Logloss", **kw)
             self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
                             sample_weight=sample_weight,
-                            callbacks=_add_callback(callbacks, stop))
+                            callbacks=_add_callback(callbacks, stop),
+                            prep_cache=prep_cache)
 
         # Numeric cross features (default-on auto, binary only): refit with
         # difference/product columns for the top numeric feature pairs of the
@@ -1675,14 +1690,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                             eval_set=eval_set, sample_weight=sample_weight,
                             callbacks=_add_callback(
                                 callbacks, _stop_if_behind(
-                                    self.selection_rounds, base_best)))
+                                    self.selection_rounds, base_best)),
+                            prep_cache=prep_cache)
                     self.cross_features_selected_ = (
                         min(aug.valid_history_[:self.selection_rounds])
                         < base_best) if aug.valid_history_ else False
                 else:
                     aug.fit(X, y01, cat_features=cat_features,
                             eval_set=eval_set, sample_weight=sample_weight,
-                            callbacks=callbacks)
+                            callbacks=callbacks, prep_cache=prep_cache)
                     self.cross_features_selected_ = \
                         _best_val(aug) < _best_val(self.model_)
                 if self.cross_features_selected_:
@@ -1696,7 +1712,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     self.model_.fit(X, y01, cat_features=cat_features,
                                     eval_set=eval_set,
                                     sample_weight=sample_weight,
-                                    callbacks=callbacks)
+                                    callbacks=callbacks,
+                                    prep_cache=prep_cache)
+
+        if not self._multiclass:
+            # The winner is chosen; free the cached binned matrices rather
+            # than holding them through temperature scaling below.
+            prep_cache.clear()
 
         # Temperature scaling on the validation set: dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes

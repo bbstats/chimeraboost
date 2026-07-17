@@ -309,13 +309,71 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
+    def _prep_matrices(self, X, y, cat_features, eval_set, prep_cache):
+        """Fit ``self.prep_`` and return the feature-major binned train/eval
+        matrices ``(Xb, Xvb)`` (``Xvb`` is None without an eval set).
+
+        ``prep_cache`` (internal) is a dict shared across the booster fits of
+        one sklearn-level fit -- the selection auditions, the cross-augmented
+        candidate, and the winner refit -- which all see identical
+        ``(X, y, cat_features, eval_set)`` and identical prep parameters
+        except ``cross_pairs``. Entries are keyed by ``cross_pairs``: a
+        repeat fit reuses the cached preprocessor and matrices outright, and
+        the cross-augmented fit builds on the no-cross base entry, computing
+        only the cross columns (``FeaturePreprocessor.from_base_with_cross``;
+        bit-identical either way because every prep artifact is per-column).
+        Callers that cannot guarantee identical inputs must pass None.
+        """
+        key = tuple(self.cross_pairs) if self.cross_pairs else ()
+        if prep_cache is not None and key in prep_cache:
+            self.prep_, Xb, Xvb = prep_cache[key]
+            if eval_set is not None and Xvb is None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+            return Xb, Xvb
+
+        base = prep_cache.get(()) if (prep_cache is not None and key) else None
+        if base is not None:
+            base_prep, base_Xb, base_Xvb = base
+            self.prep_, cross_binner, crossb = \
+                FeaturePreprocessor.from_base_with_cross(
+                    base_prep, list(self.cross_pairs), X)
+            nb = len(self.prep_.num_features_)
+            # Stacked column order is [numeric | cross | TS]; splice the new
+            # cross rows into the feature-major base matrix (concatenate
+            # returns a fresh C-contiguous array, as the kernels require).
+            Xb = np.concatenate([base_Xb[:nb], crossb.T, base_Xb[nb:]], axis=0)
+            Xvb = None
+            if eval_set is not None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                if base_Xvb is not None:
+                    crossvb = cross_binner.transform(
+                        self.prep_._cross_block(Xv))
+                    Xvb = np.concatenate(
+                        [base_Xvb[:nb], crossvb.T, base_Xvb[nb:]], axis=0)
+                else:
+                    Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+        else:
+            self.prep_ = self._new_preprocessor()
+            # Tree kernels consume a feature-major matrix; transpose once here.
+            Xb = np.ascontiguousarray(
+                self.prep_.fit_transform(X, [y], cat_features).T)
+            Xvb = None
+            if eval_set is not None:
+                Xv = as_model_array(eval_set[0], bool(cat_features))
+                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+        if prep_cache is not None:
+            prep_cache[key] = (self.prep_, Xb, Xvb)
+        return Xb, Xvb
+
     def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
-            callbacks=None):
+            callbacks=None, prep_cache=None):
         """Fit the additive model. Optionally pass `cat_features` (column indices
         to target-encode) and `eval_set=(X_val, y_val)` for early stopping.
         `sample_weight` is a 1-D array of per-sample weights; None means uniform.
         Weights are normalized to mean 1 internally so the gradient scale stays
-        comparable to the no-weight case."""
+        comparable to the no-weight case. `prep_cache` is internal -- see
+        `_prep_matrices`."""
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y, dtype=np.float64)
         n_samples = X.shape[0]
@@ -325,9 +383,7 @@ class GradientBoosting(_BaseBooster):
         self.loss_ = LOSSES[self.loss_name](**self.loss_kwargs)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
-        self.prep_ = self._new_preprocessor()
-        # Tree kernels consume a feature-major matrix; transpose once here.
-        Xb = np.ascontiguousarray(self.prep_.fit_transform(X, [y], cat_features).T)
+        Xb, Xvb = self._prep_matrices(X, y, cat_features, eval_set, prep_cache)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         # Keep a small sample of the (binned) training rows as the default SHAP
@@ -338,12 +394,9 @@ class GradientBoosting(_BaseBooster):
             n_samples, bg_n, replace=False)
         self._shap_background_ = np.ascontiguousarray(Xb[:, bg_idx])
 
-        Xvb = yv = Fv = None
+        yv = Fv = None
         if eval_set is not None:
-            Xv, yv = eval_set
-            Xv = as_model_array(Xv, bool(cat_features))
-            yv = np.asarray(yv, dtype=np.float64)
-            Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+            yv = np.asarray(eval_set[1], dtype=np.float64)
 
         self.init_ = self.loss_.init(y, w)
         F = np.full(n_samples, self.init_, dtype=np.float64)
