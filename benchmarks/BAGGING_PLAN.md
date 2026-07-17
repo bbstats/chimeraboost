@@ -737,13 +737,44 @@ Do last; skip freely.
   B3 picks the strongest K on the suites; fit cost only breaks ties, subject
   to the program's ≤~12x acceptance ceiling.
 
+## Program close (2026-07-17) — status accounting
+
+**Shipped (all unreleased, on main):** B4 parallel members
+(`ensemble_n_jobs=-1`), B3 member defaults + blessed K=8, B-samp
+`max_samples=0.8` subagging. **Killed with full records:** B1 (4
+variants), B2 (3 designs), B-samp 0.632/0.5. **The blessed bagged mode
+is now: `n_ensembles=8`, members at lr 0.15 / colsample 0.85, 0.8
+no-replacement samples, parallel workers.**
+
+- **Strength: targets EXCEEDED.** Cumulative over the Phase-0 Ens5
+  baseline: +0.28% (B3) then +0.94% gr (B-samp) primary, with perfect
+  tier-2 Brier sweeps (23-0, 8-0) — on top of Ens5's original +2.16% over
+  the single model. Canonical 5-arm close-out runs in flight for the
+  final pareto numbers.
+- **Speed: the ≤~12x ceiling was NOT met.** Projected ~30x absolute on gr
+  (34.3 baseline × B3 ~1.01 × B-samp 0.874; B4's chart gain is small
+  under harness pinning). Every fit-cost lever that touched the ensemble
+  mechanism's diversity or data was killed by measurement; what shipped
+  is what survived. Remaining known headroom: B-prep shared binning
+  (hc-heavy, est. single-digit % pooled) — OPEN, queued for a future
+  session. **Kill-rule review (>20x) = Nathan's call**: the program
+  delivered a much stronger, modestly cheaper frontier point rather than
+  a cheap one.
+- **Phase 2 verdicts:** B6 recalibration — **SKIP, documented**: the leg
+  it targeted is now the bag's strongest (tier-2 Brier sweeps); nothing
+  to fix. B7 reweighting — queued as a zero-library-change OOB-masked
+  probe (design + downgraded outlook recorded above with Nathan); B8
+  moot unless B7 ships. B5 shared trunk stays parked.
+
 ## Acceptance checklist
 
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
 - [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
 - [x] B2 ES-budget design picked by A/B, through /experiment — **ALL THREE KILLED at screen 2026-07-16** (b: Brier p=0.000; c: regression p=0.002; a: −1.42% p=0.000); stopping variance = working machinery; colleges long-stop carried to B3
 - [x] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites — **SHIPPED 2026-07-17** (Ens8-C3: lr .15 + colsample .85 members, K=8 blessed; suites 54W-17L +0.28% pooled; gate 18W-9L PASS)
-- [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)
-- [ ] B7 reweighting decided (ship or clean kill)
-- [ ] pareto.png shows ChimeraBoostEns5 on the frontier; README + docs updated (terse)
-- [ ] Verdicts → memory + CLAUDE.md
+- [x] B6 recalibration decided — **SKIP 2026-07-17**: the Brier leg swept 23-0/8-0 at tier 2; no weak leg exists to fix
+- [ ] B7 reweighting decided (queued: OOB-masked probe, low expectation — see the lasso discussion section)
+- [ ] pareto.png shows the blessed bagged point (now Ens8) on the frontier; README + docs updated (terse) — close-out 5-arm runs in flight
+- [x] Verdicts → memory (CLAUDE.md unchanged: no protocol changes needed)
+- [x] B-samp `max_samples=0.8` — **SHIPPED 2026-07-17** (added post-plan; Nathan's idea, lit-validated)
+- [ ] B-prep shared binning — OPEN (future session; last known fit-cost headroom)
