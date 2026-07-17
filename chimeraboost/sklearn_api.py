@@ -279,7 +279,14 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads,
             **member_defaults)
-        idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
+        # SCREEN VARIANT B-samp (BAGGING_PLAN.md): subagging — draw
+        # max_samples*n rows WITHOUT replacement instead of a full-size
+        # bootstrap. A bootstrap's duplicates are just integer weights
+        # (effective sample size ~n/2), so 0.632n unique rows match its
+        # information at ~2/3 the training rows. OOB machinery unchanged.
+        _MAX_SAMPLES = 0.632
+        m = max(1, int(round(_MAX_SAMPLES * n)))
+        idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
         # Use OOB rows as the early-stopping eval set when no explicit eval_set
