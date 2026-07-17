@@ -333,14 +333,42 @@ remaining regression cost is B2/B-prep/B4 territory by construction.
   the real number almost exactly. PROTOCOL LESSON, now standing: **read the
   Brier metric at tier 1 for any classification-touching change.**
 
-**D3 (final B1 shape, screening now): no pins anywhere.** All members keep
-their own full selection machinery; the bag caps members'
-`selection_rounds` at 50 (single-model default untouched). Keeps every
-diversity channel (variant decisions, pairs, calibration); only the
-audition/race budget halves — regression already screened flat under
-exactly this treatment (B1-ll ruled the k=50 cap harmless there:
-regression slice of D2 == D3 regression treatment). Library diff vs main
-is 9 lines; all pin machinery removed (git history keeps it).
+**D3 (final B1 shape): no pins anywhere.** All members keep their own full
+selection machinery; the bag caps members' `selection_rounds` at 50
+(single-model default untouched). Keeps every diversity channel (variant
+decisions, pairs, calibration); only the audition/race budget halves —
+regression already screened flat under exactly this treatment (B1-ll ruled
+the k=50 cap harmless there: regression slice of D2 == D3 regression
+treatment). Library diff vs main is 9 lines; all pin machinery removed
+(git history keeps it).
+
+**D3 screen (BASE `20260716-202944` vs `20260716-212906`): PASS on BOTH
+metrics.** Primary 23W-17L-96T +0.018% (regression −0.004%, binary +0.050%,
+multiclass ties); **Brier 10W-7L +0.005%, flat** (D2 was 4W-12L −0.338%).
+
+**D3 tier 2, Grinsztajn** (`20260716-213641`, canary 59/59 ties): primary
+25W-27L-7T +0.004% neutral; blended 99.5 @ 32.5x. But Brier: 10W-13L with
+an asymmetric magnitude tail — losses pol −9.5% (near-solved inflation,
+Brier 0.016→0.018), **road-safety −2.2% (real)**, california −1.2%; wins
+cap at +0.3%. Within-run Ens5-vs-single Brier: 13W-10L signs PASS but mean
+flipped +0.305% → −0.245%. The k=50 cap on the BINARY audition race has a
+small real mispick tail (step-0 race data predicted it: cross @k=50 had a
+1-in-21 mispick with 4.25% regret). Regression slice: **14W-16L-6T +0.011%,
+worst set −0.63% — clean.**
+
+**D3 tier 2, hc** (`20260716-215133`, canary 14/14 ties): Ens5 primary
+3 non-ties of 14 — colleges −0.36%, employee_salaries +0.11%, kick −0.04%;
+mean −0.021%. Flat; the kick delta is the binary cap, removed in B1-final.
+
+**B1-FINAL: regression-only member cap.** Regression bag members audition
+at `selection_rounds=50` (validated flat: 3 synth screens + Grinsztajn
+regression slice); classifier members fully stock — bit-identical to
+baseline, restoring the Phase-0 Ens5 Brier edge by construction. Library
+diff vs main: 13 lines in `_fit_bagged._fit_one`. Modest speed (regression
+audition rounds halved; binary reverts): the B1 lesson is that most of the
+"redundant" selection cost is load-bearing diversity, and only the
+regression audition-budget slice was safely removable. Confirmation runs +
+pooled verdict + OpenML gate next.
 
 ## Phase 2 — strength levers (make it goated)
 
