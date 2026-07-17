@@ -107,11 +107,11 @@ regressors average predictions, classifiers soft-vote calibrated probabilities.
 
 ```python
 reg = ChimeraBoostRegressor(n_ensembles=10, random_state=0).fit(X_train, y_train)
-
-# fit members in parallel processes
-reg = ChimeraBoostRegressor(n_ensembles=10, ensemble_n_jobs=-1, random_state=0)
-reg.fit(X_train, y_train)
 ```
+
+Members fit in parallel worker processes by default, splitting the thread
+budget so a bagged fit uses the same cores a single fit would; pass
+`ensemble_n_jobs=1` to fit them sequentially instead.
 
 `feature_importances_` and `shap_values` average across the bag automatically.
 
