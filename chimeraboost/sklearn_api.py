@@ -90,7 +90,7 @@ def _validate_hyperparams(estimator):
     _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
-    _in_range("colsample", 0.0, 1.0, lo_incl=False)
+    _in_range("colsample", 0.0, 1.0, lo_incl=False, allow_none=True)
     # cat_smoothing is a Bayesian pseudocount in the ordered-TS denominator
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
     _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
@@ -257,9 +257,28 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
 
+    # Bagged-mode member defaults (benchmarks/BAGGING_PLAN.md B3): averaging
+    # tolerates coarser, cheaper members, so params the user left on auto
+    # resolve to the tuned member values instead of the single-model ones
+    # (PMLB-tuned, holdout-confirmed, decision-suite validated: 54W-17L
+    # +0.28% pooled vs the previous bagged defaults at par fit cost).
+    # Explicit user values always win. Announced once per fit -- an opt-in
+    # bagged fit should never silently train members on different defaults.
+    member_defaults = {}
+    if estimator.learning_rate is None:
+        member_defaults["learning_rate"] = 0.15
+    if estimator.colsample is None:
+        member_defaults["colsample"] = 0.85
+    estimator.member_params_ = dict(member_defaults)
+    if member_defaults:
+        print("ChimeraBoost bagged mode: member defaults "
+              + ", ".join(f"{k}={v}" for k, v in member_defaults.items())
+              + " (pass explicit values to override; see docs).", flush=True)
+
     def _fit_one(seed):
         member = clone(estimator).set_params(
-            n_ensembles=None, random_state=int(seed), thread_count=member_threads)
+            n_ensembles=None, random_state=int(seed), thread_count=member_threads,
+            **member_defaults)
         idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
@@ -804,8 +823,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     subsample : float, default 1.0
         Row subsampling fraction per tree. Below 1.0, rows are drawn by Minimum
         Variance Sampling (gradient-weighted, unbiased) rather than uniformly.
-    colsample : float, default 1.0
-        Fraction of features eligible for each tree.
+    colsample : float or None, default None
+        Fraction of features eligible for each tree. ``None`` resolves to
+        1.0 for a single model and to the bagged-member default 0.85 inside
+        ``n_ensembles > 1`` fits (see ``member_params_``).
     cat_smoothing : float, default 1.0
         Prior strength for ordered target statistics; higher shrinks rare
         categories harder toward the global mean. Must be > 0 -- it is the
@@ -900,6 +921,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``shap_values``.
     estimators_ : list or None
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
+    member_params_ : dict
+        Bagged-mode member defaults that were auto-applied (params the user
+        left on auto resolve to tuned member values inside a bag; explicit
+        values always win). Set only when ``n_ensembles > 1``.
     quantile_offset_ : float
         Split-conformal correction added to every prediction when
         ``loss="Quantile"`` and a validation split was available: the conformal
@@ -912,7 +937,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """
 
     def __init__(self, n_estimators=2000, learning_rate=None, depth=None,
-                 l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=1.0,
+                 l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=None,
                  cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
@@ -1060,6 +1085,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
+        # colsample None = auto: full columns for a single model (the bagged
+        # path resolves members to 0.85 before this runs; see _fit_bagged).
+        if kw.get("colsample") is None:
+            kw["colsample"] = 1.0
         # Auto-resolve cat_combinations: on only for tractable all-categorical data.
         if kw.get("cat_combinations") is None:
             kw["cat_combinations"] = _auto_cat_combinations(
@@ -1290,8 +1319,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Histogram bins per numeric feature.
     subsample : float, default 1.0
         Row subsampling fraction per tree (Minimum Variance Sampling below 1.0).
-    colsample : float, default 1.0
-        Fraction of features eligible for each tree.
+    colsample : float or None, default None
+        Fraction of features eligible for each tree. ``None`` resolves to
+        1.0 for a single model and to the bagged-member default 0.85 inside
+        ``n_ensembles > 1`` fits (see ``member_params_``).
     cat_smoothing : float, default 1.0
         Prior strength for ordered target statistics. Must be > 0 (a Bayesian
         pseudocount in the encoder denominator; 0 is undefined).
@@ -1379,10 +1410,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         SHAP baseline (binary only); set after calling ``shap_values``.
     estimators_ : list or None
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
+    member_params_ : dict
+        Bagged-mode member defaults that were auto-applied (params the user
+        left on auto resolve to tuned member values inside a bag; explicit
+        values always win). Set only when ``n_ensembles > 1``.
     """
 
     def __init__(self, n_estimators=2000, learning_rate=None, depth=6,
-                 l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=1.0,
+                 l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=None,
                  cat_smoothing=1.0, cat_n_permutations=4,
                  early_stopping_rounds=None,
                  min_child_weight=None, thread_count=None, random_state=None,
@@ -1527,6 +1562,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # on the FINAL training set (post early-stopping split).
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
+        # colsample None = auto: full columns for a single model (the bagged
+        # path resolves members to 0.85 before this runs; see _fit_bagged).
+        if kw.get("colsample") is None:
+            kw["colsample"] = 1.0
         # Auto-resolve cat_combinations: on only for tractable all-categorical data
         # (targets the all-categorical multiclass gap, e.g. car).
         if kw.get("cat_combinations") is None:

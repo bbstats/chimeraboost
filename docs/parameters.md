@@ -24,7 +24,7 @@ For more detail, see [API reference](api.md).
 | Parameter | Default | Effect |
 |---|---|---|
 | `subsample` | `1.0` | Row fraction per tree. Below 1.0, uses Minimum Variance Sampling (gradient-weighted, unbiased). |
-| `colsample` | `1.0` | Feature fraction eligible per tree. |
+| `colsample` | `None` | Feature fraction eligible per tree. `None` = 1.0 for a single model, 0.85 for members inside `n_ensembles > 1` (see recipes: bagging). |
 
 ## Categorical features
 

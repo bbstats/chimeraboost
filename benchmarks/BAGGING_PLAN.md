@@ -578,6 +578,24 @@ learning_rate=None; colsample default moves to None so bagged members
 resolve 0.85 while explicit user values always win), SUPER-visible per
 Nathan.
 
+**OpenML one-shot gate (base `20260717-095807` vs new `20260717-101033`,
+LightGBM canary 29/29 ties): PASS.** Primary **18W-9L-2T +0.18%**; Brier
+**18W-4L** (mean −21% is 100% the `mushroom` artifact — an exactly-solved
+set, Brier ~0.0000 both arms, −486% relative on a <1e-4 absolute delta;
+trimmed mean ≈ +0.8%).
+
+### B3 VERDICT (2026-07-17): SHIP — Ens8-C3 becomes the blessed bagged mode.
+
+Shipped (branch bagging-b3-ship): bagged-member auto defaults
+`learning_rate None→0.15`, `colsample None→0.85` (colsample constructor
+default 1.0→None; single-model resolution None→1.0 is bit-identical,
+goldens green); always-on one-line fit notice + `member_params_` attribute
++ docs (recipes bagging section: recommended K=8, K=2 anti-recommended);
+harness ChimeraBoostEns8 arm; --chimera-colsample default None so harness
+arms measure the shipped config. 437 tests green. The old grid/composite
+runs used explicit flags at the same values, so all B3 evidence transfers
+to the shipped shape exactly.
+
 ### B-samp (queued behind B3): member sample size — subagging (lit-reviewed 2026-07-17)
 
 Nathan's observation: sklearn BaggingRegressor exposes `max_samples`; we
@@ -677,7 +695,7 @@ Do last; skip freely.
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
 - [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
 - [x] B2 ES-budget design picked by A/B, through /experiment — **ALL THREE KILLED at screen 2026-07-16** (b: Brier p=0.000; c: regression p=0.002; a: −1.42% p=0.000); stopping variance = working machinery; colleges long-stop carried to B3
-- [ ] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites
+- [x] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites — **SHIPPED 2026-07-17** (Ens8-C3: lr .15 + colsample .85 members, K=8 blessed; suites 54W-17L +0.28% pooled; gate 18W-9L PASS)
 - [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)
 - [ ] B7 reweighting decided (ship or clean kill)
 - [ ] pareto.png shows ChimeraBoostEns5 on the frontier; README + docs updated (terse)

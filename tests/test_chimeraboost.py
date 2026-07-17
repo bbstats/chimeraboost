@@ -547,6 +547,49 @@ def test_bagging_with_categoricals():
     assert np.allclose(proba.sum(axis=1), 1.0)
 
 
+def test_bagging_member_defaults_applied_and_announced(capsys):
+    """B3 (BAGGING_PLAN.md): inside a bag, params left on auto resolve to the
+    tuned member defaults (learning_rate 0.15, colsample 0.85), the estimator
+    exposes them via member_params_, and the fit announces them."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=800)
+    bag = ChimeraBoostRegressor(n_estimators=40, random_state=0,
+                                n_ensembles=3).fit(X, y)
+    assert bag.member_params_ == {"learning_rate": 0.15, "colsample": 0.85}
+    for m in bag.estimators_:
+        assert m.learning_rate == 0.15
+        assert m.colsample == 0.85
+    out = capsys.readouterr().out
+    assert "bagged mode" in out and "learning_rate=0.15" in out
+
+
+def test_bagging_member_defaults_explicit_params_win(capsys):
+    """Explicit user values suppress the bagged-member defaults (and the
+    notice stays silent when nothing was auto-changed)."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=800)
+    bag = ChimeraBoostRegressor(n_estimators=40, random_state=0, n_ensembles=3,
+                                learning_rate=0.1, colsample=1.0).fit(X, y)
+    assert bag.member_params_ == {}
+    for m in bag.estimators_:
+        assert m.learning_rate == 0.1
+        assert m.colsample == 1.0
+    assert "bagged mode" not in capsys.readouterr().out
+
+
+def test_colsample_none_single_model_identity():
+    """colsample=None (the new default) is bit-identical to the old explicit
+    1.0 for single models."""
+    from sklearn.datasets import load_diabetes
+    X, y = load_diabetes(return_X_y=True)
+    a = ChimeraBoostRegressor(n_estimators=60, random_state=0).fit(X, y)
+    b = ChimeraBoostRegressor(n_estimators=60, random_state=0,
+                              colsample=1.0).fit(X, y)
+    assert np.array_equal(a.predict(X), b.predict(X))
+
+
 def test_empty_tree_stops_boosting_early():
     """When splits are exhausted, the booster should stop rather than bank
     useless depth-0 trees until the iteration ceiling."""
