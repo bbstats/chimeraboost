@@ -529,10 +529,11 @@ def test_bagging_with_categoricals():
     assert np.allclose(proba.sum(axis=1), 1.0)
 
 
-def test_bagging_regression_members_keep_own_selection_at_half_budget():
-    """B1 (BAGGING_PLAN.md): regression members are NOT pinned — per-member
-    variant selection is averaging-relevant diversity — but audition at a
-    reduced budget (selection_rounds capped at 50 inside the bag)."""
+def test_bagging_members_keep_own_selection_at_half_budget():
+    """B1 (BAGGING_PLAN.md): bag members are never pinned to member 1's
+    variant selection — per-member selection is averaging-relevant diversity —
+    but they audition at a reduced budget (selection_rounds capped at 50
+    inside the bag). The single-model default is untouched."""
     rng = np.random.default_rng(0)
     n = 4000  # above both selection thresholds so the auditions engage
     X = rng.normal(size=(n, 6))
@@ -543,30 +544,16 @@ def test_bagging_regression_members_keep_own_selection_at_half_budget():
         assert m.selection_rounds == 50
         assert m.linear_leaves_selected_ is not None   # own audition ran
         assert m.cross_features_selected_ is not None  # own race ran
-        assert not hasattr(m, "_pinned_cross_pairs")
-    # The single-model default is untouched by the bagged-member cap.
     assert ChimeraBoostRegressor().selection_rounds == 100
     assert bag.predict(X[:10]).shape == (10,)
 
-
-def test_bagging_pins_member_variant_selection_binary():
-    """B1 twin for the classifier: cross selection is pinned across members."""
-    rng = np.random.default_rng(1)
-    n = 4000
-    X = rng.normal(size=(n, 6))
-    y = (X[:, 0] * X[:, 1] + X[:, 2] + 0.5 * rng.normal(size=n) > 0).astype(int)
-    bag = ChimeraBoostClassifier(n_estimators=150, random_state=0,
-                                 n_ensembles=3).fit(X, y)
-    first, rest = bag.estimators_[0], bag.estimators_[1:]
-    assert first.cross_features_selected_ is not None
-    for m in rest:
-        if first.cross_features_selected_:
-            assert m.cross_features_selected_ is True
-            assert m.cross_pairs_ == first.cross_pairs_
-        else:
-            assert m.cross_features is False
-            assert m.cross_features_selected_ is None
-    proba = bag.predict_proba(X[:10])
+    yb = (y > 0).astype(int)
+    cbag = ChimeraBoostClassifier(n_estimators=150, random_state=0,
+                                  n_ensembles=3).fit(X, yb)
+    for m in cbag.estimators_:
+        assert m.selection_rounds == 50
+        assert m.cross_features_selected_ is not None  # own race ran
+    proba = cbag.predict_proba(X[:10])
     assert proba.shape == (10, 2)
 
 

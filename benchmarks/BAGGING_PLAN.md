@@ -305,6 +305,43 @@ across the bag). Single-model default untouched. Fallback if D2's regression
 slice regresses: binary-pin-only (already validated by the full-B1 screen's
 flat binary slice; regression reverts to stock members).
 
+**D2 screen** (BASE `20260716-202944` vs `20260716-205947`): **PASS —
+strength dead flat.** 20W-19L-97T, mean +0.000%; regression 15W-9L −0.004%
+(damage gone); binary 5W-10L +0.005% (same benign pin churn as full-B1);
+multiclass all ties. 435 tests green.
+
+**D2 clean-box smoke** (b1_smoke.py, real sets): the speed win is
+binary-concentrated — kick bag fit 15.6s→11.6s (**26% faster**, ratio
+7.4x→4.6x); regression modest (cpu_act ratio 6.5→5.2, wine-reviews/colleges
+~flat) because regression members still run 3 booster fits with per-fit
+prep — only audition ROUNDS halved. Member variant flags on cpu_act:
+(T,F),(T,T),(F,T),(F,T),(T,T) — diversity confirmed alive at k=50. The
+remaining regression cost is B2/B-prep/B4 territory by construction.
+
+**D2 tier 2 — KILLED on the Brier leg** (gr `20260716-210952`, hc
+`20260716-212356`, canaries 59/59 + 14/14 exact ties):
+
+- Grinsztajn primary: 22W-31L-6T, −0.014% = neutral; pareto **99.5 blended
+  @ 29.9x** (Ens5/single ratio 5.4x→4.3x, −20%). Looked like a clean ship…
+- …but Grinsztajn **Brier 5W-18L, −0.394%** (p≈0.01): the binary pin forces
+  all K members into member 1's model family (naturally ~40% would be base
+  models on flippy sets) — averaged probabilities lose sharpness. F1 stays
+  flat; Brier is 2/3 of the clf blend. hc: primary −0.017% flat, Brier
+  −0.145% same signature (few applicable binary sets).
+- **The tier-1 screen HAD this signal and it was under-read**: D2 synth
+  binary Brier 4W-12L −0.338% (p=0.077) vs −0.394% real — synth predicted
+  the real number almost exactly. PROTOCOL LESSON, now standing: **read the
+  Brier metric at tier 1 for any classification-touching change.**
+
+**D3 (final B1 shape, screening now): no pins anywhere.** All members keep
+their own full selection machinery; the bag caps members'
+`selection_rounds` at 50 (single-model default untouched). Keeps every
+diversity channel (variant decisions, pairs, calibration); only the
+audition/race budget halves — regression already screened flat under
+exactly this treatment (B1-ll ruled the k=50 cap harmless there:
+regression slice of D2 == D3 regression treatment). Library diff vs main
+is 9 lines; all pin machinery removed (git history keeps it).
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
