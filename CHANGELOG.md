@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Tuned bagged-member defaults** (opt-in `n_ensembles` mode): inside a bag,
+  parameters left on auto now resolve to member-tuned values —
+  `learning_rate` `None` → 0.15 and `colsample` `None` → 0.85 (single-model
+  resolution unchanged: 0.1 / 1.0). PMLB-tuned, holdout-confirmed, and
+  validated on both decision suites (54W-17L, +0.28% pooled vs the previous
+  bagged defaults at par fit cost; OpenML gate 18W-9L). The fit prints a
+  one-line notice when member defaults activate, `member_params_` records
+  them, and explicit values always win. Recommended ensemble size is now
+  `n_ensembles=8` (measured stronger than 5 at similar cost; 2 remains
+  anti-recommended). `colsample`'s default changed from `1.0` to `None`
+  (identical behavior for single models).
 - **Bagged ensembles fit their members in parallel by default**
   (`ensemble_n_jobs` default `1` → `-1`): members fit across
   `min(n_ensembles, thread budget)` worker processes, each on an equal share

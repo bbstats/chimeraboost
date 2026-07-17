@@ -106,8 +106,17 @@ early-stopping metric stays unweighted.
 regressors average predictions, classifiers soft-vote calibrated probabilities.
 
 ```python
-reg = ChimeraBoostRegressor(n_ensembles=10, random_state=0).fit(X_train, y_train)
+reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)
 ```
+
+Recommended size is `n_ensembles=8` (benchmarked stronger than 5 at similar
+cost). Avoid `n_ensembles=2`: two members measure worse than one model.
+
+Inside a bag, parameters left on auto resolve to tuned member defaults —
+currently `learning_rate=0.15` and `colsample=0.85` — because averaging
+tolerates coarser, cheaper members. The fit prints a one-line notice when
+this happens, `member_params_` records what was applied, and passing
+explicit values disables it.
 
 Members fit in parallel worker processes by default, splitting the thread
 budget so a bagged fit uses the same cores a single fit would; pass

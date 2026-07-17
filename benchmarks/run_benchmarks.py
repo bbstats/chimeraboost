@@ -623,7 +623,8 @@ PATIENCE = 50
 
 
 def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
-                 ordered_boosting=None, depth=6, subsample=1.0, mcw=None,
+                 ordered_boosting=None, depth=6, subsample=1.0, colsample=None,
+                 mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
                  cat_smoothing=None, selection_rounds=None):
@@ -682,7 +683,7 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # class defaults for the headline run, so the benchmark == the default.
     m = Est(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
             learning_rate=lr, depth=depth,
-            subsample=subsample,
+            subsample=subsample, colsample=colsample,
             thread_count=threads, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
@@ -695,31 +696,41 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
 ENSEMBLE_N = 10
 
 
-def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads):
+def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
+                 subsample=1.0, colsample=None):
     """Shared implementation for all bagged-ChimeraBoost runners.
 
     ensemble_n_jobs is left at the shipped default (parallel members inside
     the task's thread budget) so the chart measures the shipped config
-    (BAGGING_PLAN.md B4; same core budget as every other model)."""
+    (BAGGING_PLAN.md B4; same core budget as every other model). lr /
+    subsample / colsample forward to the members (the B3 member-defaults
+    grid rides the same --chimera-* flags as the single arm)."""
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     m = Est(n_estimators=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
-            n_ensembles=n,
+            n_ensembles=n, learning_rate=lr,
+            subsample=subsample, colsample=colsample,
             thread_count=threads, random_state=0)
     m.fit(Xtr, ytr, cat_features=cat)
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
 
 
-def _run_chimera_ensemble(task, Xtr, ytr, Xte, yte, cat, threads):
-    return _chimera_ens(ENSEMBLE_N, task, Xtr, ytr, Xte, yte, cat, threads)
+def _run_chimera_ensemble(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
+    return _chimera_ens(ENSEMBLE_N, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
 
 
-def _run_chimera_ensemble_2(task, Xtr, ytr, Xte, yte, cat, threads):
-    return _chimera_ens(2, task, Xtr, ytr, Xte, yte, cat, threads)
+def _run_chimera_ensemble_2(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
+    return _chimera_ens(2, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
 
 
-def _run_chimera_ensemble_5(task, Xtr, ytr, Xte, yte, cat, threads):
-    return _chimera_ens(5, task, Xtr, ytr, Xte, yte, cat, threads)
+def _run_chimera_ensemble_5(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
+    return _chimera_ens(5, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
+
+
+def _run_chimera_ensemble_8(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
+    # The blessed bagged config (BAGGING_PLAN.md B3): K=8 with the library's
+    # bagged-member defaults.
+    return _chimera_ens(8, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
 
 
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -860,6 +871,7 @@ RUNNERS = {
     "ChimeraBoost": _run_chimera,
     "ChimeraBoostEns2": _run_chimera_ensemble_2,
     "ChimeraBoostEns5": _run_chimera_ensemble_5,
+    "ChimeraBoostEns8": _run_chimera_ensemble_8,
     "ChimeraBoostEns10": _run_chimera_ensemble,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
@@ -871,15 +883,22 @@ RUNNERS = {
 # are also dep-free but N× slower, so they're selectable via --models but off by
 # default (like XGBoost).
 _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
-_OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5", "ChimeraBoostEns10")
+_OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
+                   "ChimeraBoostEns8", "ChimeraBoostEns10")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
 def _make_runners(model_names, chimera_cfg):
-    """Build the runner dict for `model_names`, wiring ChimeraBoost's CLI knobs."""
+    """Build the runner dict for `model_names`, wiring ChimeraBoost's CLI knobs.
+    The bagged arms honor the member-HP subset of the knobs (lr / subsample /
+    colsample) so the B3 grid runs ride the same flags."""
     import functools
     runners = dict(RUNNERS)
     runners["ChimeraBoost"] = functools.partial(_run_chimera, **chimera_cfg)
+    ens_cfg = {k: chimera_cfg[k] for k in ("lr", "subsample", "colsample")}
+    for name in ("ChimeraBoostEns2", "ChimeraBoostEns5", "ChimeraBoostEns8",
+                 "ChimeraBoostEns10"):
+        runners[name] = functools.partial(runners[name], **ens_cfg)
     return {name: runners[name] for name in model_names}
 
 
@@ -1093,6 +1112,12 @@ def main():
                     dest="chimera_subsample",
                     help="ChimeraBoost row subsample fraction; "
                          "MVS sampling when < 1.0 (default: 1.0 = off).")
+    ap.add_argument("--chimera-colsample", type=float, default=None,
+                    dest="chimera_colsample",
+                    help="ChimeraBoost per-tree column subsample fraction "
+                         "(default: None = the library auto default, i.e. "
+                         "1.0 single / 0.85 bagged members). Applies to the "
+                         "bagged arms too (B3 member grid).")
     ap.add_argument("--chimera-mcw", type=float, default=None,
                     dest="chimera_mcw",
                     help="ChimeraBoost min_child_weight (default: None = the "
@@ -1261,6 +1286,7 @@ def main():
         None if args.ordered_boosting else False)
     chimera_cfg = dict(lr=args.lr, ordered_boosting=ob_override,
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
+                       colsample=args.chimera_colsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
                        cat_smoothing=args.cat_smoothing,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,

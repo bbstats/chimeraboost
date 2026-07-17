@@ -493,6 +493,145 @@ surface exists; timing is the only change). Ships with the thread-budget
 division (also fixes the old -1 oversubscription bug), harness arm on the
 shipped config, terse docs, CHANGELOG [Unreleased].
 
+### B3 /experiment log (2026-07-17, branch bagging-b3)
+
+B3 is now load-bearing for the ≤~12x target (B1/B2 killed; B4's chart gain
+is ~6-8% under harness pinning). Tooling: `--lr` / `--chimera-subsample` /
+new `--chimera-colsample` now reach the bagged arms' members (d91f161).
+
+- **Tune-fold baseline** (`20260716-235522`, 13 tune sets, 3 seeds):
+  default Ens5 beats single 11/13 +0.50% at 6.27x.
+- **One-factor grid launched** (each vs that baseline, member params only,
+  K=5 unless noted): lr {0.15, 0.2} (averaging tolerates coarser steps →
+  fewer rounds → direct fit cut, and the honest colleges fix), subsample
+  {0.85, 0.7} and colsample {0.85, 0.7} (RF-style decorrelation, cheaper
+  trees), K {3, 8} (strength decides K per Nathan). Judge: bag blended +
+  Brier (tier-1 lesson) vs bag fit cost; top-2 composites → PMLB holdout →
+  decision suites → OpenML gate. Ship shape if a config wins: adaptive
+  member defaults when `n_ensembles>1`, SUPER visible per Nathan
+  (always-on fit notice + attribute + docs section).
+
+**One-factor grid results** (tune fold, 13 sets, vs baseline
+`20260716-235522`; mean deltas outlier-prone on near-solved PMLB sets —
+signs weighted over means):
+
+| config | primary Δ | Brier Δ (sign) | Ens fit time |
+|---|--:|--:|--:|
+| lr 0.15 | −0.33% | +0.65% (PASS) | 0.91x |
+| lr 0.20 | −0.17% | +0.33% | **0.79x** |
+| subsample 0.85 | +0.05% | −0.65% | 1.19x (SLOWER) |
+| subsample 0.70 | +0.11% | −0.64% | 1.21x (SLOWER) |
+| colsample 0.85 | −0.03% | −0.30% | 0.90x |
+| colsample 0.70 | −0.20% | +1.24% (PASS) | **0.77x** |
+| K=3 | −0.13% | (noisy) | 0.65x |
+| K=8 | **+0.15% (PASS)** | (sign PASS) | 1.43x |
+
+Reads: **subsample = dead axis** (slower AND Brier down — MVS overhead
+inside small bagged members). lr 0.2 and colsample 0.7 are the real speed
+axes (~40% member-cost cut combined, small primary dips). **K=8 > K=5 on
+strength** (primary + Brier signs) at 1.43x — with B4's parallel members
+K scales sublinearly.
+
+**Composites, tune fold** (vs baseline; fit secs are the Ens arm total,
+base 322.8s):
+
+| composite | fit | primary | Brier signs |
+|---|--:|---|---|
+| C1 lr.2+cs.7 K=5 | 208.5s (0.65x) | 4W-8L −0.26% | 5W-3L |
+| C2 lr.2+cs.7 K=8 | **297.7s (0.92x)** | 6W-6L +0.01% | 6W-2L |
+| C3 lr.15+cs.85 K=8 | 367.8s (1.14x) | **8W-4L +0.17%** | **7W-1L** |
+
+C1 DROPPED (pays for speed with primary — the exact profile that dies at
+gates). **Top-2 = C2 (8 members cheaper than today's 5, strength par) and
+C3 (strength winner at +14% cost).** → PMLB holdout fold confirm
+(+ its own default-Ens5 baseline), then suites, then gate.
+
+**Holdout confirm (12 sets, baseline `b3-ho-base` 823.7s): both
+generalize.** C2: primary 6W-5L +0.39%, Brier 4W-4L, fit 679.3s
+(**0.82x**). C3: primary 5W-6L +0.10%, Brier 6W-2L, fit 847.6s (1.03x).
+Pooled 25 sets: primary near-tie (C2 +0.19% 12W-11L, C3 +0.14% 13W-10L);
+**Brier pooled favors C3 (13W-3L vs 10W-6L); cost favors C2 (0.87x vs
+1.09x).** PMLB cannot separate them → DEVIATION from the "one winner"
+pre-registration, recorded here: BOTH go to the decision suites (~2h),
+because C3's Brier edge is exactly the late-kill profile (B1 lesson) and
+the suites are the real judge. Suite runs use LightGBM as the cross-run
+exact-tie canary (the single arm inherits the config flags in these runs,
+so it is an lr/cs ablation, not a canary).
+
+**Decision suites (2026-07-17; all four LightGBM canaries 73/73+73/73
+exact ties):**
+
+| config | gr primary | gr Brier | hc primary | hc Brier | fit vs Ens5 base |
+|---|---|---|---|---|--:|
+| C2 (gr `092230`, hc `093414`) | 33W-26L −0.02% | 12W-11L −0.05% | 9W-3L +0.42% | 4W-4L | 0.75x gr / 0.95x hc |
+| C3 (gr `093733`, hc `095309`) | **43W-16L +0.22%** | **14W-9L +0.19%** | **11W-1L +0.54%** | **6W-2L** | 1.01x gr / 1.10x hc |
+
+**C3 WINS by the strength-first rule** — pooled 54W-17L +0.28% (sign
+p≈1e-5), positive on both suites separately AND on both Brier legs, at
+par cost. Note C3's gr read (43W-16L +0.22%) is the same shape as Ens5's
+original strength case vs single — this is a real upgrade, not noise.
+C2 recorded as the budget alternative (0.75x gr at par strength).
+→ OpenML one-shot gate in flight (Ens5-default vs Ens8-C3, both configs
+expressed via flags on identical code, LightGBM canary). If it passes:
+ship = blessed K=8 + adaptive member defaults (lr 0.15 auto when
+learning_rate=None; colsample default moves to None so bagged members
+resolve 0.85 while explicit user values always win), SUPER-visible per
+Nathan.
+
+**OpenML one-shot gate (base `20260717-095807` vs new `20260717-101033`,
+LightGBM canary 29/29 ties): PASS.** Primary **18W-9L-2T +0.18%**; Brier
+**18W-4L** (mean −21% is 100% the `mushroom` artifact — an exactly-solved
+set, Brier ~0.0000 both arms, −486% relative on a <1e-4 absolute delta;
+trimmed mean ≈ +0.8%).
+
+### B3 VERDICT (2026-07-17): SHIP — Ens8-C3 becomes the blessed bagged mode.
+
+Shipped (branch bagging-b3-ship): bagged-member auto defaults
+`learning_rate None→0.15`, `colsample None→0.85` (colsample constructor
+default 1.0→None; single-model resolution None→1.0 is bit-identical,
+goldens green); always-on one-line fit notice + `member_params_` attribute
++ docs (recipes bagging section: recommended K=8, K=2 anti-recommended);
+harness ChimeraBoostEns8 arm; --chimera-colsample default None so harness
+arms measure the shipped config. 437 tests green. The old grid/composite
+runs used explicit flags at the same values, so all B3 evidence transfers
+to the shipped shape exactly.
+
+### B-samp (queued behind B3): member sample size — subagging (lit-reviewed 2026-07-17)
+
+Nathan's observation: sklearn BaggingRegressor exposes `max_samples`; we
+hardcode a full-size with-replacement bootstrap (= its default). Literature:
+
+- **Subagging** (Bühlmann & Yu 2002; also Grandvalet 2004, Buja & Stuetzle
+  2006, Friedman & Hall 2007): sampling ~half WITHOUT replacement ≈ full
+  bootstrap accuracy at a fraction of the compute. Mechanism: a bootstrap's
+  effective sample size is ~n/2 (duplicate multiplicities are just integer
+  weights), so 0.5-without-replacement is its statistical twin and
+  0.632-without-replacement (same unique-row exposure, ESS 0.632n > 0.5n)
+  is if anything slightly data-richer per member.
+- **Martínez-Muñoz & Suárez 2010** (Pattern Recognition): optimal m/n is
+  problem-dependent and usually SMALLER than the standard choices; the
+  performance transition sits where samples hold ~half the distinct
+  instances (≈69% with replacement / 50% without); OOB error selects a
+  near-optimal ratio per dataset — machinery we already have.
+- **Random Patches** (Louppe & Geurts, ECML 2012): joint row+column
+  subsampling matches full-data ensembles at much lower cost — supports
+  composing max_samples with C2/C3's colsample members.
+- Transfer caveats: (1) that literature bags UNSTABLE weak learners; our
+  members are bias-optimized GBDTs with early stopping — data cuts may hit
+  member bias, not just variance; (2) B2a's kill is CONFOUNDED evidence
+  (its members had ~0.51n unique rows AND correlated stopping — can't
+  attribute the −1.4% between the two); (3) no literature found on
+  calibration/Brier under subagging — our screens' Brier read covers it.
+
+**Pre-registered design (after B3 resolves):** arms max_samples ∈
+{0.632 no-replacement (compute-free twin of today), 0.5 no-replacement
+(the literature's half-subagging, ~50% row cut)}; OOB = unsampled rows
+(machinery unchanged, OOB grows to 0.37n/0.5n); everything else stock.
+Screen both (primary + Brier), winner composes with the B3 winner → tier
+2 → gate. If it ships, expose as a real `max_samples` param. Thresholds
+note: size-triggered auto rules (LL/CROSS minimums, auto-mcw) see the
+smaller member n — watch the screen's small-n slices.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
@@ -556,7 +695,7 @@ Do last; skip freely.
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
 - [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
 - [x] B2 ES-budget design picked by A/B, through /experiment — **ALL THREE KILLED at screen 2026-07-16** (b: Brier p=0.000; c: regression p=0.002; a: −1.42% p=0.000); stopping variance = working machinery; colleges long-stop carried to B3
-- [ ] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites
+- [x] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites — **SHIPPED 2026-07-17** (Ens8-C3: lr .15 + colsample .85 members, K=8 blessed; suites 54W-17L +0.28% pooled; gate 18W-9L PASS)
 - [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)
 - [ ] B7 reweighting decided (ship or clean kill)
 - [ ] pareto.png shows ChimeraBoostEns5 on the frontier; README + docs updated (terse)
