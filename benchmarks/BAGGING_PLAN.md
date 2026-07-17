@@ -558,6 +558,62 @@ the suites are the real judge. Suite runs use LightGBM as the cross-run
 exact-tie canary (the single arm inherits the config flags in these runs,
 so it is an lr/cs ablation, not a canary).
 
+**Decision suites (2026-07-17; all four LightGBM canaries 73/73+73/73
+exact ties):**
+
+| config | gr primary | gr Brier | hc primary | hc Brier | fit vs Ens5 base |
+|---|---|---|---|---|--:|
+| C2 (gr `092230`, hc `093414`) | 33W-26L −0.02% | 12W-11L −0.05% | 9W-3L +0.42% | 4W-4L | 0.75x gr / 0.95x hc |
+| C3 (gr `093733`, hc `095309`) | **43W-16L +0.22%** | **14W-9L +0.19%** | **11W-1L +0.54%** | **6W-2L** | 1.01x gr / 1.10x hc |
+
+**C3 WINS by the strength-first rule** — pooled 54W-17L +0.28% (sign
+p≈1e-5), positive on both suites separately AND on both Brier legs, at
+par cost. Note C3's gr read (43W-16L +0.22%) is the same shape as Ens5's
+original strength case vs single — this is a real upgrade, not noise.
+C2 recorded as the budget alternative (0.75x gr at par strength).
+→ OpenML one-shot gate in flight (Ens5-default vs Ens8-C3, both configs
+expressed via flags on identical code, LightGBM canary). If it passes:
+ship = blessed K=8 + adaptive member defaults (lr 0.15 auto when
+learning_rate=None; colsample default moves to None so bagged members
+resolve 0.85 while explicit user values always win), SUPER-visible per
+Nathan.
+
+### B-samp (queued behind B3): member sample size — subagging (lit-reviewed 2026-07-17)
+
+Nathan's observation: sklearn BaggingRegressor exposes `max_samples`; we
+hardcode a full-size with-replacement bootstrap (= its default). Literature:
+
+- **Subagging** (Bühlmann & Yu 2002; also Grandvalet 2004, Buja & Stuetzle
+  2006, Friedman & Hall 2007): sampling ~half WITHOUT replacement ≈ full
+  bootstrap accuracy at a fraction of the compute. Mechanism: a bootstrap's
+  effective sample size is ~n/2 (duplicate multiplicities are just integer
+  weights), so 0.5-without-replacement is its statistical twin and
+  0.632-without-replacement (same unique-row exposure, ESS 0.632n > 0.5n)
+  is if anything slightly data-richer per member.
+- **Martínez-Muñoz & Suárez 2010** (Pattern Recognition): optimal m/n is
+  problem-dependent and usually SMALLER than the standard choices; the
+  performance transition sits where samples hold ~half the distinct
+  instances (≈69% with replacement / 50% without); OOB error selects a
+  near-optimal ratio per dataset — machinery we already have.
+- **Random Patches** (Louppe & Geurts, ECML 2012): joint row+column
+  subsampling matches full-data ensembles at much lower cost — supports
+  composing max_samples with C2/C3's colsample members.
+- Transfer caveats: (1) that literature bags UNSTABLE weak learners; our
+  members are bias-optimized GBDTs with early stopping — data cuts may hit
+  member bias, not just variance; (2) B2a's kill is CONFOUNDED evidence
+  (its members had ~0.51n unique rows AND correlated stopping — can't
+  attribute the −1.4% between the two); (3) no literature found on
+  calibration/Brier under subagging — our screens' Brier read covers it.
+
+**Pre-registered design (after B3 resolves):** arms max_samples ∈
+{0.632 no-replacement (compute-free twin of today), 0.5 no-replacement
+(the literature's half-subagging, ~50% row cut)}; OOB = unsampled rows
+(machinery unchanged, OOB grows to 0.37n/0.5n); everything else stock.
+Screen both (primary + Brier), winner composes with the B3 winner → tier
+2 → gate. If it ships, expose as a real `max_samples` param. Thresholds
+note: size-triggered auto rules (LL/CROSS minimums, auto-mcw) see the
+smaller member n — watch the screen's small-n slices.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
