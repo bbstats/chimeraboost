@@ -84,6 +84,7 @@ See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `
 |---|---|---|
 | `n_ensembles` | `None` | `None`/`1` is a single model; `≥2` averages members fit on bootstrap resamples. Reduces variance. |
 | `ensemble_n_jobs` | `-1` | Worker processes fitting members concurrently, each on an equal share of the thread budget (same total cores, identical models, 1.2–2x faster wall-clock). `1` fits members sequentially. |
+| `max_samples` | `0.8` | Fraction of rows each member trains on, drawn without replacement. Beats the classic bootstrap on accuracy and fit time; `1.0` restores the full-size with-replacement bootstrap. |
 
 ## System
 

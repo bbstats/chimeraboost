@@ -102,8 +102,11 @@ early-stopping metric stays unweighted.
 
 ## Bagging
 
-`n_ensembles` trains that many models on bootstrap resamples and averages them —
+`n_ensembles` trains that many models on random row samples and averages them —
 regressors average predictions, classifiers soft-vote calibrated probabilities.
+Each member trains on `max_samples` (default 0.8) of the rows drawn without
+replacement — measurably stronger and faster than the classic bootstrap —
+and early-stops on its own unsampled rows.
 
 ```python
 reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)

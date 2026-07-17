@@ -632,6 +632,53 @@ Screen both (primary + Brier), winner composes with the B3 winner → tier
 note: size-triggered auto rules (LL/CROSS minimums, auto-mcw) see the
 smaller member n — watch the screen's small-n slices.
 
+**B-samp screens (2026-07-17, branch bagging-bsamp; BASE = shipped Ens8,
+`20260717-103015`):**
+
+- **0.632 no-replacement (`103856`): KILLED.** Fit 0.51x (!) but primary
+  63W-69L −0.45% with a heavy tail (−16.5/−13.6/−11.2%) concentrated on
+  n≥2000 — NOT the threshold story (n<2000 was +0.24%). The registered
+  strong-learner caveat confirmed: boosted members convert rows to
+  accuracy; the literature's weak-learner equivalence does not transfer at
+  0.632. 0.5 skipped as strictly dominated.
+- **0.8 no-replacement (`104515`): DOUBLE WIN — the best screen of the
+  program.** Primary **92W-41L +1.20% p=0.000** (regression 42W-6L
+  +2.72%!), Brier signs favorable both task types (binary 35W-19L +0.35%
+  p=0.04; multiclass 23W-11L, mean is near-zero-set artifact), fit
+  **0.65x**. Mechanism (clear in hindsight): a bootstrap gives members
+  0.632n unique rows at n rows of compute (ESS ~0.5n); 0.8-no-replacement
+  gives 0.8n unique rows at 0.8n compute — MORE effective data AND less
+  work. Strong-learner members monetize the extra data. Tail note:
+  syn 569 loses under every row-cut (−10% here). Not tuning further at
+  the screen (anti-generalization risk; 0.8 is mechanism-round). → Tier 2
+  vs the shipped-Ens8 baselines (C3 suite runs are bit-equivalent) in
+  flight.
+
+**B-samp 0.8 tier 2 (gr `20260717-105157`, hc `110629`; canaries 59/59 +
+14/14 exact ties): the strongest tier-2 result of the program.**
+
+- Grinsztajn: primary **54W-5L +0.94%** (p≈1e-11), **Brier 23W-0L +2.53%
+  — a perfect sweep**; fit 0.874x.
+- hc: primary 7W-5L-2T +0.05% (flat-positive), **Brier 8W-0L** (mean
+  +13.2% is near-zero-set inflated; the 8/8 signs are the read); fit
+  **0.725x**.
+- Pooled: **61W-10L-2T primary; 31W-0L Brier.** Stronger AND faster on
+  both suites. → OpenML one-shot gate in flight (base = `101033`, the
+  shipped-Ens8 gate run; one new run from the branch).
+
+**OpenML one-shot gate (`111013` vs `101033`, canary 29/29): PASS —
+primary 22W-5L +0.68%; Brier 14W-8L** (mean −3.9% is entirely near-solved
+artifacts: mushroom −102% at Brier 0.0000, nursery at 0.0002, car/kr-vs-kp
+absolute deltas <0.007; trimmed mean positive).
+
+### B-samp VERDICT (2026-07-17): SHIP — `max_samples=0.8` without replacement.
+
+Shipped: `max_samples` parameter (default 0.8 subagging; 1.0 restores the
+classic bootstrap), docs, CHANGELOG, 438 tests green. The 0.632 kill +
+0.8 win pin the design law of this program: **for strong boosted members,
+effective data per member beats sampling diversity at the margin** — the
+opposite of the weak-learner bagging intuition the plan started from.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across

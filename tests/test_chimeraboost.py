@@ -579,6 +579,26 @@ def test_bagging_member_defaults_explicit_params_win(capsys):
     assert "bagged mode" not in capsys.readouterr().out
 
 
+def test_bagging_max_samples_subagging_and_bootstrap():
+    """B-samp (BAGGING_PLAN.md): members train on max_samples*n rows drawn
+    without replacement (default 0.8); max_samples=1.0 restores the classic
+    full-size bootstrap; invalid values are rejected."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(800, 5))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=800)
+    sub = ChimeraBoostRegressor(n_estimators=40, random_state=0,
+                                n_ensembles=3).fit(X, y)
+    boot = ChimeraBoostRegressor(n_estimators=40, random_state=0,
+                                 n_ensembles=3, max_samples=1.0).fit(X, y)
+    # Different sampling schemes -> different members.
+    assert not np.array_equal(sub.predict(X[:50]), boot.predict(X[:50]))
+    assert sub.predict(X[:10]).shape == (10,)
+    with pytest.raises(ValueError, match="max_samples"):
+        ChimeraBoostRegressor(n_ensembles=3, max_samples=0.0).fit(X, y)
+    with pytest.raises(ValueError, match="max_samples"):
+        ChimeraBoostRegressor(n_ensembles=3, max_samples=1.5).fit(X, y)
+
+
 def test_colsample_none_single_model_identity():
     """colsample=None (the new default) is bit-identical to the old explicit
     1.0 for single models."""
