@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1071,14 +1071,23 @@ leaves and raises <code>NotImplementedError</code> from <code>shap_values</code>
 <p>Weights are normalized to mean 1 internally and apply to training only; the
 early-stopping metric stays unweighted.</p>
 <h2 id="bagging">Bagging<a class="headerlink" href="#bagging" title="Permanent link">&para;</a></h2>
-<p><code>n_ensembles</code> trains that many models on bootstrap resamples and averages them —
-regressors average predictions, classifiers soft-vote calibrated probabilities.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># fit members in parallel processes</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">ensemble_n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<p><code>n_ensembles</code> trains that many models on random row samples and averages them —
+regressors average predictions, classifiers soft-vote calibrated probabilities.
+Each member trains on <code>max_samples</code> (default 0.8) of the rows drawn without
+replacement — measurably stronger and faster than the classic bootstrap —
+and early-stops on its own unsampled rows.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
+<p>Recommended size is <code>n_ensembles=8</code> (benchmarked stronger than 5 at similar
+cost). Avoid <code>n_ensembles=2</code>: two members measure worse than one model.</p>
+<p>Inside a bag, parameters left on auto resolve to tuned member defaults —
+currently <code>learning_rate=0.15</code> and <code>colsample=0.85</code> — because averaging
+tolerates coarser, cheaper members. The fit prints a one-line notice when
+this happens, <code>member_params_</code> records what was applied, and passing
+explicit values disables it.</p>
+<p>Members fit in parallel worker processes by default, splitting the thread
+budget so a bagged fit uses the same cores a single fit would; pass
+<code>ensemble_n_jobs=1</code> to fit them sequentially instead.</p>
 <p><code>feature_importances_</code> and <code>shap_values</code> average across the bag automatically.</p>
 <h2 id="early-stopping">Early stopping<a class="headerlink" href="#early-stopping" title="Permanent link">&para;</a></h2>
 <p>Early stopping is on by default. With no <code>eval_set</code>, the estimator holds out a
@@ -1222,7 +1231,7 @@ validation split — force one variant to skip the double fit):</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
