@@ -250,7 +250,8 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     def _fit_one(seed):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
-        idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
+        rng = np.random.default_rng(seed)
+        idx = rng.integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
         # Use OOB rows as the early-stopping eval set when no explicit eval_set
@@ -263,6 +264,13 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             oob_mask = np.ones(n, dtype=np.bool_)
             oob_mask[idx] = False
             oob_idx = np.where(oob_mask)[0]
+            # B2c (benchmarks/BAGGING_PLAN.md): subsample the OOB eval rows to
+            # 0.2n. The full ~0.37n OOB set is evaluated every round (5-15% of
+            # an hc bagged fit); 0.2n matches the single model's split size
+            # and keeps the stopping signal unbiased, just slightly noisier.
+            cap = int(round(0.2 * n))
+            if 0 < cap < len(oob_idx):
+                oob_idx = np.sort(rng.choice(oob_idx, size=cap, replace=False))
             # Degenerate case: every row drawn (possible for tiny n). Fall back
             # to letting the member auto-split rather than training with no eval.
             member_eval = (X[oob_idx], y[oob_idx]) if len(oob_idx) > 0 else None
