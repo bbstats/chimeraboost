@@ -247,9 +247,12 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
 
-    def _fit_one(seed):
+    def _fit_one(seed, round_cap=None):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
+        if round_cap is not None:
+            member.set_params(
+                n_estimators=min(int(estimator.n_estimators), round_cap))
         rng = np.random.default_rng(seed)
         idx = rng.integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
@@ -280,7 +283,19 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                    groups=gb, sample_weight=wb)
         return member
 
-    return Parallel(n_jobs=n_jobs)(delayed(_fit_one)(s) for s in seeds)
+    # B2b (benchmarks/BAGGING_PLAN.md): member 1 stops on its own; members
+    # 2..K are additionally capped at 1.3x its retained tree count. OOB early
+    # stopping can run members far past useful on small noisy sets (Phase-0
+    # attribution: colleges members averaged 738 rounds, max 1377, vs the
+    # single model's 310 -- 2.4x the trees AND worse accuracy); the cap
+    # bounds that tail without touching normal stops, which fire first.
+    first = _fit_one(seeds[0])
+    best_iter = getattr(first, "best_iteration_", None)
+    cap = (None if not best_iter
+           else int(np.ceil(1.3 * best_iter)))
+    rest = Parallel(n_jobs=n_jobs)(
+        delayed(_fit_one)(s, cap) for s in seeds[1:])
+    return [first] + rest
 
 
 def _make_eval_split(X, y, validation_fraction, random_state,
