@@ -228,6 +228,55 @@ class FeaturePreprocessor:
         feat = self._stack(num, encoded_blocks)
         return self.binner_.transform(feat)
 
+    @classmethod
+    def from_base_with_cross(cls, base, cross_pairs, X):
+        """A fitted preprocessor equal to refitting ``base``'s configuration
+        with ``cross_pairs`` added, built by reusing ``base``'s fitted state.
+
+        Every fit artifact is computed independently per column -- category
+        maps, TS encodings, quantile borders, bin indices -- and appending
+        cross columns leaves the base columns' inputs untouched, so the base
+        results are shared by reference and only the cross columns are
+        computed here. Bit-identical to the from-scratch fit with the same
+        ``cross_pairs``; ``base`` must itself have no cross features.
+
+        Returns ``(prep, cross_binner, cross_binned)``: the fitted augmented
+        preprocessor, the binner covering only the cross columns (for binning
+        eval-set cross blocks), and the binned cross block for ``X``'s rows.
+        The caller splices ``cross_binned`` into the base binned matrix at
+        column offset ``len(base.num_features_)`` (stacked column order is
+        [numeric | cross | TS blocks]).
+        """
+        if base.cross_pairs:
+            raise ValueError("base preprocessor already has cross features")
+        prep = cls(base.max_bins, base.cat_smoothing, base.random_state,
+                   base.cat_n_permutations, base.cat_combinations, cross_pairs)
+        prep.cat_features_ = base.cat_features_
+        prep.num_features_ = base.num_features_
+        prep.cat_maps_ = base.cat_maps_
+        prep.combo_pairs_ = base.combo_pairs_
+        prep.combo_maps_ = base.combo_maps_
+        prep.encoders_ = base.encoders_
+
+        cross = prep._cross_block(X)
+        cross_binner = Binner(base.max_bins).fit(cross)
+        nb = len(base.num_features_)
+        bb = base.binner_
+        binner = Binner(base.max_bins)
+        binner.borders_ = (bb.borders_[:nb] + cross_binner.borders_
+                           + bb.borders_[nb:])
+        binner.n_bins_ = np.concatenate(
+            [bb.n_bins_[:nb], cross_binner.n_bins_, bb.n_bins_[nb:]])
+        binner.bin_centers_ = (bb.bin_centers_[:nb] + cross_binner.bin_centers_
+                               + bb.bin_centers_[nb:])
+        binner._build_flat_borders()
+        prep.binner_ = binner
+        prep.n_bins_ = binner.n_bins_
+        prep.is_numeric_binned_ = np.zeros(len(binner.borders_), dtype=bool)
+        prep.is_numeric_binned_[:nb + cross.shape[1]] = True
+        prep._build_feature_map(max(1, len(base.encoders_)))
+        return prep, cross_binner, cross_binner.transform(cross)
+
     # ---- internals -----------------------------------------------------------
     @staticmethod
     def _stack(num, encoded_blocks):
