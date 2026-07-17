@@ -410,6 +410,26 @@ Speed program continues on levers that cannot touch strength: B2 (stopping;
 the colleges long-stop), B-prep (shared binning — output-identical possible),
 B4 (parallel members — output-identical by construction).
 
+### B2 /experiment log (2026-07-16, branch bagging-b2)
+
+Screens vs BASE `20260716-202944` (same as B1's; library was stock).
+
+- **B2c (OOB eval subsampled to 0.2n): KILLED at screen**
+  (`20260716-224958`). Regression 13W-35L **−0.161% p=0.002**; Brier
+  −0.229%. Damage sits on n≥2000 (+0.075% on n<2000) → NOT tiny-eval
+  noise; suspect the subsampled eval also degrades members' variant-
+  selection races (B1's lesson recurring: anything that touches selection
+  quality costs strength).
+- **B2 b+c composite** (`20260716-225744`): regression −0.249% p=0.013,
+  **Brier 30W-58L −0.391% p=0.004** — (b)'s implied marginal is ADDED
+  Brier damage. Mechanism: anchoring members 2..K to 1.3x member 1's stop
+  truncates members whose legitimate stop is later; under-trained members
+  blur the averaged probabilities. The plan's "variance might itself be
+  useful diversity" caution is measuring TRUE.
+- **B2b solo: screening now** (clean confirmation of the cap's marginal).
+- **B2a (shared 20% split): next** — pre-registered, Nathan pre-approved
+  judging the data tax by results.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
