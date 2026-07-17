@@ -259,6 +259,52 @@ Ordered by expected headroom; re-order only on Phase 0 numbers.
   shared binning + full-data trunk semantics. Build only if B1–B3 land and
   attribution still shows redundant-prefix cost worth it.
 
+### B1 /experiment log (2026-07-16)
+
+**Implementation** (branch bagging-b1, d6e63a5): member 1 auditions, members
+2..K pinned — explicit `linear_leaves`, `cross_features=False`, or member 1's
+exact pairs via a `_pinned_cross_pairs` fast path (fits the augmented model
+directly, zero audition fits). `n_ensembles=None` untouched; 435 tests green
+incl. goldens + 2 new pin tests. Panel smoke (contended, indicative):
+bag/single ratio cpu_act 6.5→2.6, colleges 8.7→4.6, kick 7.4→4.7,
+wine-reviews 6.8→4.5.
+
+**Tier-1 synth screen, full B1** (BASE `20260716-202944` vs NEW
+`20260716-203751`, single-model arm 136/136 exact ties = clean canary):
+
+- Ens5 arm: **11W-33L-92T, mean −0.205% (p=0.001)** — the 92 ties are sets
+  where every member would have picked the pin anyway; among changed sets
+  the pin systematically loses.
+- Slices: **regression −0.587% (6W-23L, p=0.002)**, crossfeat-scope −0.501%;
+  binary FLAT (+0.005%); multiclass all ties (no selection — expected).
+- Loss tail is real, not near-tie noise: worst sets −6.9%, −5.5%, −2.8%.
+- Speed mechanism confirmed: Ens5-vs-single cost 5.86x → 4.86x on the screen.
+- Read: per-member selection is not pure redundancy on regression — member-
+  adaptive variants/pairs are a diversity mechanism the average exploits.
+  The 2026-07-15 screen-reversal lesson cuts both ways, but a p=0.001
+  negative doesn't go to tier 2 unmodified.
+
+**Iteration (screens are ~10 min — iterate here):** B1-ll isolation variant
+(pin linear_leaves only; members keep their own cross race + pairs; binary
+arm becomes pre-B1 = built-in canary). If regression damage persists → the
+ll pin is the culprit; if it vanishes → the cross pin is.
+
+**B1-ll isolation screen** (BASE `20260716-202944` vs `20260716-204930`):
+binary 0-0-54 all ties (canary clean). Regression 9W-16L, **−0.208%,
+p=0.23** vs full-B1's −0.587% (p=0.002) → BOTH components cost strength;
+cross pinning is the bigger culprit (~−0.38%), ll pinning the smaller
+(~−0.21%, weak signal). Member-adaptive selection = real diversity on
+regression, in both the variant choice and the pair choice.
+
+**D2 ship-candidate (screening now):** binary keeps the FULL pin (screened
+flat at +0.005%, and binary carried the worst select% waste — kick 45.5%);
+regression members keep their OWN selection but audition at HALF budget
+(`selection_rounds` capped at 50 inside the bag; step-0 race study: k=50
+agrees with k=100 on 28/33 decisions, and per-member mispicks average out
+across the bag). Single-model default untouched. Fallback if D2's regression
+slice regresses: binary-pin-only (already validated by the full-B1 screen's
+flat binary slice; regression reverts to stock members).
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across

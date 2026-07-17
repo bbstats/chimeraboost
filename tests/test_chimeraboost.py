@@ -529,30 +529,23 @@ def test_bagging_with_categoricals():
     assert np.allclose(proba.sum(axis=1), 1.0)
 
 
-def test_bagging_pins_member_variant_selection_regression():
-    """B1 (BAGGING_PLAN.md): member 1 runs the linear/cross auditions; members
-    2..K are pinned to its selection instead of re-auditioning — explicit
-    linear_leaves (so their own ll audition never runs) and, when cross won,
-    member 1's exact cross pairs."""
+def test_bagging_regression_members_keep_own_selection_at_half_budget():
+    """B1 (BAGGING_PLAN.md): regression members are NOT pinned — per-member
+    variant selection is averaging-relevant diversity — but audition at a
+    reduced budget (selection_rounds capped at 50 inside the bag)."""
     rng = np.random.default_rng(0)
     n = 4000  # above both selection thresholds so the auditions engage
     X = rng.normal(size=(n, 6))
     y = X[:, 0] * X[:, 1] + X[:, 2] + 0.1 * rng.normal(size=n)
     bag = ChimeraBoostRegressor(n_estimators=150, random_state=0,
                                 n_ensembles=3).fit(X, y)
-    first, rest = bag.estimators_[0], bag.estimators_[1:]
-    assert first.linear_leaves_selected_ is not None
-    assert first.cross_features_selected_ is not None
-    for m in rest:
-        assert m.linear_leaves == first.linear_leaves_selected_
-        assert m.linear_leaves_selected_ is None  # no ll audition ran
-        if first.cross_features_selected_:
-            assert m.cross_features_selected_ is True
-            assert m.cross_pairs_ == first.cross_pairs_
-        else:
-            assert m.cross_features is False
-            assert m.cross_features_selected_ is None
-    # The bag still predicts (and the pinned members contribute).
+    for m in bag.estimators_:
+        assert m.selection_rounds == 50
+        assert m.linear_leaves_selected_ is not None   # own audition ran
+        assert m.cross_features_selected_ is not None  # own race ran
+        assert not hasattr(m, "_pinned_cross_pairs")
+    # The single-model default is untouched by the bagged-member cap.
+    assert ChimeraBoostRegressor().selection_rounds == 100
     assert bag.predict(X[:10]).shape == (10,)
 
 

@@ -238,6 +238,7 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     n = X.shape[0]
     K = int(estimator.n_ensembles)
     n_jobs = int(estimator.ensemble_n_jobs)
+    _is_clf = isinstance(estimator, ChimeraBoostClassifier)  # resolved at call time
 
     member_threads = estimator.thread_count
     if n_jobs != 1 and member_threads is None:
@@ -250,10 +251,16 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     def _fit_one(seed, pin=None):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
+        # Regression members keep their own variant selection (pinning it
+        # loses averaging-relevant diversity: full-B1 screen -0.59% on synth
+        # regression, p=0.002) but audition at half the budget -- k=50 picks
+        # the same winner as k=100 on 28/33 step-0 race decisions, and
+        # per-member mispicks average out across the bag.
+        if not _is_clf and estimator.selection_rounds is not None:
+            member.set_params(
+                selection_rounds=min(50, estimator.selection_rounds))
         if pin is not None:
-            ll_sel, cf_sel, pairs = pin
-            if ll_sel is not None:
-                member.set_params(linear_leaves=bool(ll_sel))
+            _, cf_sel, pairs = pin
             if cf_sel is False:
                 member.set_params(cross_features=False)
             elif cf_sel:
@@ -280,17 +287,19 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                    groups=gb, sample_weight=wb)
         return member
 
-    # Shared variant selection (benchmarks/BAGGING_PLAN.md B1): only member 1
-    # runs the linear/cross-variant auditions; the variant it selects is pinned
-    # for members 2..K, whose fits go straight to the winning configuration.
-    # This removes the (K-1) redundant audition fits, which Phase-0 attribution
-    # measured at 15-46% of the bagged fit. Members would occasionally have
-    # picked differently (20% of decisions, all on near-tie audition margins),
-    # so pins trade that selection diversity for the audition cost.
+    # Shared variant selection, binary classification only (benchmarks/
+    # BAGGING_PLAN.md B1): member 1 runs the cross-features audition and its
+    # selection is pinned for members 2..K, whose fits go straight to the
+    # winning configuration. This removes the (K-1) redundant audition fits
+    # (up to 46% of a bagged binary fit in Phase-0 attribution) and screened
+    # flat on strength. Regression members are NOT pinned -- per-member
+    # selection there is averaging-relevant diversity (pinning screened
+    # -0.59% on synth regression) -- they audition at a reduced budget
+    # instead (see _fit_one).
     first = _fit_one(seeds[0])
-    pin = (getattr(first, "linear_leaves_selected_", None),
-           first.cross_features_selected_,
-           first.cross_pairs_)
+    pin = None
+    if _is_clf:
+        pin = (None, first.cross_features_selected_, first.cross_pairs_)
     rest = Parallel(n_jobs=n_jobs)(delayed(_fit_one)(s, pin) for s in seeds[1:])
     return [first] + rest
 
