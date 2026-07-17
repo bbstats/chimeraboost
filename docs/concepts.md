@@ -53,9 +53,9 @@ The fitted value is exposed as `temperature_`.
 
 ## Bagging and subsampling
 
-`n_ensembles` trains independent members on bootstrap resamples and averages them —
-predictions for regression, calibrated probabilities for classification — to reduce
-variance. Within a single model, `subsample < 1.0` uses Minimum Variance Sampling:
+`n_ensembles` trains independent members on random row subsamples (`max_samples`,
+default 0.8, drawn without replacement) and averages them — predictions for
+regression, calibrated probabilities for classification — to reduce variance. Within a single model, `subsample < 1.0` uses Minimum Variance Sampling:
 rows are drawn with probability tied to gradient magnitude and reweighted to stay
 unbiased, concentrating effort on the rows that still carry signal.
 
