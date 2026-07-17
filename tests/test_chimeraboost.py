@@ -529,36 +529,6 @@ def test_bagging_with_categoricals():
     assert np.allclose(proba.sum(axis=1), 1.0)
 
 
-def test_bagging_members_keep_own_selection_regression_half_budget():
-    """B1 (BAGGING_PLAN.md): bag members are never pinned to member 1's
-    variant selection — per-member selection is averaging-relevant diversity.
-    Regression members audition at a reduced budget (selection_rounds capped
-    at 50 inside the bag); classifier members stay fully stock (the cap
-    showed a Brier mispick tail on the binary race). The single-model
-    default is untouched."""
-    rng = np.random.default_rng(0)
-    n = 4000  # above both selection thresholds so the auditions engage
-    X = rng.normal(size=(n, 6))
-    y = X[:, 0] * X[:, 1] + X[:, 2] + 0.1 * rng.normal(size=n)
-    bag = ChimeraBoostRegressor(n_estimators=150, random_state=0,
-                                n_ensembles=3).fit(X, y)
-    for m in bag.estimators_:
-        assert m.selection_rounds == 50
-        assert m.linear_leaves_selected_ is not None   # own audition ran
-        assert m.cross_features_selected_ is not None  # own race ran
-    assert ChimeraBoostRegressor().selection_rounds == 100
-    assert bag.predict(X[:10]).shape == (10,)
-
-    yb = (y > 0).astype(int)
-    cbag = ChimeraBoostClassifier(n_estimators=150, random_state=0,
-                                  n_ensembles=3).fit(X, yb)
-    for m in cbag.estimators_:
-        assert m.selection_rounds == 100                # stock, no cap
-        assert m.cross_features_selected_ is not None   # own race ran
-    proba = cbag.predict_proba(X[:10])
-    assert proba.shape == (10, 2)
-
-
 def test_empty_tree_stops_boosting_early():
     """When splits are exhausted, the booster should stop rather than bank
     useless depth-0 trees until the iteration ceiling."""

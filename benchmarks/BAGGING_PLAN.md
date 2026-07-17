@@ -367,8 +367,48 @@ baseline, restoring the Phase-0 Ens5 Brier edge by construction. Library
 diff vs main: 13 lines in `_fit_bagged._fit_one`. Modest speed (regression
 audition rounds halved; binary reverts): the B1 lesson is that most of the
 "redundant" selection cost is load-bearing diversity, and only the
-regression audition-budget slice was safely removable. Confirmation runs +
-pooled verdict + OpenML gate next.
+regression audition-budget slice was safely removable.
+
+**B1-final confirmation** (gr `20260716-215636`, hc `20260716-221126`;
+canaries 59/59 + 14/14 exact ties; predictions verified exactly):
+
+- Grinsztajn: Ens5 primary +0.006%, **Brier +0.000% (all 23 binary sets
+  exact ties — the Phase-0 Brier edge restored by construction)**; pareto
+  **99.6 blended @ 33.5x** (Ens5 Brier% 98.9 > single 98.6 again).
+- hc: primary −0.018% (colleges −0.36% / employee_salaries +0.11%, rest
+  ties incl. all clf), Brier +0.000%; pareto **99.3 @ 21.0x**.
+- Raw summed Ens5 fit time (`fit_time_delta.py`, LightGBM-drift-free):
+  **gr 3823s→3519s = −7.9%** (reg_cat −18.3%, reg_num −12.7%, clf ~0);
+  **hc 825s→760s = −7.8%**.
+- Pooled (73 sets, dataset-count-weighted): strength-neutral, Brier
+  untouched, ~8% cheaper bagged fits. OpenML one-shot gate in flight
+  (BASE from worktree @ main, PYTHONPATH verified via
+  print_chimera_path.py).
+
+**OpenML one-shot gate (BASE `b1base/20260716-221826` vs
+`20260716-223137`): NEGATIVE — B1 KILLED.** Canary 29/29 ties, Brier 22/22
+ties, but Ens5 primary **0W-5L-24T, mean −0.056%**: ailerons −0.33%,
+cpu_act −0.20%, elevators −0.26%, house_16H −0.28%, wine_quality −0.57%.
+Small magnitudes, uniform direction — and wine_quality/house_16H are the
+same repeat losers the gr regression slice contained. The independent gate
+reads the k=50 cap as a small SYSTEMATIC regression cost that the balanced
+suite averaged away.
+
+### B1 VERDICT (2026-07-16): KILL — nothing ships. Selection is load-bearing.
+
+Every variant died on a measured mechanism: **full pin** (regression
+−0.59% p=0.002 — variant/pair diversity is real), **binary pin** (Ens5
+Brier edge erased, −0.39% — model-family diversity keeps averaged
+probabilities sharp), **uniform k=50 cap** (binary race mispick tail,
+road-safety Brier −2.2%), **regression-only k=50 cap** (OpenML gate 0W-5L,
+−0.06% systematic). Per Nathan's standing rule (bagged mode is the accuracy
+play; fit cost only breaks ties) an ~8% fit saving does not buy a
+measurable strength nibble. Library reverted to stock; branch bagging-b1
+holds the full iteration history. The select% slice of the Phase-0
+decomposition is hereby re-labelled: NOT waste — working diversity.
+Speed program continues on levers that cannot touch strength: B2 (stopping;
+the colleges long-stop), B-prep (shared binning — output-identical possible),
+B4 (parallel members — output-identical by construction).
 
 ## Phase 2 — strength levers (make it goated)
 
@@ -431,7 +471,7 @@ Do last; skip freely.
 ## Acceptance checklist
 
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
-- [ ] B1 shared selection through /experiment
+- [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
 - [ ] B2 ES-budget design picked by A/B, through /experiment
 - [ ] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites
 - [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)

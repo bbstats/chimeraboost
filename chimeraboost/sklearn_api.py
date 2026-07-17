@@ -250,19 +250,6 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     def _fit_one(seed):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
-        # Regression members keep their own variant selection -- pinning
-        # member 1's choice onto the others loses averaging-relevant
-        # diversity (screened -0.59% on regression, p=0.002) -- but audition
-        # at half the budget: k=50 picks the same winner as k=100 on most
-        # step-0 race decisions, per-member mispicks average out across the
-        # bag, and the cap held flat through synth and Grinsztajn (+0.011%
-        # regression slice). Classifier members stay fully stock: the same
-        # cap on the binary audition race showed a small real Brier mispick
-        # tail at tier 2 (and Brier is 2/3 of the classification blend).
-        if (not isinstance(estimator, ChimeraBoostClassifier)
-                and estimator.selection_rounds is not None):
-            member.set_params(
-                selection_rounds=min(50, estimator.selection_rounds))
         idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
