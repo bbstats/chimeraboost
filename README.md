@@ -18,13 +18,13 @@ pip install chimeraboost
 ```python
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
-# classification
-clf = ChimeraBoostClassifier(early_stopping=True, n_ensembles=2)
+# classification (n_ensembles=8 is the benchmarked accuracy mode; avoid 2)
+clf = ChimeraBoostClassifier(early_stopping=True, n_ensembles=8)
 clf.fit(X, y, cat_features=[0, 1], sample_weight=w)
 proba = clf.predict_proba(X_test)
 
 # regression (RMSE, MAE, or Quantile)
-reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9, early_stopping=True, n_ensembles=10)
+reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9, early_stopping=True, n_ensembles=8)
 reg.fit(X, y)
 ```
 

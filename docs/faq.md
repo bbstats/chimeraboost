@@ -7,9 +7,10 @@ No.
 ## How does it compare to CatBoost, LightGBM, and XGBoost?
 
 On defaults: roughly around LightGBM/XGBoost or better, and significantly faster than CatBoost.
-Setting n_ensembles=10 automatically ensembles the model through bagging, and gets accuracy
-and speed roughly = to CatBoost. Note that since TabArena uses ensembling, this improvement
-does not show up on those pareto chart results.
+Setting n_ensembles=8 bags the model — on the Grinsztajn benchmark suite this is the
+strongest model on every accuracy column, ahead of CatBoost at well under half its fit
+cost on high-cardinality data. Note that since TabArena uses ensembling, this improvement
+does not show up on those leaderboard results.
 
 ## Do I need to one-hot encode categoricals or impute missing values?
 
