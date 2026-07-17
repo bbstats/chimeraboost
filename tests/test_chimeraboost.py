@@ -512,6 +512,24 @@ def test_bagging_parallel_matches_sequential():
     assert np.allclose(seq.predict_proba(X), par.predict_proba(X))
 
 
+def test_bagging_parallel_divides_thread_budget():
+    """B4 (BAGGING_PLAN.md): the default parallel bag divides the thread
+    budget across min(K, budget) workers — a bagged fit uses the same cores
+    a single fit would, never budget x workers."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(600, 4))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=600)
+    # Explicit budget of 2 with K=4: 2 workers x 1 thread each.
+    bag = ChimeraBoostRegressor(n_estimators=30, random_state=0, n_ensembles=4,
+                                thread_count=2).fit(X, y)
+    assert all(m.thread_count == 1 for m in bag.estimators_)
+    # Sequential members keep the full budget each.
+    seq = ChimeraBoostRegressor(n_estimators=30, random_state=0, n_ensembles=4,
+                                thread_count=2, ensemble_n_jobs=1).fit(X, y)
+    assert all(m.thread_count == 2 for m in seq.estimators_)
+    assert np.allclose(bag.predict(X[:20]), seq.predict(X[:20]))
+
+
 def test_bagging_with_categoricals():
     """Bagging forwards cat_features to every member (the advantage over a
     sklearn.ensemble.Bagging wrapper, which would drop it)."""

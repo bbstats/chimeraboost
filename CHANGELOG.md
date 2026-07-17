@@ -3,6 +3,20 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **Bagged ensembles fit their members in parallel by default**
+  (`ensemble_n_jobs` default `1` → `-1`): members fit across
+  `min(n_ensembles, thread budget)` worker processes, each on an equal share
+  of the budget, so a bagged fit uses the same cores a single fit would.
+  Models are identical to the sequential fit (verified exactly on 73
+  benchmark datasets); wall-clock is 1.2–2x faster on a free box. Pass
+  `ensemble_n_jobs=1` for the old sequential behavior.
+### Fixed
+- `ensemble_n_jobs=-1` previously gave every member worker the full thread
+  budget (oversubscribing cores by the worker count); the budget is now
+  divided across workers.
+
 ## [0.15.0] - 2026-07-16
 ### Added
 - **`selection_rounds` (default `100`): raced internal selections, ~1.5x

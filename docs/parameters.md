@@ -83,7 +83,7 @@ See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `
 | Parameter | Default | Effect |
 |---|---|---|
 | `n_ensembles` | `None` | `None`/`1` is a single model; `≥2` averages members fit on bootstrap resamples. Reduces variance. |
-| `ensemble_n_jobs` | `1` | Processes used to fit members; `-1` uses all cores. |
+| `ensemble_n_jobs` | `-1` | Worker processes fitting members concurrently, each on an equal share of the thread budget (same total cores, identical models, 1.2–2x faster wall-clock). `1` fits members sequentially. |
 
 ## System
 

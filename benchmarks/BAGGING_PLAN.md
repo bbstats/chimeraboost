@@ -450,6 +450,49 @@ member-defaults question (coarser member learning rate shortens rounds
 honestly instead of truncating them). OOB-eval overhead (5-15% hc) stays
 as-is: the eval rows are doing selection work, not just stopping work.
 
+### B4 /experiment log (2026-07-16, branch bagging-b4; REORDERED ahead of B-prep/B3)
+
+Reorder rationale: B1+B2 killed every strength-touching lever; B4 is the
+only one that provably cannot change model outputs (same members,
+different scheduling), and it carries the largest projected win. B-prep
+changes bin edges (bootstrap-specific → shared) = another strength gamble,
+so it queues behind.
+
+- **Clean-box measurement** (`b4_parallel_timing.py`, 12 cores, members at
+  12/5 threads): speedups cpu_act 1.47x, diamonds 1.58x, kick 1.87x,
+  wine-reviews 1.97x, colleges 1.22x, nyc-taxi 1.21x — predictions
+  IDENTICAL (allclose 1e-9) in every case. Weak cases = member-length
+  imbalance (the longest member dominates wall-clock; colleges' 1377-round
+  member). Worker-count sweep (`b4_worker_count.py`): W=5 best on the good
+  sets; cold-executor caveat — first parallel fit in a process pays worker
+  spawn/import, so a one-off fit on a long-member set can be ~0.9-1.0x;
+  repeated fits (and the harness) amortize.
+- **Ship shape:** `ensemble_n_jobs` default 1 → **-1**: W = min(K, budget)
+  workers, each at budget/W threads, where budget = thread_count or numba
+  threads — a bagged fit uses the same cores a single fit would. (Also
+  fixes the pre-existing -1 oversubscription bug: abs(-1)=1 gave every
+  member the FULL budget.) Sequential = explicit ensemble_n_jobs=1.
+  Harness Ens5 arm measures the shipped config (Nathan's chart-legitimacy
+  pre-answer). New test: budget division + identity.
+- **Tier-2 identity gate PASSED** (gr `20260716-233233`, hc
+  `20260716-234740`): Ens5 primary **59/59 + 14/14 EXACT ties** vs the
+  Phase-0 baselines — models bit-identical under parallel scheduling and
+  divided threads, across regression/binary/multiclass. Raw Ens5 wall-clock
+  −5.3% (gr) / −8.1% (hc) under harness jobs=5 pinning (budget=2 → W=2×1t;
+  the clean-box 1.2–2x is what full-budget users get). The slowdown COLUMN
+  read 37.2x only because LightGBM itself ran 11.7% faster in the 3-arm run
+  (less box contention than the 5-arm baseline) — cross-run slowdown
+  columns are polluted by arm-set composition; **the canonical pareto
+  refresh at program close must re-run the full 5-arm baseline set.**
+
+### B4 VERDICT (2026-07-17): SHIP. `ensemble_n_jobs` default → -1.
+
+Output-identical by construction and verified exactly on 73 datasets (the
+OpenML accuracy gate is vacuous for a scheduling change — no strength
+surface exists; timing is the only change). Ships with the thread-budget
+division (also fixes the old -1 oversubscription bug), harness arm on the
+shipped config, terse docs, CHANGELOG [Unreleased].
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across

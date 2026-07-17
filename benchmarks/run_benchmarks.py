@@ -696,11 +696,15 @@ ENSEMBLE_N = 10
 
 
 def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads):
-    """Shared implementation for all bagged-ChimeraBoost runners."""
+    """Shared implementation for all bagged-ChimeraBoost runners.
+
+    ensemble_n_jobs is left at the shipped default (parallel members inside
+    the task's thread budget) so the chart measures the shipped config
+    (BAGGING_PLAN.md B4; same core budget as every other model)."""
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     m = Est(n_estimators=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
-            n_ensembles=n, ensemble_n_jobs=1,
+            n_ensembles=n,
             thread_count=threads, random_state=0)
     m.fit(Xtr, ytr, cat_features=cat)
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
