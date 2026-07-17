@@ -182,6 +182,27 @@ Rounds, members vs single (the colleges anomaly, EXPLAINED):
 4. Elsewhere member rounds are comparable to or BELOW single — the round
    budget is not globally bloated; it is variance + tail pathology.
 
+**Selection agreement across members** (decoded post-hoc from the same run by
+`benchmarks/bagging_b1_agreement.py`, 2026-07-16): members 2..K disagree with
+member 1 on **16/80 selection decisions (20%)** — all of it on three sets
+(cpu_act ll+cf, colleges cf, kick cf); the other five are unanimous.
+Disagreement = near-tie audition margins flipped by bootstrap noise, so the
+pinned variant should cost ~nothing where it "mispins" — that is B1's risk
+hypothesis, and the tier-2 suites are its judge (pinning also removes
+selection diversity, which could in principle have been earning variance
+reduction).
+
+| dataset | ll votes (per seed) | cf votes (per seed) | disagree vs m1 |
+|---|---|---|--:|
+| gr:clf_cat/road-safety | ----- ----- | YYYYY YYYYY | 0/8 |
+| gr:clf_num/MagicTelescope | ----- ----- | YYYYY YYYYY | 0/8 |
+| gr:reg_cat/nyc-taxi | YYYYY YYYYY | YYYYY YYYYY | 0/16 |
+| gr:reg_num/cpu_act | YNNNY YYNYY | NYYYY YYYYY | 8/16 |
+| hc:colleges | YYYYY YYYYY | NYYNY NNNYN | 4/16 |
+| hc:kick | ----- ----- | YYYNN YNYYN | 4/8 |
+| hc:okcupid-stem | ----- ----- | ----- ----- | - |
+| hc:wine-reviews | YYYYY YYYYY | ----- ----- | 0/8 |
+
 **Pre-registered Phase 1 order (locked by this data):**
 1. **B1 shared selection** — removes most of select%; projected ratio
    ~6.2x -> ~4.3x panel-wide, biggest on hc.
@@ -237,6 +258,157 @@ Ordered by expected headroom; re-order only on Phase 0 numbers.
   strong-signal sets (a few %), bigger only on small noisy sets. Needs
   shared binning + full-data trunk semantics. Build only if B1–B3 land and
   attribution still shows redundant-prefix cost worth it.
+
+### B1 /experiment log (2026-07-16)
+
+**Implementation** (branch bagging-b1, d6e63a5): member 1 auditions, members
+2..K pinned — explicit `linear_leaves`, `cross_features=False`, or member 1's
+exact pairs via a `_pinned_cross_pairs` fast path (fits the augmented model
+directly, zero audition fits). `n_ensembles=None` untouched; 435 tests green
+incl. goldens + 2 new pin tests. Panel smoke (contended, indicative):
+bag/single ratio cpu_act 6.5→2.6, colleges 8.7→4.6, kick 7.4→4.7,
+wine-reviews 6.8→4.5.
+
+**Tier-1 synth screen, full B1** (BASE `20260716-202944` vs NEW
+`20260716-203751`, single-model arm 136/136 exact ties = clean canary):
+
+- Ens5 arm: **11W-33L-92T, mean −0.205% (p=0.001)** — the 92 ties are sets
+  where every member would have picked the pin anyway; among changed sets
+  the pin systematically loses.
+- Slices: **regression −0.587% (6W-23L, p=0.002)**, crossfeat-scope −0.501%;
+  binary FLAT (+0.005%); multiclass all ties (no selection — expected).
+- Loss tail is real, not near-tie noise: worst sets −6.9%, −5.5%, −2.8%.
+- Speed mechanism confirmed: Ens5-vs-single cost 5.86x → 4.86x on the screen.
+- Read: per-member selection is not pure redundancy on regression — member-
+  adaptive variants/pairs are a diversity mechanism the average exploits.
+  The 2026-07-15 screen-reversal lesson cuts both ways, but a p=0.001
+  negative doesn't go to tier 2 unmodified.
+
+**Iteration (screens are ~10 min — iterate here):** B1-ll isolation variant
+(pin linear_leaves only; members keep their own cross race + pairs; binary
+arm becomes pre-B1 = built-in canary). If regression damage persists → the
+ll pin is the culprit; if it vanishes → the cross pin is.
+
+**B1-ll isolation screen** (BASE `20260716-202944` vs `20260716-204930`):
+binary 0-0-54 all ties (canary clean). Regression 9W-16L, **−0.208%,
+p=0.23** vs full-B1's −0.587% (p=0.002) → BOTH components cost strength;
+cross pinning is the bigger culprit (~−0.38%), ll pinning the smaller
+(~−0.21%, weak signal). Member-adaptive selection = real diversity on
+regression, in both the variant choice and the pair choice.
+
+**D2 ship-candidate (screening now):** binary keeps the FULL pin (screened
+flat at +0.005%, and binary carried the worst select% waste — kick 45.5%);
+regression members keep their OWN selection but audition at HALF budget
+(`selection_rounds` capped at 50 inside the bag; step-0 race study: k=50
+agrees with k=100 on 28/33 decisions, and per-member mispicks average out
+across the bag). Single-model default untouched. Fallback if D2's regression
+slice regresses: binary-pin-only (already validated by the full-B1 screen's
+flat binary slice; regression reverts to stock members).
+
+**D2 screen** (BASE `20260716-202944` vs `20260716-205947`): **PASS —
+strength dead flat.** 20W-19L-97T, mean +0.000%; regression 15W-9L −0.004%
+(damage gone); binary 5W-10L +0.005% (same benign pin churn as full-B1);
+multiclass all ties. 435 tests green.
+
+**D2 clean-box smoke** (b1_smoke.py, real sets): the speed win is
+binary-concentrated — kick bag fit 15.6s→11.6s (**26% faster**, ratio
+7.4x→4.6x); regression modest (cpu_act ratio 6.5→5.2, wine-reviews/colleges
+~flat) because regression members still run 3 booster fits with per-fit
+prep — only audition ROUNDS halved. Member variant flags on cpu_act:
+(T,F),(T,T),(F,T),(F,T),(T,T) — diversity confirmed alive at k=50. The
+remaining regression cost is B2/B-prep/B4 territory by construction.
+
+**D2 tier 2 — KILLED on the Brier leg** (gr `20260716-210952`, hc
+`20260716-212356`, canaries 59/59 + 14/14 exact ties):
+
+- Grinsztajn primary: 22W-31L-6T, −0.014% = neutral; pareto **99.5 blended
+  @ 29.9x** (Ens5/single ratio 5.4x→4.3x, −20%). Looked like a clean ship…
+- …but Grinsztajn **Brier 5W-18L, −0.394%** (p≈0.01): the binary pin forces
+  all K members into member 1's model family (naturally ~40% would be base
+  models on flippy sets) — averaged probabilities lose sharpness. F1 stays
+  flat; Brier is 2/3 of the clf blend. hc: primary −0.017% flat, Brier
+  −0.145% same signature (few applicable binary sets).
+- **The tier-1 screen HAD this signal and it was under-read**: D2 synth
+  binary Brier 4W-12L −0.338% (p=0.077) vs −0.394% real — synth predicted
+  the real number almost exactly. PROTOCOL LESSON, now standing: **read the
+  Brier metric at tier 1 for any classification-touching change.**
+
+**D3 (final B1 shape): no pins anywhere.** All members keep their own full
+selection machinery; the bag caps members' `selection_rounds` at 50
+(single-model default untouched). Keeps every diversity channel (variant
+decisions, pairs, calibration); only the audition/race budget halves —
+regression already screened flat under exactly this treatment (B1-ll ruled
+the k=50 cap harmless there: regression slice of D2 == D3 regression
+treatment). Library diff vs main is 9 lines; all pin machinery removed
+(git history keeps it).
+
+**D3 screen (BASE `20260716-202944` vs `20260716-212906`): PASS on BOTH
+metrics.** Primary 23W-17L-96T +0.018% (regression −0.004%, binary +0.050%,
+multiclass ties); **Brier 10W-7L +0.005%, flat** (D2 was 4W-12L −0.338%).
+
+**D3 tier 2, Grinsztajn** (`20260716-213641`, canary 59/59 ties): primary
+25W-27L-7T +0.004% neutral; blended 99.5 @ 32.5x. But Brier: 10W-13L with
+an asymmetric magnitude tail — losses pol −9.5% (near-solved inflation,
+Brier 0.016→0.018), **road-safety −2.2% (real)**, california −1.2%; wins
+cap at +0.3%. Within-run Ens5-vs-single Brier: 13W-10L signs PASS but mean
+flipped +0.305% → −0.245%. The k=50 cap on the BINARY audition race has a
+small real mispick tail (step-0 race data predicted it: cross @k=50 had a
+1-in-21 mispick with 4.25% regret). Regression slice: **14W-16L-6T +0.011%,
+worst set −0.63% — clean.**
+
+**D3 tier 2, hc** (`20260716-215133`, canary 14/14 ties): Ens5 primary
+3 non-ties of 14 — colleges −0.36%, employee_salaries +0.11%, kick −0.04%;
+mean −0.021%. Flat; the kick delta is the binary cap, removed in B1-final.
+
+**B1-FINAL: regression-only member cap.** Regression bag members audition
+at `selection_rounds=50` (validated flat: 3 synth screens + Grinsztajn
+regression slice); classifier members fully stock — bit-identical to
+baseline, restoring the Phase-0 Ens5 Brier edge by construction. Library
+diff vs main: 13 lines in `_fit_bagged._fit_one`. Modest speed (regression
+audition rounds halved; binary reverts): the B1 lesson is that most of the
+"redundant" selection cost is load-bearing diversity, and only the
+regression audition-budget slice was safely removable.
+
+**B1-final confirmation** (gr `20260716-215636`, hc `20260716-221126`;
+canaries 59/59 + 14/14 exact ties; predictions verified exactly):
+
+- Grinsztajn: Ens5 primary +0.006%, **Brier +0.000% (all 23 binary sets
+  exact ties — the Phase-0 Brier edge restored by construction)**; pareto
+  **99.6 blended @ 33.5x** (Ens5 Brier% 98.9 > single 98.6 again).
+- hc: primary −0.018% (colleges −0.36% / employee_salaries +0.11%, rest
+  ties incl. all clf), Brier +0.000%; pareto **99.3 @ 21.0x**.
+- Raw summed Ens5 fit time (`fit_time_delta.py`, LightGBM-drift-free):
+  **gr 3823s→3519s = −7.9%** (reg_cat −18.3%, reg_num −12.7%, clf ~0);
+  **hc 825s→760s = −7.8%**.
+- Pooled (73 sets, dataset-count-weighted): strength-neutral, Brier
+  untouched, ~8% cheaper bagged fits. OpenML one-shot gate in flight
+  (BASE from worktree @ main, PYTHONPATH verified via
+  print_chimera_path.py).
+
+**OpenML one-shot gate (BASE `b1base/20260716-221826` vs
+`20260716-223137`): NEGATIVE — B1 KILLED.** Canary 29/29 ties, Brier 22/22
+ties, but Ens5 primary **0W-5L-24T, mean −0.056%**: ailerons −0.33%,
+cpu_act −0.20%, elevators −0.26%, house_16H −0.28%, wine_quality −0.57%.
+Small magnitudes, uniform direction — and wine_quality/house_16H are the
+same repeat losers the gr regression slice contained. The independent gate
+reads the k=50 cap as a small SYSTEMATIC regression cost that the balanced
+suite averaged away.
+
+### B1 VERDICT (2026-07-16): KILL — nothing ships. Selection is load-bearing.
+
+Every variant died on a measured mechanism: **full pin** (regression
+−0.59% p=0.002 — variant/pair diversity is real), **binary pin** (Ens5
+Brier edge erased, −0.39% — model-family diversity keeps averaged
+probabilities sharp), **uniform k=50 cap** (binary race mispick tail,
+road-safety Brier −2.2%), **regression-only k=50 cap** (OpenML gate 0W-5L,
+−0.06% systematic). Per Nathan's standing rule (bagged mode is the accuracy
+play; fit cost only breaks ties) an ~8% fit saving does not buy a
+measurable strength nibble. Library reverted to stock; branch bagging-b1
+holds the full iteration history. The select% slice of the Phase-0
+decomposition is hereby re-labelled: NOT waste — working diversity.
+Speed program continues on levers that cannot touch strength: B2 (stopping;
+the colleges long-stop), B-prep (shared binning — output-identical possible),
+B4 (parallel members — output-identical by construction).
 
 ## Phase 2 — strength levers (make it goated)
 
@@ -299,7 +471,7 @@ Do last; skip freely.
 ## Acceptance checklist
 
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
-- [ ] B1 shared selection through /experiment
+- [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
 - [ ] B2 ES-budget design picked by A/B, through /experiment
 - [ ] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites
 - [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)
