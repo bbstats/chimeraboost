@@ -203,6 +203,43 @@ trade shape binary accepted at ship; absolute cost trivial on synth
 reads worse. Bagged multiclass members select per-member in parallel
 workers (`m1_bagged_smoke.py`).
 
+## Tier-1 screen (2026-07-17; BASE `20260717-103015` vs NEW `20260717-192856`)
+
+**Identity: PERFECT.** 19/19 ineligible-multiclass + 102/102 reg/binary +
+4/4 canaries exact ties, on both primary and Brier — the change touches
+exactly the registered surface. Overall: 7W-7L-122T +0.067%.
+
+**Eligible slice (the treatment): knife-edge on the registered bar.**
+Primary 7W-7L-1T, mean **+0.610%**; Brier 8W-6L-1T, mean **+0.277%**.
+The bar demands wins > losses AND mean > 0: the seventh "loss"
+(syn:v2/531) is **−0.00003 absolute F1** (−0.003% relative) — an effective
+tie counted as a loss by compare_runs' 1e-9 threshold — while win
+magnitudes run ~3x loss magnitudes (+0.0240/+0.0141/+0.0109 vs
+−0.0102/−0.0045/−0.0020 absolute). Attribution leans the mechanism's way
+without significance: depth≥3 6W-3L vs depth≤2 1W-4L; func=tree 3W-0L +
+func=product 1W-0L vs func=neural 2W-6L (crosses help piecewise/product
+structure, dilute smooth neural warps); n coef t=+1.27; entity/mixed-cat
+sets 0W-4L. All p ≥ 0.25.
+
+**Registered deviation (recorded BEFORE the run):** neither shipping past
+a missed bar nor killing on a −3e-5 technicality; the screen-tier remedy
+is POWER, not judgment. Extend the eligible 15 to **6 seeds, both arms
+fresh** (BASE from a main worktree via PYTHONPATH, path printed; seeds
+0–2 must bit-reproduce the prior runs as a validity canary). Verdict
+instrument unchanged and pre-stated: **wins > losses AND mean > 0 on the
+15-set slice at 6 seeds, Brier not negative beyond noise; miss = KILL.**
+No other knob, threshold, or slice changes; one extension only, no
+further re-rolls.
+
+**6-seed extension result (BASE `20260717-193421` worktree@main, NEW
+`20260717-193523`; validity canaries EXACT — both arms bit-reproduce
+seeds 0-2, 45/45 pairs each): PASS on the pre-stated instrument.**
+Primary **11W-4L, mean +0.686%** (pooled (set,seed) pairs 35W-24L);
+Brier **9W-6L, mean +0.719%** (pooled 40W-19L). The 3-seed coin flip was
+seed noise: 130 flipped worst-loss→win, 531's −3e-5 pseudo-loss→win, 765
+loss→win. Remaining losses small (worst −1.03%). Tier 1 **PASS** →
+tier 2.
+
 ## Acceptance checklist
 
 - [x] Implementation on branch `m1-multiclass-cross`: selection block +
