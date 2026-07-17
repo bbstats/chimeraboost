@@ -247,38 +247,24 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
 
-    # B2a (benchmarks/BAGGING_PLAN.md): one shared eval split for the whole
-    # bag -- every member early-stops (and runs its selection races) against
-    # the same held-out 20%, and bootstraps are drawn from the remaining 80%.
-    # Cheaper per-round eval than ~0.37n OOB rows and a cleaner shared
-    # stopping signal, at a known data-tax risk (members see 0.8n).
-    shared_eval = None
-    pool = np.arange(n)
-    if eval_set is None and estimator.early_stopping:
-        split = _make_eval_split(
-            X, y, estimator.validation_fraction, estimator.random_state,
-            groups=groups,
-            stratify=y if isinstance(estimator, ChimeraBoostClassifier) else None)
-        if split is not None:
-            train_idx, val_idx = split
-            shared_eval = (X[val_idx], y[val_idx])
-            pool = np.asarray(train_idx)
-
     def _fit_one(seed):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
-        rng = np.random.default_rng(seed)
-        idx = pool[rng.integers(0, len(pool), size=len(pool))]  # bootstrap
+        idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
-        if shared_eval is not None:
-            member_eval = shared_eval
-        elif eval_set is None:
-            # No shared split possible (degenerate data or early stopping
-            # off): use OOB rows as the member's eval set, guaranteed unseen.
+        # Use OOB rows as the early-stopping eval set when no explicit eval_set
+        # was provided. The alternative (auto-splitting the bootstrap) contaminates
+        # the validation set: ~57% of auto-split val rows are duplicates of
+        # training rows, so val loss is optimistically low, early stopping fires
+        # late, and each member builds ~38% more trees than it should.
+        # OOB rows are guaranteed unseen by the member, giving a clean signal.
+        if eval_set is None:
             oob_mask = np.ones(n, dtype=np.bool_)
             oob_mask[idx] = False
             oob_idx = np.where(oob_mask)[0]
+            # Degenerate case: every row drawn (possible for tiny n). Fall back
+            # to letting the member auto-split rather than training with no eval.
             member_eval = (X[oob_idx], y[oob_idx]) if len(oob_idx) > 0 else None
         else:
             member_eval = eval_set
