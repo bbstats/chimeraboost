@@ -12,7 +12,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 def _fit_temperature(raw, y, multiclass):
     """Learn the scalar T > 0 minimizing validation log loss of sigmoid(raw/T)
     (binary) or softmax(raw/T) (multiclass). Dividing logits by T is monotonic,
-    so predictions are unchanged — only their probabilities are recalibrated.
+    so predictions are unchanged â€” only their probabilities are recalibrated.
     `y` is the 0/1 label (binary) or the class index (multiclass)."""
     from scipy.optimize import minimize_scalar
 
@@ -220,14 +220,19 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     Each member is a clone of ``estimator`` with bagging switched off
     (``n_ensembles=None``) and its own seed, fit on a bootstrap resample (drawn
     with replacement, same size as the training set). Because a member is the
-    same estimator class, all per-model machinery — binary/multiclass dispatch,
-    ``cat_features``, the early-stopping auto-split, temperature scaling — is
+    same estimator class, all per-model machinery â€” binary/multiclass dispatch,
+    ``cat_features``, the early-stopping auto-split, temperature scaling â€” is
     reused unchanged, and ``cat_features``/``sample_weight``/``groups`` forward
     naturally (which a ``sklearn.ensemble.Bagging`` wrapper would not do).
 
-    Members are independent, so they fit across ``ensemble_n_jobs`` processes.
-    When that is >1 and ``thread_count`` is unset, numba threads are divided
-    among the workers so the members don't oversubscribe the cores.
+    Members are independent, so they fit across ``ensemble_n_jobs`` worker
+    processes (default -1: as many workers as the thread budget supports,
+    capped at K). The thread budget â€” ``thread_count`` if set, else numba's
+    thread count â€” is divided across the workers, so a bagged fit uses the
+    same cores a single fit would (numba's sublinear thread scaling is what
+    makes K members at budget/K threads faster than K sequential full-budget
+    fits: 1.2-2.0x wall-clock on the BAGGING_PLAN.md B4 panel, identical
+    models by construction). ``ensemble_n_jobs=1`` restores sequential fits.
     """
     from sklearn.base import clone
     from joblib import Parallel, delayed
@@ -239,10 +244,15 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     K = int(estimator.n_ensembles)
     n_jobs = int(estimator.ensemble_n_jobs)
 
-    member_threads = estimator.thread_count
-    if n_jobs != 1 and member_threads is None:
-        import numba
-        member_threads = max(1, numba.config.NUMBA_NUM_THREADS // abs(n_jobs))
+    if n_jobs == 1:
+        n_workers, member_threads = 1, estimator.thread_count
+    else:
+        budget = estimator.thread_count
+        if budget is None:
+            import numba
+            budget = numba.config.NUMBA_NUM_THREADS
+        n_workers = max(1, min(K, budget if n_jobs < 0 else n_jobs))
+        member_threads = max(1, int(budget) // n_workers)
 
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
@@ -272,7 +282,7 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                    groups=gb, sample_weight=wb)
         return member
 
-    return Parallel(n_jobs=n_jobs)(delayed(_fit_one)(s) for s in seeds)
+    return Parallel(n_jobs=n_workers)(delayed(_fit_one)(s) for s in seeds)
 
 
 def _make_eval_split(X, y, validation_fraction, random_state,
@@ -833,7 +843,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         quantile loss. ``None`` (the default) = validation-selected: both
         variants are fit and the one with the lower validation loss is kept
         (~2x fit time; requires an early-stopping split or ``eval_set``, RMSE
-        loss, and >= 1000 rows — otherwise constant leaves are used). Set
+        loss, and >= 1000 rows â€” otherwise constant leaves are used). Set
         ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
@@ -866,8 +876,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     n_ensembles : int or None, default None
         Number of bagged members. ``None`` or 1 trains a single model; >= 2
         averages independent members fit on bootstrap resamples.
-    ensemble_n_jobs : int, default 1
-        Processes used to fit ensemble members; -1 uses all cores.
+    ensemble_n_jobs : int, default -1
+        Worker processes fitting ensemble members concurrently, each on an
+        equal share of the thread budget (same total cores as a single fit;
+        models are identical either way, wall-clock 1.2-2x faster). -1 sizes
+        the pool from the budget, capped at ``n_ensembles``; 1 fits members
+        sequentially, each with the full budget.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -907,7 +921,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
+                 n_ensembles=None, ensemble_n_jobs=-1, cat_features=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1338,8 +1352,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     n_ensembles : int or None, default None
         Number of bagged members. ``None`` or 1 trains a single model; >= 2
         soft-votes the calibrated probabilities of members fit on bootstraps.
-    ensemble_n_jobs : int, default 1
-        Processes used to fit ensemble members; -1 uses all cores.
+    ensemble_n_jobs : int, default -1
+        Worker processes fitting ensemble members concurrently, each on an
+        equal share of the thread budget (same total cores as a single fit;
+        models are identical either way, wall-clock 1.2-2x faster). -1 sizes
+        the pool from the budget, capped at ``n_ensembles``; 1 fits members
+        sequentially, each with the full budget.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1373,7 +1391,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=1, cat_features=None):
+                 n_ensembles=None, ensemble_n_jobs=-1, cat_features=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
