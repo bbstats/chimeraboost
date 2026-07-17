@@ -1217,7 +1217,7 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>n_ensembles</code></td>
 <td><code>None</code></td>
-<td><code>None</code>/<code>1</code> is a single model; <code>≥2</code> averages members fit on bootstrap resamples. Reduces variance.</td>
+<td><code>None</code>/<code>1</code> is a single model; <code>≥2</code> averages members fit on random row subsamples (see <code>max_samples</code>). Reduces variance.</td>
 </tr>
 <tr>
 <td><code>ensemble_n_jobs</code></td>

@@ -888,9 +888,9 @@ the validation split to minimize log loss. The scaling is monotonic, so AUC and 
 are unchanged while probabilities (i.e. with <code>predict_proba</code>) becomes better calibrated.
 The fitted value is exposed as <code>temperature_</code>.</p>
 <h2 id="bagging-and-subsampling">Bagging and subsampling<a class="headerlink" href="#bagging-and-subsampling" title="Permanent link">&para;</a></h2>
-<p><code>n_ensembles</code> trains independent members on bootstrap resamples and averages them —
-predictions for regression, calibrated probabilities for classification — to reduce
-variance. Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Variance Sampling:
+<p><code>n_ensembles</code> trains independent members on random row subsamples (<code>max_samples</code>,
+default 0.8, drawn without replacement) and averages them — predictions for
+regression, calibrated probabilities for classification — to reduce variance. Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Variance Sampling:
 rows are drawn with probability tied to gradient magnitude and reweighted to stay
 unbiased, concentrating effort on the rows that still carry signal.</p>
 <h2 id="shap">SHAP<a class="headerlink" href="#shap" title="Permanent link">&para;</a></h2>
