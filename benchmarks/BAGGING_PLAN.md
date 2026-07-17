@@ -774,7 +774,7 @@ no-replacement samples, parallel workers.**
 - [x] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites — **SHIPPED 2026-07-17** (Ens8-C3: lr .15 + colsample .85 members, K=8 blessed; suites 54W-17L +0.28% pooled; gate 18W-9L PASS)
 - [x] B6 recalibration decided — **SKIP 2026-07-17**: the Brier leg swept 23-0/8-0 at tier 2; no weak leg exists to fix
 - [ ] B7 reweighting decided (queued: OOB-masked probe, low expectation — see the lasso discussion section)
-- [ ] pareto.png shows the blessed bagged point (now Ens8) on the frontier; README + docs updated (terse) — close-out 5-arm runs in flight
+- [x] pareto.png shows the blessed bagged point on the frontier — **DONE 2026-07-17**: canonical 5-arm runs (gr `20260717-112941`, hc `115025`, single-arm canary 59/59 ties vs Phase 0); **Ens8 sweeps Grinsztajn 100.0/100.0/100.0/100.0 @ 30.1x** (CatBoost off the frontier); **hc 99.6 @ 14.5x vs CatBoost 98.6 @ 118.7x**; chart refreshed, README examples fixed (n_ensembles 2→8), FAQ updated. NOTE: the Ens8 arm raises the in-chart yardstick, so the single-model row reads 97.0 — the default did not change.
 - [x] Verdicts → memory (CLAUDE.md unchanged: no protocol changes needed)
 - [x] B-samp `max_samples=0.8` — **SHIPPED 2026-07-17** (added post-plan; Nathan's idea, lit-validated)
 - [ ] B-prep shared binning — OPEN (future session; last known fit-cost headroom)
