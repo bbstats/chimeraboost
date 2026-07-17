@@ -410,6 +410,46 @@ Speed program continues on levers that cannot touch strength: B2 (stopping;
 the colleges long-stop), B-prep (shared binning — output-identical possible),
 B4 (parallel members — output-identical by construction).
 
+### B2 /experiment log (2026-07-16, branch bagging-b2)
+
+Screens vs BASE `20260716-202944` (same as B1's; library was stock).
+
+- **B2c (OOB eval subsampled to 0.2n): KILLED at screen**
+  (`20260716-224958`). Regression 13W-35L **−0.161% p=0.002**; Brier
+  −0.229%. Damage sits on n≥2000 (+0.075% on n<2000) → NOT tiny-eval
+  noise; suspect the subsampled eval also degrades members' variant-
+  selection races (B1's lesson recurring: anything that touches selection
+  quality costs strength).
+- **B2 b+c composite** (`20260716-225744`): regression −0.249% p=0.013,
+  **Brier 30W-58L −0.391% p=0.004** — (b)'s implied marginal is ADDED
+  Brier damage. Mechanism: anchoring members 2..K to 1.3x member 1's stop
+  truncates members whose legitimate stop is later; under-trained members
+  blur the averaged probabilities. The plan's "variance might itself be
+  useful diversity" caution is measuring TRUE.
+- **B2b solo (`20260716-230417`): KILLED at screen.** Primary fine
+  (+0.182%, 70W-55L) but **Brier 25W-62L −0.237% p=0.000** — binary
+  −0.276% p=0.009 AND multiclass −0.175% p=0.005. Truncated members lose
+  probability sharpness while F1 stays flat — the same failure axis as the
+  D2 binary pin. (Without B1's read-Brier-at-tier-1 lesson this would have
+  sailed through the primary read.) The member round-count VARIANCE is
+  functioning ensemble machinery; the colleges long-stop needs a different
+  fix (note for B3: coarser member learning rates may shorten it honestly).
+- **B2a (shared 20% split, `20260716-231147`): KILLED at screen —
+  decisively.** Primary 35W-98L **−1.42% p=0.000** (regression −3.33%!),
+  Brier −3.39% p=0.000 across the board. The registered prediction (data
+  tax + correlated stopping/selection both cost) confirmed at 5-10x the
+  expected magnitude; the 2026-07-08 GES-kill precedent held exactly.
+
+### B2 VERDICT (2026-07-16): KILL — all three pre-registered stopping designs dead at the screen. Library stock.
+
+The member stopping VARIANCE (like B1's selection diversity) is functioning
+ensemble machinery: capping it costs Brier (b), noising its signal costs
+regression strength (c), and centralizing it costs everything (a). The
+colleges long-stop pathology remains OPEN — carried to B3 as a
+member-defaults question (coarser member learning rate shortens rounds
+honestly instead of truncating them). OOB-eval overhead (5-15% hc) stays
+as-is: the eval rows are doing selection work, not just stopping work.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
@@ -472,7 +512,7 @@ Do last; skip freely.
 
 - [x] Phase 0 baseline-of-record tables committed here (Ens5 point + attribution + Brier diagnosis) — 2026-07-16, Phase 0 COMPLETE
 - [x] B1 shared selection through /experiment — **KILLED 2026-07-16** (all 4 variants; selection = load-bearing diversity; OpenML gate 0W-5L on the final k=50-cap shape; library stock)
-- [ ] B2 ES-budget design picked by A/B, through /experiment
+- [x] B2 ES-budget design picked by A/B, through /experiment — **ALL THREE KILLED at screen 2026-07-16** (b: Brier p=0.000; c: regression p=0.002; a: −1.42% p=0.000); stopping variance = working machinery; colleges long-stop carried to B3
 - [ ] B3 bagged-mode defaults tuned on PMLB, validated holdout, through the suites
 - [ ] B6 recalibration decided (Brier ≥ single on both suites, or documented kill)
 - [ ] B7 reweighting decided (ship or clean kill)
