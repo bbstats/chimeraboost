@@ -679,6 +679,42 @@ classic bootstrap), docs, CHANGELOG, 438 tests green. The 0.632 kill +
 effective data per member beats sampling diversity at the margin** — the
 opposite of the weak-learner bagging intuition the plan started from.
 
+### B-prep /experiment log (2026-07-17, branch bagging-bprep)
+
+**Design pivot, recorded before any run.** The plan's registered shape —
+share bin edges ACROSS members (bootstrap-specific → full-X borders) — is
+behavior-changing: member border jitter is a (weak) diversity channel, and
+B1/B2 killed four straight levers on exactly that class of risk, for a
+measured ceiling of only ~1-3% (Phase-0 bin% 2-9% of bag fit, ÷ fits/member,
+× (K−1)/K, × the numeric-column fraction). Meanwhile the Phase-0 phase data
+exposes a strictly better target: **every booster fit inside one sklearn fit
+recomputes identical prep** — the const/linear auditions, the cross-augmented
+candidate, and the winner refit (fits/member 2.0–3.6) each rerun the full
+TS-encode + border-learn + bin pipeline on the same rows with the same
+random_state. Deduplicating THAT is output-identical by construction (every
+prep artifact is per-column; appending cross columns leaves base columns
+untouched), captures most of the same prep slice, and also speeds the
+SINGLE-model points on both suites. Cross-member border sharing: **SKIPPED
+(measured-ceiling + diversity-risk grounds), recorded here.**
+
+**Implementation** (42debf7): booster fits within one sklearn fit share a
+`prep_cache` keyed by `cross_pairs`; repeat fits reuse the cached
+prep+matrices outright; the cross-augmented fit splices freshly binned cross
+columns into the base binned matrix
+(`FeaturePreprocessor.from_base_with_cross`). 445 tests green incl. all
+goldens; 7 new tests (splice bit-identity, cache-hit identity,
+prep-runs-once counters).
+
+**Clean-box smoke** (`bprep_smoke.py`, BASE = main worktree via PYTHONPATH,
+paths verified): prediction fingerprints EXACT to 9 decimals on all 5 panel
+sets, single AND Ens8. Fit time: hc singles −17/−32/−21%
+(kick/wine-reviews/colleges — the TS re-encode was the waste), gr singles
+−4/−6%, Ens8 bags −4 to −13% (parallel members amortize wall-clock).
+
+**Tier-2 identity gate + canonical timing** (in flight): full 5-arm gr + hc
+runs vs the program-close baselines (`20260717-112941`, `115025`) — all
+accuracy columns must tie exactly; fit-time delta is the payload.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
