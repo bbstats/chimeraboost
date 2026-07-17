@@ -39,8 +39,9 @@ def _fit_temperature(raw, y, multiclass):
 
 # Parameters that exist only on the sklearn wrappers, not on the core boosters.
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
-                           "n_ensembles", "ensemble_n_jobs", "cat_features",
-                           "cross_features", "selection_rounds"})
+                           "n_ensembles", "ensemble_n_jobs", "max_samples",
+                           "cat_features", "cross_features",
+                           "selection_rounds"})
 
 
 def _validate_hyperparams(estimator):
@@ -101,6 +102,7 @@ def _validate_hyperparams(estimator):
     _in_range("selection_rounds", 1, np.inf, allow_none=True)
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
+    _in_range("max_samples", 0.0, 1.0, lo_incl=False)
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
     if "loss" in p:
         if p["loss"] not in ("RMSE", "MAE", "Quantile"):
@@ -279,14 +281,20 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads,
             **member_defaults)
-        # SCREEN VARIANT B-samp (BAGGING_PLAN.md): subagging — draw
-        # max_samples*n rows WITHOUT replacement instead of a full-size
-        # bootstrap. A bootstrap's duplicates are just integer weights
-        # (effective sample size ~n/2), so 0.632n unique rows match its
-        # information at ~2/3 the training rows. OOB machinery unchanged.
-        _MAX_SAMPLES = 0.8
-        m = max(1, int(round(_MAX_SAMPLES * n)))
-        idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
+        # Member sample (benchmarks/BAGGING_PLAN.md B-samp): draw
+        # max_samples*n rows WITHOUT replacement ("subagging"). A full-size
+        # bootstrap gives a member only ~0.632n unique rows at n rows of
+        # compute (duplicates are just integer weights); 0.8n unique rows at
+        # 0.8n compute is more effective data AND less work — measured
+        # stronger and faster on both decision suites (gr 54W-5L +0.94%,
+        # Brier 23W-0L, fit 0.87x; hc Brier 8W-0L, fit 0.73x).
+        # max_samples=1.0 restores the classic full-size bootstrap.
+        ms = float(estimator.max_samples)
+        if ms >= 1.0:
+            idx = np.random.default_rng(seed).integers(0, n, size=n)
+        else:
+            m = max(1, int(round(ms * n)))
+            idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
         # Use OOB rows as the early-stopping eval set when no explicit eval_set
@@ -910,6 +918,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         models are identical either way, wall-clock 1.2-2x faster). -1 sizes
         the pool from the budget, capped at ``n_ensembles``; 1 fits members
         sequentially, each with the full budget.
+    max_samples : float, default 0.8
+        Fraction of rows each ensemble member trains on, drawn WITHOUT
+        replacement ("subagging"). The default 0.8 beats the classic
+        bootstrap on strength and fit time (a full-size bootstrap holds
+        only ~0.63n unique rows at n rows of compute). 1.0 restores the
+        classic full-size with-replacement bootstrap. Unsampled rows are
+        each member's early-stopping eval set either way.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -953,7 +968,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=-1, cat_features=None):
+                 n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
+                 cat_features=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -982,6 +998,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
+        self.max_samples = max_samples
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1396,6 +1413,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         models are identical either way, wall-clock 1.2-2x faster). -1 sizes
         the pool from the budget, capped at ``n_ensembles``; 1 fits members
         sequentially, each with the full budget.
+    max_samples : float, default 0.8
+        Fraction of rows each ensemble member trains on, drawn WITHOUT
+        replacement ("subagging"). The default 0.8 beats the classic
+        bootstrap on strength and fit time (a full-size bootstrap holds
+        only ~0.63n unique rows at n rows of compute). 1.0 restores the
+        classic full-size with-replacement bootstrap. Unsampled rows are
+        each member's early-stopping eval set either way.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1433,7 +1457,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
-                 n_ensembles=None, ensemble_n_jobs=-1, cat_features=None):
+                 n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
+                 cat_features=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1460,6 +1485,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.validation_fraction = validation_fraction
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
+        self.max_samples = max_samples
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):

@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Bagged members now train on 80% row subsamples drawn without replacement**
+  (new `max_samples` parameter, default `0.8`; `1.0` restores the classic
+  full-size bootstrap). A bootstrap gives each member only ~63% unique rows
+  at 100% of the compute; 80% without replacement is more effective data and
+  less work. Decision suites vs the previous bootstrap: Grinsztajn 54W-5L
+  +0.94% with a 23-0 Brier sweep at 0.87x fit time; high-card Brier 8-0 at
+  0.73x; OpenML gate 22W-5L +0.68%.
 - **Tuned bagged-member defaults** (opt-in `n_ensembles` mode): inside a bag,
   parameters left on auto now resolve to member-tuned values —
   `learning_rate` `None` → 0.15 and `colsample` `None` → 0.85 (single-model

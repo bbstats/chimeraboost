@@ -654,6 +654,31 @@ smaller member n — watch the screen's small-n slices.
   vs the shipped-Ens8 baselines (C3 suite runs are bit-equivalent) in
   flight.
 
+**B-samp 0.8 tier 2 (gr `20260717-105157`, hc `110629`; canaries 59/59 +
+14/14 exact ties): the strongest tier-2 result of the program.**
+
+- Grinsztajn: primary **54W-5L +0.94%** (p≈1e-11), **Brier 23W-0L +2.53%
+  — a perfect sweep**; fit 0.874x.
+- hc: primary 7W-5L-2T +0.05% (flat-positive), **Brier 8W-0L** (mean
+  +13.2% is near-zero-set inflated; the 8/8 signs are the read); fit
+  **0.725x**.
+- Pooled: **61W-10L-2T primary; 31W-0L Brier.** Stronger AND faster on
+  both suites. → OpenML one-shot gate in flight (base = `101033`, the
+  shipped-Ens8 gate run; one new run from the branch).
+
+**OpenML one-shot gate (`111013` vs `101033`, canary 29/29): PASS —
+primary 22W-5L +0.68%; Brier 14W-8L** (mean −3.9% is entirely near-solved
+artifacts: mushroom −102% at Brier 0.0000, nursery at 0.0002, car/kr-vs-kp
+absolute deltas <0.007; trimmed mean positive).
+
+### B-samp VERDICT (2026-07-17): SHIP — `max_samples=0.8` without replacement.
+
+Shipped: `max_samples` parameter (default 0.8 subagging; 1.0 restores the
+classic bootstrap), docs, CHANGELOG, 438 tests green. The 0.632 kill +
+0.8 win pin the design law of this program: **for strong boosted members,
+effective data per member beats sampling diversity at the margin** — the
+opposite of the weak-learner bagging intuition the plan started from.
+
 ## Phase 2 — strength levers (make it goated)
 
 - **B6 Bag-level recalibration (the Brier fix).** Average raw margins across
