@@ -284,7 +284,7 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         # bootstrap. A bootstrap's duplicates are just integer weights
         # (effective sample size ~n/2), so 0.632n unique rows match its
         # information at ~2/3 the training rows. OOB machinery unchanged.
-        _MAX_SAMPLES = 0.632
+        _MAX_SAMPLES = 0.8
         m = max(1, int(round(_MAX_SAMPLES * n)))
         idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
