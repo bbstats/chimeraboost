@@ -529,6 +529,54 @@ def test_bagging_with_categoricals():
     assert np.allclose(proba.sum(axis=1), 1.0)
 
 
+def test_bagging_pins_member_variant_selection_regression():
+    """B1 (BAGGING_PLAN.md): member 1 runs the linear/cross auditions; members
+    2..K are pinned to its selection instead of re-auditioning — explicit
+    linear_leaves (so their own ll audition never runs) and, when cross won,
+    member 1's exact cross pairs."""
+    rng = np.random.default_rng(0)
+    n = 4000  # above both selection thresholds so the auditions engage
+    X = rng.normal(size=(n, 6))
+    y = X[:, 0] * X[:, 1] + X[:, 2] + 0.1 * rng.normal(size=n)
+    bag = ChimeraBoostRegressor(n_estimators=150, random_state=0,
+                                n_ensembles=3).fit(X, y)
+    first, rest = bag.estimators_[0], bag.estimators_[1:]
+    assert first.linear_leaves_selected_ is not None
+    assert first.cross_features_selected_ is not None
+    for m in rest:
+        assert m.linear_leaves == first.linear_leaves_selected_
+        assert m.linear_leaves_selected_ is None  # no ll audition ran
+        if first.cross_features_selected_:
+            assert m.cross_features_selected_ is True
+            assert m.cross_pairs_ == first.cross_pairs_
+        else:
+            assert m.cross_features is False
+            assert m.cross_features_selected_ is None
+    # The bag still predicts (and the pinned members contribute).
+    assert bag.predict(X[:10]).shape == (10,)
+
+
+def test_bagging_pins_member_variant_selection_binary():
+    """B1 twin for the classifier: cross selection is pinned across members."""
+    rng = np.random.default_rng(1)
+    n = 4000
+    X = rng.normal(size=(n, 6))
+    y = (X[:, 0] * X[:, 1] + X[:, 2] + 0.5 * rng.normal(size=n) > 0).astype(int)
+    bag = ChimeraBoostClassifier(n_estimators=150, random_state=0,
+                                 n_ensembles=3).fit(X, y)
+    first, rest = bag.estimators_[0], bag.estimators_[1:]
+    assert first.cross_features_selected_ is not None
+    for m in rest:
+        if first.cross_features_selected_:
+            assert m.cross_features_selected_ is True
+            assert m.cross_pairs_ == first.cross_pairs_
+        else:
+            assert m.cross_features is False
+            assert m.cross_features_selected_ is None
+    proba = bag.predict_proba(X[:10])
+    assert proba.shape == (10, 2)
+
+
 def test_empty_tree_stops_boosting_early():
     """When splits are exhausted, the booster should stop rather than bank
     useless depth-0 trees until the iteration ceiling."""

@@ -182,6 +182,27 @@ Rounds, members vs single (the colleges anomaly, EXPLAINED):
 4. Elsewhere member rounds are comparable to or BELOW single — the round
    budget is not globally bloated; it is variance + tail pathology.
 
+**Selection agreement across members** (decoded post-hoc from the same run by
+`benchmarks/bagging_b1_agreement.py`, 2026-07-16): members 2..K disagree with
+member 1 on **16/80 selection decisions (20%)** — all of it on three sets
+(cpu_act ll+cf, colleges cf, kick cf); the other five are unanimous.
+Disagreement = near-tie audition margins flipped by bootstrap noise, so the
+pinned variant should cost ~nothing where it "mispins" — that is B1's risk
+hypothesis, and the tier-2 suites are its judge (pinning also removes
+selection diversity, which could in principle have been earning variance
+reduction).
+
+| dataset | ll votes (per seed) | cf votes (per seed) | disagree vs m1 |
+|---|---|---|--:|
+| gr:clf_cat/road-safety | ----- ----- | YYYYY YYYYY | 0/8 |
+| gr:clf_num/MagicTelescope | ----- ----- | YYYYY YYYYY | 0/8 |
+| gr:reg_cat/nyc-taxi | YYYYY YYYYY | YYYYY YYYYY | 0/16 |
+| gr:reg_num/cpu_act | YNNNY YYNYY | NYYYY YYYYY | 8/16 |
+| hc:colleges | YYYYY YYYYY | NYYNY NNNYN | 4/16 |
+| hc:kick | ----- ----- | YYYNN YNYYN | 4/8 |
+| hc:okcupid-stem | ----- ----- | ----- ----- | - |
+| hc:wine-reviews | YYYYY YYYYY | ----- ----- | 0/8 |
+
 **Pre-registered Phase 1 order (locked by this data):**
 1. **B1 shared selection** — removes most of select%; projected ratio
    ~6.2x -> ~4.3x panel-wide, biggest on hc.

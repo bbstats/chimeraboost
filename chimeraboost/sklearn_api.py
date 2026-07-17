@@ -247,9 +247,17 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
 
-    def _fit_one(seed):
+    def _fit_one(seed, pin=None):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads)
+        if pin is not None:
+            ll_sel, cf_sel, pairs = pin
+            if ll_sel is not None:
+                member.set_params(linear_leaves=bool(ll_sel))
+            if cf_sel is False:
+                member.set_params(cross_features=False)
+            elif cf_sel:
+                member._pinned_cross_pairs = pairs
         idx = np.random.default_rng(seed).integers(0, n, size=n)  # bootstrap
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
@@ -272,7 +280,19 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                    groups=gb, sample_weight=wb)
         return member
 
-    return Parallel(n_jobs=n_jobs)(delayed(_fit_one)(s) for s in seeds)
+    # Shared variant selection (benchmarks/BAGGING_PLAN.md B1): only member 1
+    # runs the linear/cross-variant auditions; the variant it selects is pinned
+    # for members 2..K, whose fits go straight to the winning configuration.
+    # This removes the (K-1) redundant audition fits, which Phase-0 attribution
+    # measured at 15-46% of the bagged fit. Members would occasionally have
+    # picked differently (20% of decisions, all on near-tie audition margins),
+    # so pins trade that selection diversity for the audition cost.
+    first = _fit_one(seeds[0])
+    pin = (getattr(first, "linear_leaves_selected_", None),
+           first.cross_features_selected_,
+           first.cross_pairs_)
+    rest = Parallel(n_jobs=n_jobs)(delayed(_fit_one)(s, pin) for s in seeds[1:])
+    return [first] + rest
 
 
 def _make_eval_split(X, y, validation_fraction, random_state,
@@ -1080,7 +1100,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_leaves_selected_ = None
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
-        if self.selection_rounds is not None and (select_ll or cross_ok):
+        pinned_pairs = getattr(self, "_pinned_cross_pairs", None)
+        if pinned_pairs is not None:
+            # Bagged-member fast path (benchmarks/BAGGING_PLAN.md B1): the
+            # bag's first member auditioned the variants and selected these
+            # cross pairs; fit the augmented model directly, no auditions.
+            self.model_ = _fit_booster(bool(ll), cross_pairs=list(pinned_pairs))
+            self.cross_features_selected_ = True
+            self.cross_pairs_ = list(pinned_pairs)
+        elif self.selection_rounds is not None and (select_ll or cross_ok):
             # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
             # design): every selection fit runs as a short audition; the
             # cross-augmented candidate -- which wins the full selection on
@@ -1150,8 +1178,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # interactions (benchmarks/probe_cross_features.py; Grinsztajn A/B
         # 51W/8L, mean +1.5%); selection dodges the variance cases. RMSE-only
         # (the probed loss). None (auto) and True behave the same here.
-        # (Already handled above when a selection_rounds audition ran.)
-        if (self.selection_rounds is None and cross_ok):
+        # (Already handled above when a selection_rounds audition ran or the
+        # cross pairs were pinned by a bagged fit.)
+        if (pinned_pairs is None and self.selection_rounds is None and cross_ok):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:
@@ -1547,30 +1576,46 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_Xv = eval_set[0]
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
                 eval_set = (cal_Xv, cal_y)
-            # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
-            # selection_rounds is set and the cross refit will run (pair
-            # candidates exist iff >= 2 numeric columns), the base fit is only
-            # an audition -- cap it; it is refit in full below only if the
-            # augmented model loses the selection.
-            n_cats = len(cat_features) if cat_features else 0
-            fast = (self.selection_rounds is not None
-                    and self.cross_features is not False
-                    and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
-                    and X.shape[1] - n_cats >= 2)
-            stop = _stop_after(self.selection_rounds) if fast else None
-            self.model_ = GradientBoosting(loss="Logloss", **kw)
-            self.model_.fit(X, y01, cat_features=cat_features, eval_set=eval_set,
-                            sample_weight=sample_weight,
-                            callbacks=_add_callback(callbacks, stop))
+            pinned_pairs = getattr(self, "_pinned_cross_pairs", None)
+            if pinned_pairs is not None:
+                # Bagged-member fast path (benchmarks/BAGGING_PLAN.md B1): the
+                # bag's first member auditioned the variants and selected
+                # these cross pairs; fit the augmented model directly.
+                self.model_ = GradientBoosting(
+                    loss="Logloss", cross_pairs=list(pinned_pairs), **kw)
+                self.model_.fit(X, y01, cat_features=cat_features,
+                                eval_set=eval_set, sample_weight=sample_weight,
+                                callbacks=callbacks)
+            else:
+                # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
+                # selection_rounds is set and the cross refit will run (pair
+                # candidates exist iff >= 2 numeric columns), the base fit is
+                # only an audition -- cap it; it is refit in full below only
+                # if the augmented model loses the selection.
+                n_cats = len(cat_features) if cat_features else 0
+                fast = (self.selection_rounds is not None
+                        and self.cross_features is not False
+                        and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                        and X.shape[1] - n_cats >= 2)
+                stop = _stop_after(self.selection_rounds) if fast else None
+                self.model_ = GradientBoosting(loss="Logloss", **kw)
+                self.model_.fit(X, y01, cat_features=cat_features,
+                                eval_set=eval_set, sample_weight=sample_weight,
+                                callbacks=_add_callback(callbacks, stop))
 
         # Numeric cross features (default-on auto, binary only): refit with
         # difference/product columns for the top numeric feature pairs of the
         # base fit and keep the lower-validation-loss model (the regressor's
         # selection pattern; see _cross_candidate_pairs). None (auto) and
-        # True behave the same on binary.
+        # True behave the same on binary. Skipped when the pairs were pinned
+        # by a bagged fit (the pinned model above already is the selection).
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
-        if (self.cross_features is not False and not self._multiclass
+        if not self._multiclass and getattr(self, "_pinned_cross_pairs",
+                                            None) is not None:
+            self.cross_features_selected_ = True
+            self.cross_pairs_ = list(self._pinned_cross_pairs)
+        elif (self.cross_features is not False and not self._multiclass
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
