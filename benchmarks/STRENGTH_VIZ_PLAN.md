@@ -88,21 +88,36 @@ Already in place; the ask is precisely that it's not useful. Keep blended-% as
 a REPORTED diagnostic (the harmonic-mean "which leg is weak" signal is still
 worth having in the text table), not as the headline axis.
 
-## Recommendation
+## Recommendation — RESOLVED by Nathan 2026-07-18: win percentage
 
-1. **Headline chart y-axis → mean rank (Option A)**, lower=better, with
-   bootstrap CI whiskers. Frontier/dominance recomputed on (mean_rank,
-   slowdown) — both minimized, good corner = down-and-left. This is the
-   legibility fix and it makes the headline agree with the sign-test gate.
+Nathan (2026-07-18): "avg rank is fine But I feel like percent of times won
+is a little more intuitive." → **Headline axis = WIN RATE: percent of
+head-to-head (dataset × opponent) matchups won**, higher = better.
+
+Key fact (why nothing is lost vs Option A): pairwise win rate vs the field
+is mean rank linearly transformed — winrate = (k − mean_rank)/(k − 1) with
+ties as ½ — so it carries EXACTLY the ordinal information of mean rank in
+friendlier units (0–100%, 50% = mid-pack, "wins 75% of its matchups").
+Implementation is Option A's machinery with a final rescale.
+
+1. **Headline chart y-axis → pairwise win rate (%)**, bootstrap CI whiskers
+   (resample datasets), good corner up-and-left as today. Frontier/dominance
+   on (winrate, slowdown). Exact per-dataset score ties between two models
+   count ½ each (rare on real data; note in the figure caption if any occur).
+   NOT "% of datasets won outright" (rank-1 share) — that statistic is harsh
+   and degenerate with a strong Ens8 arm in the pool (everyone else ≈ 0%);
+   record it in the text table if desired, never as the axis.
 2. **Add a head-to-head win-rate matrix (Option C)** as a companion figure
-   (`images/winrate.png` or a second panel) for the README — the concrete
-   "who beats whom" the word "winner/loser" is really asking for.
+   (`images/winrate.png` or a second panel) for the README — the axis scalar
+   is this matrix's row mean, so the two figures agree by construction.
 3. **Keep blended-% + per-metric % in the text table** as diagnostics (weak-leg
    signal), and keep it computable. Elo (Option B) is NOT built now — record as
-   a future option if rank proves too coarse.
+   a future option if win rate proves too coarse.
 
 ## Decisions for the user (confirm at the START of the build session)
 
+- **D0 — Axis statistic: RESOLVED (win rate, see Recommendation).** Nathan
+  2026-07-18. Remaining decisions below are still open.
 - **D1 — Does the DECISION metric change too, or just the chart?** The Pareto is
   the north star we ship against. Recommendation: chart moves to rank for
   LEGIBILITY, but ship-gating stays as-is (sign tests on both suites + blended
