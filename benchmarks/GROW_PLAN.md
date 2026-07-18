@@ -180,6 +180,15 @@ bit-identity test):
   poisoned-buffer checks) + full 455-test suite green; warmup updated (one
   signature covers both branches). Tier-2 identity + fit_time_delta vs gr
   20260717-195429 / hc 20260717-193744 running.
+  **Tier-2 verdict (2026-07-18): identity PASS in full — gr 59/59 exact
+  ties (NEW 20260718-131446), hc 14/14 on BOTH arms (NEW 20260718-131727,
+  ChimeraBoost + ChimeraBoostEns8). fit_time_delta raw sums: gr 0.989
+  (reg_num group 0.968, the small-fit group — where the panel said the win
+  lives), hc single 1.018, hc Ens8 0.984.** The suite SUM is dominated by
+  the large-n datasets, where this lever's ceiling was ~1%; the 8-13%
+  small-set wins carry little weight in summed seconds. Lever RETAINED on
+  the branch (bit-identical engineering, simpler level loop, real small-fit
+  wins); no pareto claim.
 - Microbench gotcha (cost one wrong table): numba dispatchers expose
   `__wrapped__` = the raw py_func, so "unwrapping" one times INTERPRETED
   Python — ~1000x slow and misleadingly flat ratios. Call dispatchers
@@ -243,12 +252,49 @@ more than the residual speed.
 - Record every verdict (win or kill) here; memory + PARETO_PLAN checklist
   at close.
 
+## Program close (2026-07-18)
+
+**Acceptance NOT met; kill clause engaged; program CLOSED same-day.**
+Registered bar was >=10% raw summed fit reduction on a decision suite;
+measured: gr -1.1%, hc single +1.8% (noise), hc Ens8 -1.6% — the
+implemented levers sum to <5% suite-level, the registered close condition.
+The headline stays 6.0x; NO pareto refresh (nothing to claim, and the
+fresh gr 5-arm baseline it would need is not spent).
+
+What the program settled (the profile table above is the durable asset):
+
+- "Grow is the remaining lever" is now QUANTIFIED: the fused scatter+scan
+  is 37-58% of fit and is the only object left with double-digit share.
+  Everything around it (ridge, descend, leaf values, per-tree Python,
+  multiclass copies, dtype widths) is now measured at or engineered to
+  the ~1-5% level.
+- Bit-identical kernel work on this codebase is exhausted at suite scale:
+  the two structural levers left were the ridge (measured
+  FMA-bound — restructure REGRESSED) and launch overhead (L-pytree —
+  landed, real on small fits, ~1% summed).
+- **Phase 2 decision: NOT pursued (the registered default).** Its trigger
+  condition half-holds (Phase 1 landed <10%; scatter >=50% on 2/9 panel
+  sets, 37-58% panel-wide). Histogram subtraction remains the only
+  double-digit speed idea left on the fit side, and it is FP-drift class:
+  full /experiment with synth Brier screen, both suites, and the gate if
+  ever wanted. Default stays no — the identity test suite and design law
+  are worth more than the residual speed.
+- OpenML gate: VACUOUS for this program (no strength surface was touched;
+  identity certified at 73/73 + goldens instead).
+
+Merge decision: `grow-kernels` holds the profiler + L-pytree (identity
+certified end to end) and this record. Recommend merging as engineering
+(no release-note claims beyond internals); Nathan's call.
+
 ## Checklist
 
 - [x] Phase 0: profile_grow.py + attribution table here; levers ordered by
       measured ceiling — 2026-07-18; L-mc/L-leaf32/L-bin8 killed at ceiling,
       L-ridge then L-pytree proceed
-- [ ] Phase 1 levers, each: implement → goldens/oracles → smoke → tier-2
-      identity + timing; verdicts recorded per lever
-- [ ] Phase 2 decision recorded (default: not pursued)
-- [ ] Close: pareto refresh if acceptance met; PARETO_PLAN + memory updated
+- [x] Phase 1 levers, each: implement → goldens/oracles → smoke → tier-2
+      identity + timing; verdicts recorded per lever — L-ridge killed
+      (regression, reverted); L-pytree landed (73/73 + 14/14 Ens8 ties,
+      gr sum -1.1%)
+- [x] Phase 2 decision recorded (default: not pursued) — see close section
+- [x] Close: acceptance NOT met, no pareto refresh; PARETO_PLAN + memory
+      updated 2026-07-18

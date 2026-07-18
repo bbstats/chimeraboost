@@ -259,6 +259,13 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
       (full record: M1_PLAN.md; all three registered bars passed; TabArena
       Lite re-read flat at 1267)
 - [x] Step 3 grow kernels — **own pre-registered program opened 2026-07-18:
-      GROW_PLAN.md** (Nathan approved as next; Phase 0 profiling first)
+      GROW_PLAN.md** (Nathan approved as next; Phase 0 profiling first);
+      **CLOSED same day: acceptance NOT met** (bit-identical levers sum to
+      ~1% suite-level; small-fit wins are real but suite sums are large-n
+      weighted). Full attribution table + per-lever verdicts in GROW_PLAN.md.
+      Settled: the fused scatter+scan (37-58% of fit) is the ONLY remaining
+      double-digit fit-side object, and it is Phase-2/FP-drift class.
+      L-pytree (single-launch level kernel) retained on branch grow-kernels,
+      identity-certified 73/73; merge = Nathan's call.
 - [x] Memory + CLAUDE.md updated with verdicts (wins AND kills) — ongoing per
       program close; algorithm-history memory current through M1
