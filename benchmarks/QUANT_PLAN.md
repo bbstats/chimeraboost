@@ -225,6 +225,42 @@ through; harness `--chimera-quantize` (single + bagged arms).
         **0.805** (-19.5%).
       Registered ship bar (no sig. accuracy loss either suite; >=10% fit
       sum on >=1 suite) MET on both suites, all arms.
-- [ ] Phase 3: OpenML gate verdict
-- [ ] Close: ship (default flip + goldens + pareto + CHANGELOG) or kill;
-      memory + PARETO_PLAN updated either way
+- [x] Phase 3: OpenML gate verdict: **PASS (non-negative)** — 2026-07-18.
+      NEW 20260718-142321 vs BASE 20260717-200023 (the M1-branch gate arm =
+      bit-identical to current main for ChimeraBoost; reused rather than
+      re-run to keep gate exposures minimal): 13W-13L-10T, mean +0.056%.
+- [x] Close: **SHIPPED** — default flip (booster + wrappers), goldens
+      regenerated, 461 tests green, CHANGELOG [Unreleased], parameters.md
+      row, pareto refreshed — 2026-07-18. Merge + release = Nathan's call.
+
+## Program close (2026-07-18) — SHIPPED, same day
+
+Every registered bar passed; nothing waived. Headline (fresh canonical
+5-arm gr 20260718-142950 vs 20260717-153114, accuracy columns identical
+to the decimal, competitors unmoved):
+
+| arm | old | new |
+|---|---|---|
+| ChimeraBoost | 97.0 @ 6.4x | **96.9 @ 5.1x** |
+| ChimeraBoostEns8 | 100.0 @ 31.0x | **100.0 @ 23.9x** |
+
+Both Chimera points moved LEFT at held accuracy — a pure Pareto move.
+CatBoost (95.8 @ 12.9x) stays dominated.
+
+Durable design facts:
+- The scatter was random-write bound (GROW settled it); ONE packed int64
+  RMW + half the buffer is worth 1.32-1.41x kernel-level, 20-26% suite
+  fit sums. Two-tier int32 (16+16) is DEAD (never beats int64 at scale).
+- ~15-bit adaptive quantization + exact-float leaf values = benchmark-flat
+  accuracy: 75/136 synth sets tied EXACTLY; suites/gate all even sign
+  tests. The LightGBM low-bit regime (2-4 bits) was never needed — our
+  win is packing/bandwidth, not bit-width.
+- Cat-heavy sets gain most (prep-expanded width = the kernel's best
+  regime): gr reg_cat 0.675, clf_cat 0.703.
+- Phase-0 literal go/no-go missed 2/6 cells (narrow nf=10 shapes); the
+  suite referee vindicated proceeding — record for future bar-setting:
+  register bars against the SUITE-DOMINANT shape, not per-cell.
+- Phase-2 registered follow-up NOT spent: integer histogram subtraction
+  (exact in int domain, no extra drift class) — ceiling ~(d-1)/d * 1/2 of
+  remaining scatter; open only as its own program with these numbers as
+  the base.
