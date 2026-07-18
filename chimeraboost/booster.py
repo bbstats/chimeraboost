@@ -114,7 +114,8 @@ class _BaseBooster:
                  thread_count=None, random_state=None, verbose=False,
                  ordered_boosting=False, cat_combinations=False,
                  leaf_estimation_iterations=1,
-                 linear_leaves=False, linear_lambda=1.0, cross_pairs=None):
+                 linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
+                 quantize_gradients=False):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -135,17 +136,24 @@ class _BaseBooster:
         self.linear_leaves = bool(linear_leaves)
         self.linear_lambda = float(linear_lambda)
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
+        self.quantize_gradients = bool(quantize_gradients)
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
 
-        Shape (n_features, 2**depth, max_bins, 2); the last axis interleaves
-        grad and hess so each scatter write hits one cache line. Reused for
-        every tree and level (the kernel zeroes the active slice each call),
-        avoiding thousands of reallocations over a long boosting run.
+        Float path: (n_features, 2**depth, max_bins, 2); the last axis
+        interleaves grad and hess so each scatter write hits one cache line.
+        Quantized path: int64 (n_features, 2**depth, max_bins) — grad and
+        hess ride packed in one cell (see tree._quantize_pack), halving the
+        footprint. Reused for every tree and level (the kernel zeroes the
+        active slice each call), avoiding thousands of reallocations over a
+        long boosting run.
         """
         max_leaves = 1 << self.depth
         max_bins = int(n_bins.max()) if len(n_bins) else 1
+        if self.quantize_gradients:
+            return np.zeros((n_features, max_leaves, max_bins),
+                            dtype=np.int64)
         return np.zeros((n_features, max_leaves, max_bins, 2))
 
     def _build_centers_std(self, Xb, n_bins):
@@ -390,6 +398,10 @@ class GradientBoosting(_BaseBooster):
                                       prep_cache)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
+        # Packed quantized grad/hess scratch, reused across trees (see
+        # build_oblivious_tree's quantize path).
+        qbuf = (np.empty(n_samples, dtype=np.int64)
+                if self.quantize_gradients else None)
         # Keep a small sample of the (binned) training rows as the default SHAP
         # background -- the reference distribution interventional TreeSHAP
         # integrates over. Capped so it never bloats the pickled model.
@@ -429,6 +441,11 @@ class GradientBoosting(_BaseBooster):
                 grad, hess = grad * w, hess * w
             g, h = self._maybe_subsample(grad, hess, rng)
             fmask = self._feature_mask(Xb.shape[0], rng)
+            # Fresh rounding seed per tree: decorrelates the stochastic
+            # rounding noise across boosting rounds (drawn only on the
+            # quantized path, so the float path's rng stream is unchanged).
+            qseed = (int(rng.integers(1 << 63))
+                     if self.quantize_gradients else 0)
             tree, leaf = build_oblivious_tree(Xb, g, h, n_bins, self.depth,
                                               self.l2_leaf_reg, self.lr_,
                                               feature_mask=fmask,
@@ -437,7 +454,9 @@ class GradientBoosting(_BaseBooster):
                                               linear_leaves=ll_active,
                                               centers_std=self._centers_std_,
                                               is_numeric=self.prep_.is_numeric_binned_,
-                                              linear_lambda=self.linear_lambda)
+                                              linear_lambda=self.linear_lambda,
+                                              quantize=self.quantize_gradients,
+                                              qbuf=qbuf, qseed=qseed)
             # A depth-0 tree found no legal split; the next round on the same
             # gradients would too, so stop rather than bank empty trees.
             if tree.depth == 0:
@@ -617,6 +636,9 @@ class MulticlassBoosting(_BaseBooster):
                                       cat_features, eval_set, prep_cache)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
+        # Packed quantized grad/hess scratch, reused across every class tree.
+        qbuf = (np.empty(n_samples, dtype=np.int64)
+                if self.quantize_gradients else None)
 
         Yv = Fv = yv_idx = None
         if eval_set is not None:
@@ -646,11 +668,15 @@ class MulticlassBoosting(_BaseBooster):
                 g, h = self._maybe_subsample(
                     np.ascontiguousarray(grad[:, k]),
                     np.ascontiguousarray(hess[:, k]) * coupling, rng)
+                qseed = (int(rng.integers(1 << 63))
+                         if self.quantize_gradients else 0)
                 tree, leaf = build_oblivious_tree(Xb, g, h, n_bins, self.depth,
                                                   self.l2_leaf_reg, self.lr_,
                                                   feature_mask=fmask,
                                                   min_child_weight=self.min_child_weight,
-                                                  hist_buffers=hist_buffers)
+                                                  hist_buffers=hist_buffers,
+                                                  quantize=self.quantize_gradients,
+                                                  qbuf=qbuf, qseed=qseed)
                 round_trees.append(tree)
                 if self.ordered_boosting and tree.depth > 0:
                     F[:, k] += self._loo_update(tree, leaf, g, h)

@@ -317,6 +317,157 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
     return best_f, best_t, best_gain, n_next
 
 
+# Quantized-gradient histograms (QUANT_PLAN.md, LightGBM-4-style adaptation):
+# grad/hess are quantized per tree to integers and packed into ONE int64 per
+# sample, so the histogram scatter does a single integer RMW per (sample,
+# feature) instead of two float64 RMWs, and the buffer footprint halves.
+# _QMAX_CAP bounds the quantized range at 15 bits; build_oblivious_tree
+# shrinks it further for huge n so that any cell/prefix sum keeps
+# |sum qg| <= n*qmax < 2**31 and 0 <= sum qh < 2**32 — the packed halves can
+# then never bleed into each other and shift/mask unpacking is exact.
+_QMAX_CAP = 32767
+
+
+@njit(cache=True, parallel=True)
+def _gh_absmax(grad, hess):
+    """Fused (max |grad|, max hess) reduction — the quantization scales —
+    without numpy temporaries (np.abs(grad).max() would allocate n floats)."""
+    gmax = 0.0
+    hmax = 0.0
+    for i in prange(grad.shape[0]):
+        ag = abs(grad[i])
+        gmax = max(gmax, ag)
+        hmax = max(hmax, hess[i])
+    return gmax, hmax
+
+
+@njit(cache=True, parallel=True)
+def _quantize_pack(grad, hess, inv_dg, inv_dh, qmax, qseed, out):
+    """out[i] = (qg << 32) + qh with stochastic rounding qX = floor(x*inv + u).
+
+    The uniform pair u comes from counter-based splitmix64(qseed + i):
+    deterministic given the seed (reproducible models, no RNG state threaded
+    through numba), unbiased rounding (round-to-nearest would bias every
+    histogram cell the same way; stochastic errors cancel by sqrt(n) — the
+    LightGBM quantized-training result). qg lands in [-qmax, qmax] and qh in
+    [0, qmax] by construction of the scales; the clamps only guard the edge
+    where gmax * (qmax/gmax) rounds a hair above qmax, keeping the caller's
+    overflow bound exact. Hessians are non-negative for every library loss,
+    so qh's lower clamp is defensive only."""
+    n = grad.shape[0]
+    for i in prange(n):
+        z = (qseed + np.uint64(i)) * np.uint64(0x9E3779B97F4A7C15)
+        z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+        z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+        z = z ^ (z >> np.uint64(31))
+        u1 = (z & np.uint64(0xFFFFFFFF)) * (1.0 / 4294967296.0)
+        u2 = (z >> np.uint64(32)) * (1.0 / 4294967296.0)
+        qg = np.int64(np.floor(grad[i] * inv_dg + u1))
+        qh = np.int64(np.floor(hess[i] * inv_dh + u2))
+        qg = min(max(qg, -qmax), qmax)
+        qh = min(max(qh, np.int64(0)), qmax)
+        out[i] = (qg << 32) + qh
+
+
+@njit(cache=True, parallel=True)
+def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
+                           n_bins_per_feature, dg, dh, l2, min_child_weight,
+                           min_gain, small, n_leaves_next, next_active):
+    """Packed-int64 twin of `_build_split_descend` for quantized training.
+
+    Structure is that kernel's verbatim except the histogram: `histq` is
+    int64 (n_features, max_leaves, max_bins), the scatter adds the packed
+    sample value once, and the scan runs packed-integer prefix sums (exact —
+    see _QMAX_CAP) that are unpacked (arithmetic shift / mask) and
+    dequantized with dg/dh only where the float gain formula needs them.
+    On exactly-representable grad/hess (integer multiples of power-of-two
+    scales) this reproduces the float kernel bit for bit — that is the
+    oracle test in tests/test_tree_kernels.py; on real data it differs from
+    the float kernel only by the quantization noise. hr = ht - hl is
+    computed in float like the reference; multiplication by a positive
+    scale is monotone, so hr never goes negative."""
+    n_features, n_samples = Xb.shape
+    max_bins = histq.shape[2]
+    n_active = active.shape[0]
+    feat_gain = np.full(n_features, -np.inf)
+    feat_thr = np.zeros(n_features, dtype=np.int64)
+
+    for f in prange(n_features):
+        if feat_mask[f] == 0:
+            continue
+        nb = n_bins_per_feature[f]
+        for k in range(n_active):
+            l = active[k]
+            for b in range(nb):
+                histq[f, l, b] = 0
+        Xf = Xb[f]
+        for i in range(n_samples):
+            histq[f, leaf[i], Xf[i]] += q[i]
+
+        gain = np.zeros(max_bins)
+        legal = np.ones(max_bins, dtype=np.uint8)
+        for k in range(n_active):
+            l = active[k]
+            tot = np.int64(0)
+            for b in range(nb):
+                tot += histq[f, l, b]
+            ht = (tot & 0xFFFFFFFF) * dh
+            gt = (tot >> 32) * dg
+            if ht <= 0.0:
+                continue
+            par = gt * gt / (ht + l2)
+            acc = np.int64(0)
+            for t in range(nb - 1):
+                acc += histq[f, l, t]
+                hl = (acc & 0xFFFFFFFF) * dh
+                gl = (acc >> 32) * dg
+                hr = ht - hl
+                if (hl > 0.0 and hl < min_child_weight) or \
+                   (hr > 0.0 and hr < min_child_weight):
+                    legal[t] = 0
+                else:
+                    gr = gt - gl
+                    gain[t] += (gl * gl / (hl + l2)
+                                + gr * gr / (hr + l2)
+                                - par)
+
+        best_g = -np.inf
+        best_t = -1
+        for t in range(nb - 1):
+            if legal[t] and gain[t] > best_g:
+                best_g = gain[t]
+                best_t = t
+        feat_gain[f] = best_g
+        feat_thr[f] = best_t
+
+    best_f = 0
+    best_gain = -np.inf
+    for f in range(n_features):
+        if feat_gain[f] > best_gain:
+            best_gain = feat_gain[f]
+            best_f = f
+    best_t = feat_thr[best_f]
+
+    n_next = -1
+    if best_t >= 0 and best_gain > min_gain:
+        Xf = Xb[best_f]
+        if small:
+            counts = np.zeros(n_leaves_next, dtype=np.int64)
+            for i in range(n_samples):
+                nl = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+                leaf[i] = nl
+                counts[nl] += 1
+            n_next = 0
+            for l in range(n_leaves_next):
+                if counts[l] > 0:
+                    next_active[n_next] = l
+                    n_next += 1
+        else:
+            for i in prange(n_samples):
+                leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+    return best_f, best_t, best_gain, n_next
+
+
 @njit(cache=True, parallel=True)
 def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
                 n_leaves):
@@ -994,7 +1145,8 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
                          min_child_weight=1.0, hist_buffers=None,
                          linear_leaves=False, centers_std=None, is_numeric=None,
-                         linear_lambda=1.0):
+                         linear_lambda=1.0, quantize=False, qbuf=None,
+                         qseed=0):
     """Grow one oblivious tree level by level. Returns (tree, train_leaf), where
     train_leaf is the tree's leaf index for every training sample.
 
@@ -1004,22 +1156,47 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     min_child_weight: minimum hessian mass each side of a split must retain in
     every non-empty leaf. Stops the tree growing once no legal split remains,
     which prevents sparse-leaf overfitting at higher depth.
-    hist_buffers: optional interleaved buffer of shape (n_features,
-    2**max_depth, max_bins, 2) reused across trees to avoid per-level
-    allocation. If None, it is allocated here (for one-off calls and tests).
+    hist_buffers: optional buffer reused across trees to avoid per-level
+    allocation: interleaved (n_features, 2**max_depth, max_bins, 2) float64,
+    or with quantize=True int64 (n_features, 2**max_depth, max_bins). If
+    None, it is allocated here (for one-off calls and tests).
     linear_leaves: when True, attach a per-leaf ridge linear model over the
     tree's numeric split features (`centers_std`/`is_numeric` required;
     `linear_lambda` is the slope penalty). Low-count leaves fall back to the
     constant Newton value. The split search is unaffected.
+    quantize: run the SPLIT SEARCH on packed-int64 quantized grad/hess
+    (QUANT_PLAN.md) — one integer RMW per scatter write, half the histogram
+    footprint. Leaf values (and the linear-leaf ridge) still use the
+    original float64 grad/hess, so quantization noise touches only the
+    structure choice. `qbuf` is an optional reusable int64 (n_samples)
+    scratch for the packed values; `qseed` seeds the stochastic rounding
+    (pass a fresh draw per tree for decorrelated rounding noise).
     """
     n_features, n_samples = Xb.shape
     max_bins = n_features and int(n_bins_per_feature.max())
     if feature_mask is None:
         feature_mask = np.ones(n_features, dtype=np.int64)
     if hist_buffers is None:
-        hist = np.zeros((n_features, 1 << max_depth, max_bins, 2))
+        hist = (np.zeros((n_features, 1 << max_depth, max_bins),
+                         dtype=np.int64) if quantize
+                else np.zeros((n_features, 1 << max_depth, max_bins, 2)))
     else:
         hist = hist_buffers
+    if quantize:
+        # qmax keeps every packed cell/prefix sum overflow-safe (see _QMAX_CAP
+        # comment); scales map the observed grad/hess range onto [-qmax, qmax]
+        # and [0, qmax]. All-zero grad or hess degenerates to qg/qh = 0, which
+        # yields zero gains — the same no-split outcome as the float kernel.
+        qmax = min(_QMAX_CAP, (2 ** 31 - 1) // max(n_samples, 1))
+        gmax, hmax = _gh_absmax(grad, hess)
+        inv_dg = qmax / gmax if gmax > 0.0 else 0.0
+        inv_dh = qmax / hmax if hmax > 0.0 else 0.0
+        dg = gmax / qmax if gmax > 0.0 else 0.0
+        dh = hmax / qmax if hmax > 0.0 else 0.0
+        if qbuf is None:
+            qbuf = np.empty(n_samples, dtype=np.int64)
+        _quantize_pack(grad, hess, inv_dg, inv_dh, np.int64(qmax),
+                       np.uint64(qseed), qbuf)
     splits_feat = []
     splits_thr = []
     splits_gain = []
@@ -1037,10 +1214,16 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     active = np.arange(1, dtype=np.int64)            # level 0: the root
     n_leaves_next = 2
     for d in range(max_depth):
-        f, t, gain, n_next = _build_split_descend(
-            Xb, grad, hess, leaf, active, hist, feature_mask,
-            n_bins_per_feature, l2, min_child_weight, min_gain, small,
-            n_leaves_next, act_w)
+        if quantize:
+            f, t, gain, n_next = _build_split_descend_q(
+                Xb, qbuf, leaf, active, hist, feature_mask,
+                n_bins_per_feature, dg, dh, l2, min_child_weight, min_gain,
+                small, n_leaves_next, act_w)
+        else:
+            f, t, gain, n_next = _build_split_descend(
+                Xb, grad, hess, leaf, active, hist, feature_mask,
+                n_bins_per_feature, l2, min_child_weight, min_gain, small,
+                n_leaves_next, act_w)
         if gain <= min_gain or t < 0:
             break
         splits_feat.append(f)

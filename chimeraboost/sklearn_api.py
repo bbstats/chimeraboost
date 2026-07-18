@@ -883,6 +883,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
+    quantize_gradients : bool, default False
+        Run the split search on quantized gradients/hessians packed into
+        integer histograms (LightGBM-style quantized training, ~15-bit):
+        faster tree growth on medium/large data. Leaf values still use the
+        exact float gradients; the rounding noise touches only split
+        selection and is deterministic for a fixed ``random_state``.
     cross_features : bool or None, default None
         Numeric interaction columns. ``None`` (the default) and ``True`` refit
         with difference and product columns for the pairs of the top numeric
@@ -969,7 +975,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
-                 cat_features=None):
+                 cat_features=None, quantize_gradients=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -999,6 +1005,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
         self.max_samples = max_samples
+        self.quantize_gradients = quantize_gradients
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1390,6 +1397,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         back to constant leaves.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
+    quantize_gradients : bool, default False
+        Run the split search on quantized gradients/hessians packed into
+        integer histograms (LightGBM-style quantized training, ~15-bit):
+        faster tree growth on medium/large data. Leaf values still use the
+        exact float gradients; the rounding noise touches only split
+        selection and is deterministic for a fixed ``random_state``.
     cross_features : bool or None, default None
         Numeric interaction columns. ``None`` (the default) refits the model
         with difference and product columns for the pairs of the top numeric
@@ -1467,7 +1480,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
-                 cat_features=None):
+                 cat_features=None, quantize_gradients=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1495,6 +1508,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.n_ensembles = n_ensembles
         self.ensemble_n_jobs = ensemble_n_jobs
         self.max_samples = max_samples
+        self.quantize_gradients = quantize_gradients
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
