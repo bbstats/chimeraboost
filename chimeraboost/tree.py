@@ -358,14 +358,9 @@ def _solve_small(A, b):
 
 
 @njit(cache=True, parallel=True)
-def _linear_leaf_fit_ref(leaf, grad, hess, n_leaves, lin_feats, centers_std,
-                         Xb, l2_intercept, lin_lambda, lr):
+def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
+                     l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
-
-    REFERENCE KERNEL: the fit path now uses the restructured
-    `_linear_leaf_fit`; kept as the exact-equality oracle for
-    tests/test_tree_kernels.py, same discipline as `_build_histograms_into`
-    / `_best_split`.
 
     For samples in a leaf we solve the second-order objective
         min_beta  sum_i [ g_i f_i + 1/2 h_i f_i^2 ] + 1/2 ( l2*b^2 + lin*||w||^2 )
@@ -441,102 +436,6 @@ def _linear_leaf_fit_ref(leaf, grad, hess, n_leaves, lin_feats, centers_std,
                 rl[1 + j] += -g * xj
                 for jj in range(k):
                     Ml[1 + j, 1 + jj] += h * xj * xrow[jj]
-        Ml[0, 0] += l2_intercept
-        for j in range(1, d):
-            Ml[j, j] += lin_lambda
-        for j in range(d):
-            Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
-        beta = _solve_small(Ml, rl)
-        if np.isnan(beta[0]):
-            # Singular pivot (unreachable given the diagonal ridge + jitter):
-            # keep the plain constant Newton value rather than a broken slope.
-            if Htot[l] > 0.0:
-                coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
-            continue
-        for j in range(d):
-            coef[l, j] = lr * beta[j]
-    return coef
-
-
-@njit(cache=True, parallel=True)
-def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
-                     l2_intercept, lin_lambda, lr):
-    """Restructured `_linear_leaf_fit_ref` (the retained oracle): same normal
-    equations, same per-accumulator float-add sequences, hence bit-identical
-    coefficients -- verified by an exact-equality test.
-
-    The ridge measured 6-24% of whole-model fit time (GROW_PLAN.md Phase 0,
-    L-ridge), concentrated in the per-sample accumulation. What changed:
-
-      * The standardized design values are precomputed once into a row-major
-        (n, k) table: the leaf-grouped accumulation loop -- whose sample
-        indices jump around, so every read is a cache miss -- now reads each
-        sample's k values from one contiguous slot instead of k separate
-        (feature-row, bin-table) double indirections plus an isfinite branch
-        per accumulate. Table entries are computed independently (no
-        accumulation), so they equal the old per-sample gather exactly.
-      * Ml[1+j, 0] accumulated the identical value sequence as Ml[0, 1+j];
-        it is now mirrored once after the sample loop instead of accumulated
-        alongside it.
-      * h*x_j is formed once per (sample, j) and reused by the intercept row
-        and the rank-1 block -- the same left-to-right products the
-        reference forms, one multiply earlier.
-    """
-    n = leaf.shape[0]
-    k = lin_feats.shape[0]
-    d = 1 + k
-    coef = np.zeros((n_leaves, d))
-    # Per-leaf grad/hess totals (for the constant fallback) and counts.
-    counts = np.zeros(n_leaves, dtype=np.int64)
-    Gtot = np.zeros(n_leaves)
-    Htot = np.zeros(n_leaves)
-    for i in range(n):
-        l = leaf[i]
-        counts[l] += 1
-        Gtot[l] += grad[i]
-        Htot[l] += hess[i]
-    # Stable counting sort: order[start[l]:start[l+1]] = leaf-l samples in
-    # increasing original index.
-    start = np.zeros(n_leaves + 1, dtype=np.int64)
-    for l in range(n_leaves):
-        start[l + 1] = start[l] + counts[l]
-    pos = start[:n_leaves].copy()
-    order = np.empty(n, dtype=np.int64)
-    for i in range(n):
-        l = leaf[i]
-        order[pos[l]] = i
-        pos[l] += 1
-    # Row-major standardized design table; missing bins -> 0.
-    xstd = np.empty((n, k))
-    for i in prange(n):
-        for j in range(k):
-            v = centers_std[lin_feats[j], Xb[lin_feats[j], i]]
-            xstd[i, j] = v if np.isfinite(v) else 0.0
-    # Per-leaf normal equations + solve; leaves are independent.
-    for l in prange(n_leaves):
-        if counts[l] == 0:
-            continue
-        if counts[l] < 2 * d or k == 0:
-            if Htot[l] > 0.0:
-                coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
-            continue
-        Ml = np.zeros((d, d))
-        rl = np.zeros(d)
-        for q in range(start[l], start[l + 1]):
-            i = order[q]
-            h = hess[i]
-            ng = -grad[i]
-            Ml[0, 0] += h
-            rl[0] += ng
-            for j in range(k):
-                xj = xstd[i, j]
-                hx = h * xj
-                Ml[0, 1 + j] += hx
-                rl[1 + j] += ng * xj
-                for jj in range(k):
-                    Ml[1 + j, 1 + jj] += hx * xstd[i, jj]
-        for j in range(1, d):
-            Ml[j, 0] = Ml[0, j]
         Ml[0, 0] += l2_intercept
         for j in range(1, d):
             Ml[j, j] += lin_lambda
