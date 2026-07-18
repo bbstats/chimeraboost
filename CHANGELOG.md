@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.17.0] - 2026-07-17
 ### Added
 - **Cross features now cover multiclass classification.** The same
   validation-selected difference/product columns that regression and binary
