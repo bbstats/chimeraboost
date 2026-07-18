@@ -147,6 +147,29 @@ bit-identity test):
 - **L-mc: multiclass copy/launch trims** [K× per round; grad/hess column
   extraction without fresh allocs — order-preserving copies are exact].
 
+### Phase-1 verdicts
+
+- **L-ridge: KILLED 2026-07-18** (implemented, measured, reverted — commits
+  332fd39 / 686219e). The restructure (row-major precomputed design table,
+  mirrored intercept column, hoisted h*x; bit-identical, oracle test green,
+  455 tests passed) was NOT faster: kernel-vs-kernel micro
+  (results/grow-lridge-micro.md) x0.92-0.94 at n=8K, **x0.49-0.67 at
+  n>=37.5K** — the (n, k) table's extra write+re-read traffic exceeds the
+  gather it replaces. The ridge is FMA/accumulator-bound, not gather-bound:
+  uint16 Xb rows pack 32 samples/line, centers_std is L1-resident, and
+  within-leaf sample order is increasing (prefetch-friendly). Panel
+  attribution pre/post was flat (fit-level noise ±10-15% dominates —
+  kernel-vs-kernel micro is the decision-grade read for levers this size).
+  Recorded follow-up (NOT pursued): per-(j,jj) register accumulation via
+  loop interchange is provably bit-identical (per-accumulator sample order
+  survives the interchange) but re-reads leaf data k²/2 times — only wins
+  if leaves stay L2-resident; ~2-4%-of-fit ceiling, revisit only if the
+  program strands below the bar.
+- Microbench gotcha (cost one wrong table): numba dispatchers expose
+  `__wrapped__` = the raw py_func, so "unwrapping" one times INTERPRETED
+  Python — ~1000x slow and misleadingly flat ratios. Call dispatchers
+  directly (fixed in profile_grow.py).
+
 Explicitly OUT of Phase 1 (FP order changes = behavior-changing, NOT here):
 histogram subtraction (sibling = parent − child), row-parallel scatter with
 chunked reductions, any grad/hess dtype change, any threading that splits a

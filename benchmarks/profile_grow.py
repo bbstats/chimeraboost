@@ -393,6 +393,61 @@ def threads_report(results):
 
 
 # --------------------------------------------------------------------------
+# L-ridge kernel-vs-kernel microbench (isolates the restructure from fit
+# noise: same inputs, median of warm reps, ref vs new)
+# --------------------------------------------------------------------------
+def run_ridge_micro(args):
+    if not hasattr(tmod, "_linear_leaf_fit_ref"):
+        print("Needs the (reverted) L-ridge variant, which shipped a "
+              "_linear_leaf_fit_ref oracle; see GROW_PLAN.md L-ridge "
+              "verdict for the recorded numbers.")
+        return
+    REPS = 21
+    rng = np.random.default_rng(0)
+    results = []
+    for n in (8192, 37500, 75000):
+        for k in (2, 4, 6):
+            n_features, max_bins, n_leaves = 8, 128, 64
+            Xb = rng.integers(0, max_bins, size=(n_features, n)) \
+                .astype(np.uint16)
+            grad = rng.standard_normal(n)
+            hess = rng.random(n) + 0.1
+            leaf = rng.integers(0, n_leaves, n).astype(np.int64)
+            lin_feats = np.arange(k, dtype=np.int64)
+            centers_std = rng.standard_normal((n_features, max_bins))
+            centers_std[rng.random((n_features, max_bins)) < 0.05] = np.nan
+            a = (leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
+                 1.0, 1.0, 0.15)
+            row = {"n": n, "k": k}
+            # NOTE: call the dispatchers directly — numba sets __wrapped__ to
+            # the raw py_func, so "unwrapping" here times interpreted Python.
+            for name, fn in (("ref", tmod._linear_leaf_fit_ref),
+                             ("new", tmod._linear_leaf_fit)):
+                fn(*a)                                    # compile + warm
+                ts = []
+                for _ in range(REPS):
+                    t0 = time.perf_counter()
+                    fn(*a)
+                    ts.append(time.perf_counter() - t0)
+                row[name + "_ms"] = 1000 * sorted(ts)[REPS // 2]
+            results.append(row)
+            print(f"  n={n} k={k}: ref {row['ref_ms']:.3f}ms "
+                  f"new {row['new_ms']:.3f}ms "
+                  f"(x{row['ref_ms'] / row['new_ms']:.2f})")
+    lines = ["# L-ridge kernel-vs-kernel microbench (median of 21 warm reps,"
+             " 64 leaves)",
+             "",
+             "| n | k | ref_ms | new_ms | speedup |",
+             "|--:|--:|--:|--:|--:|"]
+    for r in results:
+        lines.append(f"| {r['n']} | {r['k']} | {r['ref_ms']:.3f} "
+                     f"| {r['new_ms']:.3f} "
+                     f"| x{r['ref_ms'] / r['new_ms']:.2f} |")
+    lines.append("")
+    _save(args.out or "grow-lridge-micro", results, "\n".join(lines))
+
+
+# --------------------------------------------------------------------------
 # Mode 5: stream-width microbench (dtype levers, no library change)
 # --------------------------------------------------------------------------
 def run_micro(args):
@@ -494,6 +549,7 @@ def main():
     mode.add_argument("--ll-delta", action="store_true")
     mode.add_argument("--threads", action="store_true")
     mode.add_argument("--micro", action="store_true")
+    mode.add_argument("--ridge-micro", action="store_true")
     ap.add_argument("--seeds", type=int, default=2)
     ap.add_argument("--datasets", nargs="*", default=None,
                     help="run_benchmarks DATASETS keys (default: the mode's "
@@ -510,6 +566,8 @@ def main():
         run_threads(args)
     elif args.micro:
         run_micro(args)
+    elif args.ridge_micro:
+        run_ridge_micro(args)
 
 
 if __name__ == "__main__":
