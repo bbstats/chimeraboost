@@ -177,12 +177,54 @@ included) -> OpenML one-shot gate (NOT vacuous here) -> ship/kill.
 - One benchmark at a time; Phase-0 micro is not a benchmark run but still
   don't overlap it with suite runs.
 
+## Phase-1 record (2026-07-18)
+
+Implemented on `quant-hist` (commit 1fa8120 + harness eeba9ef):
+`tree._gh_absmax` / `tree._quantize_pack` / `tree._build_split_descend_q`;
+`build_oblivious_tree(..., quantize, qbuf, qseed)`; booster param
+`quantize_gradients=False` (int64 hist buffer + per-fit qbuf + per-tree
+qseed from the booster rng, scalar + multiclass); sklearn wrappers pass
+through; harness `--chimera-quantize` (single + bagged arms).
+
+- tests/test_quantize.py: 6 tests incl. the EXACT-equality oracle (both
+  dispatch branches, 3 seeds), pack bounds/determinism/seed-sensitivity,
+  booster determinism + closeness, binary/multiclass smoke, wrapper
+  passthrough. Full suite 461 green (default path untouched, goldens
+  exact).
+- quant_smoke.py (wrapper-level, selection/ll/cross engaged): reg fits
+  1.22-1.23x, bin 1.06-1.09x (ridge + calibration are outside the lever's
+  reach — consistent with GROW attribution), metrics ~identical (3/4
+  holdout metrics literally equal; 4th differs in the 4th decimal).
+
 ## Checklist
 
-- [ ] Phase 0: quant_micro.py written + run; table here; go/no-go verdict
-- [ ] Phase 1: kernels + flag + oracle/determinism/overflow tests green
-- [ ] Phase 3: tier-1 synth screen verdict
-- [ ] Phase 3: gr + hc sign tests + fit_time_delta verdicts
+- [x] Phase 0: quant_micro.py written + run; table here; go/no-go verdict
+      (PROCEED with literal-miss caveat recorded; C dead) — 2026-07-18
+- [x] Phase 1: kernels + flag + oracle/determinism/overflow tests green
+      (461 tests; exact oracle both branches) — 2026-07-18
+- [x] Phase 3: tier-1 synth screen verdict: **PASS (flat)** — 2026-07-18.
+      Fresh same-day A/B (BASE 20260718-141312 flag-off = bit-identical to
+      main, NEW 20260718-141451 --chimera-quantize; provenance of the
+      07-17 evening synth JSON was ambiguous, so BASE was re-run).
+      28W-33L-75T (75/136 EXACT ties — most trees unchanged at ~15 bits),
+      mean +0.006%, p=0.609; no significant slice (min p 0.078, func=neural,
+      no mechanism); factor OLS max |t| 1.69; canaries 0-0-3 exactly flat.
+      Brier read: 22W-27L-39T, +0.051%, p=0.568; canary&cats +0.023%.
+      Zero-mean rounding noise, exactly the mechanism's prediction.
+- [x] Phase 3: gr + hc sign tests + fit_time_delta verdicts — 2026-07-18,
+      **BOTH SUITES: accuracy parity + speed far past the bar.**
+      BASE arms = the same-day grow-close identity runs (gr
+      20260718-131446, hc 20260718-131727; machine-drift check vs
+      yesterday's canonical 195429 = 0.989, stable).
+      NEW: gr 20260718-141741, hc 20260718-141956 (--chimera-quantize).
+      - gr accuracy: 27W-24L-8T, mean -0.036%, sign-test even. gr FIT SUM
+        **0.738** (681.1s -> 502.5s, -26.2%); groups 0.675-0.818, biggest
+        wins on cat groups (prep-expanded width = the kernel's best regime).
+      - hc accuracy: single 3W-3L-8T -0.010%; Ens8 6W-5L-3T -0.091% —
+        parity both arms. hc FIT SUM: single **0.796** (-20.4%), Ens8
+        **0.805** (-19.5%).
+      Registered ship bar (no sig. accuracy loss either suite; >=10% fit
+      sum on >=1 suite) MET on both suites, all arms.
 - [ ] Phase 3: OpenML gate verdict
 - [ ] Close: ship (default flip + goldens + pareto + CHANGELOG) or kill;
       memory + PARETO_PLAN updated either way

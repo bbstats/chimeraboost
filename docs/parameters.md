@@ -18,6 +18,7 @@ For more detail, see [API reference](api.md).
 | Parameter | Default | Effect |
 |---|---|---|
 | `max_bins` | `128` | Histogram bins per numeric feature. Raising it can improve fit in some scenarios. |
+| `quantize_gradients` | `True` | Split search on ~15-bit quantized grad/hess packed into integer histograms: ~20-25% faster fits, benchmark-flat accuracy. Leaf values always use exact float gradients. Deterministic per `random_state`. `False` = exact float64 histograms. |
 
 ## Row and column sampling
 

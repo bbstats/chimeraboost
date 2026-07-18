@@ -115,7 +115,7 @@ class _BaseBooster:
                  ordered_boosting=False, cat_combinations=False,
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
-                 quantize_gradients=False):
+                 quantize_gradients=True):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)

@@ -91,7 +91,8 @@ def test_quantized_booster_deterministic_and_close_to_float():
         preds.append(m.predict_raw(X))
     assert np.array_equal(preds[0], preds[1])   # same seed -> same model
 
-    ref = GradientBoosting(n_estimators=60, random_state=7).fit(X, y)
+    ref = GradientBoosting(n_estimators=60, random_state=7,
+                           quantize_gradients=False).fit(X, y)
     rmse_q = np.sqrt(np.mean((preds[0] - y) ** 2))
     rmse_f = np.sqrt(np.mean((ref.predict_raw(X) - y) ** 2))
     # ~15-bit quantization only perturbs split choice; train RMSE must land

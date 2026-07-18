@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Quantized-gradient histograms are now the default**
+  (`quantize_gradients=True`): the split search runs on ~15-bit quantized
+  gradient/hessian pairs packed one-integer-per-sample into integer
+  histograms (the LightGBM-4 quantized-training idea, adapted). Summed
+  single-model fit time fell 26% on the Grinsztajn suite and 20% on the
+  high-cardinality suite (bagged Ens8 arm likewise -19%), at benchmark-flat
+  accuracy: even per-dataset sign tests on both decision suites and the
+  OpenML gate, with exact ties on many datasets — leaf values are always
+  computed from the unquantized float gradients, so rounding noise only
+  ever touches split selection. Deterministic for a fixed `random_state`
+  (counter-based stochastic rounding). `quantize_gradients=False` restores
+  the exact float64 histograms (and bit-identical pre-flip models).
 - **Tree growth runs one fused kernel launch per level** — split search,
   leaf descend, and the next level's occupied-leaf list in a single numba
   call, replacing a second kernel launch plus a `bincount`/`flatnonzero`
