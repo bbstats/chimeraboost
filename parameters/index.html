@@ -1037,6 +1037,11 @@
 <td><code>128</code></td>
 <td>Histogram bins per numeric feature. Raising it can improve fit in some scenarios.</td>
 </tr>
+<tr>
+<td><code>quantize_gradients</code></td>
+<td><code>True</code></td>
+<td>Split search on ~15-bit quantized grad/hess packed into integer histograms: ~20-25% faster fits, benchmark-flat accuracy. Leaf values always use exact float gradients. Deterministic per <code>random_state</code>. <code>False</code> = exact float64 histograms.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="row-and-column-sampling">Row and column sampling<a class="headerlink" href="#row-and-column-sampling" title="Permanent link">&para;</a></h2>
