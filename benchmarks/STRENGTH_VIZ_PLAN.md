@@ -3,7 +3,9 @@
 Self-sufficient handoff (QUANT_PLAN/GROW_PLAN convention). Opened 2026-07-18
 on Nathan's ask: "figure out a way to better represent winner/loser from
 Grinsztajn — these all being at 99.x is not useful. Make a plan (don't act)."
-This is a PLAN ONLY. No source change yet. Written for the next context window.
+
+**IMPLEMENTED + CLOSED same day (2026-07-18)** — see the Checklist at the
+bottom for what shipped and where. Benchmarks-side only; library untouched.
 
 ## The problem, quantified
 
@@ -166,9 +168,29 @@ Implementation is Option A's machinery with a final rescale.
 
 ## Checklist
 
-- [ ] D1–D3 answered by Nathan
-- [ ] Phase 0: rank + winrate functions + text table; sanity gate passes
-- [ ] Phase 1: rank axis in make_pareto.py (--metric), CIs, frontier, image
-- [ ] Phase 2: win-rate matrix companion + README
-- [ ] Tests: rank/winrate fixture test green
-- [ ] Close: headline chart legible (winner/loser visible), record the choice
+- [x] D1–D3: built 2026-07-18 on the plan's own recommendations (Nathan asked to
+  implement the plan as written). D1 = chart legibility only, ship-gating
+  untouched. D2 = Brier only (F1 stays a table diagnostic; pinned by test).
+  D3 = `--metric winrate|blended` in make_pareto.py, winrate = committed
+  headline (pareto.png); blended writes pareto_blended.png so it can never
+  clobber the headline.
+- [x] Phase 0: `summarize.primary_scores/per_dataset_ranks/mean_rank/
+  winrate_matrix/winrate_vs_field/bootstrap_winrate_ci/n_tied_matchups`;
+  SANITY GATE PASSED on 20260718-142950: Ens8 best (98.2%), order agrees with
+  blended, spread 16.7–98.2% (vs the 94.8–96.9 smear) — and it separates
+  LightGBM (28.5%) from HGB (16.7%), which blended had tied at 94.8. Elo
+  fallback not needed. 0 exact-tie matchups on the real run.
+- [x] Phase 1: win-rate axis default in make_pareto.py, 95% bootstrap CI
+  whiskers, 50% mid-pack reference line, frontier on (winrate, slowdown) —
+  images/pareto.png regenerated. Frontier: Ens8 / ChimeraBoost / LightGBM;
+  CatBoost now visibly dominated by ChimeraBoost (46% head-to-head, 2.5×
+  slower).
+- [x] Phase 2: images/winrate_matrix.png (diverging blue-win/red-lose cells,
+  direct-labeled, row mean = the pareto.png axis by construction). README NOT
+  touched: pareto.png was deliberately swapped out of the README for the
+  TabArena chart in fcdc874 — the headline lives in docs/PROJECT_STATUS §2 and
+  the /pareto skill, both updated.
+- [x] Tests: tests/test_strength_viz.py (9 fixture tests: exclusions,
+  average-rank ties, ties=½, rank↔winrate identity, matrix row-mean identity,
+  bootstrap determinism/bracketing, D2 F1-blindness, frontier) — green.
+- [x] Close: winner/loser now readable off the chart. CLOSED 2026-07-18.

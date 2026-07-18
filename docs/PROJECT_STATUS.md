@@ -54,32 +54,40 @@ training rows, 0 above ~2000. This is one of our most important defaults (see §
 
 ## 2. The north-star metric (how we steer)
 
-One number: **blended model strength vs slowdown**, plotted as a Pareto
-(`benchmarks/make_pareto.py` → `images/pareto.png`). All inputs are "% vs best model on
-that task type", higher = better.
+**Strength vs slowdown**, plotted as a Pareto (`benchmarks/make_pareto.py` →
+`images/pareto.png`, companion `images/winrate_matrix.png`).
+
+Headline strength axis (since 2026-07-18): **head-to-head win rate** — the percent
+of (dataset × opponent) matchups a model wins on that dataset's primary metric
+(RMSE for regression, Brier for classification; exact ties count ½ each), with 95%
+bootstrap CIs over datasets. 50% = mid-pack; equals mean rank rescaled,
+(k − mean_rank)/(k − 1). The previous blended-% axis saturated — on
+near-Bayes-optimal tabular data every strong model lands within ~2% of best, so
+ratios-to-best all read 9x.x — and it remains as the **diagnostic**:
 
 ```
-classification = ⅔·BinBrier%  +  ⅓·BinF1%
+classification = ⅔·BinBrier%  +  ⅓·BinF1%          (all "% vs best", higher = better)
 blended        = HarmonicMean(RegRMSE%, classification)
 slowdown       = mean fit-time multiple vs the fastest model (lower = better)
 ```
 
-The harmonic mean is deliberate — it collapses toward the **weaker leg**, so raising
-the blended number *forces* us to fix our worst task rather than pad our best.
+The harmonic mean collapses toward the **weaker leg**, so the blended diagnostic
+still answers "which task is weak". Ship decisions are unchanged (per-dataset sign
+tests; the win-rate axis is the same winner/loser evidence, aggregated).
 
-**Current standing** (`results/20260601-154554.json`, 3 seeds): ChimeraBoost is
-**ON the Pareto frontier** — all four models are non-dominated.
+**Current standing** (`results/20260718-142950.json`, 3 seeds):
 
-| Model | Blended | Slowdown |
-|---|---|---|
-| CatBoost | 99.0 | 12.7× |
-| sklearn_HGB | 98.1 | 4.1× |
-| **ChimeraBoost** | **98.0** | **2.6×** |
-| LightGBM | 97.9 | 1.0× |
+| Model | Win rate | 95% CI | Slowdown | Frontier |
+|---|--:|--:|--:|---|
+| ChimeraBoostEns8 | 98.2% | [96.5, 99.6] | 23.9× | yes |
+| **ChimeraBoost** | **55.7%** | [50.0, 61.4] | **5.1×** | **yes** |
+| CatBoost | 50.9% | [43.9, 57.9] | 12.9× | — |
+| LightGBM | 28.5% | [23.7, 33.8] | 1.0× | yes |
+| sklearn_HGB | 16.7% | [10.1, 23.2] | 4.5× | — |
 
-We are the **2nd-fastest** (beat sklearn *and* CatBoost on speed) and 3rd-strongest,
-sitting right on the frontier between LightGBM (fast/slightly weaker) and sklearn
-(slower/slightly stronger).
+ChimeraBoost wins the majority of its matchups — including 54% against CatBoost
+head-to-head at 2.5× less slowdown, which leaves CatBoost dominated — and the
+Ens8 mode wins 96–100% against every opponent.
 
 ---
 

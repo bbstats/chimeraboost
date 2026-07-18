@@ -20,7 +20,7 @@ Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 ## Hard constraints
 - **Pure Python, no heavy deps.** No torch/onnx/foundation-model anything. Filter every idea through this first.
 - **TabArena (Lite and Full) is a SEALED HOLDOUT.** Report-only. Its results — aggregate or per-task — must never influence a source change. Decisions run on synthetic → dev panel → Grinsztajn, gated by an independent OpenML one-shot. PMLB is the HP-tuning suite only.
-- **North star:** blended strength vs slowdown Pareto (`benchmarks/make_pareto.py`, `/pareto` skill). Ship only what pushes the frontier. (Elo is a person's name — never "ELO".)
+- **North star:** strength vs slowdown Pareto (`benchmarks/make_pareto.py`, `/pareto` skill). Headline axis since 2026-07-18 = head-to-head win rate (% of dataset×opponent matchups won, primary metric RMSE reg / Brier clf); blended-% stays the weak-leg diagnostic; ship-gating (sign tests) unchanged. Ship only what pushes the frontier. (Elo is a person's name — never "ELO".)
 - **Always print the aggregate results table after every benchmark run**, unprompted.
 
 ## Benchmarks
