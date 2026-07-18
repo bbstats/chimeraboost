@@ -250,8 +250,15 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
 ## Acceptance
 
 - [x] Step 0 attribution table committed here (time split + selection flip rates) — 2026-07-16
-- [ ] Step 1 reuse shipped bit-identical (goldens green) with measured fit-time wins — DEMOTED by step 0 (3–17% upside only)
+- [x] Step 1 reuse — DEMOTED by step 0 (3–17% upside), then SHIPPED anyway as
+      B-prep 2026-07-17 (bagging program; intra-fit prep reuse, bit-identical,
+      hc fits ~12% cheaper; released 0.16.1). Closed.
 - [x] Step 2 raced selection through /experiment (both suites + gate) — 2026-07-16, SHIPPED as default (Nathan's sign-off); evidence in "Step 2 RESULTS"
 - [x] Pareto chart refreshed — 2026-07-16: **99.4 @ 6.0x strictly dominates 99.4 @ 7.9x**
-- [ ] M1 multiclass cross_features screened + decided on hc, or explicitly deferred
-- [ ] Memory + CLAUDE.md updated with verdicts (wins AND kills)
+- [x] M1 multiclass cross_features — **SHIPPED 2026-07-17, released 0.17.0**
+      (full record: M1_PLAN.md; all three registered bars passed; TabArena
+      Lite re-read flat at 1267)
+- [x] Step 3 grow kernels — **own pre-registered program opened 2026-07-18:
+      GROW_PLAN.md** (Nathan approved as next; Phase 0 profiling first)
+- [x] Memory + CLAUDE.md updated with verdicts (wins AND kills) — ongoing per
+      program close; algorithm-history memory current through M1

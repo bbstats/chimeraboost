@@ -1,0 +1,164 @@
+# Step-3 grow kernels — fit-side kernel pass (bit-identical speed program)
+
+Self-sufficient handoff (BAGGING_PLAN/M1_PLAN convention). Approved by Nathan
+2026-07-18 as the next program (the recorded runner-up when M1 was chosen;
+M1 shipped in 0.17.0). Parent: PARETO_PLAN.md "Step 3 — kernel profiling
+(opportunistic, bit-identical)". Written before any measurement or source
+change beyond the code survey below.
+
+## Why (state of the world, 2026-07-18)
+
+- Headline point **99.4 blended @ 6.0x** (post selection_rounds); Ens8 sweeps
+  at 30.1x; hc single 2.4-2.9x. The strength columns are #1 everywhere —
+  the open axis is slowdown.
+- PARETO_PLAN step-0 attribution (2026-07-16): **tree growth = 73-92% of
+  fit** on Grinsztajn, 49-67% on hc (prep-heavy), and it is per-variant
+  (every audition/refit pays it). It is the only lever bigger than
+  selection, and selection is done (step 2 shipped; B-prep killed the prep
+  redundancy; B1/B2 killed everything strength-adjacent).
+- The predict side got its kernel pass 2026-07-13 (row-major walks →
+  ~LightGBM parity). Fit kernels never got the equivalent audit.
+- Design law (bagging program, 5-for-5): only output-identical engineering
+  or more-data-per-member ever shipped. This program is scoped to
+  **bit-identical only** by default; FP-drift kernels are Phase 2, opt-in,
+  full /experiment (see below).
+
+## Code survey (2026-07-18 — read before assuming; all already TRUE)
+
+The grow path is NOT naive; the obvious wins are taken. `chimeraboost/tree.py`:
+
+- `_build_and_split` (the fit path): FUSED histogram scatter + split scan,
+  one parallel launch per level, feature-parallel (disjoint writes, no
+  races), active-leaf skipping at small n, per-feature bin-count trimming
+  (only [0, nb) zeroed/scanned), transposed leaf-outer scan with per-leaf
+  parent term hoisted. Reference kernels `_build_histograms_into` +
+  `_best_split` are KEPT as exact-equality oracles
+  (tests/test_tree_kernels.py) — keep that discipline for anything new.
+- `_descend_leaves` / `_descend_leaves_serial`: in-place level push,
+  `_SMALL_N` dispatch (fork/join vs serial measured crossover).
+- Binned matrix is already **uint16** (`BIN_DTYPE`), feature-major,
+  contiguous rows; hist buffer preallocated once per fit, interleaved
+  grad/hess (one cache line per scatter write).
+- `build_oblivious_tree` per-tree Python: list appends, np.array
+  conversions, `bincount/flatnonzero` at small n, `_leaf_values` launch,
+  optional `_linear_leaf_fit` (ridge over split features; binary default
+  linear_leaves=True), ObliviousTree construction.
+
+What was NEVER profiled: the split of tree-build time BETWEEN scatter /
+scan / descend / `_leaf_values` / `_linear_leaf_fit` / per-tree Python
+overhead. Step-0's suggestive anomaly: **binary trees cost 3.6 ms/tree vs
+regression 1.2-1.7** on the same kernel — prime suspect is the linear-leaf
+ridge (binary-default-on), NOT the scatter. If that holds, "grow kernels"
+is substantially a linear-leaf-kernel program, which nobody has looked at.
+
+## Phase 0 — in-tree attribution (no library change; pre-registers everything)
+
+New `benchmarks/profile_grow.py` (clean box, warm JIT, script file):
+
+1. Per panel set (reuse the step-0 panel: cpu_act, diamonds, nyc-taxi,
+   MagicTelescope, Higgs, road-safety, kick, wine-reviews, okcupid-stem —
+   spans task types, n, width, cats): wall split of one default fit into
+   scatter+scan (`_build_and_split`), descend, `_leaf_values`,
+   `_linear_leaf_fit`, per-tree Python residue, non-tree residue. Method:
+   targeted timers around the call sites (a fork with time.perf_counter
+   around each kernel call, summed per fit) — NOT cProfile (numba-opaque).
+2. The binary anomaly: same set fit with linear_leaves True vs False,
+   ms/tree delta = the ridge's true cost share.
+3. Thread-geometry read: feature-parallel saturation — same fit at
+   threads 1/2/6/12 on a narrow set (MagicTelescope, 10 features) vs a wide
+   one (road-safety 32+); flat scaling on narrow data = the known
+   feature-parallel ceiling (fix is Phase-2 class, record only).
+4. Multiclass: per-round cost split incl. the K per-class
+   `ascontiguousarray` grad/hess copies and K kernel launches (okcupid).
+5. Stream-width microbench: scatter with uint8 vs uint16 Xb and int32 vs
+   int64 leaf on synthetic shapes — bounds the dtype levers before any edit.
+
+Deliverable: table in this file + a pre-registered lever order with measured
+ceilings. **Rule: no Phase-1 edit before its ceiling is measured here.**
+
+## Phase 1 — bit-identical levers (goldens + oracle tests + timing; no gate)
+
+Candidates, to be ORDERED by Phase-0 ceilings (survey priors in brackets;
+every one preserves per-accumulator FP addition order — that is the
+bit-identity test):
+
+- **L-ridge: `_linear_leaf_fit` pass** [prime suspect for binary; unknown
+  until profiled]. Whatever the profile shows — access pattern, per-leaf
+  solve batching, redundant recompute — subject to exact-identity.
+- **L-leaf32: `leaf` int64 → int32** [halves the descend+scatter leaf
+  stream; indices are exact; touches kernel signatures → warmup() and
+  oracle kernels updated together].
+- **L-bin8: BIN_DTYPE uint16 → uint8 when max(n_bins) ≤ 255** [default
+  max_bins=128 qualifies; halves the Xf stream; dtype-dispatch or global —
+  decide at implementation; indices exact].
+- **L-pytree: per-tree Python residue** [matters on short-tree/small-n
+  fits; hoist per-tree allocs into fit-level buffers like hist already is].
+- **L-mc: multiclass copy/launch trims** [K× per round; grad/hess column
+  extraction without fresh allocs — order-preserving copies are exact].
+
+Explicitly OUT of Phase 1 (FP order changes = behavior-changing, NOT here):
+histogram subtraction (sibling = parent − child), row-parallel scatter with
+chunked reductions, any grad/hess dtype change, any threading that splits a
+single accumulator's sample loop.
+
+Ship shape per lever (B4/B-prep precedent for output-identical changes):
+goldens + oracle exact-equality tests green → clean-box smoke (PYTHONPATH
+worktree BASE, paths printed) → tier-2 identity runs (gr + hc, ALL arms
+exact ties — 73/73 datasets — plus `fit_time_delta.py` raw sums with the
+LightGBM-drift caveat noted) → OpenML gate VACUOUS (no strength surface).
+`chimeraboost.warmup()` must still cover every default-path kernel
+signature after changes (the TabArena cold-JIT fix depends on it — verify
+via its test).
+
+## Phase 2 — FP-drift kernels (NOT pursued by default; Nathan's opt-in only)
+
+Histogram subtraction is the industry-standard grow win (up to ~2x on the
+scatter) but parent−child ≠ direct sum in floating point → occasional
+different splits → goldens break, selection races can flip on near-ties.
+If Phase 1 lands <10% and Phase 0 shows scatter ≥50% of fit, present the
+numbers and let Nathan decide whether a full /experiment (synth screen with
+Brier read → both suites → gate) on a drift-class kernel is wanted. Default
+answer: no — the design law and the identity-based test suite are worth
+more than the residual speed.
+
+## Acceptance / kill (registered)
+
+- **Acceptance:** ≥10% raw summed single-model fit-time reduction on at
+  least one decision suite (fit_time_delta.py, net of the LightGBM drift
+  read) at EXACT 73/73 identity, with the headline pareto slowdown
+  re-measured (expect 6.0x → 5.3-5.5x if grow improves ~15-20%; claim only
+  what the canonical 5-arm refresh shows).
+- **Kill:** Phase 0 finds no lever with a measured ceiling ≥10% of fit, or
+  the implemented levers sum to <5% suite-level — record the profile table
+  and close (this is an opportunistic program; a fast honest kill is a
+  fine outcome and still pays for itself by settling the "grow is the
+  remaining lever" question).
+- Per-lever: any golden/oracle mismatch = revert that lever immediately
+  (no "small drift" tolerance — that is Phase-2 territory by definition).
+
+## Protocol notes for the implementing session
+
+- Machine quirks apply (script files, one benchmark at a time, worktree
+  PYTHONPATH for BASE arms with `print_chimera_path.py`, file reads over
+  scrolled stdout).
+- Baselines-of-record for identity ties: gr `20260717-153114` + hc
+  `20260717-155202` are pre-M1; POST-M1 canonical runs are gr
+  `20260717-195429` (single-arm) + hc `20260717-193744` (5-arm) — use the
+  post-M1 pair (current main includes M1; multiclass sets now select
+  crosses, so pre-M1 baselines would show legitimate non-ties there).
+  hc Ens8/CatBoost arms: `193744` is the 5-arm baseline; a gr 5-arm
+  baseline must be RUN FRESH at close if the canonical chart refresh needs
+  it (the 195429 run is single-arm).
+- Branch: `grow-kernels`. Keep reference kernels as oracles; new tests in
+  tests/test_tree_kernels.py style (exact equality, not allclose).
+- Record every verdict (win or kill) here; memory + PARETO_PLAN checklist
+  at close.
+
+## Checklist
+
+- [ ] Phase 0: profile_grow.py + attribution table here; levers ordered by
+      measured ceiling
+- [ ] Phase 1 levers, each: implement → goldens/oracles → smoke → tier-2
+      identity + timing; verdicts recorded per lever
+- [ ] Phase 2 decision recorded (default: not pursued)
+- [ ] Close: pareto refresh if acceptance met; PARETO_PLAN + memory updated
