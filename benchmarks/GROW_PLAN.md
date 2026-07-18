@@ -165,6 +165,21 @@ bit-identity test):
   survives the interchange) but re-reads leaf data k²/2 times — only wins
   if leaves stay L2-resident; ~2-4%-of-fit ceiling, revisit only if the
   program strands below the bar.
+- **L-pytree: IMPLEMENTED 2026-07-18, tier-2 pending** (commit 12d0f74).
+  One fused launch per level: `_build_split_descend` = `_build_and_split`'s
+  search + in-kernel descend + next-level occupancy list at small n; the
+  per-level bincount/flatnonzero numpy pair and the descend launch are gone.
+  Attribution panel (grow-lpytree-post vs grow-phase0): the pytree residue
+  COLLAPSED — cpu_act 15.4→5.3% of fit, diamonds 15.1→2.3, nyc-taxi
+  11.5→1.9, Magic 10.7→3.2, Higgs 8.0→1.2, road-safety 7.7→1.1, okcupid
+  5.6→0.8 (kick/wine were already ~1-4%) — with ms/tree down 3-13% on the
+  gr sets and whole fits equal-or-faster everywhere. Clean-box smoke
+  (grow_smoke.py, PYTHONPATH worktree BASE, paths printed): 10/10 md5
+  prediction fingerprints EXACT (5 panel sets x single+Ens8, both size
+  branches + multiclass). Oracle pipeline test (incl. rejected-level and
+  poisoned-buffer checks) + full 455-test suite green; warmup updated (one
+  signature covers both branches). Tier-2 identity + fit_time_delta vs gr
+  20260717-195429 / hc 20260717-193744 running.
 - Microbench gotcha (cost one wrong table): numba dispatchers expose
   `__wrapped__` = the raw py_func, so "unwrapping" one times INTERPRETED
   Python — ~1000x slow and misleadingly flat ratios. Call dispatchers
