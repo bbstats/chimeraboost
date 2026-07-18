@@ -3,6 +3,19 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **Cross features now cover multiclass classification.** The same
+  validation-selected difference/product columns that regression and binary
+  classification get (top numeric pairs of the base fit, raced audition at
+  `selection_rounds`, judged on softmax validation log loss). Auto-on under
+  the same gates (≥ 2000 rows, ≥ 2 numeric features); explicit
+  `cross_features=True` no longer raises on multiclass. Costs up to ~2x fit
+  time on eligible multiclass data when the refit runs; regression and
+  binary paths are bit-identical to 0.16.1 (verified: every untouched
+  dataset in the synthetic screen, both decision suites, and the OpenML
+  gate tied exactly, per-arm).
+
 ## [0.16.1] - 2026-07-17
 ### Changed
 - **Faster fits at identical output: internal model selection no longer

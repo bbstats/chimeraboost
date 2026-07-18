@@ -667,14 +667,12 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         if not is_multiclass:
             kw["linear_leaves"] = True
             kw["linear_lambda"] = linear_lambda
-    # cross_features raises on multiclass (unsupported); skip it there so a
-    # full-suite run doesn't crash on multiclass tasks. "off" forces it off
-    # (ablation arm vs the shipped default None = on where applicable).
+    # "off" forces cross_features off (ablation arm vs the shipped default
+    # None = on where applicable, multiclass included since M1).
     if cross_features == "off":
         kw["cross_features"] = False
     elif cross_features:
-        if task == "regression" or len(np.unique(ytr)) == 2:
-            kw["cross_features"] = True
+        kw["cross_features"] = True
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
     # with NO explicit eval_set, so ChimeraBoost performs its own internal
     # early-stopping split (early_stopping=True, validation_fraction default) —

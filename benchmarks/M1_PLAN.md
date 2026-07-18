@@ -240,14 +240,73 @@ seed noise: 130 flipped worst-loss→win, 531's −3e-5 pseudo-loss→win, 765
 loss→win. Remaining losses small (worst −1.03%). Tier 1 **PASS** →
 tier 2.
 
+## Tier-2 hc (2026-07-17; BASE `20260717-155202` vs NEW `20260717-193744`, 5 arms)
+
+**PASS.** LightGBM cross-run canary **14/14 exact ties**. Single arm:
+13/13 non-okcupid exact ties (incl. the three ineligible multiclass sets,
+as registered); okcupid-stem −0.50% F1 aggregate — but the paired seeds
+decompose it: **seeds 1-2 are EXACT TIES (the race correctly declined)**;
+only seed 0 selected its 1-pair augment and lost on test (−0.0086 F1,
+−0.0014 Brier) — one val-race mispick, not a systematic loss. **Ens8 arm:
+13/13 ties + okcupid POSITIVE on all 3 seeds on BOTH metrics** (F1
++0.0009/+0.0059/+0.0002; Brier likewise; aggregate +0.41%) — per-member
+selection diversity averages the mispick out (the B1 lesson operating in
+M1's favor). Fit ~2x on okcupid (4.2→8.2s single, 20→41s Ens8), inside
+the registered envelope. Not a "clear loss" ⇒ the registered kill bar is
+NOT tripped. Aggregate table printed in the run log; hc summary vs
+CatBoost −0.95% (was −0.91% — okcupid seed-0 drift, within noise).
+
+## Tier-2 gr identity (2026-07-17; BASE `20260717-153114` vs NEW `20260717-195429`)
+
+**PASS — 59/59 exact ties**, single arm, as required (zero multiclass ⇒
+zero treatment surface; the headline chart cannot have moved).
+
+## OpenML one-shot gate (2026-07-17; BASE `20260717-195727` worktree@main vs NEW `20260717-200023`; arms ChimeraBoost + LightGBM, seeds 3)
+
+**PASS.** LightGBM canary **36/36 exact ties**; the `--openml` suite
+carries the 7 offline panel sets too, so the eligible surface is FIVE
+sets, not the plan's four — `cat_multiclass` (n=5000, 3 numeric; verified
+against the library gates) was missed by the plan's OPENML_SUITE-only
+enumeration, recorded here as a survey error. Every ineligible set
+(binary, regression, all-cat + small multiclass) tied exactly, per-arm.
+Eligible sets: **pooled F1 +0.106%, pooled Brier +1.360%** (bar: pooled
+primary non-negative). Detail: pendigits +0.11% F1 with all 3 seeds
+positive on both metrics; cat_multiclass +0.47% (2W-1T); letter −0.03%
+and optdigits −0.03% (tiny, near-solved-adjacent); satimage all ties
+(race declined). Fit tax on the eligible five: 1.63–2.96x, summed
+**1.92x** (the >2.5x cases are the understood short-natural-fit shape;
+absolute costs trivial).
+
+## VERDICT (2026-07-17): SHIP — multiclass cross features, parity machinery.
+
+All three registered bars passed without post-hoc modification (the one
+deviation — the 6-seed tier-1 extension — was pre-stated before running,
+with exact-reproduction validity canaries). Identity clean everywhere the
+change must not reach; the treatment reads positive at every tier:
+synth eligible 11W-4L +0.69% / Brier 9W-6L +0.72%; hc okcupid Ens8 3/3
+seeds positive both metrics (single-arm one-seed mispick documented); gate
+pooled +0.106% / +1.360%. Ships: library (branch m1-multiclass-cross),
+docs/parameters.md, harness explicit-on guard, CHANGELOG [Unreleased].
+The magnitude is honest: a small, mechanism-consistent multiclass gain
+with CatBoost's multiclass crown narrowed, not toppled — eucalyptus (the
+largest gap) remains out of reach below the row gate, a recorded
+follow-up candidate (threshold work was out of scope by registration).
+
 ## Acceptance checklist
 
 - [x] Implementation on branch `m1-multiclass-cross`: selection block +
       prep_cache hoist + tests — **DONE 2026-07-17** (454 green incl.
       goldens; golden panel runs early_stopping=False so no golden crosses
       the gates; see implementation log)
-- [ ] Tier-1 screen vs kill bar — verdict recorded here
-- [ ] Tier-2 hc + gr identity — verdict recorded here
-- [ ] OpenML one-shot gate — verdict recorded here
-- [ ] Ship or revert; docs + CHANGELOG + memory + harness comments; hc table
-      refreshed (report-only)
+- [x] Tier-1 screen vs kill bar — **PASS 2026-07-17** (6-seed extension per
+      recorded deviation: 11W-4L +0.686%, Brier 9W-6L +0.719%; identity
+      125/125)
+- [x] Tier-2 hc + gr identity — **PASS 2026-07-17** (hc canary 14/14,
+      13+13 ties, okcupid Ens8 3/3-seed positive; gr 59/59 exact ties)
+- [x] OpenML one-shot gate — **PASS 2026-07-17** (canary 36/36; eligible
+      pooled F1 +0.106% / Brier +1.360%; survey error on the 5th eligible
+      set recorded)
+- [x] SHIP 2026-07-17 — docs + CHANGELOG + harness guard updated; memory
+      updated at close; hc canonical table refreshed by the tier-2 run
+      itself (`20260717-193744`); README headline chart unchanged by
+      construction (gr 59/59)
