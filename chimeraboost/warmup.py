@@ -89,13 +89,9 @@ def warmup(verbose=False, background=False):
     reg.predict(X[:8, :3])
     _log("regression + ordered boosting")
 
-    # The fits above are all below _SMALL_N, so they compile the serial
-    # descend twin; compile the parallel one (the n >= _SMALL_N path) with a
-    # direct tiny call — the signature, not the size, is what numba compiles.
-    from .tree import _descend_leaves
-    _descend_leaves(np.zeros(4, dtype=np.int64),
-                    np.zeros(4, dtype=np.uint16), 0)
-    _log("large-n descend twin")
+    # The fused level kernel (`_build_split_descend`) has one signature for
+    # both its small-n and large-n branches, so the small fits above compile
+    # everything on the tree-build path — no direct kernel calls needed.
 
     return time.perf_counter() - t0
 

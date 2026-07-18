@@ -94,6 +94,11 @@ def _install_patches():
     holds its own reference to build_oblivious_tree, so that one is patched
     in bmod."""
     tmod._build_and_split = _wrap("split", tmod._build_and_split)
+    if hasattr(tmod, "_build_split_descend"):
+        # Post-L-pytree fusion the level runs as one launch; its time lands
+        # in "split" (which then includes descend + occupancy) and the
+        # "descend" bucket reads 0.
+        tmod._build_split_descend = _wrap("split", tmod._build_split_descend)
     tmod._descend_leaves = _wrap("descend", tmod._descend_leaves)
     tmod._descend_leaves_serial = _wrap("descend", tmod._descend_leaves_serial)
     tmod._leaf_values = _wrap("leaf_values", tmod._leaf_values)
