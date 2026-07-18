@@ -76,6 +76,57 @@ New `benchmarks/profile_grow.py` (clean box, warm JIT, script file):
 Deliverable: table in this file + a pre-registered lever order with measured
 ceilings. **Rule: no Phase-1 edit before its ceiling is measured here.**
 
+### Phase-0 results (2026-07-18; profile_grow.py, results/grow-phase0*.md)
+
+Attribution, 2 seeds, % of estimator fit (all booster fits incl. auditions;
+split/descend/leafv/linfit are inside grow; pytree = grow minus its kernels):
+
+| dataset | task | n_train | fit_s | grow% | split% | descend% | leafv% | linfit% | pytree% | nontree% | ms/tree |
+|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| cpu_act | reg | 6144 | 0.4 | 81.3 | 45.7 | 2.5 | 1.5 | 16.2 | 15.4 | 18.7 | 0.62 |
+| diamonds | reg | 37500 | 1.3 | 85.8 | 41.1 | 3.2 | 2.1 | 24.4 | 15.1 | 14.2 | 2.20 |
+| nyc-taxi | reg | 37500 | 3.1 | 91.9 | 57.6 | 2.5 | 1.6 | 18.8 | 11.5 | 8.1 | 3.26 |
+| MagicTelescope | bin | 10032 | 0.5 | 64.3 | 36.5 | 1.9 | 1.1 | 14.0 | 10.7 | 35.7 | 0.99 |
+| Higgs | bin | 37500 | 1.7 | 69.8 | 46.5 | 1.8 | 1.0 | 12.6 | 8.0 | 30.2 | 3.35 |
+| road-safety | bin | 37500 | 2.3 | 74.9 | 51.2 | 1.7 | 1.0 | 13.2 | 7.7 | 25.1 | 3.63 |
+| hc:kick | bin | 54737 | 2.1 | 50.2 | 41.0 | 1.1 | 0.8 | 6.3 | 1.1 | 49.8 | 4.29 |
+| hc:wine-reviews | reg | 75000 | 1.3 | 70.5 | 45.1 | 4.1 | 4.5 | 12.7 | 4.2 | 29.5 | 1.42 |
+| hc:okcupid-stem | multi | 38091 | 4.1 | 45.2 | 37.7 | 1.2 | 0.7 | 0.0 | 5.6 | 54.8 | 3.26 |
+
+Timer caveat: pytree includes ~5-15us/tree of wrapper overhead (reads ~1-2
+points high on the smallest sets; bucket is real regardless).
+
+- **Item 2, binary anomaly RESOLVED = the ridge.** linear_leaves False cuts
+  binary ms/tree 22-28% (Magic 0.94->0.73, Higgs 3.35->2.40, road-safety
+  4.08->3.14, kick 4.01->3.15); in-fit ridge = 13-22% of ll=T grow. At equal
+  n, ll=F binary ms/tree ~= regression (Higgs 2.40 vs diamonds 2.20) — the
+  anomaly was never the scatter.
+- **Item 3, threads:** split saturates x4.8 (narrow, 10 feats) / x5.2 (wide,
+  32) at 12 threads — near-IDENTICAL curves, so the limiter is memory/launch
+  cost, not feature-parallel geometry. Phase-2 class, record only.
+- **Item 4, multiclass:** gradcopy = 0.9% of okcupid fit (1143 copies,
+  0.04 s); 3429 split + 3429 descend launches. L-mc has no ceiling.
+- **Item 5, micro:** u8 Xb <= x1.13 scatter at 8K, ~x1.00 at >=50K (scatter
+  is random-write bound, not stream bound). i32 leaf: descend x1.8-4.4 at
+  n>=50K but descend <= 4.1% of fit, and scatter shows regressions (x0.66-
+  0.94 in several shapes).
+
+**Lever order (measured ceilings, % of estimator fit):**
+
+1. **L-ridge** — ceiling 6.3-24.4% (gr reg 16-24, gr bin 13-14, hc 6-13,
+   multi 0). PROCEED first.
+2. **L-pytree** — pytree 7.7-15.4% on gr (1-6 hc) + descend 1.1-4.1% +
+   per-level launch overhead. PROCEED second; includes fusing descend (and
+   next-level occupancy) into the fused kernel — integer ops, exact by
+   construction.
+3. **L-mc** — 0.9%: KILLED at ceiling.
+4. **L-leaf32** — ~1-2% (descend-only wins; micro scatter regressions):
+   KILLED at ceiling.
+5. **L-bin8** — <=2-3% at small n only, ~0 at >=50K: KILLED at ceiling.
+
+Phase-2 input recorded: split (fused scatter+scan) = 36.5-57.6% of fit,
+>=50% on 2/9 panel sets (nyc-taxi 57.6, road-safety 51.2).
+
 ## Phase 1 — bit-identical levers (goldens + oracle tests + timing; no gate)
 
 Candidates, to be ORDERED by Phase-0 ceilings (survey priors in brackets;
@@ -95,6 +146,53 @@ bit-identity test):
   fits; hoist per-tree allocs into fit-level buffers like hist already is].
 - **L-mc: multiclass copy/launch trims** [K× per round; grad/hess column
   extraction without fresh allocs — order-preserving copies are exact].
+
+### Phase-1 verdicts
+
+- **L-ridge: KILLED 2026-07-18** (implemented, measured, reverted — commits
+  332fd39 / 686219e). The restructure (row-major precomputed design table,
+  mirrored intercept column, hoisted h*x; bit-identical, oracle test green,
+  455 tests passed) was NOT faster: kernel-vs-kernel micro
+  (results/grow-lridge-micro.md) x0.92-0.94 at n=8K, **x0.49-0.67 at
+  n>=37.5K** — the (n, k) table's extra write+re-read traffic exceeds the
+  gather it replaces. The ridge is FMA/accumulator-bound, not gather-bound:
+  uint16 Xb rows pack 32 samples/line, centers_std is L1-resident, and
+  within-leaf sample order is increasing (prefetch-friendly). Panel
+  attribution pre/post was flat (fit-level noise ±10-15% dominates —
+  kernel-vs-kernel micro is the decision-grade read for levers this size).
+  Recorded follow-up (NOT pursued): per-(j,jj) register accumulation via
+  loop interchange is provably bit-identical (per-accumulator sample order
+  survives the interchange) but re-reads leaf data k²/2 times — only wins
+  if leaves stay L2-resident; ~2-4%-of-fit ceiling, revisit only if the
+  program strands below the bar.
+- **L-pytree: IMPLEMENTED 2026-07-18, tier-2 pending** (commit 12d0f74).
+  One fused launch per level: `_build_split_descend` = `_build_and_split`'s
+  search + in-kernel descend + next-level occupancy list at small n; the
+  per-level bincount/flatnonzero numpy pair and the descend launch are gone.
+  Attribution panel (grow-lpytree-post vs grow-phase0): the pytree residue
+  COLLAPSED — cpu_act 15.4→5.3% of fit, diamonds 15.1→2.3, nyc-taxi
+  11.5→1.9, Magic 10.7→3.2, Higgs 8.0→1.2, road-safety 7.7→1.1, okcupid
+  5.6→0.8 (kick/wine were already ~1-4%) — with ms/tree down 3-13% on the
+  gr sets and whole fits equal-or-faster everywhere. Clean-box smoke
+  (grow_smoke.py, PYTHONPATH worktree BASE, paths printed): 10/10 md5
+  prediction fingerprints EXACT (5 panel sets x single+Ens8, both size
+  branches + multiclass). Oracle pipeline test (incl. rejected-level and
+  poisoned-buffer checks) + full 455-test suite green; warmup updated (one
+  signature covers both branches). Tier-2 identity + fit_time_delta vs gr
+  20260717-195429 / hc 20260717-193744 running.
+  **Tier-2 verdict (2026-07-18): identity PASS in full — gr 59/59 exact
+  ties (NEW 20260718-131446), hc 14/14 on BOTH arms (NEW 20260718-131727,
+  ChimeraBoost + ChimeraBoostEns8). fit_time_delta raw sums: gr 0.989
+  (reg_num group 0.968, the small-fit group — where the panel said the win
+  lives), hc single 1.018, hc Ens8 0.984.** The suite SUM is dominated by
+  the large-n datasets, where this lever's ceiling was ~1%; the 8-13%
+  small-set wins carry little weight in summed seconds. Lever RETAINED on
+  the branch (bit-identical engineering, simpler level loop, real small-fit
+  wins); no pareto claim.
+- Microbench gotcha (cost one wrong table): numba dispatchers expose
+  `__wrapped__` = the raw py_func, so "unwrapping" one times INTERPRETED
+  Python — ~1000x slow and misleadingly flat ratios. Call dispatchers
+  directly (fixed in profile_grow.py).
 
 Explicitly OUT of Phase 1 (FP order changes = behavior-changing, NOT here):
 histogram subtraction (sibling = parent − child), row-parallel scatter with
@@ -154,11 +252,49 @@ more than the residual speed.
 - Record every verdict (win or kill) here; memory + PARETO_PLAN checklist
   at close.
 
+## Program close (2026-07-18)
+
+**Acceptance NOT met; kill clause engaged; program CLOSED same-day.**
+Registered bar was >=10% raw summed fit reduction on a decision suite;
+measured: gr -1.1%, hc single +1.8% (noise), hc Ens8 -1.6% — the
+implemented levers sum to <5% suite-level, the registered close condition.
+The headline stays 6.0x; NO pareto refresh (nothing to claim, and the
+fresh gr 5-arm baseline it would need is not spent).
+
+What the program settled (the profile table above is the durable asset):
+
+- "Grow is the remaining lever" is now QUANTIFIED: the fused scatter+scan
+  is 37-58% of fit and is the only object left with double-digit share.
+  Everything around it (ridge, descend, leaf values, per-tree Python,
+  multiclass copies, dtype widths) is now measured at or engineered to
+  the ~1-5% level.
+- Bit-identical kernel work on this codebase is exhausted at suite scale:
+  the two structural levers left were the ridge (measured
+  FMA-bound — restructure REGRESSED) and launch overhead (L-pytree —
+  landed, real on small fits, ~1% summed).
+- **Phase 2 decision: NOT pursued (the registered default).** Its trigger
+  condition half-holds (Phase 1 landed <10%; scatter >=50% on 2/9 panel
+  sets, 37-58% panel-wide). Histogram subtraction remains the only
+  double-digit speed idea left on the fit side, and it is FP-drift class:
+  full /experiment with synth Brier screen, both suites, and the gate if
+  ever wanted. Default stays no — the identity test suite and design law
+  are worth more than the residual speed.
+- OpenML gate: VACUOUS for this program (no strength surface was touched;
+  identity certified at 73/73 + goldens instead).
+
+Merge decision: `grow-kernels` holds the profiler + L-pytree (identity
+certified end to end) and this record. Recommend merging as engineering
+(no release-note claims beyond internals); Nathan's call.
+
 ## Checklist
 
-- [ ] Phase 0: profile_grow.py + attribution table here; levers ordered by
-      measured ceiling
-- [ ] Phase 1 levers, each: implement → goldens/oracles → smoke → tier-2
-      identity + timing; verdicts recorded per lever
-- [ ] Phase 2 decision recorded (default: not pursued)
-- [ ] Close: pareto refresh if acceptance met; PARETO_PLAN + memory updated
+- [x] Phase 0: profile_grow.py + attribution table here; levers ordered by
+      measured ceiling — 2026-07-18; L-mc/L-leaf32/L-bin8 killed at ceiling,
+      L-ridge then L-pytree proceed
+- [x] Phase 1 levers, each: implement → goldens/oracles → smoke → tier-2
+      identity + timing; verdicts recorded per lever — L-ridge killed
+      (regression, reverted); L-pytree landed (73/73 + 14/14 Ens8 ties,
+      gr sum -1.1%)
+- [x] Phase 2 decision recorded (default: not pursued) — see close section
+- [x] Close: acceptance NOT met, no pareto refresh; PARETO_PLAN + memory
+      updated 2026-07-18

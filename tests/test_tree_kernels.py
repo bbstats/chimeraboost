@@ -13,6 +13,7 @@ from chimeraboost.tree import (
     _best_split,
     _build_and_split,
     _build_histograms_into,
+    _build_split_descend,
     _descend_leaves,
     _descend_leaves_serial,
 )
@@ -95,6 +96,70 @@ def test_fused_kernel_accepts_superset_active_list():
                              np.arange(nl, dtype=np.int64), hist, mask,
                              nbins, 3.0, 1.0)
     assert r_exact == r_all
+
+
+def test_fused_split_descend_matches_reference_pipeline_exactly():
+    """The single-launch level kernel must reproduce the retained pipeline —
+    `_build_and_split`, then (iff the caller's continue-predicate holds)
+    `_descend_leaves_serial` + bincount/flatnonzero occupancy — bit for bit:
+    same split trio, same descended leaf array (untouched on a rejected
+    level), same next-level active list on the small-n path, same hist
+    contents. The poisoned occupancy buffer proves no out-of-list write; a
+    huge min_gain forces the rejected-level branch."""
+    n, n_features, max_bins, depth = 500, 13, 64, 6
+    l2 = 3.0
+    hist_ref = np.zeros((n_features, 1 << depth, max_bins, 2))
+    hist_fused = np.zeros_like(hist_ref)
+
+    checked = rejected = 0
+    for seed in range(12):
+        for lev in range(depth):
+            for skew in (False, True):
+                Xb, grad, hess, leaf, nl, nbins = _make_level(
+                    n, n_features, max_bins, lev, seed * 100 + lev, skew)
+                mask = np.ones(n_features, dtype=np.int64)
+                if seed % 3 == 1:
+                    mask[::4] = 0                                # colsample
+                mcw = 5.0 if seed % 4 == 3 else 1.0              # legality
+                min_gain = 1e30 if seed % 6 == 5 else 1e-8
+                small = seed % 2 == 0                # both descend branches
+                active = np.flatnonzero(np.bincount(leaf, minlength=nl))
+                nl_next = 2 * nl
+
+                leaf_ref = leaf.copy()
+                rf, rt, rg = _build_and_split(Xb, grad, hess, leaf_ref,
+                                              active, hist_ref, mask, nbins,
+                                              l2, mcw)
+                cont = not (rg <= min_gain or rt < 0)
+                if cont:
+                    _descend_leaves_serial(leaf_ref, Xb[rf], rt)
+                    occ = np.flatnonzero(
+                        np.bincount(leaf_ref, minlength=nl_next))
+                else:
+                    rejected += 1
+
+                leaf_fused = leaf.copy()
+                next_active = np.full(nl_next, -7, dtype=np.int64)  # poison
+                bf, bt, bg, n_next = _build_split_descend(
+                    Xb, grad, hess, leaf_fused, active, hist_fused, mask,
+                    nbins, l2, mcw, min_gain, small, nl_next, next_active)
+
+                assert bf == rf and bt == rt
+                assert bg == rg or (np.isneginf(bg) and np.isneginf(rg))
+                assert np.array_equal(leaf_fused, leaf_ref)
+                if cont and small:
+                    assert np.array_equal(next_active[:n_next], occ)
+                    assert np.all(next_active[n_next:] == -7)
+                else:
+                    assert n_next == -1
+                    assert np.all(next_active == -7)
+                for f in np.flatnonzero(mask):
+                    assert np.array_equal(
+                        hist_ref[f][active][:, : nbins[f]],
+                        hist_fused[f][active][:, : nbins[f]])
+                checked += 1
+    assert checked == 12 * depth * 2
+    assert rejected >= depth * 2, "min_gain=1e30 cases must exercise reject"
 
 
 def test_descend_serial_matches_parallel_exactly():

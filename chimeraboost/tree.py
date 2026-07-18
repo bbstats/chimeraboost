@@ -25,6 +25,11 @@ from numba import njit, prange
 # regimes (1.7x fused win at 2k, parity at 200k).
 _SMALL_N = 32768
 
+# Placeholder passed as the fused level kernel's occupancy buffer on the
+# large-n path, where it is never touched (shared and read-only, so safe
+# across concurrent fits).
+_EMPTY_I64 = np.empty(0, dtype=np.int64)
+
 
 @njit(cache=True, parallel=True)
 def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
@@ -69,6 +74,10 @@ def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
 def _descend_leaves(leaf, Xf, t):
     """Push every sample one level deeper, in place: leaf = (leaf<<1) + (Xf > t).
 
+    REFERENCE KERNEL: the fit path now descends inside `_build_split_descend`;
+    kept (with the serial twin) as the descend oracle for
+    tests/test_tree_kernels.py.
+
     Replaces the per-level numpy expression
     ``leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)`` which allocated several
     n-sample temporaries (the bool mask, its int64 cast, the shifted array, the
@@ -96,6 +105,11 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
     """Fused histogram build + best-split search: one parallel launch per
     level instead of two, and the split scan runs on the hist slice the same
     thread just wrote (cache-hot).
+
+    REFERENCE KERNEL: the fit path now runs `_build_split_descend` (this
+    kernel's search plus the level's descend/occupancy in the same launch);
+    this is retained as its split-search oracle for
+    tests/test_tree_kernels.py.
 
     Produces EXACTLY the outputs of `_build_histograms_into` followed by
     `_best_split` (the retained reference kernels in this module) — verified
@@ -185,6 +199,122 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
             best_gain = feat_gain[f]
             best_f = f
     return best_f, feat_thr[best_f], best_gain
+
+
+@njit(cache=True, parallel=True)
+def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
+                         n_bins_per_feature, l2, min_child_weight, min_gain,
+                         small, n_leaves_next, next_active):
+    """`_build_and_split` plus the level's follow-up work in the same launch:
+    when the found split is usable (legal threshold, gain > min_gain) the
+    kernel also pushes every sample one level deeper, and on the small-n path
+    emits the next level's occupied-leaf list.
+
+    Replaces, per level: one split launch + one descend launch + a
+    bincount/flatnonzero numpy pair. At small n the per-level cost is
+    launch/fixed-cost bound (GROW_PLAN.md Phase 0: per-tree Python residue
+    8-15% of fit on Grinsztajn-sized sets) — that fixed cost is what this
+    removes; the arithmetic is unchanged.
+
+    Bit-identity: the split search is `_build_and_split`'s code verbatim
+    (that kernel is retained as this one's oracle, itself oracle-tested
+    against `_build_histograms_into` + `_best_split`); the descend is
+    `_descend_leaves(_serial)`'s integer update, fused with an integer
+    occupancy count (exact in any order); the occupancy list is ascending
+    nonzero-count indices — exactly flatnonzero(bincount(leaf,
+    n_leaves_next)). The descend fires iff the caller's continue-predicate
+    holds (NOT (gain <= min_gain or t < 0)), so a rejected level leaves
+    `leaf` untouched, like the old Python-side break did.
+
+    Returns (best_f, best_t, best_gain, n_next); n_next is the occupancy
+    list length, or -1 when no list was built (large n, or no descend).
+    `next_active` needs room for n_leaves_next entries on the small-n path;
+    it is never touched otherwise.
+    """
+    n_features, n_samples = Xb.shape
+    max_bins = hist.shape[2]
+    n_active = active.shape[0]
+    feat_gain = np.full(n_features, -np.inf)
+    feat_thr = np.zeros(n_features, dtype=np.int64)
+
+    for f in prange(n_features):
+        if feat_mask[f] == 0:
+            continue
+        nb = n_bins_per_feature[f]
+        for k in range(n_active):
+            l = active[k]
+            for b in range(nb):
+                hist[f, l, b, 0] = 0.0
+                hist[f, l, b, 1] = 0.0
+        Xf = Xb[f]
+        for i in range(n_samples):
+            l = leaf[i]
+            b = Xf[i]
+            hist[f, l, b, 0] += grad[i]
+            hist[f, l, b, 1] += hess[i]
+
+        gain = np.zeros(max_bins)
+        legal = np.ones(max_bins, dtype=np.uint8)
+        for k in range(n_active):
+            l = active[k]
+            gt = 0.0
+            ht = 0.0
+            for b in range(nb):
+                gt += hist[f, l, b, 0]
+                ht += hist[f, l, b, 1]
+            if ht <= 0.0:
+                continue
+            par = gt * gt / (ht + l2)
+            gl = 0.0
+            hl = 0.0
+            for t in range(nb - 1):
+                gl += hist[f, l, t, 0]
+                hl += hist[f, l, t, 1]
+                hr = ht - hl
+                if (hl > 0.0 and hl < min_child_weight) or \
+                   (hr > 0.0 and hr < min_child_weight):
+                    legal[t] = 0
+                else:
+                    gr = gt - gl
+                    gain[t] += (gl * gl / (hl + l2)
+                                + gr * gr / (hr + l2)
+                                - par)
+
+        best_g = -np.inf
+        best_t = -1
+        for t in range(nb - 1):
+            if legal[t] and gain[t] > best_g:
+                best_g = gain[t]
+                best_t = t
+        feat_gain[f] = best_g
+        feat_thr[f] = best_t
+
+    best_f = 0
+    best_gain = -np.inf
+    for f in range(n_features):
+        if feat_gain[f] > best_gain:
+            best_gain = feat_gain[f]
+            best_f = f
+    best_t = feat_thr[best_f]
+
+    n_next = -1
+    if best_t >= 0 and best_gain > min_gain:
+        Xf = Xb[best_f]
+        if small:
+            counts = np.zeros(n_leaves_next, dtype=np.int64)
+            for i in range(n_samples):
+                nl = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+                leaf[i] = nl
+                counts[nl] += 1
+            n_next = 0
+            for l in range(n_leaves_next):
+                if counts[l] > 0:
+                    next_active[n_next] = l
+                    n_next += 1
+        else:
+            for i in prange(n_samples):
+                leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+    return best_f, best_t, best_gain, n_next
 
 
 @njit(cache=True, parallel=True)
@@ -896,31 +1026,32 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     leaf = np.zeros(n_samples, dtype=np.int64)
 
     small = n_samples < _SMALL_N
+    # One fused launch per level: split search + descend + (small n) the next
+    # level's occupied-leaf list, which lets the kernel skip zeroing/scanning
+    # empty leaf rows. Any superset is exact (empty rows are all-zero once
+    # zeroed), so at large n we pass all rows — there the scatter dominates
+    # and the trim is noise. Occupancy buffers ping-pong so the kernel never
+    # writes the buffer `active` currently views.
+    act_w = np.empty(1 << max_depth, dtype=np.int64) if small else _EMPTY_I64
+    act_r = np.empty(1 << max_depth, dtype=np.int64) if small else _EMPTY_I64
+    active = np.arange(1, dtype=np.int64)            # level 0: the root
+    n_leaves_next = 2
     for d in range(max_depth):
-        n_leaves = 1 << d
-        if small and n_leaves > 1:
-            # Occupied-leaf list: lets the fused kernel skip zeroing/scanning
-            # empty leaf rows. Any superset is exact (empty rows are all-zero
-            # once zeroed), so at large n we skip the O(n) count and pass all
-            # rows — there the scatter dominates and the trim is noise.
-            active = np.flatnonzero(np.bincount(leaf, minlength=n_leaves))
-        else:
-            active = np.arange(n_leaves, dtype=np.int64)
-        f, t, gain = _build_and_split(Xb, grad, hess, leaf, active, hist,
-                                      feature_mask, n_bins_per_feature, l2,
-                                      min_child_weight)
+        f, t, gain, n_next = _build_split_descend(
+            Xb, grad, hess, leaf, active, hist, feature_mask,
+            n_bins_per_feature, l2, min_child_weight, min_gain, small,
+            n_leaves_next, act_w)
         if gain <= min_gain or t < 0:
             break
         splits_feat.append(f)
         splits_thr.append(t)
         splits_gain.append(gain)
-        # Push each sample one bit deeper from the just-chosen split. Xb[f] is
-        # a contiguous row, so this re-bucketing reads sequentially. In-place
-        # njit pass (no per-level n-sample temporaries); see _descend_leaves.
         if small:
-            _descend_leaves_serial(leaf, Xb[f], t)
+            active = act_w[:n_next]
+            act_w, act_r = act_r, act_w
         else:
-            _descend_leaves(leaf, Xb[f], t)
+            active = np.arange(n_leaves_next, dtype=np.int64)
+        n_leaves_next <<= 1
 
     sf = np.array(splits_feat, dtype=np.int64)
     st = np.array(splits_thr, dtype=np.int64)

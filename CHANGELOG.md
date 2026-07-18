@@ -3,6 +3,17 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **Tree growth runs one fused kernel launch per level** — split search,
+  leaf descend, and the next level's occupied-leaf list in a single numba
+  call, replacing a second kernel launch plus a `bincount`/`flatnonzero`
+  pair per level. Models are bit-identical (numerical-identity goldens,
+  exact-equality kernel oracles, and full decision-suite ties: 73/73
+  datasets, single and Ens8 arms). Small fits gain the most — the removed
+  per-level fixed cost was 8-15% of fit time on 10-40K-row data; suite-
+  summed fit time moves ~1% (large-data fits are scatter-bound).
+
 ## [0.17.0] - 2026-07-17
 ### Added
 - **Cross features now cover multiclass classification.** The same
