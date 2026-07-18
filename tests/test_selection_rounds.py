@@ -115,7 +115,18 @@ def test_uncapped_auditions_bit_identical_to_full_selection():
                                   full_b.predict_proba(Xb))
 
 
-def test_multiclass_is_unaffected():
+def _mc_interaction(n=4000, seed=0):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, 6))
+    a = X[:, 0] > X[:, 1]
+    b = X[:, 2] * X[:, 3] > 0
+    y = np.where(a & b, 0, np.where(a | b, 1, 2))
+    return X, y
+
+
+def test_multiclass_below_row_floor_is_bit_identical():
+    # Under CROSS_MIN_SAMPLES no multiclass selection exists, so the budget
+    # must change nothing at all.
     rng = np.random.default_rng(0)
     X = rng.normal(size=(1500, 5))
     y = rng.integers(0, 3, size=1500)
@@ -123,6 +134,36 @@ def test_multiclass_is_unaffected():
     full = ChimeraBoostClassifier(selection_rounds=None,
                                   random_state=0).fit(X, y)
     np.testing.assert_array_equal(fast.predict_proba(X), full.predict_proba(X))
+
+
+def test_multiclass_uncapped_auditions_bit_identical_to_full_selection():
+    # The binary equivalence property, now on the multiclass race (M1).
+    X, y = _mc_interaction()
+    fast = ChimeraBoostClassifier(selection_rounds=2000,
+                                  random_state=0).fit(X, y)
+    full = ChimeraBoostClassifier(selection_rounds=None,
+                                  random_state=0).fit(X, y)
+    np.testing.assert_array_equal(fast.predict_proba(X),
+                                  full.predict_proba(X))
+    assert bool(fast.cross_features_selected_) \
+        == bool(full.cross_features_selected_)
+
+
+def test_multiclass_base_refit_full_when_cross_loses():
+    # Pure-noise multiclass: whenever the augmented model loses, the shipped
+    # base model must be a full fit, not the capped audition.
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(3000, 6))
+    y = rng.integers(0, 3, size=3000)
+    segments, kw = _fit_segments()
+    m = ChimeraBoostClassifier(n_estimators=200, selection_rounds=25,
+                               random_state=0)
+    m.fit(X, y, **kw)
+    if not m.cross_features_selected_:
+        # audition (25), cross race, base full refit
+        assert segments[0] == 25
+        assert len(segments) == 3
+        assert segments[-1] > 25
 
 
 def test_small_data_is_bit_identical():
