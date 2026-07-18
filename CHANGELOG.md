@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.18.0] - 2026-07-18
 ### Changed
 - **Quantized-gradient histograms are now the default**
   (`quantize_gradients=True`): the split search runs on ~15-bit quantized
