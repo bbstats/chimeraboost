@@ -627,13 +627,15 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
-                 cat_smoothing=None, selection_rounds=None):
+                 cat_smoothing=None, selection_rounds=None, quantize=False):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
     # False (Clf); for min_child_weight it's the classifier's size-adaptive auto.
     # An explicit value overrides (e.g. --no-ordered-boosting, --chimera-mcw 0).
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
+    if quantize:
+        kw["quantize_gradients"] = True
     if leaf_estimation_iterations is not None:
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
     if mcw is not None:
@@ -695,20 +697,21 @@ ENSEMBLE_N = 10
 
 
 def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
-                 subsample=1.0, colsample=None):
+                 subsample=1.0, colsample=None, quantize=False):
     """Shared implementation for all bagged-ChimeraBoost runners.
 
     ensemble_n_jobs is left at the shipped default (parallel members inside
     the task's thread budget) so the chart measures the shipped config
     (BAGGING_PLAN.md B4; same core budget as every other model). lr /
-    subsample / colsample forward to the members (the B3 member-defaults
-    grid rides the same --chimera-* flags as the single arm)."""
+    subsample / colsample / quantize forward to the members (the B3
+    member-defaults grid rides the same --chimera-* flags as the single arm)."""
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
+    kw = {"quantize_gradients": True} if quantize else {}
     m = Est(n_estimators=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
             n_ensembles=n, learning_rate=lr,
             subsample=subsample, colsample=colsample,
-            thread_count=threads, random_state=0)
+            thread_count=threads, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
     return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
 
@@ -893,7 +896,8 @@ def _make_runners(model_names, chimera_cfg):
     import functools
     runners = dict(RUNNERS)
     runners["ChimeraBoost"] = functools.partial(_run_chimera, **chimera_cfg)
-    ens_cfg = {k: chimera_cfg[k] for k in ("lr", "subsample", "colsample")}
+    ens_cfg = {k: chimera_cfg[k]
+               for k in ("lr", "subsample", "colsample", "quantize")}
     for name in ("ChimeraBoostEns2", "ChimeraBoostEns5", "ChimeraBoostEns8",
                  "ChimeraBoostEns10"):
         runners[name] = functools.partial(runners[name], **ens_cfg)
@@ -1007,7 +1011,8 @@ class _Progress:
                        f"highcard={args.highcard} "
                        f"depth={args.chimera_depth} "
                        f"lei={'default' if lei is None else lei} "
-                       f"ob={'off' if not args.ordered_boosting else 'on'}")
+                       f"ob={'off' if not args.ordered_boosting else 'on'}"
+                       f"{' quantize=on' if args.chimera_quantize else ''}")
         self.models = list(model_names)
         self.started_iso = datetime.datetime.now().isoformat(timespec="seconds")
         self._write("running", 0)
@@ -1167,6 +1172,11 @@ def main():
                     dest="full_selection",
                     help="selection_rounds=None: every selection variant runs "
                          "to full early stopping (pre-0.15 ablation arm).")
+    ap.add_argument("--chimera-quantize", action="store_true",
+                    dest="chimera_quantize",
+                    help="quantize_gradients=True on every ChimeraBoost arm "
+                         "(single + bagged): packed-int64 quantized-gradient "
+                         "histograms (QUANT_PLAN.md).")
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
@@ -1295,7 +1305,8 @@ def main():
                        cross_features="off" if args.no_cross_features
                        else args.cross_features,
                        selection_rounds="full" if args.full_selection
-                       else args.selection_rounds)
+                       else args.selection_rounds,
+                       quantize=args.chimera_quantize)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.
