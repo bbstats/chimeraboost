@@ -15,6 +15,8 @@ from chimeraboost.tree import (
     _build_histograms_into,
     _descend_leaves,
     _descend_leaves_serial,
+    _linear_leaf_fit,
+    _linear_leaf_fit_ref,
 )
 
 
@@ -95,6 +97,39 @@ def test_fused_kernel_accepts_superset_active_list():
                              np.arange(nl, dtype=np.int64), hist, mask,
                              nbins, 3.0, 1.0)
     assert r_exact == r_all
+
+
+def test_linear_leaf_fit_matches_reference_exactly():
+    """The restructured ridge (row-major design table, mirrored intercept
+    column, hoisted h*x) must reproduce the reference coefficients bit for
+    bit -- across random leaf assignments (incl. empty and below-fallback
+    leaves), NaN (missing) bin centers, varied k, and non-unit hessians."""
+    checked = 0
+    for seed in range(12):
+        rng = np.random.RandomState(seed)
+        n = (40, 400, 3000)[seed % 3]           # 40 forces the fallback path
+        n_features, max_bins = 8, 32
+        depth = (2, 4, 6)[seed % 3]
+        n_leaves = 1 << depth
+        Xb = rng.randint(0, max_bins, size=(n_features, n)).astype(np.uint16)
+        grad = rng.randn(n)
+        hess = rng.rand(n) + 0.1 if seed % 2 else np.ones(n)
+        if seed % 3 == 2:                        # skew: empty + sparse leaves
+            leaf = (rng.zipf(1.3, size=n) % n_leaves).astype(np.int64)
+        else:
+            leaf = rng.randint(0, n_leaves, size=n).astype(np.int64)
+        k = 1 + seed % 5
+        lin_feats = rng.choice(n_features, size=k, replace=False) \
+            .astype(np.int64)
+        centers_std = rng.randn(n_features, max_bins)
+        centers_std[rng.rand(n_features, max_bins) < 0.1] = np.nan
+        args = (leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
+                1.0, 0.7, 0.15)
+        ref = _linear_leaf_fit_ref(*args)
+        got = _linear_leaf_fit(*args)
+        assert np.array_equal(got, ref)
+        checked += 1
+    assert checked == 12
 
 
 def test_descend_serial_matches_parallel_exactly():
