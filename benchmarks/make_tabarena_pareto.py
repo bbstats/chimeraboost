@@ -28,19 +28,20 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-07-16 (51-task run, 0/51 fail) after selection_rounds=100 shipped as the
-# ChimeraBoost default (raced selection auditions, ~1.5x faster fits; see CHANGELOG).
+# Refreshed 2026-07-17 (51-task run, 0/51 fail) after 0.17.0 shipped multiclass cross
+# features (validation-raced selection now covers softmax; see CHANGELOG).
 # Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
-# HONEST READ: ChimeraBoost Elo 1229 -> 1256 (+27) -- inside the +-54/57 CI band, i.e.
+# HONEST READ: ChimeraBoost Elo 1256 -> 1267 (+11) -- inside the +-58/57 CI band, i.e.
 # statistically flat, reported as-is per the sealed-holdout vow (no per-task digging).
-# The meaningful check passed: accuracy did NOT drop after the fit-speed change. Median
-# train time 0.88 -> 0.84 s/1K only ticks down because Lite's MEDIAN task is small and
-# early-stops inside the 100-round audition budget (the cap saves nothing there); the
-# 1.5x fit-time win expresses on larger tasks (Grinsztajn suite 351->235 s). Predict flat.
+# The pool sat still same-run (CatBoost 1347->1346, XGB 1188->1187, LGBM/RF exact), so
+# the +11 is our-row noise, not a pool shift. The meaningful check passed: accuracy did
+# NOT drop after a default-behavior change on the multiclass path. Train 0.84 -> 0.79
+# s/1K: the ~2x selection tax touches only eligible multiclass tasks, a minority of
+# Lite, so the median task never sees it. Predict flat.
 DATA = {
-    "CatBoost":     (1347, 43, 43, 6.70, 0.088),
-    "ChimeraBoost": (1256, 54, 57, 0.84, 0.107),
-    "XGBoost":      (1188, 55, 54, 2.06, 0.122),
+    "CatBoost":     (1346, 42, 43, 6.70, 0.088),
+    "ChimeraBoost": (1267, 58, 57, 0.79, 0.107),
+    "XGBoost":      (1187, 54, 53, 2.06, 0.122),
     "LightGBM":     (1155, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
     "Linear":       (813, 81, 109, 1.23, 0.115),
