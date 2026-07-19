@@ -41,12 +41,18 @@ import math
 import os
 import sys
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import summarize  # noqa: E402  (canonical aggregation + head-to-head machinery)
+
+
+def _plt():
+    """Lazy matplotlib import: the scoring/table half of this module (and its
+    tests) must work without matplotlib installed — CI installs only the
+    library deps. Only the two render_* functions need it."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    return plt
 
 
 # Same palette as make_tabarena_pareto / make_slowdown_hist so ChimeraBoost is
@@ -305,6 +311,7 @@ def render_image(scored, meta, out_path, metric="winrate"):
     def to_y(v):
         return v if metric == "winrate" else _gap_to_y(v)
 
+    plt = _plt()
     fig, ax = plt.subplots(figsize=(8.2, 5.6), dpi=150)
 
     if metric == "winrate":
@@ -435,6 +442,8 @@ def render_matrix(primary, meta, out_path):
     of pareto.png, so the two figures agree by construction.
     """
     import numpy as np
+
+    plt = _plt()
     from matplotlib.colors import LinearSegmentedColormap
 
     models, mat = summarize.winrate_matrix(primary)
