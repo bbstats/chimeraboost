@@ -650,6 +650,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1001,7 +1029,7 @@
 
 
 <h1 id="recipes">Recipes<a class="headerlink" href="#recipes" title="Permanent link">&para;</a></h1>
-<p>FIRST:</p>
+<p>Imports used throughout:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
 </code></pre></div>
@@ -1082,9 +1110,9 @@ and early-stops on its own unsampled rows.</p>
 cost). Avoid <code>n_ensembles=2</code>: two members measure worse than one model.</p>
 <p>Inside a bag, parameters left on auto resolve to tuned member defaults —
 currently <code>learning_rate=0.15</code> and <code>colsample=0.85</code> — because averaging
-tolerates coarser, cheaper members. The fit prints a one-line notice when
-this happens, <code>member_params_</code> records what was applied, and passing
-explicit values disables it.</p>
+tolerates coarser, cheaper members. The fit warns once when this happens
+(a filterable <code>UserWarning</code>), <code>member_params_</code> records what was applied,
+and passing explicit values disables it.</p>
 <p>Members fit in parallel worker processes by default, splitting the thread
 budget so a bagged fit uses the same cores a single fit would; pass
 <code>ensemble_n_jobs=1</code> to fit them sequentially instead.</p>
@@ -1108,6 +1136,9 @@ plateau, and keeps the best round.</p>
 <a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">early_stopping</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 <a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
+<p>After fitting, <code>validation_history_</code> holds the per-round validation loss, and the
+regressor's <code>staged_predict(X)</code> yields the prediction after each successive tree
+(not defined for a bagged ensemble).</p>
 <h2 id="calibrated-probabilities">Calibrated probabilities<a class="headerlink" href="#calibrated-probabilities" title="Permanent link">&para;</a></h2>
 <p><code>predict_proba</code> is temperature-scaled on the validation split to minimize log loss. The
 scaling is monotonic, so <code>predict()</code>, AUC, and accuracy are unchanged while the
@@ -1155,7 +1186,7 @@ carries it (a fit-only kwarg can't be).</p>
 </code></pre></div>
 <h2 id="interaction-heavy-regression">Interaction-heavy regression<a class="headerlink" href="#interaction-heavy-regression" title="Permanent link">&para;</a></h2>
 <p>The default <code>depth=6</code> is conservative to protect small data. On large, interaction-heavy
-problems, raising depth is the biggest single lever:</p>
+problems, raise <code>depth</code> to give each tree more interaction capacity:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">depth</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Per-leaf linear models add local slope inside each leaf (on by default for binary

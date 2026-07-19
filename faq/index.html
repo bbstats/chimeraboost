@@ -445,6 +445,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -673,6 +701,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-is-the-very-first-fit-or-predict-slow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is the very first fit or predict slow?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#why-oblivious-symmetric-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -721,6 +760,17 @@
     <span class="md-ellipsis">
       
         How do I tune it?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#is-the-api-stable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is the API stable?
       
     </span>
   </a>
@@ -814,6 +864,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-is-the-very-first-fit-or-predict-slow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is the very first fit or predict slow?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#why-oblivious-symmetric-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -868,6 +929,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#is-the-api-stable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is the API stable?
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -909,6 +981,11 @@ use scikit's 'assume_finite'.</p>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">with</span> <span class="n">sklearn</span><span class="o">.</span><span class="n">config_context</span><span class="p">(</span><span class="n">assume_finite</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">preds</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>        <span class="c1"># finiteness scan skipped</span>
 </code></pre></div>
+<h2 id="why-is-the-very-first-fit-or-predict-slow">Why is the very first fit or predict slow?<a class="headerlink" href="#why-is-the-very-first-fit-or-predict-slow" title="Permanent link">&para;</a></h2>
+<p>That is numba compiling the kernels (one-time per process, disk-cached per
+user). Call <code>chimeraboost.warmup()</code> — or set <code>CHIMERABOOST_WARMUP=1</code> — to
+pay it at import time instead of on the first call. See
+<a href="../deployment/">Deployment</a> for numbers and short-lived-worker patterns.</p>
 <h2 id="why-oblivious-symmetric-trees">Why oblivious (symmetric) trees?<a class="headerlink" href="#why-oblivious-symmetric-trees" title="Permanent link">&para;</a></h2>
 <p>They make prediction extremely fast and provide strong built-in regularization, at some
 cost to per-tree sharpness. See <a href="../concepts/#oblivious-trees">How it works</a>.</p>
@@ -923,8 +1000,17 @@ cost to per-tree sharpness. See <a href="../concepts/#oblivious-trees">How it wo
 <h2 id="what-exactly-does-it-depend-on">What exactly does it depend on?<a class="headerlink" href="#what-exactly-does-it-depend-on" title="Permanent link">&para;</a></h2>
 <p>NumPy, numba, scikit-learn, SciPy, and pandas.</p>
 <h2 id="how-do-i-tune-it">How do I tune it?<a class="headerlink" href="#how-do-i-tune-it" title="Permanent link">&para;</a></h2>
-<p>First reach for <code>depth</code> (raise to 8–10 for large, interaction-heavy regression) or
-<code>n_ensembles</code> (variance reduction) first. See <a href="../parameters/">Parameters</a>.</p>
+<p>Mostly, you don't: the defaults are benchmark-tuned, and in our experiments broad
+hyperparameter search bought little that generalized. Two settings address specific
+situations rather than general tuning: <code>n_ensembles=8</code> is the benchmarked
+maximum-accuracy mode (at several times the fit cost), and <code>depth=8–10</code> suits large,
+interaction-heavy regression. <a href="../parameters/">Parameters</a> documents every knob.</p>
+<h2 id="is-the-api-stable">Is the API stable?<a class="headerlink" href="#is-the-api-stable" title="Permanent link">&para;</a></h2>
+<p>ChimeraBoost is beta (0.x). Breaking API or behavior changes bump the minor version
+and are recorded in the
+<a href="https://github.com/bbstats/chimeraboost/blob/main/CHANGELOG.md">CHANGELOG</a>; patch
+releases are fixes only. Pickled models are not guaranteed to load across versions —
+store the version next to the model and re-fit after upgrading.</p>
 
 
 

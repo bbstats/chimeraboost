@@ -573,6 +573,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -860,7 +888,7 @@ sample exceeds the threshold at level <code>k</code>. This leads to:</p>
 </ul>
 <p>The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
 than an oblivious tree, which matters on clean, high-signal data. Raising <code>depth</code> and
-enabling <a href="#linear-leaves">linear leaves</a> recover most of that.</p>
+enabling <a href="#leaf-values-and-linear-leaves">linear leaves</a> recover most of that.</p>
 <h2 id="histogram-binning">Histogram binning<a class="headerlink" href="#histogram-binning" title="Permanent link">&para;</a></h2>
 <p>Numeric features are bucketed into at most <code>max_bins</code> (default 128) bins once, up front.
 Splits are searched over bin edges rather than raw values, which is what makes the
@@ -885,7 +913,7 @@ whichever reaches the lower validation loss (set <code>True</code>/<code>False</
 <h2 id="probability-calibration">Probability calibration<a class="headerlink" href="#probability-calibration" title="Permanent link">&para;</a></h2>
 <p>After fitting, the classifier scales its raw scores by a single temperature chosen on
 the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
-are unchanged while probabilities (i.e. with <code>predict_proba</code>) becomes better calibrated.
+are unchanged while the probabilities (i.e. with <code>predict_proba</code>) become better calibrated.
 The fitted value is exposed as <code>temperature_</code>.</p>
 <h2 id="bagging-and-subsampling">Bagging and subsampling<a class="headerlink" href="#bagging-and-subsampling" title="Permanent link">&para;</a></h2>
 <p><code>n_ensembles</code> trains independent members on random row subsamples (<code>max_samples</code>,

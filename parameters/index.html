@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://bbstats.github.io/chimeraboost/parameters/">
       
       
-        <link rel="prev" href="../shap/">
+        <link rel="prev" href="../deployment/">
       
       
         <link rel="next" href="../api/">
@@ -434,6 +434,34 @@
     
   
     SHAP explanations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
   
 
     
@@ -1002,8 +1030,8 @@
 </tr>
 <tr>
 <td><code>depth</code></td>
-<td><code>None</code>→auto</td>
-<td>Tree depth (a depth-d tree is d splits). Defaults to to 6 for squared/absolute error and 4 for <code>loss="Quantile"</code> (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
+<td><code>None</code>→auto (reg) / <code>6</code> (clf)</td>
+<td>Tree depth (a depth-d tree is d splits). The regressor's <code>None</code> resolves to 6 for <code>"RMSE"</code>/<code>"MAE"</code> and 4 for <code>loss="Quantile"</code> (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression.</td>
 </tr>
 <tr>
 <td><code>l2_leaf_reg</code></td>
@@ -1013,12 +1041,12 @@
 <tr>
 <td><code>min_child_weight</code></td>
 <td><code>1.0</code> (reg) / <code>None</code>→auto (clf)</td>
-<td>Minimum hessian mass on each side of a split. The classifier's <code>None</code> is size-adaptive: gradates off when below 500 rows, gradates off when above 2000.</td>
+<td>Minimum hessian mass on each side of a split. The classifier's <code>None</code> is size-adaptive: the full veto (1.0) below ~500 training rows, fading linearly to 0 above ~2000 — oblivious trees underfit large data under a fixed veto, while small data still needs one.</td>
 </tr>
 <tr>
 <td><code>leaf_estimation_iterations</code></td>
 <td><code>1</code> (reg) / <code>3</code> (clf)</td>
-<td>Extra Newton refinement steps per leaf. Likely more important to tune in classification tasks.</td>
+<td>Extra Newton refinement steps per leaf. Applies to the plain constant-leaf path only: inactive while linear leaves are active, and not implemented for multiclass or <code>loss="MAE"</code>/<code>"Quantile"</code> (an explicitly non-default value warns there).</td>
 </tr>
 </tbody>
 </table>
@@ -1177,7 +1205,7 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>ordered_boosting</code></td>
 <td><code>False</code></td>
-<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster.</td>
+<td>Leave-one-out leaf training step. Off by default; mutually exclusive with <code>leaf_estimation_iterations</code> in the booster. Ignored while linear leaves are active (the linear-leaf update owns the training step — set <code>linear_leaves=False</code> to use it) and with <code>loss="MAE"</code>/<code>"Quantile"</code>; supported for multiclass.</td>
 </tr>
 </tbody>
 </table>
@@ -1288,6 +1316,10 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <td><code>sample_weight</code></td>
 <td>Per-sample training weights (normalized to mean 1).</td>
 </tr>
+<tr>
+<td><code>callbacks</code></td>
+<td>A callable or list of callables <code>cb(iteration, train_loss, val_loss, model)</code> invoked each boosting round; returning <code>True</code> requests an early stop.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="fitted-attributes">Fitted attributes<a class="headerlink" href="#fitted-attributes" title="Permanent link">&para;</a></h2>
@@ -1326,6 +1358,22 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>estimators_</code></td>
 <td>Fitted members when <code>n_ensembles &gt; 1</code>, else <code>None</code>.</td>
+</tr>
+<tr>
+<td><code>validation_history_</code></td>
+<td>Per-round validation loss recorded during fit; empty without a validation split, a list of member histories when bagged.</td>
+</tr>
+<tr>
+<td><code>linear_leaves_selected_</code> <em>(regressor)</em></td>
+<td>Leaf variant the auto-audition kept (<code>True</code> = linear leaves won on validation).</td>
+</tr>
+<tr>
+<td><code>cross_features_selected_</code> / <code>cross_pairs_</code></td>
+<td>Whether the cross-feature refit won, and the feature pairs it used.</td>
+</tr>
+<tr>
+<td><code>member_params_</code></td>
+<td>Member hyperparameters applied when <code>n_ensembles &gt; 1</code> auto-resolves them (see recipes: bagging).</td>
 </tr>
 </tbody>
 </table>
