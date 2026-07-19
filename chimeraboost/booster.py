@@ -6,6 +6,8 @@ Two boosters share the same machinery (FeaturePreprocessor, oblivious trees):
 """
 
 import time
+from contextlib import contextmanager
+
 import numpy as np
 
 from .losses import LOSSES, MultiSoftmax
@@ -53,19 +55,36 @@ LINEAR_LEAVES_MIN_SAMPLES = 1000
 SHAP_BACKGROUND_SIZE = 200
 
 
-def _apply_thread_count(thread_count):
-    """Set numba's thread pool size. None / -1 means use all detected cores.
+@contextmanager
+def _thread_limit(thread_count):
+    """Apply an explicit ``thread_count`` for the duration of one fit or
+    predict call, restoring the caller's numba thread setting on exit.
 
-    Returns the effective thread count so callers can record it.
+    ``numba.set_num_threads`` is process-global; without the restore, one
+    model's ``thread_count=1`` would silently cap every later numba call in
+    the process (other models' fits and predicts included). ``None`` / ``-1``
+    leaves the ambient setting untouched entirely, so a user's own
+    ``numba.set_num_threads`` (or ``NUMBA_NUM_THREADS``) is respected.
+    Yields the effective thread count so callers can record it.
     """
     import numba
-    max_threads = numba.config.NUMBA_NUM_THREADS
-    if thread_count is None or thread_count < 0:
-        n = max_threads
-    else:
-        n = max(1, min(int(thread_count), max_threads))
+    if thread_count is None or int(thread_count) < 0:
+        yield numba.get_num_threads()
+        return
+    prev = numba.get_num_threads()
+    n = max(1, min(int(thread_count), numba.config.NUMBA_NUM_THREADS))
+    if n == prev:
+        # Already there: skip the switch entirely. A changed thread count is
+        # NOT free -- the omp layer charges ~1 ms to re-team on the next
+        # parallel region -- so processes that align the ambient setting
+        # (NUMBA_NUM_THREADS / numba.set_num_threads) predict at full speed.
+        yield n
+        return
     numba.set_num_threads(n)
-    return n
+    try:
+        yield n
+    finally:
+        numba.set_num_threads(prev)
 
 
 def _auto_learning_rate(n_samples, n_estimators, early_stopping):
@@ -196,6 +215,27 @@ class _BaseBooster:
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
                                    self.random_state, self.cat_n_permutations,
                                    self.cat_combinations, self.cross_pairs)
+
+    def fit(self, X, y, *args, **kwargs):
+        """Fit under this model's thread limit (restored on exit)."""
+        with _thread_limit(self.thread_count) as n:
+            self.n_threads_ = n
+            return self._fit_impl(X, y, *args, **kwargs)
+
+    def predict_raw(self, X):
+        """Predict under this model's thread limit (restored on exit)."""
+        with _thread_limit(self.thread_count):
+            return self._predict_raw_impl(X)
+
+    def __getstate__(self):
+        """Pickle without the lazily-built packed-forest caches: they are
+        redundant with ``trees_`` (roughly doubling the payload) and are
+        rebuilt on the first predict after load."""
+        state = self.__dict__.copy()
+        for cache in ("_forest_", "_forests_"):
+            if cache in state:
+                state[cache] = None
+        return state
 
     def _prep_matrices(self, X, encode_targets, cat_features, eval_set,
                        prep_cache):
@@ -377,20 +417,20 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
-            callbacks=None, prep_cache=None):
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+                  sample_weight=None, callbacks=None, prep_cache=None):
         """Fit the additive model. Optionally pass `cat_features` (column indices
         to target-encode) and `eval_set=(X_val, y_val)` for early stopping.
         `sample_weight` is a 1-D array of per-sample weights; None means uniform.
         Weights are normalized to mean 1 internally so the gradient scale stays
         comparable to the no-weight case. `prep_cache` is internal -- see
-        `_prep_matrices`."""
+        `_prep_matrices`. (Called via the base ``fit``, which owns the thread
+        limit.)"""
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y, dtype=np.float64)
         n_samples = X.shape[0]
         w = self._normalize_weights(sample_weight, n_samples)
 
-        self.n_threads_ = _apply_thread_count(self.thread_count)
         self.loss_ = LOSSES[self.loss_name](**self.loss_kwargs)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
@@ -533,7 +573,7 @@ class GradientBoosting(_BaseBooster):
             w = w_sorted[lo:hi] if w_sorted is not None else None
             tree.values[l] = self.lr_ * self.loss_.leaf_value(r_sorted[lo:hi], w)
 
-    def predict_raw(self, X):
+    def _predict_raw_impl(self, X):
         """Return raw additive scores (pre-link): the regression prediction, or
         the log-odds for binary classification."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
@@ -612,11 +652,12 @@ class GradientBoosting(_BaseBooster):
 class MulticlassBoosting(_BaseBooster):
     """Softmax multiclass booster: fits K trees per round (one per class)."""
 
-    def fit(self, X, y, cat_features=None, eval_set=None, sample_weight=None,
-            callbacks=None, prep_cache=None):
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+                  sample_weight=None, callbacks=None, prep_cache=None):
         """Fit K trees per boosting round (one per class) under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
-        scalar booster; `prep_cache` is internal -- see `_prep_matrices`."""
+        scalar booster; `prep_cache` is internal -- see `_prep_matrices`.
+        (Called via the base ``fit``, which owns the thread limit.)"""
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y)
         self.classes_ = np.unique(y)
@@ -627,7 +668,6 @@ class MulticlassBoosting(_BaseBooster):
         n_samples = X.shape[0]
         w = self._normalize_weights(sample_weight, n_samples)
 
-        self.n_threads_ = _apply_thread_count(self.thread_count)
         self.loss_ = MultiSoftmax(K)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
@@ -719,7 +759,7 @@ class MulticlassBoosting(_BaseBooster):
         self.best_iteration_ = len(self.trees_)
         return self
 
-    def predict_raw(self, X):
+    def _predict_raw_impl(self, X):
         """Return the (n_samples, n_classes) matrix of raw per-class scores
         (pre-softmax)."""
         X = as_model_array(X, bool(self.prep_.cat_features_))

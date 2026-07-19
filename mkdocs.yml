@@ -84,6 +84,7 @@ nav:
       - Recipes: recipes.md
       - How it works: concepts.md
       - SHAP explanations: shap.md
+      - Deployment: deployment.md
   - Reference:
       - Parameters: parameters.md
       - API reference: api.md

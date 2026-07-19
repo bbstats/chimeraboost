@@ -1,6 +1,6 @@
 # Recipes
 
-FIRST:
+Imports used throughout:
 
 ```python
 import numpy as np
@@ -117,9 +117,9 @@ cost). Avoid `n_ensembles=2`: two members measure worse than one model.
 
 Inside a bag, parameters left on auto resolve to tuned member defaults —
 currently `learning_rate=0.15` and `colsample=0.85` — because averaging
-tolerates coarser, cheaper members. The fit prints a one-line notice when
-this happens, `member_params_` records what was applied, and passing
-explicit values disables it.
+tolerates coarser, cheaper members. The fit warns once when this happens
+(a filterable `UserWarning`), `member_params_` records what was applied,
+and passing explicit values disables it.
 
 Members fit in parallel worker processes by default, splitting the thread
 budget so a bagged fit uses the same cores a single fit would; pass
@@ -149,6 +149,10 @@ m.fit(X_train, y_train, groups=subject_ids)
 m = ChimeraBoostRegressor(early_stopping=False, n_estimators=500, random_state=0)
 m.fit(X_train, y_train)
 ```
+
+After fitting, `validation_history_` holds the per-round validation loss, and the
+regressor's `staged_predict(X)` yields the prediction after each successive tree
+(not defined for a bagged ensemble).
 
 ## Calibrated probabilities
 
@@ -216,7 +220,7 @@ reg = joblib.load("model.joblib")
 ## Interaction-heavy regression
 
 The default `depth=6` is conservative to protect small data. On large, interaction-heavy
-problems, raising depth is the biggest single lever:
+problems, raise `depth` to give each tree more interaction capacity:
 
 ```python
 reg = ChimeraBoostRegressor(depth=10, random_state=0).fit(X_train, y_train)

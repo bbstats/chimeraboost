@@ -1,5 +1,5 @@
 # chimeraboost
-### What if CatBoost was slightly worse, 4× faster, and all in Python?
+### What if CatBoost was slightly worse, 2–6× faster, and all in Python?
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
@@ -38,9 +38,6 @@ reg.fit(X, y)
     * Supports regression, quantile regression, binary and multiclass classification
     * **Exact SHAP** explanations (`model.shap_values(X)`) — interventional TreeSHAP
       computed exactly thanks to the oblivious tree structure
-
-* **Tuning tips**
-    * Interaction-heavy regression: raise `depth` to 8–10 (default 6 is conservative to protect small data).
 
 * **Inspirations / Citations**
     * **CatBoost** — Prokhorenkova et al., *NeurIPS* 2018 — ordered boosting, ordered target statistics, oblivious trees

@@ -3,6 +3,45 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Fixed
+- **Thread hygiene**: `thread_count` now applies to predict as well as fit,
+  and the process-global numba thread setting is restored afterwards in both
+  — previously one `fit(thread_count=1)` silently capped every later numba
+  call in the process, and predict ignored the setting entirely. A
+  `thread_count` equal to the ambient numba count is applied for free; a
+  differing one is switched and restored per call (usually cheap, up to
+  ~1 ms observed in some process states as the omp layer re-teams), so
+  prefer setting the ambient count (`NUMBA_NUM_THREADS` or
+  `numba.set_num_threads`) in latency-sensitive serving.
+- **Pickles no longer carry the packed-forest predict cache** (roughly 2x
+  payload when a model was pickled after predicting); it rebuilds lazily on
+  the first predict after load. Loaded models predict bit-identically.
+- **Loud failures instead of silent misbehavior**:
+  - a classifier `eval_set` containing labels absent from `y` now raises
+    (previously binary counted them as the negative class and multiclass
+    silently remapped them onto a neighboring class, or crashed with a bare
+    `IndexError` past the top);
+  - an automatic early-stopping split that strands a class entirely in the
+    validation side (rare class, or a class confined to one group with
+    `groups`) now raises instead of silently training a model that can
+    never predict that class;
+  - `fit(X, y, w)` — weights accidentally bound to the third positional
+    argument `cat_features` — now raises an error that names
+    `sample_weight=w` instead of a cryptic numpy complaint;
+  - explicitly-set `ordered_boosting` / `leaf_estimation_iterations` warn
+    when the chosen path ignores them (linear-leaves active, multiclass,
+    or MAE/Quantile losses); defaults stay quiet and the precedence is
+    documented in Parameters.
+- `cat_features` accepts a numpy integer array (previously crashed with
+  "ambiguous truth value"); classifier `depth=None` resolves to the
+  documented default 6 (previously crashed with `TypeError` in the booster).
+- Bagged members fitted from a DataFrame now retain the parent's feature
+  names, so bagged predicts no longer emit a spurious "fitted without
+  feature names" warning on every call and the column-order guard applies
+  at the member level too. The bagged-mode member-defaults notice is now a
+  filterable `UserWarning` instead of bare stdout.
+
 ## [0.18.0] - 2026-07-18
 ### Changed
 - **Quantized-gradient histograms are now the default**

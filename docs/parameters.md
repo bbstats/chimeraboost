@@ -8,10 +8,10 @@ For more detail, see [API reference](api.md).
 |---|---|---|
 | `n_estimators` | `2000` | Maximum boosting rounds (trees). |
 | `learning_rate` | `None` (auto) | Per-tree shrinkage. `None` resolves to 0.1 with early stopping. Lower trades more trees for slightly better fit. |
-| `depth` | `None`→auto | Tree depth (a depth-d tree is d splits). Defaults to to 6 for squared/absolute error and 4 for `loss="Quantile"` (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression. |
+| `depth` | `None`→auto (reg) / `6` (clf) | Tree depth (a depth-d tree is d splits). The regressor's `None` resolves to 6 for `"RMSE"`/`"MAE"` and 4 for `loss="Quantile"` (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression. |
 | `l2_leaf_reg` | `1.0` | L2 penalty on leaf values. Higher is smoother. |
-| `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | Minimum hessian mass on each side of a split. The classifier's `None` is size-adaptive: gradates off when below 500 rows, gradates off when above 2000. |
-| `leaf_estimation_iterations` | `1` (reg) / `3` (clf) | Extra Newton refinement steps per leaf. Likely more important to tune in classification tasks. |
+| `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | Minimum hessian mass on each side of a split. The classifier's `None` is size-adaptive: the full veto (1.0) below ~500 training rows, fading linearly to 0 above ~2000 — oblivious trees underfit large data under a fixed veto, while small data still needs one. |
+| `leaf_estimation_iterations` | `1` (reg) / `3` (clf) | Extra Newton refinement steps per leaf. Applies to the plain constant-leaf path only: inactive while linear leaves are active, and not implemented for multiclass or `loss="MAE"`/`"Quantile"` (an explicitly non-default value warns there). |
 
 ## Binning
 
@@ -67,7 +67,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `ordered_boosting` | `False` | Leave-one-out leaf training step. Off by default; mutually exclusive with `leaf_estimation_iterations` in the booster. |
+| `ordered_boosting` | `False` | Leave-one-out leaf training step. Off by default; mutually exclusive with `leaf_estimation_iterations` in the booster. Ignored while linear leaves are active (the linear-leaf update owns the training step — set `linear_leaves=False` to use it) and with `loss="MAE"`/`"Quantile"`; supported for multiclass. |
 
 ## Early stopping
 
@@ -103,6 +103,7 @@ See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `
 | `eval_set` | `(X_val, y_val)` validation set; overrides the internal split. |
 | `groups` | Group labels; keeps each group entirely in train or validation when auto-splitting. |
 | `sample_weight` | Per-sample training weights (normalized to mean 1). |
+| `callbacks` | A callable or list of callables `cb(iteration, train_loss, val_loss, model)` invoked each boosting round; returning `True` requests an early stop. |
 
 ## Fitted attributes
 
@@ -115,3 +116,7 @@ See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `
 | `quantile_offset_` *(regressor)* | Split-conformal correction added to `loss="Quantile"` predictions, fitted on the validation split; 0.0 for other losses or without one. |
 | `expected_value_` | SHAP baseline; set after `shap_values` (see [SHAP](shap.md)). |
 | `estimators_` | Fitted members when `n_ensembles > 1`, else `None`. |
+| `validation_history_` | Per-round validation loss recorded during fit; empty without a validation split, a list of member histories when bagged. |
+| `linear_leaves_selected_` *(regressor)* | Leaf variant the auto-audition kept (`True` = linear leaves won on validation). |
+| `cross_features_selected_` / `cross_pairs_` | Whether the cross-feature refit won, and the feature pairs it used. |
+| `member_params_` | Member hyperparameters applied when `n_ensembles > 1` auto-resolves them (see recipes: bagging). |

@@ -95,6 +95,14 @@ def measure_one(ds, cal):
 
 def measure_all():
     """Measure every panel dataset; returns (records dict, calibration_time)."""
+    # Align the ambient numba thread count with CONFIG's thread_count=1: the
+    # estimators no longer leak their setting into the process (fit/predict
+    # restore it), and a per-call switch to a DIFFERENT count costs ~1 ms in
+    # the omp layer, which would swamp the small-panel predict timings.
+    # Setting the ambient to match keeps every kernel single-threaded with no
+    # per-call switch -- the same regime the golden timings were recorded in.
+    import numba
+    numba.set_num_threads(1)
     cal = calibration_time()
     return {ds: measure_one(ds, cal) for ds in PANEL}, cal
 

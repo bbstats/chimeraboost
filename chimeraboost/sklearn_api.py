@@ -140,7 +140,10 @@ def _resolve_cat_feature_names(cat_features, X):
     except TypeError:
         return cat_features  # not iterable; let downstream validation report it
     if not any(isinstance(c, str) for c in items):
-        return cat_features
+        # Return the plain list, not the original object: a numpy array here
+        # would crash every downstream ``if cat_features:`` truthiness check
+        # with "ambiguous truth value" before validation can name the problem.
+        return items
     names = _extract_feature_names(X)
     if names is None:
         raise ValueError(
@@ -181,6 +184,28 @@ def _check_eval_set(eval_set, n_features):
             f"{len(yv)}.")
 
 
+def _check_eval_labels(eval_set, y):
+    """Reject classifier eval_set labels that never appear in the training y.
+
+    Without this the mapping is silently wrong: binary treats any non-positive
+    label as the negative class, and multiclass ``searchsorted`` counts an
+    unseen label as the next class up (or IndexErrors past the top) -- so the
+    early-stopping signal is computed against labels the user never provided.
+    """
+    classes = np.unique(np.asarray(y))
+    yv = np.unique(np.asarray(eval_set[1]))
+    try:
+        unseen = np.setdiff1d(yv, classes)
+    except TypeError:   # mixed un-orderable label types
+        seen = set(classes.tolist())
+        unseen = np.array([v for v in yv.tolist() if v not in seen],
+                          dtype=object)
+    if unseen.size:
+        raise ValueError(
+            f"eval_set contains label(s) not present in y: {unseen.tolist()}. "
+            "Early stopping must be evaluated on the training label set.")
+
+
 def _is_numeric_dtype(dt):
     """True if a column dtype is numeric, across numpy / pandas / polars."""
     try:
@@ -217,15 +242,17 @@ def _describe_nonnumeric_columns(X):
 
 
 def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
-    """Train ``estimator.n_ensembles`` bootstrap clones and return them as a list.
+    """Train ``estimator.n_ensembles`` member clones and return them as a list.
 
     Each member is a clone of ``estimator`` with bagging switched off
-    (``n_ensembles=None``) and its own seed, fit on a bootstrap resample (drawn
-    with replacement, same size as the training set). Because a member is the
-    same estimator class, all per-model machinery â€” binary/multiclass dispatch,
-    ``cat_features``, the early-stopping auto-split, temperature scaling â€” is
-    reused unchanged, and ``cat_features``/``sample_weight``/``groups`` forward
-    naturally (which a ``sklearn.ensemble.Bagging`` wrapper would not do).
+    (``n_ensembles=None``) and its own seed, fit on its own random row sample:
+    ``max_samples`` (default 0.8) of the rows drawn WITHOUT replacement
+    ("subagging"; ``max_samples=1.0`` restores the classic full-size
+    with-replacement bootstrap). Because a member is the same estimator class,
+    all per-model machinery â€” binary/multiclass dispatch, ``cat_features``,
+    the early-stopping auto-split, temperature scaling â€” is reused unchanged,
+    and ``cat_features``/``sample_weight``/``groups`` forward naturally (which
+    a ``sklearn.ensemble.Bagging`` wrapper would not do).
 
     Members are independent, so they fit across ``ensemble_n_jobs`` worker
     processes (default -1: as many workers as the thread budget supports,
@@ -273,14 +300,20 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         member_defaults["colsample"] = 0.85
     estimator.member_params_ = dict(member_defaults)
     if member_defaults:
-        print("ChimeraBoost bagged mode: member defaults "
-              + ", ".join(f"{k}={v}" for k, v in member_defaults.items())
-              + " (pass explicit values to override; see docs).", flush=True)
+        warnings.warn(
+            "ChimeraBoost bagged mode: member defaults "
+            + ", ".join(f"{k}={v}" for k, v in member_defaults.items())
+            + " (pass explicit values to override; see docs).",
+            UserWarning, stacklevel=3)
 
     def _fit_one(seed):
         member = clone(estimator).set_params(
             n_ensembles=None, random_state=int(seed), thread_count=member_threads,
             **member_defaults)
+        # Members receive internally-constructed inputs (ndarray rows, OOB eval
+        # sets), so the strict user-facing input checks that assume "the caller
+        # chose this" are relaxed for them -- see _fit_single.
+        member._is_bag_member = True
         # Member sample (benchmarks/BAGGING_PLAN.md B-samp): draw
         # max_samples*n rows WITHOUT replacement ("subagging"). A full-size
         # bootstrap gives a member only ~0.632n unique rows at n rows of
@@ -314,6 +347,13 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             member_eval = eval_set
         member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=member_eval,
                    groups=gb, sample_weight=wb)
+        # Members train on bare ndarray rows, so they would otherwise warn
+        # "fitted without feature names" on every DataFrame predict; give them
+        # the parent's captured names so the column-order guard applies
+        # uniformly at the member level too.
+        names = getattr(estimator, "feature_names_in_", None)
+        if names is not None:
+            member.feature_names_in_ = names
         return member
 
     return Parallel(n_jobs=n_workers)(delayed(_fit_one)(s) for s in seeds)
@@ -465,8 +505,15 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
         ci = np.asarray(list(cat_features))
         if ci.size:
             if not np.issubdtype(ci.dtype, np.integer):
-                raise ValueError(
-                    "cat_features must be integer column indices.")
+                msg = "cat_features must be integer column indices or column names."
+                if np.issubdtype(ci.dtype, np.floating):
+                    # The classic slip: fit(X, y, w) binds the weights to
+                    # cat_features (the third positional argument). Name the
+                    # real mistake instead of a generic type complaint.
+                    msg += (" Got an array of floats -- if these are per-sample "
+                            "weights, pass them by keyword: "
+                            "fit(X, y, sample_weight=w).")
+                raise ValueError(msg)
             if ci.min() < 0 or ci.max() >= nf:
                 raise ValueError(
                     f"cat_features index out of range for X with {nf} "
@@ -918,7 +965,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         is passed to ``fit``.
     n_ensembles : int or None, default None
         Number of bagged members. ``None`` or 1 trains a single model; >= 2
-        averages independent members fit on bootstrap resamples.
+        averages independent members, each fit on its own random row sample
+        (``max_samples``, without replacement by default).
     ensemble_n_jobs : int, default -1
         Worker processes fitting ensemble members concurrently, each on an
         equal share of the thread budget (same total cores as a single fit;
@@ -1081,6 +1129,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             warnings.warn(
                 f"linear_leaves is not supported with loss={self.loss!r} and "
                 "will be ignored.", UserWarning, stacklevel=2)
+        # Same inert-setting honesty for the other shadowed knobs: MAE/Quantile
+        # re-estimate leaf values directly (the booster's adjusts_leaves path),
+        # which owns the training step.
+        if self.loss in ("MAE", "Quantile"):
+            if self.ordered_boosting:
+                warnings.warn(
+                    f"ordered_boosting is ignored with loss={self.loss!r} and "
+                    "will have no effect.", UserWarning, stacklevel=2)
+            if self.leaf_estimation_iterations > 1:
+                warnings.warn(
+                    f"leaf_estimation_iterations is ignored with "
+                    f"loss={self.loss!r} and will have no effect.",
+                    UserWarning, stacklevel=2)
 
         es_active = bool(self.early_stopping)
         if es_active and eval_set is None:
@@ -1096,6 +1157,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 X, y = X[train_idx], y[train_idx]
                 if sample_weight is not None:
                     sample_weight = sample_weight[train_idx]
+
+        # Mirror the classifier's inert-setting warnings: an explicit
+        # linear_leaves=True shadows ordered boosting / leaf refinement once
+        # the booster activates it (>= LINEAR_LEAVES_MIN_SAMPLES train rows;
+        # the None auto-audition is exempt -- it decides on validation loss).
+        ll_shadows = (self.linear_leaves is True
+                      and self.loss not in ("MAE", "Quantile")
+                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+        if ll_shadows and self.ordered_boosting:
+            warnings.warn(
+                "ordered_boosting is ignored while linear leaves are active "
+                "(the per-leaf linear model owns the training step); set "
+                "linear_leaves=False to use it.", UserWarning, stacklevel=2)
+        if ll_shadows and self.leaf_estimation_iterations > 1:
+            warnings.warn(
+                "leaf_estimation_iterations is ignored while linear leaves "
+                "are active; set linear_leaves=False to use it.",
+                UserWarning, stacklevel=2)
 
         # If early stopping is active but patience not explicitly set, use 50.
         # 50 beats 10 on 25/34 benchmark datasets (lr=0.1 keeps improving past a
@@ -1430,7 +1509,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         is passed to ``fit``.
     n_ensembles : int or None, default None
         Number of bagged members. ``None`` or 1 trains a single model; >= 2
-        soft-votes the calibrated probabilities of members fit on bootstraps.
+        soft-votes the calibrated probabilities of members, each fit on its
+        own random row sample (``max_samples``, without replacement by
+        default).
     ensemble_n_jobs : int, default -1
         Worker processes fitting ensemble members concurrently, each on an
         equal share of the thread budget (same total cores as a single fit;
@@ -1549,6 +1630,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                                 classification=True)
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
+            # Bag members are exempt: their OOB eval set may legitimately hold
+            # a rare label their row sample missed, and the parent aligns
+            # member probability columns to the global class set.
+            if not getattr(self, "_is_bag_member", False):
+                _check_eval_labels(eval_set, y)
         if self.n_ensembles and self.n_ensembles > 1:
             if callbacks is not None:
                 raise ValueError(
@@ -1586,6 +1672,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         y = np.asarray(y)
         self.classes_ = np.unique(y)
         self.n_classes_ = self.classes_.size
+        all_classes = self.classes_
         if self.n_classes_ < 2:
             raise ValueError(
                 f"Need at least 2 classes; got {self.n_classes_} class(es).")
@@ -1608,6 +1695,18 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     sample_weight = sample_weight[train_idx]
                 self.classes_ = np.unique(y)
                 self.n_classes_ = self.classes_.size
+                lost = np.setdiff1d(all_classes, self.classes_)
+                if lost.size and not getattr(self, "_is_bag_member", False):
+                    # Without this, the model silently trains without the lost
+                    # class and never predicts it (its eval rows are even
+                    # remapped onto neighboring classes).
+                    raise ValueError(
+                        f"The automatic early-stopping split left class(es) "
+                        f"{lost.tolist()} entirely in the validation set, "
+                        "usually because the class is rare or (with `groups`) "
+                        "confined to a single group. Pass an explicit "
+                        "eval_set, lower validation_fraction, or set "
+                        "early_stopping=False.")
 
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
@@ -1620,6 +1719,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # on the FINAL training set (post early-stopping split).
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
+        # An explicit depth=None resolves to the documented classifier default
+        # (the regressor resolves it per loss); the booster requires an int.
+        if kw.get("depth") is None:
+            kw["depth"] = 6
         # colsample None = auto: full columns for a single model (the bagged
         # path resolves members to 0.85 before this runs; see _fit_bagged).
         if kw.get("colsample") is None:
@@ -1641,6 +1744,28 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+        # Warn when an explicitly non-default setting will be silently inert on
+        # the path about to run (defaults stay quiet -- the precedence is
+        # documented). The linear-leaf update owns the training step, so it
+        # shadows both ordered boosting and leaf refinement; multiclass never
+        # refines leaves. leaf_estimation_iterations=1 means "no refinement"
+        # and is trivially satisfied, so it never warns.
+        ll_shadows = (not self._multiclass and kw.get("linear_leaves")
+                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+        if ll_shadows and self.ordered_boosting:
+            warnings.warn(
+                "ordered_boosting is ignored while linear leaves are active "
+                "(the per-leaf linear model owns the training step); set "
+                "linear_leaves=False to use it.", UserWarning, stacklevel=2)
+        if ll_shadows and self.leaf_estimation_iterations not in (1, 3):
+            warnings.warn(
+                "leaf_estimation_iterations is ignored while linear leaves "
+                "are active; set linear_leaves=False to use it.",
+                UserWarning, stacklevel=2)
+        if self._multiclass and self.leaf_estimation_iterations not in (1, 3):
+            warnings.warn(
+                "leaf_estimation_iterations is not implemented for multiclass "
+                "and will be ignored.", UserWarning, stacklevel=2)
         # cross_features: None (auto default) and True run the same
         # validation-selected race everywhere, multiclass included (M1);
         # explicit False disables.

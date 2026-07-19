@@ -14,7 +14,7 @@ sample exceeds the threshold at level `k`. This leads to:
 
 The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
 than an oblivious tree, which matters on clean, high-signal data. Raising `depth` and
-enabling [linear leaves](#linear-leaves) recover most of that.
+enabling [linear leaves](#leaf-values-and-linear-leaves) recover most of that.
 
 ## Histogram binning
 
@@ -48,7 +48,7 @@ whichever reaches the lower validation loss (set `True`/`False` to skip the doub
 
 After fitting, the classifier scales its raw scores by a single temperature chosen on
 the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
-are unchanged while probabilities (i.e. with `predict_proba`) becomes better calibrated.
+are unchanged while the probabilities (i.e. with `predict_proba`) become better calibrated.
 The fitted value is exposed as `temperature_`.
 
 ## Bagging and subsampling

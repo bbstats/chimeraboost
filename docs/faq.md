@@ -33,6 +33,13 @@ with sklearn.config_context(assume_finite=True):
 ```
 
 
+## Why is the very first fit or predict slow?
+
+That is numba compiling the kernels (one-time per process, disk-cached per
+user). Call `chimeraboost.warmup()` — or set `CHIMERABOOST_WARMUP=1` — to
+pay it at import time instead of on the first call. See
+[Deployment](deployment.md) for numbers and short-lived-worker patterns.
+
 ## Why oblivious (symmetric) trees?
 
 They make prediction extremely fast and provide strong built-in regularization, at some
@@ -58,5 +65,16 @@ NumPy, numba, scikit-learn, SciPy, and pandas.
 
 ## How do I tune it?
 
-First reach for `depth` (raise to 8–10 for large, interaction-heavy regression) or
-`n_ensembles` (variance reduction) first. See [Parameters](parameters.md).
+Mostly, you don't: the defaults are benchmark-tuned, and in our experiments broad
+hyperparameter search bought little that generalized. Two settings address specific
+situations rather than general tuning: `n_ensembles=8` is the benchmarked
+maximum-accuracy mode (at several times the fit cost), and `depth=8–10` suits large,
+interaction-heavy regression. [Parameters](parameters.md) documents every knob.
+
+## Is the API stable?
+
+ChimeraBoost is beta (0.x). Breaking API or behavior changes bump the minor version
+and are recorded in the
+[CHANGELOG](https://github.com/bbstats/chimeraboost/blob/main/CHANGELOG.md); patch
+releases are fixes only. Pickled models are not guaranteed to load across versions —
+store the version next to the model and re-fit after upgrading.
