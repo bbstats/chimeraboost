@@ -167,9 +167,14 @@ def _resolve_cat_feature_names(cat_features, X):
 def _check_eval_set(eval_set, n_features):
     """Validate a user-passed ``eval_set`` up front with a named error instead of
     a cryptic IndexError/broadcast failure deep in the booster."""
-    if not (isinstance(eval_set, (tuple, list)) and len(eval_set) == 2):
-        raise ValueError("eval_set must be a (X_val, y_val) tuple.")
-    Xv, yv = eval_set
+    # 2-tuple is the documented form; a 3rd element is optional per-row
+    # validation weights (used internally for weight-aware auto-split / bagged
+    # OOB early stopping, so zero-weight rows don't score the metric).
+    if not (isinstance(eval_set, (tuple, list)) and len(eval_set) in (2, 3)):
+        raise ValueError(
+            "eval_set must be a (X_val, y_val) tuple "
+            "(optionally (X_val, y_val, sample_weight_val)).")
+    Xv, yv = eval_set[0], eval_set[1]
     shape = getattr(Xv, "shape", None)
     if shape is None or len(shape) != 2:
         shape = np.asarray(Xv, dtype=object).shape
@@ -182,6 +187,11 @@ def _check_eval_set(eval_set, n_features):
         raise ValueError(
             f"eval_set X and y have inconsistent lengths: {shape[0]} vs "
             f"{len(yv)}.")
+    if len(eval_set) == 3 and eval_set[2] is not None \
+            and len(eval_set[2]) != shape[0]:
+        raise ValueError(
+            f"eval_set sample_weight has length {len(eval_set[2])}, but "
+            f"eval_set X has {shape[0]} rows; they must match.")
 
 
 def _check_eval_labels(eval_set, y):
@@ -342,7 +352,12 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             oob_idx = np.where(oob_mask)[0]
             # Degenerate case: every row drawn (possible for tiny n). Fall back
             # to letting the member auto-split rather than training with no eval.
-            member_eval = (X[oob_idx], y[oob_idx]) if len(oob_idx) > 0 else None
+            # Carry OOB-row weights so zero-weight rows don't score the member's
+            # early-stopping metric (H3).
+            sw_oob = (np.asarray(sample_weight)[oob_idx]
+                      if sample_weight is not None else None)
+            member_eval = ((X[oob_idx], y[oob_idx], sw_oob)
+                           if len(oob_idx) > 0 else None)
         else:
             member_eval = eval_set
         member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=member_eval,
@@ -1079,8 +1094,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             are kept intact across the train/validation boundary using
             ``GroupShuffleSplit``.
         sample_weight : array-like of shape (n_samples,) or None
-            Per-sample weights.  Normalized to mean 1 internally.  Only applied
-            to the training set; the validation eval metric is always unweighted.
+            Per-sample weights.  Normalized to mean 1 internally.  Applied
+            throughout: the gradient/leaf fit, the categorical target encoder,
+            the quantile bin borders, and the early-stopping metric on an
+            automatically split (or bagged out-of-bag) validation set, so a
+            zero-weight row never influences the model.  An explicitly passed
+            ``eval_set`` carries no weights and is scored unweighted.
         callbacks : callable or list of callable, or None
             Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
             a callback returning True requests an early stop. Used for live
@@ -1153,7 +1172,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 es_active = False  # data too small to hold out a val set
             else:
                 train_idx, val_idx = split
-                eval_set = (X[val_idx], y[val_idx])
+                # Carry the val rows' weights so zero-weight rows split off into
+                # the auto holdout don't score the early-stopping metric (H3).
+                sw_val = (sample_weight[val_idx]
+                          if sample_weight is not None else None)
+                eval_set = (X[val_idx], y[val_idx], sw_val)
                 X, y = X[train_idx], y[train_idx]
                 if sample_weight is not None:
                     sample_weight = sample_weight[train_idx]
@@ -1615,8 +1638,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             stopping triggers an automatic split, ``StratifiedGroupKFold`` keeps
             groups intact and class proportions balanced across the split.
         sample_weight : array-like of shape (n_samples,) or None
-            Per-sample weights.  Normalized to mean 1 internally.  Only applied
-            to the training set; the validation eval metric is always unweighted.
+            Per-sample weights.  Normalized to mean 1 internally.  Applied
+            throughout: the gradient/leaf fit, the categorical target encoder,
+            the quantile bin borders, and the early-stopping metric on an
+            automatically split (or bagged out-of-bag) validation set, so a
+            zero-weight row never influences the model.  An explicitly passed
+            ``eval_set`` carries no weights and is scored unweighted.
         callbacks : callable or list of callable, or None
             Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
             a callback returning True requests an early stop. Used for live
@@ -1689,7 +1716,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 es_active = False  # data too small to hold out a val set
             else:
                 train_idx, val_idx = split
-                eval_set = (X[val_idx], y[val_idx])
+                # Carry val-row weights so zero-weight holdout rows don't score
+                # the early-stopping metric (H3).
+                sw_val = (sample_weight[val_idx]
+                          if sample_weight is not None else None)
+                eval_set = (X[val_idx], y[val_idx], sw_val)
                 X, y = X[train_idx], y[train_idx]
                 if sample_weight is not None:
                     sample_weight = sample_weight[train_idx]
@@ -1798,7 +1829,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             if eval_set is not None:
                 cal_Xv = eval_set[0]
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
-                eval_set = (cal_Xv, cal_y)
+                # Preserve any val-row weights through the 0/1 relabeling.
+                sw_v = eval_set[2] if len(eval_set) > 2 else None
+                eval_set = (cal_Xv, cal_y, sw_v)
         self.model_ = _make()
         self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight,

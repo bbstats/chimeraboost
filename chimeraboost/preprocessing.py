@@ -179,8 +179,13 @@ class FeaturePreprocessor:
         return combo_codes
 
     # ---- fit / transform -----------------------------------------------------
-    def fit_transform(self, X, encode_targets, cat_features):
-        """encode_targets: list of 1D arrays used for ordered TS (len T)."""
+    def fit_transform(self, X, encode_targets, cat_features, sample_weight=None):
+        """encode_targets: list of 1D arrays used for ordered TS (len T).
+
+        ``sample_weight`` (mean-1 normalized, ``None`` == uniform) is forwarded to
+        the ordered-target encoder and the binner so zero-weight rows shape
+        neither the categorical statistics nor the bin borders. ``None`` is the
+        unweighted path, bit-identical to before this argument existed."""
         num, codes = self._split_columns_fit(X, cat_features)
         cross = self._cross_block(X)
         if cross.shape[1]:
@@ -195,7 +200,8 @@ class FeaturePreprocessor:
                     None if self.random_state is None else self.random_state + t,
                     self.cat_n_permutations,
                 )
-                encoded_blocks.append(enc.fit_transform(codes, target))
+                encoded_blocks.append(
+                    enc.fit_transform(codes, target, sample_weight))
                 self.encoders_.append(enc)
 
         feat = self._stack(num, encoded_blocks)
@@ -207,7 +213,7 @@ class FeaturePreprocessor:
         self.is_numeric_binned_[:num.shape[1]] = True
 
         self.binner_ = Binner(self.max_bins)
-        X_binned = self.binner_.fit_transform(feat)
+        X_binned = self.binner_.fit_transform(feat, sample_weight)
         self.n_bins_ = self.binner_.n_bins_
         return X_binned
 
@@ -229,7 +235,7 @@ class FeaturePreprocessor:
         return self.binner_.transform(feat)
 
     @classmethod
-    def from_base_with_cross(cls, base, cross_pairs, X):
+    def from_base_with_cross(cls, base, cross_pairs, X, sample_weight=None):
         """A fitted preprocessor equal to refitting ``base``'s configuration
         with ``cross_pairs`` added, built by reusing ``base``'s fitted state.
 
@@ -259,7 +265,7 @@ class FeaturePreprocessor:
         prep.encoders_ = base.encoders_
 
         cross = prep._cross_block(X)
-        cross_binner = Binner(base.max_bins).fit(cross)
+        cross_binner = Binner(base.max_bins).fit(cross, sample_weight)
         nb = len(base.num_features_)
         bb = base.binner_
         binner = Binner(base.max_bins)

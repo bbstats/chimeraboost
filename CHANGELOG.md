@@ -4,6 +4,21 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Fixed
+- **`sample_weight` is now honored everywhere, not just in the gradient
+  step.** Rows are weighted in the ordered-target categorical encoder (prior
+  and per-category statistics), in the quantile bin borders, and in the
+  early-stopping validation metric on an automatically split (or bagged
+  out-of-bag) holdout. Previously a `sample_weight=0` row still shaped the
+  categorical encodings and bin edges, and — worst — still scored the
+  early-stopping metric with full weight: in an adversarial repro (zeroed-out
+  rows carrying garbage targets) the reported validation RMSE was ~2000
+  instead of ~0.1, which stopped training at the wrong iteration and could
+  degrade the model by an order of magnitude. Uniform weights collapse to the
+  unweighted path, so `sample_weight=None` and any constant weight vector stay
+  bitwise-identical to before. An explicitly passed `eval_set` is still scored
+  unweighted (it carries no weights); a third `(X, y, sample_weight)` element
+  is now accepted for callers that want to supply them.
 
 ## [0.18.1] - 2026-07-20
 ### Fixed

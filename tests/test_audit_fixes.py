@@ -208,3 +208,124 @@ def test_bagged_members_carry_feature_names():
     # The member-level column-order guard now applies too.
     with pytest.raises(ValueError, match="feature names"):
         bag.predict(df[list(df.columns[::-1])])
+
+
+# ---------------------------------------------------------------- H3: weights
+# sample_weight=0 rows must not shape the target encoder, the bin borders, or
+# the early-stopping metric. See the audit note H3 / project-audit-2026-07-19.
+
+
+def _garbage_weight_data(seed=0, n=4000, n_garbage=800):
+    """Clean signal plus zero-weight 'garbage' rows with wild targets and
+    extreme feature values. A correct fit treats the garbage as ghosts."""
+    rng = np.random.default_rng(seed)
+    Xc = rng.normal(size=(n, 6))
+    yc = Xc[:, 0] * 2.0 + Xc[:, 1] - 0.5 * Xc[:, 2] + 0.1 * rng.normal(size=n)
+    Xg = rng.normal(size=(n_garbage, 6)) * 50.0
+    yg = rng.normal(size=n_garbage) * 1000.0 + 5000.0
+    X = np.vstack([Xc, Xg])
+    y = np.concatenate([yc, yg])
+    w = np.concatenate([np.ones(n), np.zeros(n_garbage)])
+    perm = rng.permutation(len(y))
+    return X[perm], y[perm], w[perm]
+
+
+def test_h3_encoder_totals_are_weighted():
+    """The ordered-target encoder's prior and per-category totals weight each
+    row by sample_weight, so a zero-weight row contributes nothing."""
+    from chimeraboost.target_encoding import OrderedTargetEncoder
+    rng = np.random.default_rng(0)
+    n, g = 2000, 400
+    codes = np.concatenate([rng.integers(0, 5, n), rng.integers(0, 5, g)])
+    y = np.concatenate([rng.normal(size=n), np.full(g, 9999.0)])
+    w = np.concatenate([np.ones(n), np.zeros(g)])
+    enc = OrderedTargetEncoder(smoothing=1.0, random_state=0, n_permutations=4)
+    enc.fit_transform(codes.reshape(-1, 1), y, w)
+    # Prior is the weighted mean -> the 9999 garbage rows drop out entirely.
+    assert np.isclose(enc.prior_, np.average(y, weights=w))
+    assert enc.prior_ < 10.0            # not dragged toward 9999
+    # Per-category totals equal the weighted sums/counts over positive rows.
+    for c in range(5):
+        m = codes == c
+        assert np.isclose(enc.sums_[0][c], np.sum(w[m] * y[m]))
+        assert np.isclose(enc.counts_[0][c], np.sum(w[m]))
+
+
+def test_h3_bin_borders_drop_zero_weight_rows():
+    """Zero-weight rows must not place a bin edge: extreme values carried only
+    by weight-0 rows never appear in the learned borders."""
+    from chimeraboost.binning import _feature_borders
+    col = np.array([0.0, 1.0, 2.0, 100.0, 100.0])
+    w = np.array([1.0, 1.0, 1.0, 0.0, 0.0])
+    borders = _feature_borders(col, max_bins=128, weights=w)
+    # Only {0,1,2} survive -> midpoints, and nothing near the weight-0 value 100.
+    np.testing.assert_allclose(borders, [0.5, 1.5])
+    assert borders.max() < 3.0
+    # The unweighted path still sees the 100s (regression guard on the default).
+    plain = _feature_borders(col, max_bins=128, weights=None)
+    assert plain.max() > 3.0
+
+
+def test_h3_early_stopping_metric_ignores_zero_weight_rows():
+    """The headline leak: zero-weight rows landing in the auto-split validation
+    fold must not corrupt the early-stopping metric or wreck the fit."""
+    X, y, w = _garbage_weight_data(seed=2)
+    keep = w > 0
+    m_zero = ChimeraBoostRegressor(
+        n_estimators=500, early_stopping=True, validation_fraction=0.2,
+        early_stopping_rounds=20, random_state=0).fit(X, y, sample_weight=w)
+    m_drop = ChimeraBoostRegressor(
+        n_estimators=500, early_stopping=True, validation_fraction=0.2,
+        early_stopping_rounds=20, random_state=0).fit(X[keep], y[keep])
+    # Validation loss is on the signal scale (~0.1), not the garbage scale (~2e3).
+    assert min(m_zero.model_.valid_history_) < 1.0
+    # And the model is not truncated to near-nothing by a corrupted metric.
+    assert m_zero.best_iteration_ > 20
+    rng = np.random.default_rng(99)
+    Xte = rng.normal(size=(2000, 6))
+    yte = Xte[:, 0] * 2.0 + Xte[:, 1] - 0.5 * Xte[:, 2]
+    rmse = lambda a, b: float(np.sqrt(np.mean((a - b) ** 2)))
+    # Predictions track the rows-removed model closely (not off by an order
+    # of magnitude, as the corrupted-metric fit was).
+    assert rmse(m_zero.predict(Xte), m_drop.predict(Xte)) < 0.1
+
+
+def test_h3_classifier_early_stopping_ignores_zero_weight_rows():
+    """Same guard for the binary classifier (eval_set is relabeled 0/1 and must
+    carry the val weights through)."""
+    rng = np.random.default_rng(0)
+    n, g = 3000, 600
+    Xc = rng.normal(size=(n, 6))
+    yc = (Xc[:, 0] + Xc[:, 1] + 0.3 * rng.normal(size=n) > 0).astype(int)
+    Xg = rng.normal(size=(g, 6)) * 50.0
+    yg = (rng.normal(size=g) > 0).astype(int)   # noise labels on extreme X
+    X = np.vstack([Xc, Xg]); y = np.concatenate([yc, yg])
+    w = np.concatenate([np.ones(n), np.zeros(g)])
+    perm = rng.permutation(len(y))
+    X, y, w = X[perm], y[perm], w[perm]
+    m = ChimeraBoostClassifier(
+        n_estimators=300, early_stopping=True, validation_fraction=0.2,
+        early_stopping_rounds=20, random_state=0).fit(X, y, sample_weight=w)
+    # Logloss on the clean signal is well under a random-guess ~0.69, which a
+    # garbage-corrupted validation metric would never allow.
+    assert min(m.model_.valid_history_) < 0.5
+
+
+def test_h3_uniform_weight_bit_identical_with_cats_and_es():
+    """Uniform weights collapse to the unweighted path everywhere, including the
+    new weighted encoder/binner/val-metric code, so predictions stay bitwise
+    identical to sample_weight=None even with categoricals + early stopping."""
+    rng = np.random.default_rng(0)
+    n = 2500
+    cats = rng.integers(0, 6, size=n).astype(float)
+    Xnum = rng.normal(size=(n, 4))
+    X = np.column_stack([cats, Xnum])
+    y = cats * 0.5 + Xnum[:, 0] - Xnum[:, 1] + 0.1 * rng.normal(size=n)
+    Xte = np.column_stack([rng.integers(0, 6, 500).astype(float),
+                           rng.normal(size=(500, 4))])
+    kw = dict(n_estimators=120, early_stopping=True, early_stopping_rounds=20,
+              random_state=0)
+    m_none = ChimeraBoostRegressor(**kw).fit(X, y, cat_features=[0])
+    m_ones = ChimeraBoostRegressor(**kw).fit(
+        X, y, cat_features=[0], sample_weight=np.ones(n))
+    np.testing.assert_array_equal(m_none.predict(Xte), m_ones.predict(Xte))
