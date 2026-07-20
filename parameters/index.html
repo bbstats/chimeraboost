@@ -1045,8 +1045,8 @@
 </tr>
 <tr>
 <td><code>leaf_estimation_iterations</code></td>
-<td><code>1</code> (reg) / <code>3</code> (clf)</td>
-<td>Extra Newton refinement steps per leaf. Applies to the plain constant-leaf path only: inactive while linear leaves are active, and not implemented for multiclass or <code>loss="MAE"</code>/<code>"Quantile"</code> (an explicitly non-default value warns there).</td>
+<td><code>1</code> (reg) / <code>None</code>→<code>3</code> (clf)</td>
+<td>Extra Newton refinement steps per leaf. The classifier's <code>None</code> is an auto default resolving to 3 (it helps small/categorical-heavy binary fits). Applies to the plain constant-leaf path only: inert while linear leaves are active (default-on for binary ≥ ~1000 rows — the per-leaf ridge already fits the second-order-optimal leaf), and not implemented for multiclass or <code>loss="MAE"</code>/<code>"Quantile"</code>. An explicitly-set value that will be ignored on the path warns.</td>
 </tr>
 </tbody>
 </table>
