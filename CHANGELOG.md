@@ -3,7 +3,12 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.19.0] - 2026-07-20
+### Added
+- With `verbose=True`, fit now prints a notice when `early_stopping=True`
+  silently holds out `validation_fraction` of the training rows as the
+  validation set (the default path when no `eval_set` is passed), so the
+  effective training size is visible. Default `verbose=False` is unchanged.
 ### Changed
 - **Classifier `leaf_estimation_iterations` default is now `None` (auto)
   instead of a concrete `3`; it resolves to 3 and fits bit-identically.** The
