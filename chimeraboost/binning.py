@@ -53,17 +53,50 @@ def _bin_matrix(X, borders_flat, offsets, out):
                 out[i, f] = a - lo
 
 
-def _feature_borders(col, max_bins):
-    """Quantile borders for one numeric column, ignoring NaNs."""
-    finite = col[np.isfinite(col)]
+def _weighted_quantiles(values, weights, qs):
+    """Weighted quantiles at levels ``qs`` (sorted values, midpoint plotting
+    position). Reduces to the ordinary midpoint quantile when weights are
+    equal; used only on the sample-weighted binning path."""
+    order = np.argsort(values, kind="stable")
+    v = values[order]
+    w = weights[order]
+    cumw = np.cumsum(w)
+    total = cumw[-1]
+    # Position of each value on [0, 1]: cumulative weight up to its midpoint.
+    pos = (cumw - 0.5 * w) / total
+    return np.interp(qs, pos, v)
+
+
+def _feature_borders(col, max_bins, weights=None):
+    """Quantile borders for one numeric column, ignoring NaNs.
+
+    ``weights`` (per row, aligned with ``col``) makes the borders sample-weight
+    aware: zero-weight rows are dropped outright and fractional weights steer the
+    quantiles, so a row the caller zeroed out cannot place a bin edge. ``None``
+    is the unweighted fast path, unchanged from before this argument existed."""
+    finite_mask = np.isfinite(col)
+    finite = col[finite_mask]
+    if weights is None:
+        if finite.size == 0:
+            return np.array([], dtype=np.float64)
+        uniq = np.unique(finite)
+        if uniq.size <= max_bins:
+            # Few distinct values: put a border between each pair.
+            return ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
+        qs = np.linspace(0.0, 1.0, max_bins + 1)[1:-1]
+        borders = np.quantile(finite, qs)
+        return np.unique(borders).astype(np.float64)
+    # Weighted path: a zero-weight row does not exist for border purposes.
+    fw = weights[finite_mask]
+    pos = fw > 0.0
+    finite, fw = finite[pos], fw[pos]
     if finite.size == 0:
         return np.array([], dtype=np.float64)
     uniq = np.unique(finite)
     if uniq.size <= max_bins:
-        # Few distinct values: put a border between each pair.
         return ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
     qs = np.linspace(0.0, 1.0, max_bins + 1)[1:-1]
-    borders = np.quantile(finite, qs)
+    borders = _weighted_quantiles(finite, fw, qs)
     return np.unique(borders).astype(np.float64)
 
 
@@ -124,12 +157,17 @@ class Binner:
         centers[m + 1] = np.nan                     # NaN bin
         return centers
 
-    def fit(self, X):
-        """Learn quantile borders for each column from training data."""
+    def fit(self, X, sample_weight=None):
+        """Learn quantile borders for each column from training data.
+
+        ``sample_weight`` (per row, ``None`` == uniform) makes the borders
+        weight-aware; ``None`` is bit-identical to the pre-weight behavior."""
         X = np.asarray(X, dtype=np.float64)
         n_features = X.shape[1]
+        w = None if sample_weight is None else np.asarray(
+            sample_weight, dtype=np.float64)
         self.borders_ = [
-            _feature_borders(X[:, f], self._max_bins_for(f))
+            _feature_borders(X[:, f], self._max_bins_for(f), w)
             for f in range(n_features)
         ]
         # +1 for the searchsorted upper bucket, +1 for the NaN bucket.
@@ -164,5 +202,5 @@ class Binner:
             _bin_matrix(X, self._borders_flat, self._offsets, out)
         return out
 
-    def fit_transform(self, X):
-        return self.fit(X).transform(X)
+    def fit_transform(self, X, sample_weight=None):
+        return self.fit(X, sample_weight).transform(X)

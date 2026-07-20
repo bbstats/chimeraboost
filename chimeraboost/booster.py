@@ -19,6 +19,19 @@ from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    pack_forest_linear, _shap_forest_linear)
 
 
+def _uniform_to_none(w):
+    """Collapse uniform (all-equal) weights to None: they are the unweighted
+    case, and routing them through None keeps every weight-aware path (grad/hess,
+    loss init, target encoder, binner, validation metric) bit-identical to
+    sample_weight=None. None passes through unchanged."""
+    if w is None:
+        return None
+    w = np.asarray(w, dtype=np.float64)
+    if w.size and np.all(w == w[0]):
+        return None
+    return w
+
+
 def _run_callbacks(callbacks, iteration, train_loss, val_loss, model):
     """Invoke each fit callback for one boosting round. A callback is
     ``cb(iteration, train_loss, val_loss, model)``; returning True requests an
@@ -238,9 +251,11 @@ class _BaseBooster:
         return state
 
     def _prep_matrices(self, X, encode_targets, cat_features, eval_set,
-                       prep_cache):
+                       prep_cache, sample_weight=None):
         """Fit ``self.prep_`` and return the feature-major binned train/eval
         matrices ``(Xb, Xvb)`` (``Xvb`` is None without an eval set).
+        ``sample_weight`` (mean-1 normalized train weights, ``None`` == uniform)
+        is forwarded to the encoder/binner so zero-weight rows shape neither.
         ``encode_targets`` is the list of TS-encoding targets: ``[y]`` for the
         scalar booster, the K one-hot columns for multiclass.
 
@@ -268,7 +283,7 @@ class _BaseBooster:
             base_prep, base_Xb, base_Xvb = base
             self.prep_, cross_binner, crossb = \
                 FeaturePreprocessor.from_base_with_cross(
-                    base_prep, list(self.cross_pairs), X)
+                    base_prep, list(self.cross_pairs), X, sample_weight)
             nb = len(self.prep_.num_features_)
             # Stacked column order is [numeric | cross | TS]; splice the new
             # cross rows into the feature-major base matrix (concatenate
@@ -288,7 +303,8 @@ class _BaseBooster:
             self.prep_ = self._new_preprocessor()
             # Tree kernels consume a feature-major matrix; transpose once here.
             Xb = np.ascontiguousarray(
-                self.prep_.fit_transform(X, encode_targets, cat_features).T)
+                self.prep_.fit_transform(
+                    X, encode_targets, cat_features, sample_weight).T)
             Xvb = None
             if eval_set is not None:
                 Xv = as_model_array(eval_set[0], bool(cat_features))
@@ -300,11 +316,13 @@ class _BaseBooster:
     @staticmethod
     def _normalize_weights(sample_weight, n_samples):
         """Scale weights to mean 1 so the gradient magnitude matches the
-        unweighted case. None passes through unchanged."""
+        unweighted case. None passes through unchanged. Uniform weights collapse
+        to None so the whole fit takes the exact unweighted path (see
+        ``_uniform_to_none``)."""
         if sample_weight is None:
             return None
         w = np.asarray(sample_weight, dtype=np.float64)
-        return w * (n_samples / w.sum())
+        return _uniform_to_none(w * (n_samples / w.sum()))
 
     def _resolve_lr(self, n_samples, eval_set):
         if self.learning_rate is not None:
@@ -435,7 +453,7 @@ class GradientBoosting(_BaseBooster):
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
         Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
-                                      prep_cache)
+                                      prep_cache, w)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         # Packed quantized grad/hess scratch, reused across trees (see
@@ -450,9 +468,13 @@ class GradientBoosting(_BaseBooster):
             n_samples, bg_n, replace=False)
         self._shap_background_ = np.ascontiguousarray(Xb[:, bg_idx])
 
-        yv = Fv = None
+        yv = Fv = wv = None
         if eval_set is not None:
             yv = np.asarray(eval_set[1], dtype=np.float64)
+            # eval_set may carry per-row validation weights as a 3rd element
+            # (auto-split / OOB folds); uniform or absent -> unweighted metric.
+            if len(eval_set) > 2:
+                wv = _uniform_to_none(eval_set[2])
 
         self.init_ = self.loss_.init(y, w)
         F = np.full(n_samples, self.init_, dtype=np.float64)
@@ -527,7 +549,7 @@ class GradientBoosting(_BaseBooster):
 
             if Fv is not None:
                 Fv += tree.predict(Xvb)
-                val = self.loss_.eval(yv, Fv)   # validation is always unweighted
+                val = self.loss_.eval(yv, Fv, wv)   # wv=None -> unweighted
                 self.valid_history_.append(val)
                 if stopper.step(val, m):
                     if self.verbose:
@@ -680,17 +702,19 @@ class MulticlassBoosting(_BaseBooster):
 
         # One ordered-TS target per class (CatBoost-style per-class statistics).
         Xb, Xvb = self._prep_matrices(X, [Y[:, k] for k in range(K)],
-                                      cat_features, eval_set, prep_cache)
+                                      cat_features, eval_set, prep_cache, w)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         # Packed quantized grad/hess scratch, reused across every class tree.
         qbuf = (np.empty(n_samples, dtype=np.int64)
                 if self.quantize_gradients else None)
 
-        Yv = Fv = yv_idx = None
+        Yv = Fv = yv_idx = wv = None
         if eval_set is not None:
             yv_idx = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
             Yv = np.eye(K)[yv_idx]
+            if len(eval_set) > 2:
+                wv = _uniform_to_none(eval_set[2])
 
         self.init_ = self.loss_.init(Y, w)         # (K,)
         F = np.tile(self.init_, (n_samples, 1))    # (n, K)
@@ -741,7 +765,7 @@ class MulticlassBoosting(_BaseBooster):
             if Fv is not None:
                 for k in range(K):
                     Fv[:, k] += round_trees[k].predict(Xvb)
-                val = self.loss_.eval(Yv, Fv)   # validation is always unweighted
+                val = self.loss_.eval(Yv, Fv, wv)   # wv=None -> unweighted
                 self.valid_history_.append(val)
                 if stopper.step(val, m):
                     if self.verbose:
