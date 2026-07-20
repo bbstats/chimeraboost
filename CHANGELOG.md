@@ -4,6 +4,8 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+
+## [0.18.1] - 2026-07-20
 ### Fixed
 - **Early stopping now truncates to the best iteration when `n_estimators`
   runs out before patience fires** (previously every tree built past the
