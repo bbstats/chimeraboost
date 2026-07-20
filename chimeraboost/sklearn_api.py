@@ -57,8 +57,10 @@ def _validate_hyperparams(estimator):
     """
     p = estimator.get_params()
 
-    def _pos_int(name, lo=1):
+    def _pos_int(name, lo=1, allow_none=False):
         v = p[name]
+        if v is None and allow_none:
+            return
         if not (isinstance(v, (int, np.integer)) and not isinstance(v, bool)
                 and v >= lo):
             raise ValueError(f"{name} must be an integer >= {lo}; got {v!r}.")
@@ -79,7 +81,9 @@ def _validate_hyperparams(estimator):
 
     _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
-    _pos_int("leaf_estimation_iterations")
+    # None = the classifier's auto default (resolved to 3 at fit); the regressor
+    # passes a concrete int.
+    _pos_int("leaf_estimation_iterations", allow_none=True)
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -1219,6 +1223,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
+        # The regressor default is a concrete 1, but the shared validator accepts
+        # None (the classifier's auto default); resolve an explicit None to 1.
+        if kw.get("leaf_estimation_iterations") is None:
+            kw["leaf_estimation_iterations"] = 1
         # colsample None = auto: full columns for a single model (the bagged
         # path resolves members to 0.85 before this runs; see _fit_bagged).
         if kw.get("colsample") is None:
@@ -1491,8 +1499,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         them automatically only when the data is entirely categorical (where the
         interaction columns help without crowding out numeric splits); set
         ``True``/``False`` to force it on/off.
-    leaf_estimation_iterations : int, default 3
-        Newton refinement steps per leaf.
+    leaf_estimation_iterations : int or None, default None
+        Extra Newton refinement steps per leaf. ``None`` is the auto default and
+        resolves to 3, which helps small and categorical-heavy binary fits.
+        Refinement only applies to the plain constant-leaf path: it is inert
+        while ``linear_leaves`` is active (default-on for binary ≥ ~1000 rows,
+        where the per-leaf ridge already fits the second-order-optimal leaf) and
+        is not implemented for multiclass. An explicitly-set value that will be
+        ignored on the path about to run warns.
     linear_leaves : bool or None, default None
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant. ``None`` enables it for binary classification and disables
@@ -1581,7 +1595,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
-                 cat_combinations=None, leaf_estimation_iterations=3,
+                 cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
@@ -1754,6 +1768,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # (the regressor resolves it per loss); the booster requires an int.
         if kw.get("depth") is None:
             kw["depth"] = 6
+        # leaf_estimation_iterations None = auto -> 3. This is the classifier's
+        # long-standing effective value (it helps small/categorical binary and
+        # is inert where linear leaves take over or for multiclass); None just
+        # keeps the API from advertising a concrete count that is dead in those
+        # regimes. The booster requires an int.
+        if kw.get("leaf_estimation_iterations") is None:
+            kw["leaf_estimation_iterations"] = 3
         # colsample None = auto: full columns for a single model (the bagged
         # path resolves members to 0.85 before this runs; see _fit_bagged).
         if kw.get("colsample") is None:
@@ -1776,24 +1797,27 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
         # Warn when an explicitly non-default setting will be silently inert on
-        # the path about to run (defaults stay quiet -- the precedence is
-        # documented). The linear-leaf update owns the training step, so it
+        # the path about to run (the auto defaults stay quiet -- the precedence
+        # is documented). The linear-leaf update owns the training step, so it
         # shadows both ordered boosting and leaf refinement; multiclass never
-        # refines leaves. leaf_estimation_iterations=1 means "no refinement"
-        # and is trivially satisfied, so it never warns.
+        # refines leaves. leaf_estimation_iterations is checked against the raw
+        # attribute (None = auto, no user intent) rather than the resolved kw,
+        # and a refinement count of 1 asks for nothing, so neither warns.
         ll_shadows = (not self._multiclass and kw.get("linear_leaves")
                       and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
+        lei_set = self.leaf_estimation_iterations
+        lei_wanted = lei_set is not None and lei_set > 1
         if ll_shadows and self.ordered_boosting:
             warnings.warn(
                 "ordered_boosting is ignored while linear leaves are active "
                 "(the per-leaf linear model owns the training step); set "
                 "linear_leaves=False to use it.", UserWarning, stacklevel=2)
-        if ll_shadows and self.leaf_estimation_iterations not in (1, 3):
+        if ll_shadows and lei_wanted:
             warnings.warn(
                 "leaf_estimation_iterations is ignored while linear leaves "
                 "are active; set linear_leaves=False to use it.",
                 UserWarning, stacklevel=2)
-        if self._multiclass and self.leaf_estimation_iterations not in (1, 3):
+        if self._multiclass and lei_wanted:
             warnings.warn(
                 "leaf_estimation_iterations is not implemented for multiclass "
                 "and will be ignored.", UserWarning, stacklevel=2)

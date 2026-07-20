@@ -171,14 +171,69 @@ def test_ordered_boosting_warns_when_linear_leaves_shadow_it():
         clf.fit(Xc, yc)
 
 
-def test_leaf_estimation_iterations_warns_on_multiclass():
+def test_leaf_estimation_iterations_default_is_none_auto():
+    # H1/H2: the classifier's default is None (auto), not a concrete 3, so the
+    # API stops advertising a refinement count that is inert for multiclass and
+    # shadowed by linear leaves. None resolves to 3 for the constant-leaf path.
+    assert ChimeraBoostClassifier().leaf_estimation_iterations is None
+
+
+def test_leaf_estimation_iterations_auto_resolves_to_three():
+    # The auto default must reproduce the historical effective value (3) exactly
+    # -- i.e. be bit-identical to explicitly passing 3 -- on a constant-leaf
+    # binary fit where refinement is live (linear leaves off).
+    Xc, yc = _toy_binary(n=1500, seed=2)
+    common = dict(n_estimators=40, random_state=0, linear_leaves=False)
+    p_auto = ChimeraBoostClassifier(**common).fit(Xc, yc).predict_proba(Xc)
+    p_three = ChimeraBoostClassifier(leaf_estimation_iterations=3,
+                                     **common).fit(Xc, yc).predict_proba(Xc)
+    np.testing.assert_array_equal(p_auto, p_three)
+
+
+def test_leaf_estimation_iterations_auto_is_quiet_on_multiclass():
+    # The auto default (None) must NOT warn on multiclass -- only an explicitly
+    # set, ignored value should.
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(300, 4))
+    y = rng.choice([0, 1, 2], size=300)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")   # any warning becomes a failure
+        ChimeraBoostClassifier(n_estimators=10, random_state=0).fit(X, y)
+
+
+def test_regressor_accepts_none_leaf_estimation_iterations():
+    # The shared validator now accepts None (the classifier's auto default);
+    # the regressor resolves an explicit None to its concrete default 1.
+    X, y = _toy_regression(n=300)
+    common = dict(n_estimators=20, random_state=0)
+    p_none = ChimeraBoostRegressor(leaf_estimation_iterations=None,
+                                   **common).fit(X, y).predict(X)
+    p_one = ChimeraBoostRegressor(leaf_estimation_iterations=1,
+                                  **common).fit(X, y).predict(X)
+    np.testing.assert_array_equal(p_none, p_one)
+
+
+@pytest.mark.parametrize("lei", [2, 3, 8])
+def test_leaf_estimation_iterations_warns_on_multiclass(lei):
+    # Any explicitly-set lei>1 that is ignored on multiclass warns honestly
+    # (the former default 3 no longer gets a silent exemption).
     rng = np.random.default_rng(0)
     X = rng.normal(size=(300, 4))
     y = rng.choice([0, 1, 2], size=300)
     clf = ChimeraBoostClassifier(n_estimators=10, random_state=0,
-                                 leaf_estimation_iterations=8)
+                                 leaf_estimation_iterations=lei)
     with pytest.warns(UserWarning, match="not implemented for multiclass"):
         clf.fit(X, y)
+
+
+@pytest.mark.parametrize("lei", [2, 3])
+def test_leaf_estimation_iterations_warns_when_linear_leaves_shadow_it(lei):
+    Xc, yc = _toy_binary(n=1600)               # >= 1000 rows -> linear leaves on
+    clf = ChimeraBoostClassifier(n_estimators=10, random_state=0,
+                                 leaf_estimation_iterations=lei)
+    with pytest.warns(UserWarning,
+                      match="leaf_estimation_iterations is ignored"):
+        clf.fit(Xc, yc)
 
 
 def test_ordered_boosting_warns_on_mae():
