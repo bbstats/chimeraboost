@@ -847,6 +847,7 @@ def _stop_after(k):
     """Fit callback halting boosting after k rounds (selection auditions)."""
     def cb(iteration, train_loss, val_loss, model):
         return iteration + 1 >= k
+    cb._cb_needs_train_loss = False
     return cb
 
 
@@ -861,6 +862,7 @@ def _stop_if_behind(k, target_best):
         if val_loss is not None and val_loss < state["best"]:
             state["best"] = val_loss
         return iteration + 1 >= k and not state["best"] < target_best
+    cb._cb_needs_train_loss = False
     return cb
 
 
