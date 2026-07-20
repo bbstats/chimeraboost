@@ -4,6 +4,22 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **Classifier `leaf_estimation_iterations` default is now `None` (auto)
+  instead of a concrete `3`; it resolves to 3 and fits bit-identically.** The
+  effective value is unchanged — an A/B across the synthetic, Grinsztajn,
+  highcard and OpenML suites confirmed `3` is correct: it helps small and
+  categorical-heavy binary fits (e.g. `credit-g`, `kc2` on the independent
+  gate) and is provably inert everywhere linear leaves take over (Grinsztajn
+  came out 59/59 bit-identical) or for multiclass. `None` simply stops the API
+  from advertising a refinement count that is dead for multiclass and shadowed
+  for large binary. The regressor's honest `1` is unchanged.
+### Fixed
+- The inert-knob warnings for `leaf_estimation_iterations` now fire for any
+  **explicitly-set** value `> 1` that will be ignored on the path about to run
+  (linear leaves active, or multiclass), while the auto default stays quiet —
+  previously the former default `3` was silently exempted, so an explicit `3`
+  meant to request refinement was never flagged.
 
 ## [0.18.1] - 2026-07-20
 ### Fixed

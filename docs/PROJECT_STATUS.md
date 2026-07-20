@@ -43,7 +43,7 @@ Core design choices (all deliberate, all validated):
 | `l2_leaf_reg` | 1.0 | 1.0 |
 | `max_bins` | 128 | 128 |
 | `ordered_boosting` (LOO) | False | False |
-| `leaf_estimation_iterations` | 1 | 3 |
+| `leaf_estimation_iterations` | 1 | None → 3 |
 | `min_child_weight` | 1.0 | None → size-adaptive `_auto_min_child_weight(n)` |
 | `n_estimators` / patience | 2000 max, patience 50 | same |
 
