@@ -547,6 +547,13 @@ class GradientBoosting(_BaseBooster):
                 vl = self.valid_history_[-1] if self.valid_history_ else None
                 if _run_callbacks(callbacks, m, tl, vl, self):
                     break
+        else:
+            # No break: the tree budget ran out before patience could fire.
+            # Keep the best prefix exactly as the mid-training stop would
+            # have. Callback stops are excluded on purpose -- the selection
+            # auditions read feature_importances_ off callback-capped fits.
+            if Fv is not None and stopper.patience:
+                self.trees_ = self.trees_[: stopper.best_iter + 1]
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
@@ -754,6 +761,13 @@ class MulticlassBoosting(_BaseBooster):
                 vl = self.valid_history_[-1] if self.valid_history_ else None
                 if _run_callbacks(callbacks, m, tl, vl, self):
                     break
+        else:
+            # No break: the tree budget ran out before patience could fire.
+            # Keep the best prefix exactly as the mid-training stop would
+            # have. Callback stops are excluded on purpose -- the selection
+            # auditions read feature_importances_ off callback-capped fits.
+            if Fv is not None and stopper.patience:
+                self.trees_ = self.trees_[: stopper.best_iter + 1]
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)

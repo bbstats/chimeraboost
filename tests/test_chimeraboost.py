@@ -1377,6 +1377,46 @@ def test_validation_history_best_iteration_is_curve_argmin():
     assert len(hist) == m.best_iteration_ + PATIENCE
 
 
+def test_budget_exhaustion_truncates_to_best_iteration():
+    """When n_estimators runs out before patience does, the kept forest is
+    still the best-on-validation prefix -- same contract as a patience stop.
+    The recorded curve covers the full horizon (training really ran it all)."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(150, 10))
+    y = X[:, 0] + 2.5 * rng.normal(size=150)   # weak signal, heavy noise
+    Xv = rng.normal(size=(80, 10))
+    yv = Xv[:, 0] + 2.5 * rng.normal(size=80)
+    HORIZON = 120
+    m = ChimeraBoostRegressor(
+        n_estimators=HORIZON, learning_rate=0.3,
+        early_stopping_rounds=500, random_state=0)
+    m.fit(X, y, eval_set=(Xv, yv))
+    hist = m.validation_history_
+    assert len(hist) == HORIZON                 # patience never fired
+    assert m.best_iteration_ == int(np.argmin(hist)) + 1
+    assert m.best_iteration_ < HORIZON          # overfit tail was dropped
+
+
+def test_budget_exhaustion_truncates_to_best_iteration_multiclass():
+    """Same contract on the multiclass loop (per-round K-tree groups)."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(150, 10))
+    y = (X[:, 0] + 2.0 * rng.normal(size=150) > 0).astype(int) \
+        + (X[:, 1] + 2.0 * rng.normal(size=150) > 0).astype(int)
+    Xv = rng.normal(size=(80, 10))
+    yv = (Xv[:, 0] + 2.0 * rng.normal(size=80) > 0).astype(int) \
+        + (Xv[:, 1] + 2.0 * rng.normal(size=80) > 0).astype(int)
+    HORIZON = 120
+    m = ChimeraBoostClassifier(
+        n_estimators=HORIZON, learning_rate=0.3,
+        early_stopping_rounds=500, random_state=0)
+    m.fit(X, y, eval_set=(Xv, yv))
+    hist = m.validation_history_
+    assert len(hist) == HORIZON
+    assert m.best_iteration_ == int(np.argmin(hist)) + 1
+    assert m.best_iteration_ < HORIZON
+
+
 def test_validation_history_full_curve_without_early_stopping():
     """early_stopping=False + explicit eval_set => the complete curve to the
     horizon (n_estimators), never truncated by the stopper."""

@@ -5,6 +5,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Fixed
+- **Early stopping now truncates to the best iteration when `n_estimators`
+  runs out before patience fires** (previously every tree built past the
+  best round was kept, contradicting the documented `best_iteration_`
+  contract; on budget-exhausted fits this cost ~5% validation RMSE in an
+  adversarial repro). Fits where patience fires, or with early stopping
+  off, or stopped by a callback, are unchanged.
 - **Thread hygiene**: `thread_count` now applies to predict as well as fit,
   and the process-global numba thread setting is restored afterwards in both
   — previously one `fit(thread_count=1)` silently capped every later numba
