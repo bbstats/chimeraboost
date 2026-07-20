@@ -384,3 +384,39 @@ def test_h3_uniform_weight_bit_identical_with_cats_and_es():
     m_ones = ChimeraBoostRegressor(**kw).fit(
         X, y, cat_features=[0], sample_weight=np.ones(n))
     np.testing.assert_array_equal(m_none.predict(Xte), m_ones.predict(Xte))
+
+
+def _small_reg_data(n=300, seed=0):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, 4))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=n)
+    return X, y
+
+
+def test_a1_auto_split_notice_verbose_regressor(capsys):
+    """verbose=True announces the silent 20% early-stopping holdout (A1)."""
+    X, y = _small_reg_data()
+    ChimeraBoostRegressor(n_estimators=5, verbose=True,
+                          random_state=0).fit(X, y)
+    out = capsys.readouterr().out
+    assert "holding out 60 of 300 rows" in out
+    assert "early_stopping=False" in out
+
+
+def test_a1_auto_split_notice_verbose_classifier(capsys):
+    X, y = _small_reg_data()
+    y = (y > 0).astype(int)
+    ChimeraBoostClassifier(n_estimators=5, verbose=True,
+                           random_state=0).fit(X, y)
+    out = capsys.readouterr().out
+    assert "holding out 60 of 300 rows" in out
+
+
+def test_a1_auto_split_notice_silent_by_default(capsys):
+    """Default verbose=False stays quiet; so does an explicit eval_set."""
+    X, y = _small_reg_data()
+    ChimeraBoostRegressor(n_estimators=5, random_state=0).fit(X, y)
+    assert "holding out" not in capsys.readouterr().out
+    ChimeraBoostRegressor(n_estimators=5, verbose=True, random_state=0).fit(
+        X[:240], y[:240], eval_set=(X[240:], y[240:]))
+    assert "holding out" not in capsys.readouterr().out

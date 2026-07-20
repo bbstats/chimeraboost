@@ -1176,6 +1176,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 es_active = False  # data too small to hold out a val set
             else:
                 train_idx, val_idx = split
+                if self.verbose and not getattr(self, "_is_bag_member", False):
+                    print(f"early_stopping=True: holding out {len(val_idx)} "
+                          f"of {len(X)} rows as a validation set (pass "
+                          "eval_set to choose it, or early_stopping=False "
+                          "to train on all rows)")
                 # Carry the val rows' weights so zero-weight rows split off into
                 # the auto holdout don't score the early-stopping metric (H3).
                 sw_val = (sample_weight[val_idx]
@@ -1730,6 +1735,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 es_active = False  # data too small to hold out a val set
             else:
                 train_idx, val_idx = split
+                if self.verbose and not getattr(self, "_is_bag_member", False):
+                    print(f"early_stopping=True: holding out {len(val_idx)} "
+                          f"of {len(X)} rows as a validation set (pass "
+                          "eval_set to choose it, or early_stopping=False "
+                          "to train on all rows)")
                 # Carry val-row weights so zero-weight holdout rows don't score
                 # the early-stopping metric (H3).
                 sw_val = (sample_weight[val_idx]
