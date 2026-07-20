@@ -61,13 +61,18 @@ class FeaturePreprocessor:
         gives the tree access to interaction effects that individual categoricals
         can't capture. Only active when ≥2 categorical columns are present.
     cross_pairs : list[(int, int, str)] | None
-        Numeric cross features: each (i, j, op) appends the column
-        ``X[:, i] - X[:, j]`` (op="diff") or ``X[:, i] * X[:, j]`` (op="prod"),
-        binned like any numeric column. Oblivious trees can only approximate a
-        numeric interaction with a depth-limited staircase (the same split is
-        applied to every leaf of a level); a cross column turns e.g. the
-        ``x_i < x_j`` boundary into a single split. Indices refer to ORIGINAL
-        input columns and must be numeric (not in ``cat_features``).
+        Cross features: each (i, j, op) appends the column
+        ``X[:, i] - X[:, j]`` (op="diff"), ``X[:, i] * X[:, j]`` (op="prod"),
+        or ``X[:, i] - mean_fit(X[:, i] | X[:, j])`` (op="gdiff"), binned like
+        any numeric column. Oblivious trees can only approximate an
+        interaction with a depth-limited staircase (the same split is applied
+        to every leaf of a level); a cross column turns e.g. the ``x_i < x_j``
+        boundary -- or "above this row's own category's average" -- into a
+        single split. Indices refer to ORIGINAL input columns; for diff/prod
+        both must be numeric, for gdiff ``i`` is numeric and ``j`` is a
+        ``cat_features`` column. gdiff group means are learned from the fit
+        rows only (they use no target values, so the same map serves fit and
+        predict); unseen categories fall back to the global mean of column i.
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
@@ -141,15 +146,56 @@ class FeaturePreprocessor:
                     [codes, np.column_stack(combo_cols).astype(np.int64)])
         return num, codes
 
+    def _fit_gdiff(self, X, sample_weight=None):
+        """Learn the per-category means backing the gdiff cross columns:
+        for each (i, j, "gdiff") pair a {category value -> mean of X[:, i]}
+        map plus the global-mean fallback for categories unseen at fit.
+        Means are computed over rows with a finite X[:, i] (a NaN numeric
+        contributes nothing, mirroring the binner's quantile treatment) and,
+        when ``sample_weight`` is given, weighted by it so zero-weight rows
+        never shape another row's centering."""
+        self.gdiff_maps_ = []
+        pairs = [(i, j) for i, j, op in self.cross_pairs if op == "gdiff"]
+        if not pairs:
+            return
+        import pandas as pd
+        for i, j in pairs:
+            a = np.asarray(X[:, i], dtype=np.float64)
+            keys = pd.Series(np.asarray(X[:, j], dtype=object))
+            keys = keys.where(~pd.isna(keys), "__nan__")
+            ok = np.isfinite(a)
+            w = (np.ones(ok.sum()) if sample_weight is None
+                 else np.asarray(sample_weight, dtype=np.float64)[ok])
+            df = pd.DataFrame({"v": a[ok] * w, "w": w, "k": keys[ok].values})
+            agg = df.groupby("k", sort=False).sum()
+            tot_w = float(agg["w"].sum())
+            global_mean = (float(agg["v"].sum() / tot_w) if tot_w > 0 else 0.0)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                means = agg["v"] / agg["w"]
+            means = means.where(np.isfinite(means), global_mean)
+            self.gdiff_maps_.append((means.to_dict(), global_mean))
+
     def _cross_block(self, X):
-        """Compute the numeric cross-feature columns (float64) from raw input.
-        NaN in either parent propagates to the cross (binned to the missing
-        bucket like any numeric NaN)."""
+        """Compute the cross-feature columns (float64) from raw input. NaN in
+        a numeric parent propagates to the cross (binned to the missing bucket
+        like any numeric NaN); gdiff maps a NaN category to its own "__nan__"
+        group and an unseen category to the global mean."""
         if not self.cross_pairs:
             return np.empty((X.shape[0], 0))
         cols = []
+        g = 0
         for i, j, op in self.cross_pairs:
             a = np.asarray(X[:, i], dtype=np.float64)
+            if op == "gdiff":
+                import pandas as pd
+                means, global_mean = self.gdiff_maps_[g]
+                g += 1
+                keys = pd.Series(np.asarray(X[:, j], dtype=object))
+                keys = keys.where(~pd.isna(keys), "__nan__")
+                centered = (keys.map(means).astype(np.float64)
+                            .fillna(global_mean).to_numpy())
+                cols.append(a - centered)
+                continue
             b = np.asarray(X[:, j], dtype=np.float64)
             cols.append(a - b if op == "diff" else a * b)
         return np.column_stack(cols)
@@ -187,6 +233,7 @@ class FeaturePreprocessor:
         neither the categorical statistics nor the bin borders. ``None`` is the
         unweighted path, bit-identical to before this argument existed."""
         num, codes = self._split_columns_fit(X, cat_features)
+        self._fit_gdiff(X, sample_weight)
         cross = self._cross_block(X)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross
@@ -264,6 +311,7 @@ class FeaturePreprocessor:
         prep.combo_maps_ = base.combo_maps_
         prep.encoders_ = base.encoders_
 
+        prep._fit_gdiff(X, sample_weight)
         cross = prep._cross_block(X)
         cross_binner = Binner(base.max_bins).fit(cross, sample_weight)
         nb = len(base.num_features_)
@@ -298,7 +346,10 @@ class FeaturePreprocessor:
         split gains fold into the right importance bucket."""
         combo_orig = [min(i, j) for i, j in self.combo_pairs_]
         fmap = list(self.num_features_)
-        fmap.extend(min(i, j) for i, j, _op in self.cross_pairs)
+        # gdiff is a recentering of its numeric parent i, so its gain belongs
+        # there; diff/prod keep the established min(i, j) convention.
+        fmap.extend(i if op == "gdiff" else min(i, j)
+                    for i, j, op in self.cross_pairs)
         for _ in range(n_targets):
             fmap.extend(self.cat_features_)
             fmap.extend(combo_orig)
