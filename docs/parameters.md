@@ -11,7 +11,7 @@ For more detail, see [API reference](api.md).
 | `depth` | `None`→auto (reg) / `6` (clf) | Tree depth (a depth-d tree is d splits). The regressor's `None` resolves to 6 for `"RMSE"`/`"MAE"` and 4 for `loss="Quantile"` (deep leaves overfit the tail quantile). Conservative by default; raise to 8–10 for large, interaction-heavy regression. |
 | `l2_leaf_reg` | `1.0` | L2 penalty on leaf values. Higher is smoother. |
 | `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | Minimum hessian mass on each side of a split. The classifier's `None` is size-adaptive: the full veto (1.0) below ~500 training rows, fading linearly to 0 above ~2000 — oblivious trees underfit large data under a fixed veto, while small data still needs one. |
-| `leaf_estimation_iterations` | `1` (reg) / `3` (clf) | Extra Newton refinement steps per leaf. Applies to the plain constant-leaf path only: inactive while linear leaves are active, and not implemented for multiclass or `loss="MAE"`/`"Quantile"` (an explicitly non-default value warns there). |
+| `leaf_estimation_iterations` | `1` (reg) / `None`→`3` (clf) | Extra Newton refinement steps per leaf. The classifier's `None` is an auto default resolving to 3 (it helps small/categorical-heavy binary fits). Applies to the plain constant-leaf path only: inert while linear leaves are active (default-on for binary ≥ ~1000 rows — the per-leaf ridge already fits the second-order-optimal leaf), and not implemented for multiclass or `loss="MAE"`/`"Quantile"`. An explicitly-set value that will be ignored on the path warns. |
 
 ## Binning
 
