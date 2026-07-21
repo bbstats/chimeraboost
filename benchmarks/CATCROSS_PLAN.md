@@ -57,4 +57,23 @@ verdict time.
 
 ## Results log
 
-(appended as tiers complete)
+### T1 synth screen — PASS (2026-07-20)
+
+Variant `results/20260720-195938.json` vs base `20260720-100716.json`
+(NOT 100831 — that file is the H1/H2 lei=1 EXPERIMENTAL arm; see lesson).
+- 9W / 5L / 122T, mean +0.072%.
+- Structural controls perfect: cats=none 0-0-79 EXACT ties, n<2000 0-0-48
+  exact ties (row gate respected), canaries 0-0-3 flat.
+- Concentration as registered: cats=entity 8W-2L +0.235%; entity_strength
+  top OLS factor (t=+2.23, positive). card>16 +0.355%.
+- Engagement sparse on synth (most cat sets < 2000 rows) → magnitude
+  understates; hc is the target regime.
+
+LESSON (baseline hygiene): the 2026-07-20 morning result pairs are the
+H1/H2 lei A/B arms and carry NO config flag marking the experimental arm
+(code-level PYTHONPATH arms). 100831 = lei=1 arm (differs on small binary);
+100716 = default arm (matches 07-19 certified runs bit-exactly). Same
+contamination in the hc pair: 101508 vs 101537 differ on 8 binary cells
+(kick, sf-police, kdd_ipums); clean member identified by a main-code
+fingerprint run before the hc comparison. gr pair members both clean (lei
+fully shadowed there, both match 07-19 exactly).
