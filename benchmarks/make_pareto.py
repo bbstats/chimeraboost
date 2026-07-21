@@ -353,20 +353,16 @@ def render_image(scored, meta, out_path, metric="winrate"):
                     fontweight="bold" if m.startswith("ChimeraBoost") else "normal",
                     color="#1a1a1a")
 
-    ax.set_xscale("log")
-    from matplotlib.ticker import FixedLocator, FuncFormatter
-    ticks = [1, 2, 3, 5, 8, 12, 20, 40]
+    from matplotlib.ticker import FuncFormatter, MaxNLocator
     xs = [s["slowdown"] for s in pts.values()]
-    lo, hi = min(xs), max(xs)
-    ticks = [t for t in ticks if lo / 1.3 <= t <= hi * 1.3]
-    ax.xaxis.set_major_locator(FixedLocator(ticks))
-    ax.xaxis.set_minor_locator(FixedLocator([]))
+    ax.set_xlim(0, max(xs) * 1.09)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=8, steps=[1, 2, 5, 10]))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}×"))
 
-    # Default log x-axis already puts the fastest (1×) on the LEFT, so the
-    # best corner (strong + fast) is up-and-to-the-left. No inversion needed.
+    # Fastest (1×) on the LEFT, so the best corner (strong + fast) is
+    # up-and-to-the-left. No inversion needed.
     ax.set_xlabel("← Slowdown — mean fit-time multiple vs fastest model "
-                  "(log scale, lower = better)", fontsize=10.5)
+                  "(lower = better)", fontsize=10.5)
 
     if metric == "winrate":
         ylo = min(s["wr_lo"] if s["wr_lo"] is not None else s["winrate"]

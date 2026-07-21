@@ -15,7 +15,7 @@ Run:
 import os
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FixedLocator, FuncFormatter
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 # Same palette as make_pareto.py so ChimeraBoost stays the consistent blue.
 MODEL_COLOR = {
@@ -112,13 +112,9 @@ def render_image(out_path):
                     ha=ha, fontsize=10,
                     fontweight="bold" if is_us else "normal", color="#1a1a1a")
 
-    ax.set_xscale("log")
-    ticks = [0.4, 0.6, 1, 2, 3, 5, 8]
     xs = [total_time(m) for m in models]
-    lo, hi = min(xs), max(xs)
-    ticks = [t for t in ticks if lo / 1.3 <= t <= hi * 1.3]
-    ax.xaxis.set_major_locator(FixedLocator(ticks))
-    ax.xaxis.set_minor_locator(FixedLocator([]))
+    ax.set_xlim(0, max(xs) * 1.1)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=8))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}s"))
 
     # Fast (low time) on the LEFT, strong (high Elo) UP -> best corner up-left.
