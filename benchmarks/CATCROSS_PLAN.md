@@ -102,8 +102,30 @@ Variant `results/20260720-210906.json` vs base `20260720-101508.json`
 ### T3 gate baseline identification
 
 Gate pair: 101702 = clean default arm (fingerprinted analytically — 101943
-shows exactly the recorded lei=1 losses on credit-g/kc2). One-shot variant
-run launched 2026-07-20 21:4x.
+shows exactly the recorded lei=1 losses on credit-g/kc2).
+
+### T3 OpenML one-shot gate — PASS, non-negative (2026-07-20)
+
+Variant `results/20260720-212313.json` vs base `20260720-101702.json`:
+3W / 3L / 30T, mean +0.003% (dead flat; 30 structural ties = guards
+working). Wins: bank-marketing +1.01% (the set that KILLED C1 one-hot by
+regressing — gdiff wins it), cat_binary +0.27%, adult +0.22%. Losses:
+sick −1.01%, cat_multiclass −0.25%, abalone −0.12%. Gate not burned.
+
+## VERDICT (2026-07-20) — SHIP RECOMMENDED, merge = Nathan's call
+
+All registered bars met, no kill clause tripped:
+- T1 mechanism confirmed (entity-slice concentration, controls exact).
+- Grinsztajn: 59/59 bit-identical (structurally inert — its loaders pass no
+  cat_features) AND fit sum 2.9% FASTER (train-loss skip). Headline chart
+  untouched by construction; net Pareto improvement on the headline axis.
+- hc: 5W-3L +0.254% primary on the one suite that expresses the regime;
+  the selection race converted the probe's blowup set into the largest win.
+  Brier wash (abs deltas ≤0.0007). Cost 1.32× hc fit, bounded to cat data.
+- Gate: flat (+0.003%), non-negative.
+Weighting note: no gr-vs-hc conflict exists to weigh — gr is exactly zero
+risk here. After merge: refresh pareto (gr accuracy identical, fit ~3%
+faster), then TabArena re-read (report-only) whenever wanted.
 
 LESSON (baseline hygiene): the 2026-07-20 morning result pairs are the
 H1/H2 lei A/B arms and carry NO config flag marking the experimental arm
