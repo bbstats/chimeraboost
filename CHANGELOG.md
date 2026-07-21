@@ -3,6 +3,29 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **Group-centered categorical crosses.** The `cross_features` race now also
+  auditions `gdiff` columns — a numeric column minus the fit-time mean of
+  that column within the row's category (`x_i - mean(x_i | c_j)`), for the
+  top-4 numeric × top-3 categorical features by base-fit importance — so
+  "above this row's own category's baseline" becomes one split instead of a
+  per-category staircase. Group means are target-free (the same map serves
+  fit and predict; unseen categories fall back to the global mean) and
+  weight-aware (zero-weight rows never shape a mean). Auto engagement now
+  also covers datasets with one numeric plus categorical features. On the
+  high-cardinality suite: +0.25% mean primary (employee_salaries +2.5%,
+  okcupid-stem +0.5%, black_friday +0.3%), losses all ≤ 0.12%, at 1.32×
+  suite fit; Grinsztajn is bit-identical by construction (its loaders pass
+  no categorical features); the independent OpenML gate came out flat
+  (+0.003%, bank-marketing +1.0%).
+### Changed
+- Fit no longer evaluates the training loss every round for the internal
+  selection-audition callbacks that never read it; user callbacks still
+  receive the documented value. Predictions are bit-identical; a default
+  50k-row binary fit is ~15% faster and the Grinsztajn suite fit sum ~3%
+  faster.
+
 ## [0.19.0] - 2026-07-20
 ### Added
 - With `verbose=True`, fit now prints a notice when `early_stopping=True`

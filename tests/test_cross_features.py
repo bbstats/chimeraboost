@@ -235,8 +235,11 @@ def test_crosses_skip_categorical_columns():
                               cross_features=True)
     m.fit(X, y, cat_features=[3])
     if m.cross_pairs_:
-        flat = {i for i, j, _ in m.cross_pairs_} | {j for i, j, _ in m.cross_pairs_}
-        assert 3 not in flat
+        # A categorical column may appear only as a gdiff group key (j of a
+        # group-centered cross), never as a diff/prod arithmetic parent.
+        for i, j, op in m.cross_pairs_:
+            assert i != 3
+            assert j != 3 or op == "gdiff"
     assert m.predict(X[:10]).shape == (10,)
 
 

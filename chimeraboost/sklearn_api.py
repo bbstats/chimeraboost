@@ -809,32 +809,44 @@ def _auto_cat_combinations(cat_features, n_features, n_samples):
 # is too small to referee and small data overfits extra columns first.
 CROSS_TOP_M = 6
 CROSS_MIN_SAMPLES = 2000
+# Group-centered (gdiff) candidates: top numerics x top categoricals. A gdiff
+# column x_i - mean(x_i | c_j) makes "above this row's own category's
+# baseline" one split -- the num x cat analog of the diff/prod staircase fix.
+CROSS_GDIFF_TOP_NUM = 4
+CROSS_GDIFF_TOP_CAT = 3
 
 
 def _cross_candidate_pairs(importances, cat_features, n_features):
     """Candidate (i, j, op) cross features from base-fit importances.
 
-    Oblivious trees approximate numeric interactions with a depth-limited
-    staircase (one shared split per level); a difference column makes the
-    ``x_i < x_j`` boundary one split and a product column captures
-    multiplicative structure. Pairs are the C(m, 2) combinations of the top-m
-    numeric features by split-gain importance -- interactions among features
-    the trees already use are the plausible ones, and irrelevant crosses cost
-    only fit time (split search ignores them)."""
+    Oblivious trees approximate interactions with a depth-limited staircase
+    (one shared split per level); a difference column makes the ``x_i < x_j``
+    boundary one split, a product column captures multiplicative structure,
+    and a group-centered column makes a within-category deviation one split.
+    Numeric pairs are the C(m, 2) combinations of the top-m numeric features
+    by split-gain importance; gdiff pairs cross the top numerics with the top
+    categoricals. Interactions among features the trees already use are the
+    plausible ones, and irrelevant crosses cost only fit time (split search
+    ignores them; the validation race referees the whole block)."""
     cat = set(cat_features or [])
     num_idx = [i for i in range(n_features) if i not in cat]
-    if len(num_idx) < 2:
+    if not num_idx:
         return []
     imp = np.asarray(importances, dtype=np.float64)
     key = np.zeros(n_features)
     key[:imp.shape[0]] = imp
-    top = sorted(num_idx, key=lambda i: -key[i])[:CROSS_TOP_M]
     pairs = []
-    for a in range(len(top)):
-        for b in range(a + 1, len(top)):
-            i, j = top[a], top[b]
-            pairs.append((i, j, "diff"))
-            pairs.append((i, j, "prod"))
+    if len(num_idx) >= 2:
+        top = sorted(num_idx, key=lambda i: -key[i])[:CROSS_TOP_M]
+        for a in range(len(top)):
+            for b in range(a + 1, len(top)):
+                i, j = top[a], top[b]
+                pairs.append((i, j, "diff"))
+                pairs.append((i, j, "prod"))
+    if cat:
+        gnum = sorted(num_idx, key=lambda i: -key[i])[:CROSS_GDIFF_TOP_NUM]
+        gcat = sorted(cat, key=lambda i: -key[i])[:CROSS_GDIFF_TOP_CAT]
+        pairs.extend((i, j, "gdiff") for i in gnum for j in gcat)
     return pairs
 
 
@@ -847,6 +859,7 @@ def _stop_after(k):
     """Fit callback halting boosting after k rounds (selection auditions)."""
     def cb(iteration, train_loss, val_loss, model):
         return iteration + 1 >= k
+    cb._cb_needs_train_loss = False
     return cb
 
 
@@ -861,6 +874,7 @@ def _stop_if_behind(k, target_best):
         if val_loss is not None and val_loss < state["best"]:
             state["best"] = val_loss
         return iteration + 1 >= k and not state["best"] < target_best
+    cb._cb_needs_train_loss = False
     return cb
 
 
@@ -1252,11 +1266,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
         # Cross-features applicability, decidable before any fit: pair
-        # candidates exist iff there are >= 2 numeric columns.
+        # candidates exist iff there are >= 2 numeric columns (diff/prod) or
+        # >= 1 numeric and >= 1 categorical (gdiff group-centering).
         n_cats = len(cat_features) if cat_features else 0
+        n_nums = X.shape[1] - n_cats
         cross_ok = (self.cross_features is not False and self.loss == "RMSE"
                     and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
-                    and X.shape[1] - n_cats >= 2)
+                    and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
 
         # One prep cache for every booster fit below: the auditions, the
         # cross-augmented candidate, and the winner refit all see identical
@@ -1841,10 +1857,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # an audition -- cap it; it is refit in full below only if the
         # augmented model loses the selection.
         n_cats = len(cat_features) if cat_features else 0
+        n_nums = X.shape[1] - n_cats
         fast = (self.selection_rounds is not None
                 and self.cross_features is not False
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
-                and X.shape[1] - n_cats >= 2)
+                and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
         stop = _stop_after(self.selection_rounds) if fast else None
         # Shared across the base fit, the cross-augmented candidate, and
         # the possible refit below -- identical inputs, so preprocessing

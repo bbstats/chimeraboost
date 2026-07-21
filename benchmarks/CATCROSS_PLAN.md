@@ -1,0 +1,137 @@
+# CATCROSS — group-centered categorical crosses (op="gdiff")
+
+Pre-registered 2026-07-20, BEFORE any suite result. Branch
+`worktree-pareto-catcross`. Companion probe: `probe_catcross.py` (run first,
+results below). The branch also carries an independent bit-identical speed
+lever (audition train-loss skip) — accuracy sign tests are unaffected by it;
+suite fit-time reads are the NET of both levers, which is what would ship.
+
+## Mechanism
+
+Oblivious trees share one split across a level, so "is this row's numeric
+value above ITS CATEGORY's baseline" needs a per-category staircase — the
+worst case for the tree family, and the num×cat analog of the staircase gap
+that numeric cross features (diff/prod, 2026-07-13) fixed for num×num. A
+gdiff column `x_i − mean_fit(x_i | c_j)` makes the within-category deviation
+one split. Target-free (no leakage machinery, same map at fit and predict),
+weight-aware, raced by the existing validation selection (top-4 numerics ×
+top-3 cats by base-fit importance, ≤12 columns alongside the ≤30 diff/prod).
+CatBoost's surviving Brier/RMSE edge lives on real high-card entity data
+(hc suite, 86–88% CB Brier winrate) — exactly where per-entity baselines
+differ most.
+
+## Probe result (external augmentation, no selection, 3 seeds)
+
+8/14 hc sets better, 4 worse; wins broad but small (+0.1..+0.9% primary);
+one single-seed blowup (employee_salaries s2, −46%) of exactly the variance
+class the selection race exists to referee. Proceed to tiers.
+
+## Predictions (registered)
+
+- T1 synth: gains concentrated on entity-cat slices (entity_strength high);
+  **no-cat sets are structurally bit-identical → exact ties expected there
+  (internal control: any no-cat delta = bug/noise)**; canaries flat.
+- T2 hc: positive sign test — the target regime. Binary/multiclass Brier and
+  reg RMSE on entity sets (kick, black_friday, wine-reviews,
+  Traffic_violations) are where wins should sit.
+- T2 Grinsztajn: near-inert (low-card cats); cat-variant sets may move a
+  little; sign test must be non-negative-ish (no broad regression).
+- Gate (--openml, one-shot): non-negative; cat-bearing sets may win.
+- Speed: augmented fits pay ≤12 extra columns + a pandas groupby per pair;
+  train-loss skip refunds part. Suite fit sums should move single-digit %.
+
+## Kill clauses (registered)
+
+- T1: canaries move, no-cat sets not exact ties, or entity slices show no
+  concentration (mechanism absent).
+- T2: hc sign test negative, or Grinsztajn broadly negative (the C1/C3
+  signature: helps a few, taxes the rest).
+- Gate: clearly negative (Nathan's precedent: uniform-direction small losses
+  killed B1's final variant).
+
+## Ship bar
+
+hc decisive + Grinsztajn non-negative + gate non-negative. Exact gr-vs-hc
+weighting = Nathan's call (per /experiment); recommendation recorded at
+verdict time.
+
+## Results log
+
+### T1 synth screen — PASS (2026-07-20)
+
+Variant `results/20260720-195938.json` vs base `20260720-100716.json`
+(NOT 100831 — that file is the H1/H2 lei=1 EXPERIMENTAL arm; see lesson).
+- 9W / 5L / 122T, mean +0.072%.
+- Structural controls perfect: cats=none 0-0-79 EXACT ties, n<2000 0-0-48
+  exact ties (row gate respected), canaries 0-0-3 flat.
+- Concentration as registered: cats=entity 8W-2L +0.235%; entity_strength
+  top OLS factor (t=+2.23, positive). card>16 +0.355%.
+- Engagement sparse on synth (most cat sets < 2000 rows) → magnitude
+  understates; hc is the target regime.
+
+### T2 Grinsztajn — 59/59 EXACT TIES = structurally inert (2026-07-20)
+
+Variant `results/20260720-204829.json` vs base `20260720-101306.json`:
+0W/0L/59T. Root cause verified in-process (check_gr_engage): the Grinsztajn
+loaders return cat=None even for the `_cat` suite variants (categoricals
+arrive pre-encoded as numerics), so cat_features is never passed and gdiff
+candidates never exist there. The headline chart is untouched BY
+CONSTRUCTION (M1 precedent); the suite cannot express this lever — exactly
+the blind spot the hc suite was built for. Grinsztajn non-negative bar:
+passed in the strongest possible form.
+
+### T2 highcard — PASS (2026-07-20)
+
+Variant `results/20260720-210906.json` vs base `20260720-101508.json`
+(clean member fingerprinted by a 3-set main-code run, 9/9 exact match).
+- Primary: 5W / 3L / 6T, mean +0.254%. Wins: employee_salaries +2.53%
+  (the probe's unconditional-augmentation blowup set — the validation race
+  flipped it into the biggest win, exactly the designed behavior),
+  okcupid-stem +0.50%, black_friday +0.33%, wine-reviews +0.29%,
+  sf-police +0.12%. Losses all ≤0.12% (kick −0.12, kdd_ipums −0.08,
+  Traffic_violations −0.01).
+- Brier (clf sets): 3W-3L mean −0.184%, dragged by kdd_ipums −1.77% whose
+  Brier≈0.04 inflates the ratio (near-solved class); absolute deltas all
+  ≤0.0007 → wash, no broad regression.
+- Fit cost: hc ChimeraBoost fit sum 92.5→122.0 s = 1.32× (bounded to the
+  cat regime). Grinsztajn fit sum 512.1→497.0 s = 0.971× — the branch's
+  train-loss skip refunds more than gdiff costs where gdiff is inert.
+- Aggregate (hc): ChimB Reg 98.5 / BinF1 99.4 / BinBrier 99.1 /
+  MultiF1 99.5 / MultiBrier 98.4 @ 2.5×; CatBoost tops accuracy at 101×.
+
+### T3 gate baseline identification
+
+Gate pair: 101702 = clean default arm (fingerprinted analytically — 101943
+shows exactly the recorded lei=1 losses on credit-g/kc2).
+
+### T3 OpenML one-shot gate — PASS, non-negative (2026-07-20)
+
+Variant `results/20260720-212313.json` vs base `20260720-101702.json`:
+3W / 3L / 30T, mean +0.003% (dead flat; 30 structural ties = guards
+working). Wins: bank-marketing +1.01% (the set that KILLED C1 one-hot by
+regressing — gdiff wins it), cat_binary +0.27%, adult +0.22%. Losses:
+sick −1.01%, cat_multiclass −0.25%, abalone −0.12%. Gate not burned.
+
+## VERDICT (2026-07-20) — SHIP RECOMMENDED, merge = Nathan's call
+
+All registered bars met, no kill clause tripped:
+- T1 mechanism confirmed (entity-slice concentration, controls exact).
+- Grinsztajn: 59/59 bit-identical (structurally inert — its loaders pass no
+  cat_features) AND fit sum 2.9% FASTER (train-loss skip). Headline chart
+  untouched by construction; net Pareto improvement on the headline axis.
+- hc: 5W-3L +0.254% primary on the one suite that expresses the regime;
+  the selection race converted the probe's blowup set into the largest win.
+  Brier wash (abs deltas ≤0.0007). Cost 1.32× hc fit, bounded to cat data.
+- Gate: flat (+0.003%), non-negative.
+Weighting note: no gr-vs-hc conflict exists to weigh — gr is exactly zero
+risk here. After merge: refresh pareto (gr accuracy identical, fit ~3%
+faster), then TabArena re-read (report-only) whenever wanted.
+
+LESSON (baseline hygiene): the 2026-07-20 morning result pairs are the
+H1/H2 lei A/B arms and carry NO config flag marking the experimental arm
+(code-level PYTHONPATH arms). 100831 = lei=1 arm (differs on small binary);
+100716 = default arm (matches 07-19 certified runs bit-exactly). Same
+contamination in the hc pair: 101508 vs 101537 differ on 8 binary cells
+(kick, sf-police, kdd_ipums); clean member identified by a main-code
+fingerprint run before the hc comparison. gr pair members both clean (lei
+fully shadowed there, both match 07-19 exactly).

@@ -47,6 +47,19 @@ def _run_callbacks(callbacks, iteration, train_loss, val_loss, model):
     return stop
 
 
+def _callbacks_need_train_loss(callbacks):
+    """Whether any fit callback wants the per-round train loss. Internal
+    callbacks (selection-race auditions) never read it and are tagged with
+    ``_cb_needs_train_loss = False``; evaluating the loss on the full training
+    set every round is the single biggest non-tree cost of an audition fit, so
+    the fit loop skips it when nobody will look at the value. Untagged (user)
+    callbacks keep receiving the train loss as documented."""
+    if not callbacks:
+        return False
+    cbs = callbacks if isinstance(callbacks, (list, tuple)) else (callbacks,)
+    return any(getattr(cb, "_cb_needs_train_loss", True) for cb in cbs)
+
+
 def _factorials(n):
     """Factorials 0!..n! as a float array (Shapley coalition weights)."""
     f = np.empty(n + 1)
@@ -495,6 +508,7 @@ class GradientBoosting(_BaseBooster):
         self._forest_ = None   # packed-forest cache; built lazily on predict
         self.train_history_, self.valid_history_ = [], []
         stopper = _EarlyStopper(self.early_stopping_rounds)
+        cb_train_loss = _callbacks_need_train_loss(callbacks)
         t0 = time.time()
 
         for m in range(self.n_estimators):
@@ -565,7 +579,7 @@ class GradientBoosting(_BaseBooster):
 
             if callbacks:
                 tl = self.train_history_[-1] if self.train_history_ \
-                    else self.loss_.eval(y, F, w)
+                    else (self.loss_.eval(y, F, w) if cb_train_loss else None)
                 vl = self.valid_history_[-1] if self.valid_history_ else None
                 if _run_callbacks(callbacks, m, tl, vl, self):
                     break
@@ -727,6 +741,7 @@ class MulticlassBoosting(_BaseBooster):
         self._forests_ = None   # per-class packed-forest cache (lazy on predict)
         self.train_history_, self.valid_history_ = [], []
         stopper = _EarlyStopper(self.early_stopping_rounds)
+        cb_train_loss = _callbacks_need_train_loss(callbacks)
         t0 = time.time()
 
         for m in range(self.n_estimators):
@@ -781,7 +796,7 @@ class MulticlassBoosting(_BaseBooster):
 
             if callbacks:
                 tl = self.train_history_[-1] if self.train_history_ \
-                    else self.loss_.eval(Y, F, w)
+                    else (self.loss_.eval(Y, F, w) if cb_train_loss else None)
                 vl = self.valid_history_[-1] if self.valid_history_ else None
                 if _run_callbacks(callbacks, m, tl, vl, self):
                     break
