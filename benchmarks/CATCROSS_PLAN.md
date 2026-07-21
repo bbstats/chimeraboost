@@ -80,6 +80,31 @@ CONSTRUCTION (M1 precedent); the suite cannot express this lever — exactly
 the blind spot the hc suite was built for. Grinsztajn non-negative bar:
 passed in the strongest possible form.
 
+### T2 highcard — PASS (2026-07-20)
+
+Variant `results/20260720-210906.json` vs base `20260720-101508.json`
+(clean member fingerprinted by a 3-set main-code run, 9/9 exact match).
+- Primary: 5W / 3L / 6T, mean +0.254%. Wins: employee_salaries +2.53%
+  (the probe's unconditional-augmentation blowup set — the validation race
+  flipped it into the biggest win, exactly the designed behavior),
+  okcupid-stem +0.50%, black_friday +0.33%, wine-reviews +0.29%,
+  sf-police +0.12%. Losses all ≤0.12% (kick −0.12, kdd_ipums −0.08,
+  Traffic_violations −0.01).
+- Brier (clf sets): 3W-3L mean −0.184%, dragged by kdd_ipums −1.77% whose
+  Brier≈0.04 inflates the ratio (near-solved class); absolute deltas all
+  ≤0.0007 → wash, no broad regression.
+- Fit cost: hc ChimeraBoost fit sum 92.5→122.0 s = 1.32× (bounded to the
+  cat regime). Grinsztajn fit sum 512.1→497.0 s = 0.971× — the branch's
+  train-loss skip refunds more than gdiff costs where gdiff is inert.
+- Aggregate (hc): ChimB Reg 98.5 / BinF1 99.4 / BinBrier 99.1 /
+  MultiF1 99.5 / MultiBrier 98.4 @ 2.5×; CatBoost tops accuracy at 101×.
+
+### T3 gate baseline identification
+
+Gate pair: 101702 = clean default arm (fingerprinted analytically — 101943
+shows exactly the recorded lei=1 losses on credit-g/kc2). One-shot variant
+run launched 2026-07-20 21:4x.
+
 LESSON (baseline hygiene): the 2026-07-20 morning result pairs are the
 H1/H2 lei A/B arms and carry NO config flag marking the experimental arm
 (code-level PYTHONPATH arms). 100831 = lei=1 arm (differs on small binary);
