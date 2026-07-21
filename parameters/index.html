@@ -1183,7 +1183,7 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>cross_features</code></td>
 <td><code>None</code> → auto</td>
-<td>Refit with difference and product columns for the pairs of the base fit's top-6 numeric features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome). Oblivious trees can only staircase a numeric interaction like <code>x_i &lt; x_j</code>; a cross column makes it one split. Large wins on interaction-heavy data (coordinates, prices, physical units). Auto applies to RMSE regression and to binary and multiclass classification with ≥ 2000 rows and ≥ 2 numeric features (multiclass judges on softmax log loss), and skips everything else. <code>False</code> turns it off.</td>
+<td>Refit with cross columns for the base fit's top features and keep whichever model has the lower validation loss (<code>cross_features_selected_</code>, <code>cross_pairs_</code> record the outcome): difference and product columns for the top-6 numeric pairs, plus group-centered columns <code>x_i − mean(x_i \| category)</code> for the top-4 numerics × top-3 categoricals. Oblivious trees can only staircase "x_i &lt; x_j" or "above this row's category baseline"; a cross column makes each one split. Large wins on interaction-heavy data (coordinates, prices, physical units) and entity-heavy categorical data. Auto applies to RMSE regression and to binary and multiclass classification with ≥ 2000 rows and ≥ 2 numeric features — or ≥ 1 numeric plus categoricals — (multiclass judges on softmax log loss), and skips everything else. <code>False</code> turns it off.</td>
 </tr>
 <tr>
 <td><code>selection_rounds</code></td>
