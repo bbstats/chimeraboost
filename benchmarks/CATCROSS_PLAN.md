@@ -69,6 +69,17 @@ Variant `results/20260720-195938.json` vs base `20260720-100716.json`
 - Engagement sparse on synth (most cat sets < 2000 rows) → magnitude
   understates; hc is the target regime.
 
+### T2 Grinsztajn — 59/59 EXACT TIES = structurally inert (2026-07-20)
+
+Variant `results/20260720-204829.json` vs base `20260720-101306.json`:
+0W/0L/59T. Root cause verified in-process (check_gr_engage): the Grinsztajn
+loaders return cat=None even for the `_cat` suite variants (categoricals
+arrive pre-encoded as numerics), so cat_features is never passed and gdiff
+candidates never exist there. The headline chart is untouched BY
+CONSTRUCTION (M1 precedent); the suite cannot express this lever — exactly
+the blind spot the hc suite was built for. Grinsztajn non-negative bar:
+passed in the strongest possible form.
+
 LESSON (baseline hygiene): the 2026-07-20 morning result pairs are the
 H1/H2 lei A/B arms and carry NO config flag marking the experimental arm
 (code-level PYTHONPATH arms). 100831 = lei=1 arm (differs on small binary);
