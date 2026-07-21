@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.20.0] - 2026-07-20
 ### Added
 - **Group-centered categorical crosses.** The `cross_features` race now also
   auditions `gdiff` columns — a numeric column minus the fit-time mean of
