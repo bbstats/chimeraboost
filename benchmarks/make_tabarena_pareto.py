@@ -41,7 +41,7 @@ MODEL_COLOR = {
 # property of Lite -- don't read TabArena speed from it). Predict flat.
 DATA = {
     "CatBoost":     (1348, 42, 43, 6.70, 0.088),
-    "ChimeraBoost": (1264, 58, 60, 0.81, 0.109),
+    "ChimeraBoost": (1278, 55, 57, 0.83, 0.162),
     "XGBoost":      (1187, 54, 53, 2.06, 0.122),
     "LightGBM":     (1155, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
