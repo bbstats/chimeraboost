@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
                       MulticlassBoosting)
-from .preprocessing import as_model_array
+from .preprocessing import CatTransformCache, as_model_array
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
@@ -716,6 +716,17 @@ def _was_fit_with_cats(estimator):
     return bool(getattr(_fitted_prep(estimator), "cat_features_", None))
 
 
+def _bag_predict_context(estimator, X):
+    """Per-call predict state shared across the members of a bagged ensemble:
+    the raw-matrix conversion and a categorical-factorization cache, computed
+    once instead of once per member. The caller has already validated ``X``
+    (``_check_predict_input``), so members skip re-validation entirely -- each
+    member's prediction is unchanged, only the redundant per-member conversion,
+    hashing, and input checks are gone."""
+    Xc = as_model_array(X, _was_fit_with_cats(estimator))
+    return Xc, CatTransformCache()
+
+
 def _check_predict_input(estimator, X):
     """Raise NotFittedError if unfitted, then validate X is 2D with the same
     number of features as training -- preventing silently-wrong predictions on
@@ -1412,8 +1423,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X):
         _check_predict_input(self, X)
         if self.estimators_ is not None:
-            # Members apply their own conformal offsets inside m.predict.
-            return np.mean([m.predict(X) for m in self.estimators_], axis=0)
+            # One shared conversion + factorization cache for the whole bag;
+            # each member applies its own conformal offset.
+            Xc, ctx = _bag_predict_context(self, X)
+            return np.mean([m.model_.predict_raw(Xc, ctx) + m.quantile_offset_
+                            for m in self.estimators_], axis=0)
         return self.model_.predict_raw(X) + self.quantile_offset_
 
     def staged_predict(self, X):
@@ -1967,13 +1981,20 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             # Soft-vote: average members' calibrated probabilities, aligning each
             # member's class columns to the global class set (a member whose
             # bootstrap missed a class simply contributes 0 to that column).
-            probas = [m.predict_proba(X) for m in self.estimators_]
+            # One shared conversion + factorization cache for the whole bag.
+            Xc, ctx = _bag_predict_context(self, X)
+            probas = [m._proba_impl(Xc, ctx) for m in self.estimators_]
             acc = np.zeros((probas[0].shape[0], self.n_classes_))
             for m, p in zip(self.estimators_, probas):
                 cols = np.searchsorted(self.classes_, m.classes_)
                 acc[:, cols] += p
             return acc / len(self.estimators_)
-        raw = self.model_.predict_raw(X) / self.temperature_
+        return self._proba_impl(X)
+
+    def _proba_impl(self, X, cat_ctx=None):
+        """Calibrated probabilities of this single (non-bagged) model, without
+        input validation -- the public entry points handle that."""
+        raw = self.model_.predict_raw(X, cat_ctx) / self.temperature_
         if self._multiclass:
             return self.model_.loss_.transform(raw)            # (n, K)
         p1 = self.model_.loss_.transform(raw)

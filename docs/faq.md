@@ -61,7 +61,9 @@ model = joblib.load("model.joblib")
 
 ## What exactly does it depend on?
 
-NumPy, numba, scikit-learn, SciPy, and pandas.
+NumPy, numba, scikit-learn, and SciPy. pandas is not required — DataFrames
+are consumed through their own conversion methods, so passing them works
+whenever you have pandas (or polars) installed yourself.
 
 ## How do I tune it?
 
