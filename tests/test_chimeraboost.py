@@ -517,19 +517,32 @@ def test_bagging_parallel_matches_sequential():
 def test_bagging_parallel_divides_thread_budget():
     """B4 (BAGGING_PLAN.md): the default parallel bag divides the thread
     budget across min(K, budget) workers — a bagged fit uses the same cores
-    a single fit would, never budget x workers."""
+    a single fit would, never budget x workers. The per-worker sliver must
+    NOT outlive the fit: members predict sequentially, so each gets the
+    parent's thread setting back afterwards."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(600, 4))
     y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=600)
-    # Explicit budget of 2 with K=4: 2 workers x 1 thread each.
+    # Explicit budget of 2 with K=4: 2 workers x 1 thread each during fit
+    # (n_threads_ records the effective fit-time count), parent's setting
+    # restored on the members after.
     bag = ChimeraBoostRegressor(n_estimators=30, random_state=0, n_ensembles=4,
                                 thread_count=2).fit(X, y)
-    assert all(m.thread_count == 1 for m in bag.estimators_)
-    # Sequential members keep the full budget each.
+    assert all(m.model_.n_threads_ == 1 for m in bag.estimators_)
+    assert all(m.thread_count == 2 for m in bag.estimators_)
+    assert all(m.model_.thread_count == 2 for m in bag.estimators_)
+    # Sequential members run the full budget each, at fit and after.
     seq = ChimeraBoostRegressor(n_estimators=30, random_state=0, n_ensembles=4,
                                 thread_count=2, ensemble_n_jobs=1).fit(X, y)
+    assert all(m.model_.n_threads_ == 2 for m in seq.estimators_)
     assert all(m.thread_count == 2 for m in seq.estimators_)
     assert np.allclose(bag.predict(X[:20]), seq.predict(X[:20]))
+    # The default case (thread_count=None): members must come back unlimited,
+    # not pinned to the fit-time budget/K share.
+    dflt = ChimeraBoostRegressor(n_estimators=30, random_state=0,
+                                 n_ensembles=4).fit(X, y)
+    assert all(m.thread_count is None for m in dflt.estimators_)
+    assert all(m.model_.thread_count is None for m in dflt.estimators_)
 
 
 def test_bagging_with_categoricals():

@@ -373,6 +373,14 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         names = getattr(estimator, "feature_names_in_", None)
         if names is not None:
             member.feature_names_in_ = names
+        # member_threads (the fit-time per-worker share of the thread budget)
+        # must not outlive the fit: members predict sequentially, so a member
+        # capped at budget/K threads would walk its forest on a sliver of the
+        # machine. Restore the parent's thread setting for everything after
+        # fit. Per-row tree walks don't depend on thread count, so predictions
+        # are unchanged.
+        member.thread_count = estimator.thread_count
+        member.model_.thread_count = estimator.thread_count
         return member
 
     return Parallel(n_jobs=n_workers)(delayed(_fit_one)(s) for s in seeds)
