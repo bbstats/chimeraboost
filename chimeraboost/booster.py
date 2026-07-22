@@ -248,10 +248,12 @@ class _BaseBooster:
             self.n_threads_ = n
             return self._fit_impl(X, y, *args, **kwargs)
 
-    def predict_raw(self, X):
-        """Predict under this model's thread limit (restored on exit)."""
+    def predict_raw(self, X, cat_ctx=None):
+        """Predict under this model's thread limit (restored on exit).
+        ``cat_ctx`` (internal) shares categorical factorizations across the
+        members of a bagged ensemble -- see CatTransformCache."""
         with _thread_limit(self.thread_count):
-            return self._predict_raw_impl(X)
+            return self._predict_raw_impl(X, cat_ctx)
 
     def __getstate__(self):
         """Pickle without the lazily-built packed-forest caches: they are
@@ -616,14 +618,14 @@ class GradientBoosting(_BaseBooster):
             w = w_sorted[lo:hi] if w_sorted is not None else None
             tree.values[l] = self.lr_ * self.loss_.leaf_value(r_sorted[lo:hi], w)
 
-    def _predict_raw_impl(self, X):
+    def _predict_raw_impl(self, X, cat_ctx=None):
         """Return raw additive scores (pre-link): the regression prediction, or
         the log-odds for binary classification."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
         # The fused predict kernels consume the binner's row-major output
         # directly (no feature-major transpose; each sample's bins stay in
         # one or two cache lines for the whole forest walk).
-        Xb = self.prep_.transform(X)
+        Xb = self.prep_.transform(X, cat_ctx)
         if not self.trees_:
             return np.full(Xb.shape[0], self.init_, dtype=np.float64)
         if getattr(self, "_centers_std_", None) is not None:
@@ -812,13 +814,13 @@ class MulticlassBoosting(_BaseBooster):
         self.best_iteration_ = len(self.trees_)
         return self
 
-    def _predict_raw_impl(self, X):
+    def _predict_raw_impl(self, X, cat_ctx=None):
         """Return the (n_samples, n_classes) matrix of raw per-class scores
         (pre-softmax)."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
         # Row-major binned matrix straight from the binner (see the scalar
         # predict_raw); the K per-class walks reuse the same hot rows.
-        Xb = self.prep_.transform(X)
+        Xb = self.prep_.transform(X, cat_ctx)
         F = np.tile(self.init_, (Xb.shape[0], 1))
         if not self.trees_:
             return F

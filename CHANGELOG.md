@@ -4,6 +4,23 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **pandas is no longer a dependency.** The categorical machinery
+  (factorize, predict-time code mapping, gdiff group means) is now
+  numpy/numba only, bit-identical to the pandas implementation (the gdiff
+  group sums replicate pandas' Kahan-compensated groupby exactly).
+  DataFrames still work as input — they are consumed through their own
+  `to_numpy`/`columns` attributes, so users who pass frames already have
+  pandas (or polars) installed. Installs pull four packages instead of five.
+- **Bagged predict no longer redoes the categorical transform per member.**
+  Members factorize each categorical (and combo) column once per call
+  through a shared cache and remap only the unique values through their own
+  fit-time maps; the input conversion and validation also run once instead
+  of once per member. Predictions are bit-identical. 50k rows,
+  `n_ensembles=8`, 4 string categoricals: binary predict 1.21 s → 0.40 s,
+  multiclass 1.78 s → 0.74 s; single-model predict is unchanged at big
+  batches and ~9× faster at 1-row calls (0.19 ms vs 1.7 ms — the per-call
+  pandas overhead dominated small batches).
 ### Fixed
 - **Bagged members no longer keep their fit-time thread cap at predict.** A
   parallel `n_ensembles` fit divides the thread budget across workers

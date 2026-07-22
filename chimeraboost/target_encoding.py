@@ -147,13 +147,26 @@ def factorize(column):
     (codes, categories).
 
     Codes are internal labels; the ordered target encoder is invariant to their
-    particular values.
+    particular values. Missing values are anything None, NaN-like (compares
+    unequal to itself), or refusing self-comparison (pandas' NA scalar raises on
+    ``bool``) -- the same set ``pd.isna`` recognizes, without needing pandas.
     """
-    import pandas as pd
     col = np.asarray(column, dtype=object)
-    na = pd.isna(col)
-    if na.any():
-        col = col.copy()
-        col[na] = "__nan__"
-    codes, categories = pd.factorize(col, sort=False)   # first-appearance order
-    return codes.astype(np.int64), np.asarray(categories, dtype=object)
+    codes = np.empty(col.shape[0], dtype=np.int64)
+    mapping = {}
+    cats = []
+    for i, v in enumerate(col.tolist()):
+        if v is None:
+            v = "__nan__"
+        else:
+            try:
+                if v != v:
+                    v = "__nan__"
+            except (TypeError, ValueError):
+                v = "__nan__"
+        code = mapping.get(v)
+        if code is None:
+            code = mapping[v] = len(cats)
+            cats.append(v)
+        codes[i] = code
+    return codes, np.asarray(cats, dtype=object)
