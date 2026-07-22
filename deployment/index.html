@@ -934,10 +934,10 @@ validation, dtype conversion, binning), not the forest walk:</p>
 <li>If your serving data is already validated, skip the finiteness scan with
   sklearn's <code>assume_finite</code> (see <a href="../faq/#how-can-i-make-inference-faster">FAQ</a>)
   — worth ~10% at this scale.</li>
-<li>Models fit with <code>cat_features</code> decode categorical columns through pandas
-  on every call: ≈ 1.7 ms per call regardless of batch size. Sub-2 ms is
-  fine for most serving, but it is the one predict path with no
-  microsecond option.</li>
+<li>Models fit with <code>cat_features</code> re-map categorical strings to codes on
+  every call: ≈ 0.2 ms for a one-row ndarray call — about 2× the numeric
+  classifier path, no longer the ~1.7 ms pandas-powered outlier it was
+  before 0.21.0.</li>
 </ul>
 <h2 id="big-batches">Big batches<a class="headerlink" href="#big-batches" title="Permanent link">&para;</a></h2>
 <p><code>predict</code> processes its input in one pass: a float64 copy of <code>X</code> plus a
