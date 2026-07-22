@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.21.0] - 2026-07-22
 ### Changed
 - **pandas is no longer a dependency.** The categorical machinery
   (factorize, predict-time code mapping, gdiff group means) is now
