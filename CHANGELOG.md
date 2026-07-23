@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.22.0] - 2026-07-23
 ### Changed
 - **Cross-feature columns no longer re-cast their parent columns per pair.**
   `_cross_block` reads numeric parents from the float64 numeric block the
