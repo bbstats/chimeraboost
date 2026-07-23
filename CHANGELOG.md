@@ -3,6 +3,44 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **Cross-feature columns no longer re-cast their parent columns per pair.**
+  `_cross_block` reads numeric parents from the float64 numeric block the
+  transform already builds (one cast per input column instead of one per
+  cross pair). On object-dtype input (categoricals present) those per-pair
+  element-wise casts dominated cross-feature predict cost: 4k-row predict
+  on a cross-selected model with 2 categoricals 13.6 ms → 8.6 ms, 1-row
+  predict 0.35 ms → 0.27 ms; fit improves too (same code path). Bit-identical.
+- **Predict converts the input once, not twice.** The predict-time inf
+  check's model-array conversion is now reused for the prediction itself
+  instead of being discarded and redone; on DataFrame input this removes a
+  full second `to_numpy` materialization per predict call. Bit-identical.
+- **Bagged predict switches the numba thread count once per call, not once
+  per member** (only observable with an explicit `thread_count`; each
+  switch charges an ~1 ms OpenMP re-team on the next parallel region).
+- **Multiclass predict skips a dead full-matrix init**, and `shap_values`
+  on linear-leaf models reuses the packed forest predict already caches
+  instead of repacking on every call.
+- **`warmup()` now covers the weighted ordered-TS kernel and the gdiff
+  group-sum kernel** (a weighted categorical regression fit plus a direct
+  kernel call). Both sit on default paths — `sample_weight` fits, and
+  ≥2000-row categorical fits (auto cross features) — but were not compiled
+  by warmup, so short-lived workers still hit a JIT stall there.
+### Fixed
+- **`leaf_estimation_iterations > 1` no longer corrupts MAE/Quantile
+  models.** These losses set each leaf to the exact minimizer (median /
+  alpha-quantile); the extra Newton refinement steps then ran anyway,
+  adding sign-gradient steps on top and degrading the model — while the
+  sklearn layer warned the parameter "will have no effect". The warning is
+  now true: refinement is skipped when leaves are loss-corrected. Defaults
+  (`leaf_estimation_iterations=1`) are unaffected.
+- **A depth-0 early exit now keeps the best validation prefix.** When
+  boosting stopped because a round produced no legal split, the
+  "truncate to the best validation iteration" step was skipped, silently
+  keeping trees grown after the validation optimum. That exit now truncates
+  exactly like patience and budget exhaustion do (scalar and multiclass).
+
 ## [0.21.0] - 2026-07-22
 ### Changed
 - **pandas is no longer a dependency.** The categorical machinery

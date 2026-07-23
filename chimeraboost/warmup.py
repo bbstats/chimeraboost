@@ -26,9 +26,11 @@ def warmup(verbose=False, background=False):
     """Compile (or load from the on-disk cache) all default-path kernels.
 
     Covers binary classification with linear leaves, a categorical feature
-    and a validation set; multiclass; and regression with ordered boosting —
-    together these touch every fit- and predict-path numba kernel except the
-    SHAP kernels (compiled on the first ``shap_values`` call).
+    and a validation set; multiclass; regression with ordered boosting and
+    non-uniform sample weights (the weighted ordered-TS kernel); and the
+    gdiff cross-feature group-sum kernel — together these touch every fit-
+    and predict-path numba kernel except the SHAP kernels (compiled on the
+    first ``shap_values`` call).
 
     Instead of calling this yourself, you can set the environment variable
     ``CHIMERABOOST_WARMUP=1`` to run it automatically when ``chimeraboost``
@@ -81,13 +83,25 @@ def warmup(verbose=False, background=False):
     mc.predict_proba(X[:8, :3])
     _log("multiclass")
 
-    # Regression, ordered boosting on (the LOO leaf-step kernel).
+    # Regression, ordered boosting on (the LOO leaf-step kernel), with a
+    # categorical column and NON-uniform sample weights: the weighted
+    # ordered-TS kernel (`_ordered_ts_weighted`) and the weighted binner
+    # borders only compile on a weighted fit (uniform weights collapse to the
+    # unweighted path), which the other stages deliberately keep.
     yr = X[:320, 0] + 0.1 * rng.standard_normal(320)
+    sw = rng.uniform(0.5, 1.5, size=320)
     reg = ChimeraBoostRegressor(n_estimators=2, random_state=0,
                                 ordered_boosting=True)
-    reg.fit(X[:320, :3], yr)
-    reg.predict(X[:8, :3])
-    _log("regression + ordered boosting")
+    reg.fit(X[:320], yr, cat_features=[3], sample_weight=sw)
+    reg.predict(X[:8])
+    _log("regression + ordered boosting + weighted categoricals")
+
+    # The gdiff (group-centered cross feature) kernel sits on the default
+    # path only for fits >= CROSS_MIN_SAMPLES rows -- too big for a warmup
+    # fit, so compile it directly with the dtypes the real call uses.
+    from .preprocessing import _grouped_kahan_sum
+    _grouped_kahan_sum(np.zeros(4, dtype=np.int64), np.ones(4), 2)
+    _log("gdiff group-sum kernel")
 
     # The fused level kernel (`_build_split_descend`) has one signature for
     # both its small-n and large-n branches, so the small fits above compile

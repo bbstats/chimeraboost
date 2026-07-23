@@ -420,3 +420,69 @@ def test_a1_auto_split_notice_silent_by_default(capsys):
     ChimeraBoostRegressor(n_estimators=5, verbose=True, random_state=0).fit(
         X[:240], y[:240], eval_set=(X[240:], y[240:]))
     assert "holding out" not in capsys.readouterr().out
+
+
+# ------------------------------------------- 2026-07-23 semi-bug hunt fixes
+
+
+def test_mae_quantile_leaf_estimation_iterations_is_truly_inert():
+    """For MAE/Quantile, _correct_leaves sets the exact minimizer (median /
+    alpha-quantile); leaf_estimation_iterations > 1 must not run sign-gradient
+    Newton steps on top of it. The sklearn layer has always *warned* the
+    parameter has no effect for these losses -- this pins that the warning is
+    honest: predictions are identical whatever the value."""
+    X, y = _toy_regression(n=600, seed=3)
+    for loss in ("MAE", "Quantile"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            base = ChimeraBoostRegressor(
+                loss=loss, n_estimators=40, leaf_estimation_iterations=1,
+                random_state=0).fit(X, y)
+            lei3 = ChimeraBoostRegressor(
+                loss=loss, n_estimators=40, leaf_estimation_iterations=3,
+                random_state=0).fit(X, y)
+        np.testing.assert_array_equal(base.predict(X), lei3.predict(X))
+
+
+def test_depth0_stop_keeps_best_validation_prefix(monkeypatch):
+    """A depth-0 tree ends boosting early; that exit must keep the best
+    validation prefix exactly like patience and budget exhaustion do. Scripted
+    trees: round 0 improves validation, rounds 1-2 worsen it, round 3 returns
+    depth-0 -- the fitted model must keep only the one good tree."""
+    import chimeraboost.booster as bst
+
+    class _FakeTree:
+        def __init__(self, depth, step):
+            self.depth = depth
+            self.values = np.full(2, step)
+            self.gains = np.zeros(max(depth, 1))
+            self.splits_feat = np.zeros(depth, dtype=np.int64)
+            self.splits_thr = np.zeros(depth, dtype=np.int64)
+            self.lin_feats = None
+            self.lin_coef = None
+            self.centers_std = None
+
+        def predict(self, Xb):
+            return np.full(Xb.shape[1], self.values[0])
+
+    steps = iter([0.5, -0.5, -0.5])
+
+    def fake_build(Xb, g, h, *args, **kw):
+        step = next(steps, None)
+        if step is None:
+            return _FakeTree(0, 0.0), np.zeros(Xb.shape[1], dtype=np.int64)
+        return _FakeTree(1, step), np.zeros(Xb.shape[1], dtype=np.int64)
+
+    monkeypatch.setattr(bst, "build_oblivious_tree", fake_build)
+    rng = np.random.default_rng(0)
+    Xtr = rng.normal(size=(64, 2))
+    ytr = np.zeros(64)                    # init_ = 0
+    Xv = rng.normal(size=(16, 2))
+    yv = np.ones(16)                      # val RMSE: 1.0 -> 0.5 -> 1.0 -> 1.5
+    b = bst.GradientBoosting(loss="RMSE", n_estimators=10,
+                             early_stopping_rounds=50, linear_leaves=False,
+                             learning_rate=0.1, random_state=0)
+    b.fit(Xtr, ytr, eval_set=(Xv, yv))
+    assert len(b.trees_) == 1, (
+        f"depth-0 exit kept {len(b.trees_)} trees; the best validation "
+        "prefix is 1 tree")
