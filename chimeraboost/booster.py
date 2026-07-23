@@ -536,8 +536,12 @@ class GradientBoosting(_BaseBooster):
                                               quantize=self.quantize_gradients,
                                               qbuf=qbuf, qseed=qseed)
             # A depth-0 tree found no legal split; the next round on the same
-            # gradients would too, so stop rather than bank empty trees.
+            # gradients would too, so stop rather than bank empty trees. Keep
+            # the best prefix exactly as the other exits do -- without this,
+            # trees grown after the validation optimum survived on this path.
             if tree.depth == 0:
+                if Fv is not None and stopper.patience:
+                    self.trees_ = self.trees_[: stopper.best_iter + 1]
                 break
             if adjusts_leaves:
                 self._correct_leaves(tree, leaf, y - F, w)
@@ -557,8 +561,13 @@ class GradientBoosting(_BaseBooster):
                 # Additional Newton steps refine the leaf values using the updated
                 # residuals after each step. For constant-hessian losses (RMSE)
                 # this converges in a few steps; for Logloss it reaches a better
-                # per-leaf approximation than the single first-order step.
-                self._refine_leaf_values(tree, leaf, F, y, w)
+                # per-leaf approximation than the single first-order step. Not
+                # for MAE/Quantile: _correct_leaves already set the exact
+                # minimizer (median/quantile), and a sign-gradient Newton step
+                # on top would corrupt it -- the sklearn layer's "no effect"
+                # warning for those losses is honest only with this guard.
+                if not adjusts_leaves:
+                    self._refine_leaf_values(tree, leaf, F, y, w)
                 F += tree.values[leaf]
             if self.verbose:
                 self.train_history_.append(self.loss_.eval(y, F, w))
@@ -680,10 +689,17 @@ class GradientBoosting(_BaseBooster):
             sel = np.random.default_rng(random_state).choice(
                 Rb.shape[1], max_background, replace=False)
             Rb = np.ascontiguousarray(Rb[:, sel])
-        feats, thrs, depths, lin_k, foff, lidx, coff, coef = \
-            pack_forest_linear(self.trees_, self.depth)
         cs = getattr(self, "_centers_std_", None)
-        if cs is None:
+        if cs is not None:
+            # Linear-leaf model: predict caches the same linear-packed forest
+            # in _forest_; build it once and share (constant-leaf models cache
+            # the non-linear pack there instead, so those repack here).
+            if self._forest_ is None:
+                self._forest_ = pack_forest_linear(self.trees_, self.depth)
+            feats, thrs, depths, lin_k, foff, lidx, coff, coef = self._forest_
+        else:
+            feats, thrs, depths, lin_k, foff, lidx, coff, coef = \
+                pack_forest_linear(self.trees_, self.depth)
             cs = np.zeros((1, 1))   # unused: every tree is constant (k=0)
         fact = _factorials(self.depth)
         phi = _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, foff, lidx,
@@ -772,8 +788,11 @@ class MulticlassBoosting(_BaseBooster):
                     F[:, k] += tree.values[leaf]
                 # depth-0 trees contribute nothing (predict would be zeros).
             # Stop only once EVERY class has exhausted its splits; a single class
-            # still learning makes the round productive.
+            # still learning makes the round productive. Keep the best prefix
+            # exactly as the other exits do (see the scalar loop).
             if all(t.depth == 0 for t in round_trees):
+                if Fv is not None and stopper.patience:
+                    self.trees_ = self.trees_[: stopper.best_iter + 1]
                 break
             self.trees_.append(round_trees)
             if self.verbose:
@@ -821,9 +840,10 @@ class MulticlassBoosting(_BaseBooster):
         # Row-major binned matrix straight from the binner (see the scalar
         # predict_raw); the K per-class walks reuse the same hot rows.
         Xb = self.prep_.transform(X, cat_ctx)
-        F = np.tile(self.init_, (Xb.shape[0], 1))
         if not self.trees_:
-            return F
+            return np.tile(self.init_, (Xb.shape[0], 1))
+        # Every column is fully overwritten below; no need to tile the init.
+        F = np.empty((Xb.shape[0], self.n_classes_), dtype=np.float64)
         if self._forests_ is None:
             # One packed forest per class: class k's trees are round_trees[k]
             # across every round.

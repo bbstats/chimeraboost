@@ -250,26 +250,35 @@ class FeaturePreprocessor:
             self.gdiff_maps_.append(
                 (dict(zip(cats.tolist(), means.tolist())), global_mean))
 
-    def _cross_block(self, X, cat_ctx=None):
+    def _cross_block(self, X, cat_ctx=None, num=None):
         """Compute the cross-feature columns (float64) from raw input. NaN in
         a numeric parent propagates to the cross (binned to the missing bucket
         like any numeric NaN); gdiff maps a NaN category to its own "__nan__"
-        group and an unseen category to the global mean."""
+        group and an unseen category to the global mean.
+
+        Numeric parents are read from ``num`` (the float64 numeric block;
+        pass the one already built for this matrix, else it is computed
+        here): one cast per input column instead of one per pair. On object
+        arrays (categoricals present) the per-pair element-wise casts were
+        the dominant predict-time cost of cross features."""
         if not self.cross_pairs:
             return np.empty((X.shape[0], 0))
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+        if num is None:
+            num = self._numeric_block(X)
+        pos = {f: k for k, f in enumerate(self.num_features_)}
         cols = []
         g = 0
         for i, j, op in self.cross_pairs:
-            a = np.asarray(X[:, i], dtype=np.float64)
+            a = num[:, pos[i]]
             if op == "gdiff":
                 means, global_mean = self.gdiff_maps_[g]
                 g += 1
                 codes, cats = cat_ctx.column(X, j)
                 cols.append(a - _remap_codes(cats, means, global_mean)[codes])
                 continue
-            b = np.asarray(X[:, j], dtype=np.float64)
+            b = num[:, pos[j]]
             cols.append(a - b if op == "diff" else a * b)
         return np.column_stack(cols)
 
@@ -310,7 +319,7 @@ class FeaturePreprocessor:
         cat_ctx = CatTransformCache()
         num, codes = self._split_columns_fit(X, cat_features, cat_ctx)
         self._fit_gdiff(X, sample_weight, cat_ctx)
-        cross = self._cross_block(X, cat_ctx)
+        cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross
 
@@ -347,7 +356,7 @@ class FeaturePreprocessor:
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
         num = self._numeric_block(X)
-        cross = self._cross_block(X, cat_ctx)
+        cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross
         encoded_blocks = []

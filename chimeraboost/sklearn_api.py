@@ -4,7 +4,7 @@ import warnings
 
 import numpy as np
 from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
-                      MulticlassBoosting)
+                      MulticlassBoosting, _thread_limit)
 from .preprocessing import CatTransformCache, as_model_array
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
@@ -759,22 +759,36 @@ def _check_predict_input(estimator, X):
     # bin and returns the "missing" prediction with no error. This is the only
     # O(n) check on the hot predict path, so it is skippable via sklearn's
     # ``assume_finite`` config for latency-critical serving.
-    if not _assume_finite():
-        if not _was_fit_with_cats(estimator):
-            try:
-                Xf = as_model_array(X, want_object=False)
-            except (ValueError, TypeError):
-                Xf = None
-        else:
-            # Categorical fit: only the numeric columns need to be finite (the
-            # cat columns are strings). Pull their positions from the fitted
-            # preprocessor and check just those, mirroring the fit-time check.
-            num_idx = getattr(_fitted_prep(estimator), "num_features_", None)
-            Xf = _numeric_block(X, num_idx)
+    #
+    # The model-array conversion the check needs is the same one the booster
+    # would redo immediately after; return it so callers thread it through
+    # (one full DataFrame materialization per predict instead of two).
+    # Returns None when no full conversion happened (assume_finite, or a
+    # conversion failure whose descriptive error the booster raises).
+    if _assume_finite():
+        return None
+    if not _was_fit_with_cats(estimator):
+        try:
+            Xc = as_model_array(X, want_object=False)
+        except (ValueError, TypeError):
+            return None
+    else:
+        # Categorical fit: convert to the object array the booster consumes,
+        # then check finiteness of the numeric columns only (the cat columns
+        # are strings), mirroring the fit-time check.
+        Xc = as_model_array(X, want_object=True)
+        num_idx = getattr(_fitted_prep(estimator), "num_features_", None)
+        Xf = _numeric_block(Xc, num_idx)
         if Xf is not None and np.isinf(Xf).any():
             raise ValueError(
                 "X contains infinity. NaN is accepted (treated as missing), but "
                 "inf is not -- clip or clean it first.")
+        return Xc
+    if np.isinf(Xc).any():
+        raise ValueError(
+            "X contains infinity. NaN is accepted (treated as missing), but "
+            "inf is not -- clip or clean it first.")
+    return Xc
 
 
 def _auto_min_child_weight(n_train):
@@ -1421,20 +1435,25 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         return self
 
     def predict(self, X):
-        _check_predict_input(self, X)
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
         if self.estimators_ is not None:
             # One shared conversion + factorization cache for the whole bag;
-            # each member applies its own conformal offset.
-            Xc, ctx = _bag_predict_context(self, X)
-            return np.mean([m.model_.predict_raw(Xc, ctx) + m.quantile_offset_
-                            for m in self.estimators_], axis=0)
+            # each member applies its own conformal offset. One thread-limit
+            # switch for the whole bag (members' re-entries are no-ops).
+            with _thread_limit(self.thread_count):
+                Xc, ctx = _bag_predict_context(self, X)
+                return np.mean(
+                    [m.model_.predict_raw(Xc, ctx) + m.quantile_offset_
+                     for m in self.estimators_], axis=0)
         return self.model_.predict_raw(X) + self.quantile_offset_
 
     def staged_predict(self, X):
         """Yield the prediction after each successive tree (the conformal
         quantile offset, a post-fit constant, is included in every stage so the
         final stage equals ``predict``)."""
-        _check_predict_input(self, X)
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
         if self.estimators_ is not None:
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
@@ -1475,7 +1494,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``n_ensembles > 1`` (the bag prediction is the members' mean, so the
         averaged attribution stays exact). ``X_background`` overrides the
         reference distribution (default: a sample of the training data)."""
-        _check_predict_input(self, X)
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
         if self.estimators_ is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in self.estimators_]
@@ -1976,14 +1996,17 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         return self
 
     def predict_proba(self, X):
-        _check_predict_input(self, X)
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
         if self.estimators_ is not None:
             # Soft-vote: average members' calibrated probabilities, aligning each
             # member's class columns to the global class set (a member whose
             # bootstrap missed a class simply contributes 0 to that column).
-            # One shared conversion + factorization cache for the whole bag.
-            Xc, ctx = _bag_predict_context(self, X)
-            probas = [m._proba_impl(Xc, ctx) for m in self.estimators_]
+            # One shared conversion + factorization cache for the whole bag,
+            # and one thread-limit switch (members' re-entries are no-ops).
+            with _thread_limit(self.thread_count):
+                Xc, ctx = _bag_predict_context(self, X)
+                probas = [m._proba_impl(Xc, ctx) for m in self.estimators_]
             acc = np.zeros((probas[0].shape[0], self.n_classes_))
             for m, p in zip(self.estimators_, probas):
                 cols = np.searchsorted(self.classes_, m.classes_)
@@ -2037,7 +2060,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         included exactly. Averaged across the bag when ``n_ensembles > 1`` (an
         additive surrogate for the soft-voted probability). Multiclass is not
         supported yet. ``X_background`` overrides the reference distribution."""
-        _check_predict_input(self, X)
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
         members = self.estimators_ if self.estimators_ is not None else None
         if (members is not None and getattr(members[0], "_multiclass", False)) \
                 or (members is None and self._multiclass):
