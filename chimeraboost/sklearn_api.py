@@ -221,9 +221,12 @@ def _check_eval_labels(eval_set, y):
 
 
 def _is_numeric_dtype(dt):
-    """True if a column dtype is numeric, across numpy / pandas / polars."""
+    """True if a column dtype is float-castable, across numpy / pandas /
+    polars. Bool counts: it casts to 0/1 cleanly, so a bool column must not
+    be named in the "add these to cat_features" error guidance."""
     try:
-        return bool(np.issubdtype(np.dtype(dt), np.number))
+        npdt = np.dtype(dt)
+        return bool(np.issubdtype(npdt, np.number) or npdt == np.bool_)
     except TypeError:
         pass  # not a numpy-castable dtype (e.g. a polars DataType object)
     is_num = getattr(dt, "is_numeric", None)  # polars DataType
@@ -234,7 +237,7 @@ def _is_numeric_dtype(dt):
             pass
     s = str(dt).lower()
     return (any(k in s for k in ("int", "float", "uint", "double", "decimal"))
-            and "object" not in s)
+            and "object" not in s) or s in ("bool", "boolean")
 
 
 def _describe_nonnumeric_columns(X):
@@ -425,9 +428,17 @@ def _make_eval_split(X, y, validation_fraction, random_state,
             groups = np.asarray(groups)
             if stratify is not None:
                 # StratifiedGroupKFold approximates the desired val fraction via
-                # n_splits = round(1 / validation_fraction).
+                # n_splits = round(1 / validation_fraction). Shuffle when a
+                # random_state is given so it selects the fold like every other
+                # branch here honors the seed (unshuffled, the holdout is always
+                # the same deterministic first fold and random_state is inert);
+                # random_state=None keeps the historical unshuffled split.
                 n_splits = max(2, round(1.0 / validation_fraction))
-                splitter = StratifiedGroupKFold(n_splits=n_splits)
+                splitter = StratifiedGroupKFold(
+                    n_splits=n_splits,
+                    shuffle=random_state is not None,
+                    random_state=random_state,
+                )
                 train_idx, val_idx = next(
                     splitter.split(X, stratify, groups=groups)
                 )

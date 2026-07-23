@@ -854,6 +854,32 @@ def _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init):
     return out
 
 
+@njit(cache=True)
+def _predict_forest_rm_serial(Xb, feats, thrs, depths, vals, voff, init):
+    """Serial twin of `_predict_forest_rm` for tiny batches: the OpenMP
+    fork/join (~20us on 12 threads) exceeds the whole 1-row walk, and the
+    parallel kernel only overtakes serial around n~5. Bit-identical
+    (independent per-row writes); the booster dispatches on
+    `binning._SERIAL_PREDICT_N`."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        acc = init
+        for t in range(n_trees):
+            if depths[t] == 0:
+                continue
+            leaf = 0
+            for d in range(depths[t]):
+                if Xb[i, feats[t, d]] > thrs[t, d]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            acc += vals[voff[t] + leaf]
+        out[i] = acc
+    return out
+
+
 def pack_forest(trees, max_depth):
     """Flatten a list of ObliviousTrees into the arrays `_predict_forest` wants.
 
@@ -963,6 +989,41 @@ def _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k, featoff,
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
     for i in prange(n):
+        acc = init
+        for t in range(n_trees):
+            d = depths[t]
+            if d == 0:
+                continue
+            leaf = 0
+            for dd in range(d):
+                if Xb[i, feats[t, dd]] > thrs[t, dd]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            k = lin_k[t]
+            row = coefoff[t] + leaf * (1 + k)
+            val = coef[row]                      # intercept
+            fb = featoff[t]
+            for j in range(k):
+                f = lin_feat_idx[fb + j]
+                v = centers_std[f, Xb[i, f]]
+                if np.isfinite(v):
+                    val += coef[row + 1 + j] * v
+            acc += val
+        out[i] = acc
+    return out
+
+
+@njit(cache=True)
+def _predict_forest_linear_rm_serial(Xb, feats, thrs, depths, lin_k, featoff,
+                                     lin_feat_idx, coefoff, coef, centers_std,
+                                     init):
+    """Serial twin of `_predict_forest_linear_rm` for tiny batches — see
+    `_predict_forest_rm_serial`."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
         acc = init
         for t in range(n_trees):
             d = depths[t]

@@ -93,21 +93,64 @@ class CatTransformCache:
         return out
 
     def combo(self, X, f_a, f_b):
-        """(codes, categories) of the synthetic combo column for a pair."""
+        """(codes, categories) of the synthetic combo column for a pair.
+
+        A combo category is the PAIR of the parents' canonical categories,
+        not the concatenated string it used to be: "a_x_b" aliased distinct
+        pairs whose values contain the delimiter, stringified NaN to "nan"
+        (bypassing factorize's ``__nan__`` sentinel, so a real missing value
+        merged with the literal string "nan"), and split int/float spellings
+        of one value ("1" vs "1.0"). Pair codes inherit the parents'
+        factorize semantics exactly and skip the per-row string building.
+        Categories are a list of (val_a, val_b) tuples, first-appearance
+        ordered like every factorize."""
         out = self._combos.get((f_a, f_b))
         if out is None:
-            out = self._combos[(f_a, f_b)] = factorize(
+            ca, cats_a = self.column(X, f_a)
+            cb, cats_b = self.column(X, f_b)
+            kb = len(cats_b)
+            pcodes, pkeys = _factorize_int(ca * np.int64(kb) + cb)
+            cats = [(cats_a[k // kb], cats_b[k % kb]) for k in pkeys]
+            out = self._combos[(f_a, f_b)] = (pcodes, cats)
+        return out
+
+    def combo_str(self, X, f_a, f_b):
+        """Legacy string-concat combo factorization, kept only so models
+        pickled before the pair-code change (string-keyed ``combo_maps_``)
+        keep predicting identically."""
+        out = self._combos.get(("str", f_a, f_b))
+        if out is None:
+            out = self._combos[("str", f_a, f_b)] = factorize(
                 FeaturePreprocessor._combo_values(X, f_a, f_b))
         return out
+
+
+def _factorize_int(vals):
+    """First-appearance factorize of an int64 array (combo pair keys).
+    Returns (codes, keys): same contract as ``factorize`` but keys stay a
+    plain list -- wrapping tuples derived from them in ``np.asarray`` would
+    build a 2-D array."""
+    codes = np.empty(vals.shape[0], dtype=np.int64)
+    mapping = {}
+    keys = []
+    for i, v in enumerate(vals.tolist()):
+        code = mapping.get(v)
+        if code is None:
+            code = mapping[v] = len(keys)
+            keys.append(v)
+        codes[i] = code
+    return codes, keys
 
 
 def _remap_codes(categories, mapping, default):
     """Vectorize a fit-time {category value -> code/float} dict over canonical
     categories: the returned array, gathered by canonical codes, equals the
-    row-wise dict lookup with ``default`` for unseen categories."""
+    row-wise dict lookup with ``default`` for unseen categories.
+    ``categories`` is an ndarray (or a plain list, for combo pair tuples)."""
+    cats = categories if isinstance(categories, list) else categories.tolist()
     dtype = np.int64 if isinstance(default, int) else np.float64
-    return np.fromiter((mapping.get(u, default) for u in categories.tolist()),
-                       dtype=dtype, count=len(categories))
+    return np.fromiter((mapping.get(u, default) for u in cats),
+                       dtype=dtype, count=len(cats))
 
 
 class FeaturePreprocessor:
@@ -164,7 +207,9 @@ class FeaturePreprocessor:
 
     @staticmethod
     def _combo_values(X, f_a, f_b):
-        """The synthetic "val_a_x_val_b" string column for a feature pair."""
+        """The synthetic "val_a_x_val_b" string column for a feature pair.
+        LEGACY: only serves models pickled with string-keyed combo maps
+        (see ``CatTransformCache.combo_str``)."""
         col_a = np.asarray(X[:, f_a], dtype=str)
         col_b = np.asarray(X[:, f_b], dtype=str)
         return np.char.add(np.char.add(col_a, "_x_"), col_b)
@@ -193,9 +238,10 @@ class FeaturePreprocessor:
             codes = np.empty((X.shape[0], 0), dtype=np.int64)
             self.cat_maps_ = []
 
-        # 2-way combinations: each pair becomes a new categorical column of
-        # "val_a_x_val_b" strings, target-encoded like any other cat column, so
-        # the tree sees interaction effects single columns can't express.
+        # 2-way combinations: each pair becomes a new categorical column whose
+        # categories are (val_a, val_b) pairs, target-encoded like any other
+        # cat column, so the tree sees interaction effects single columns
+        # can't express.
         self.combo_pairs_ = []
         self.combo_maps_ = []
         n_cat = len(self.cat_features_)
@@ -268,19 +314,26 @@ class FeaturePreprocessor:
         if num is None:
             num = self._numeric_block(X)
         pos = {f: k for k, f in enumerate(self.num_features_)}
-        cols = []
+        # Write each cross column straight into the output block: the ufunc
+        # ``out=`` forms skip both the per-pair temporary and the final
+        # column_stack copy.
+        out = np.empty((X.shape[0], len(self.cross_pairs)))
         g = 0
-        for i, j, op in self.cross_pairs:
+        for k, (i, j, op) in enumerate(self.cross_pairs):
             a = num[:, pos[i]]
             if op == "gdiff":
                 means, global_mean = self.gdiff_maps_[g]
                 g += 1
                 codes, cats = cat_ctx.column(X, j)
-                cols.append(a - _remap_codes(cats, means, global_mean)[codes])
+                np.subtract(a, _remap_codes(cats, means, global_mean)[codes],
+                            out=out[:, k])
                 continue
             b = num[:, pos[j]]
-            cols.append(a - b if op == "diff" else a * b)
-        return np.column_stack(cols)
+            if op == "diff":
+                np.subtract(a, b, out=out[:, k])
+            else:
+                np.multiply(a, b, out=out[:, k])
+        return out
 
     def _codes_for_transform(self, X, cat_ctx=None):
         """Map categorical columns to the codes learned at fit time; unseen
@@ -299,12 +352,18 @@ class FeaturePreprocessor:
         return codes
 
     def _combo_codes_for_transform(self, X, cat_ctx=None):
-        """Reconstruct combination codes for transform using stored combo maps."""
+        """Reconstruct combination codes for transform using stored combo maps.
+        Models pickled before the pair-code change carry string-keyed maps;
+        they keep the legacy string-concat path so their predictions are
+        unchanged."""
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
         combo_codes = np.empty((X.shape[0], len(self.combo_pairs_)), dtype=np.int64)
         for k, (f_a, f_b) in enumerate(self.combo_pairs_):
-            c, cats = cat_ctx.combo(X, f_a, f_b)
+            legacy = (self.combo_maps_[k]
+                      and isinstance(next(iter(self.combo_maps_[k])), str))
+            c, cats = (cat_ctx.combo_str(X, f_a, f_b) if legacy
+                       else cat_ctx.combo(X, f_a, f_b))
             combo_codes[:, k] = _remap_codes(cats, self.combo_maps_[k], -1)[c]
         return combo_codes
 

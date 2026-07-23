@@ -53,6 +53,40 @@ def _bin_matrix(X, borders_flat, offsets, out):
                 out[i, f] = a - lo
 
 
+@njit(cache=True)
+def _bin_matrix_serial(X, borders_flat, offsets, out):
+    """Serial twin of `_bin_matrix` for tiny predict batches, where the
+    OpenMP fork/join costs more than the whole pass (~20us vs ~1us for a
+    1-row batch). Every write is independent, so the two are bit-identical;
+    `Binner.transform` dispatches on `_SERIAL_PREDICT_N`."""
+    n, nf = X.shape
+    for i in range(n):
+        for f in range(nf):
+            lo = offsets[f]
+            hi = offsets[f + 1]
+            m = hi - lo
+            v = X[i, f]
+            if not np.isfinite(v):
+                out[i, f] = m + 1
+            else:
+                a = lo
+                b = hi
+                while a < b:
+                    mid = (a + b) // 2
+                    if borders_flat[mid] <= v:
+                        a = mid + 1
+                    else:
+                        b = mid
+                out[i, f] = a - lo
+
+
+# Predict batches at or below this many rows take the serial kernels: the
+# measured fork/join cost (~20us on 12 threads) exceeds the whole serial pass
+# there, and the parallel walk overtakes serial by n~5 on a mid-size forest.
+# Both sides of the dispatch are bit-identical, so this only affects speed.
+_SERIAL_PREDICT_N = 4
+
+
 def _weighted_quantiles(values, weights, qs):
     """Weighted quantiles at levels ``qs`` (sorted values, midpoint plotting
     position). Reduces to the ordinary midpoint quantile when weights are
@@ -199,7 +233,9 @@ class Binner:
             self._build_flat_borders()
         out = np.empty((n_samples, n_features), dtype=BIN_DTYPE)
         if n_samples:
-            _bin_matrix(X, self._borders_flat, self._offsets, out)
+            kernel = (_bin_matrix_serial if n_samples <= _SERIAL_PREDICT_N
+                      else _bin_matrix)
+            kernel(X, self._borders_flat, self._offsets, out)
         return out
 
     def fit_transform(self, X, sample_weight=None):

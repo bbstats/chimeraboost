@@ -486,3 +486,48 @@ def test_depth0_stop_keeps_best_validation_prefix(monkeypatch):
     assert len(b.trees_) == 1, (
         f"depth-0 exit kept {len(b.trees_)} trees; the best validation "
         "prefix is 1 tree")
+
+
+def test_grouped_classification_split_honors_random_state():
+    """The grouped stratified ES split used an unshuffled StratifiedGroupKFold:
+    random_state was inert and the holdout was always the same first fold.
+    With a seed it now shuffles fold selection; None keeps the historical
+    deterministic split."""
+    from chimeraboost.sklearn_api import _make_eval_split
+
+    rng = np.random.default_rng(0)
+    n = 400
+    X = rng.normal(size=(n, 3))
+    y = (rng.random(n) > 0.5).astype(int)
+    groups = np.repeat(np.arange(40), 10)
+
+    def val_groups(rs):
+        tr, va = _make_eval_split(X, y, 0.2, rs, groups=groups, stratify=y)
+        return frozenset(np.unique(groups[va]).tolist())
+
+    # Seeded splits are reproducible...
+    assert val_groups(0) == val_groups(0)
+    assert val_groups(None) == val_groups(None)
+    # ...and the seed actually selects different holdout groups.
+    assert len({val_groups(rs) for rs in range(6)}) > 1
+
+
+def test_tiny_batch_serial_predict_bit_identical():
+    """Predict batches at/below the serial-dispatch threshold take serial
+    kernel twins (the OpenMP fork/join dwarfs a 1-row walk); each row's result
+    must equal the parallel path's bit-for-bit, on the constant, linear-leaf,
+    and multiclass forests."""
+    rng = np.random.default_rng(7)
+    n = 1300
+    X = rng.normal(size=(n, 4))
+    y = X[:, 0] - X[:, 1] + 0.1 * rng.normal(size=n)
+    reg = ChimeraBoostRegressor(n_estimators=25, random_state=0).fit(X, y)
+    yb = (y > 0).astype(int)
+    clf = ChimeraBoostClassifier(n_estimators=25, random_state=0).fit(X, yb)
+    ym = np.digitize(X[:, 0], [-0.5, 0.5])
+    mc = ChimeraBoostClassifier(n_estimators=25, random_state=0).fit(X, ym)
+    for m, pred in ((reg, reg.predict), (clf, clf.predict_proba),
+                    (mc, mc.predict_proba)):
+        big = pred(X[:16])
+        for i in range(3):
+            np.testing.assert_array_equal(pred(X[i:i + 1])[0], big[i])
