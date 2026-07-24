@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.23.0] - 2026-07-23
 ### Changed
 - **Categorical combinations are pairs, not concatenated strings.** A combo
   category is now the pair of its parents' canonical categories. The old
