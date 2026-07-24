@@ -168,6 +168,22 @@ fit/predict golden ratios drift partly from first-call JIT-load of the
 new kernels landing on the first multiclass set (warm wine: fit 9.3 vs
 6.9ms, predict 0.29 vs 0.38ms) — goldens re-bless at ship as registered.
 
+## Tier-1 screen (2026-07-24; BASE `20260720-195938` vs NEW `20260724-143721`)
+
+**PASS on the registered bar.** Identity PERFECT: 102/102 reg/binary exact
+ties + 3/3 canaries at ceiling (baseline comparability proven by the ties).
+Treatment (31 non-canary multiclass): primary F1 16W-15L mean −0.062%
+(p=1.0 — parity, as SketchBoost predicts); **Brier 23W-8L mean +4.97%**
+(decisively positive — the shared vector leaf updates every class's
+probability each round; biggest wins on the near-solved sets 297/857/947
+where calibration dominates). Worst F1 loss (078, −16.6%) IMPROVED on
+Brier +0.65% — macro-F1 threshold noise on a low-F1 imbalanced set, not a
+probability regression. **Fit time: geomean 0.405× (2.5× faster), every
+set ≤1.12×**; rounds 46→99 (~2×, inside the 2000 cap). Attribution: no
+factor concentration (all |t|<2); watch item missing>0 slice 0W-4L
+−0.185% (p=0.125, small). Bar was parity quality + real speed win: both
+met, Brier a bonus. → tier 2.
+
 ## Acceptance checklist
 
 - [ ] Implementation on branch `a1-vector-leaf` + tests green
