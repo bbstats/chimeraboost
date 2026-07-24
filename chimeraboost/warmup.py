@@ -77,7 +77,8 @@ def warmup(verbose=False, background=False):
     clf.predict_proba(X[:1])   # tiny-batch serial predict kernels
     _log("binary + linear leaves + categoricals")
 
-    # Multiclass (constant-leaf forest predictor).
+    # Multiclass (vector-leaf tree build + vector forest predictors; the
+    # 8-row call warms the parallel kernel, the 1-row call the serial twin).
     ym = np.digitize(X[:320, 0], [-0.5, 0.5])
     mc = ChimeraBoostClassifier(n_estimators=2, random_state=0)
     mc.fit(X[:320, :3], ym)

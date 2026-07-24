@@ -14,9 +14,11 @@ from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor, as_model_array
 from .binning import _SERIAL_PREDICT_N
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
-                   _linear_predict,
+                   _leaf_values_vec, _linear_predict,
                    _predict_forest_rm, _predict_forest_rm_serial,
-                   pack_forest, _predict_forest_linear,
+                   pack_forest, pack_forest_vec,
+                   _predict_forest_vec_rm, _predict_forest_vec_rm_serial,
+                   _predict_forest_linear,
                    _predict_forest_linear_rm, _predict_forest_linear_rm_serial,
                    pack_forest_linear, _shap_forest_linear)
 
@@ -443,6 +445,29 @@ class _BaseBooster:
         w = np.where(mask, np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
         return grad * w, hess * w
 
+    def _mvs_row_weights(self, grad, rng):
+        """Per-row MVS weights (1/p importance weights, 0 = dropped), or None
+        when subsample >= 1. The vector-leaf multiclass round derives ONE
+        row selection from its sketched gradient and applies it to the
+        sketch AND the per-class grad/hess (leaf values must see the same
+        rows the split search saw). Same threshold/probability/cap logic as
+        `_maybe_subsample`, which stays untouched for the scalar path (its
+        np.where(mask, grad, 0) form is golden-frozen)."""
+        if self.subsample >= 1.0:
+            return None
+        n = grad.shape[0]
+        target = self.subsample * n
+        abs_g = np.abs(grad)
+        lam = self._mvs_threshold(abs_g, target)
+        if lam == 0.0:
+            # degenerate or all rows selected: uniform fallback
+            return (rng.random(n) < self.subsample).astype(np.float64)
+        prob = np.minimum(abs_g / lam, 1.0)
+        mask = rng.random(n) < prob
+        max_w = 1.0 / max(self.subsample, 1e-3)
+        return np.where(mask,
+                        np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
+
     @property
     def feature_importances_(self):
         """Total split gain per ORIGINAL input column, normalized to sum 1.
@@ -738,11 +763,22 @@ class GradientBoosting(_BaseBooster):
 
 
 class MulticlassBoosting(_BaseBooster):
-    """Softmax multiclass booster: fits K trees per round (one per class)."""
+    """Softmax multiclass booster: one VECTOR-LEAF tree per round.
+
+    Each round grows a single oblivious tree whose leaves hold K-vectors
+    (one Newton value per class) on a shared structure. The split search
+    runs on a 1-d sketch of the K gradient columns — a fresh Rademacher
+    (±1) projection per round (benchmarks/A1_PLAN.md; SketchBoost's Random
+    Projections, k=1): g_i = Σ_k r_k·grad_ik, and since r_k² = 1 the
+    projected curvature rᵀdiag(H_i)r is exactly the row hessian sum, so
+    (g, h) is a principled scalar Newton pair and the scalar split kernels
+    (quantized path included) are reused verbatim. Models fitted before
+    0.25.0 stored K trees per round (one per class); `predict_raw` keeps a
+    fallback for those unpickled forests."""
 
     def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
-        """Fit K trees per boosting round (one per class) under softmax loss.
+        """Fit one vector-leaf tree per boosting round under softmax loss.
         Same `cat_features` / `eval_set` / `sample_weight` semantics as the
         scalar booster; `prep_cache` is internal -- see `_prep_matrices`.
         (Called via the base ``fit``, which owns the thread limit.)"""
@@ -782,8 +818,9 @@ class MulticlassBoosting(_BaseBooster):
 
         coupling = (K - 1) / K   # softmax Hessian has rank K-1, not K
         rng = np.random.default_rng(self.random_state)
-        self.trees_ = []                           # list of rounds; each = K trees
-        self._forests_ = None   # per-class packed-forest cache (lazy on predict)
+        self.trees_ = []                           # flat list of vector trees
+        self._forest_ = None    # packed vector-forest cache (lazy on predict)
+        self._forests_ = None   # legacy per-class cache (pre-0.25.0 pickles)
         self.train_history_, self.valid_history_ = [], []
         stopper = _EarlyStopper(self.early_stopping_rounds)
         cb_train_loss = _callbacks_need_train_loss(callbacks)
@@ -793,41 +830,70 @@ class MulticlassBoosting(_BaseBooster):
             grad, hess = self.loss_.grad_hess(Y, F)   # (n, K) each
             if w is not None:
                 grad, hess = grad * w[:, None], hess * w[:, None]
+            # 1-d Newton sketch for the split search: fresh CENTERED
+            # Rademacher projection of the gradient columns. Softmax
+            # gradient rows sum to zero, so the all-ones direction is the
+            # null space — an uncentered all-equal draw (prob 2^(1-K)) gives
+            # an identically-zero sketch and a spurious permanent stop
+            # (caught in the A1 smoke; see A1_PLAN.md implementation log).
+            # Centering removes that dead component; the rescale keeps
+            # sum(r^2) = K so the projected-curvature mass stays on the
+            # row-hessian-sum scale every round (min_child_weight and l2
+            # semantics don't wobble with the draw).
+            r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
+            r -= r.mean()
+            while not np.any(r):        # all-equal draw centered to zero
+                r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
+                r -= r.mean()
+            r *= np.sqrt(K / (r @ r))
+            g_s = grad @ r
+            # Exact projected curvature r^T diag(H_i) r, coupled like the
+            # per-class path's hessians.
+            h_s = (hess @ (r * r)) * coupling
+            # One MVS row selection per round, derived from the sketch and
+            # applied to the per-class matrices too, so the leaf values see
+            # exactly the rows (and importance weights) the split search saw.
+            mw = self._mvs_row_weights(g_s, rng)
+            if mw is not None:
+                g_s, h_s = g_s * mw, h_s * mw
+                grad, hess = grad * mw[:, None], hess * mw[:, None]
             fmask = self._feature_mask(Xb.shape[0], rng)
-            round_trees = []
-            for k in range(K):
-                g, h = self._maybe_subsample(
-                    np.ascontiguousarray(grad[:, k]),
-                    np.ascontiguousarray(hess[:, k]) * coupling, rng)
-                qseed = (int(rng.integers(1 << 63))
-                         if self.quantize_gradients else 0)
-                tree, leaf = build_oblivious_tree(Xb, g, h, n_bins, self.depth,
-                                                  self.l2_leaf_reg, self.lr_,
-                                                  feature_mask=fmask,
-                                                  min_child_weight=self.min_child_weight,
-                                                  hist_buffers=hist_buffers,
-                                                  quantize=self.quantize_gradients,
-                                                  qbuf=qbuf, qseed=qseed)
-                round_trees.append(tree)
-                if self.ordered_boosting and tree.depth > 0:
-                    F[:, k] += self._loo_update(tree, leaf, g, h)
-                elif tree.depth > 0:
-                    F[:, k] += tree.values[leaf]
-                # depth-0 trees contribute nothing (predict would be zeros).
-            # Stop only once EVERY class has exhausted its splits; a single class
-            # still learning makes the round productive. Keep the best prefix
-            # exactly as the other exits do (see the scalar loop).
-            if all(t.depth == 0 for t in round_trees):
+            qseed = (int(rng.integers(1 << 63))
+                     if self.quantize_gradients else 0)
+            tree, leaf = build_oblivious_tree(Xb, g_s, h_s, n_bins, self.depth,
+                                              self.l2_leaf_reg, self.lr_,
+                                              feature_mask=fmask,
+                                              min_child_weight=self.min_child_weight,
+                                              hist_buffers=hist_buffers,
+                                              quantize=self.quantize_gradients,
+                                              qbuf=qbuf, qseed=qseed)
+            # No legal split on the sketched gradients: stop like the scalar
+            # booster, keeping the best prefix exactly as the other exits do.
+            if tree.depth == 0:
                 if Fv is not None and stopper.patience:
                     self.trees_ = self.trees_[: stopper.best_iter + 1]
                 break
-            self.trees_.append(round_trees)
+            # Replace the sketch's scalar leaf values with the K-vector
+            # Newton values on the shared partition (coupling applied
+            # inside, per element — see _leaf_values_vec).
+            tree.values = _leaf_values_vec(leaf, grad, hess, coupling,
+                                           tree.values.shape[0],
+                                           self.l2_leaf_reg, self.lr_)
+            if self.ordered_boosting:
+                # Per-class LOO on the shared leaf assignment.
+                for k in range(K):
+                    F[:, k] += _loo_leaf_step(
+                        leaf, np.ascontiguousarray(grad[:, k]),
+                        np.ascontiguousarray(hess[:, k]) * coupling,
+                        tree.values.shape[0], self.l2_leaf_reg, self.lr_)
+            else:
+                F += tree.values[leaf]
+            self.trees_.append(tree)
             if self.verbose:
                 self.train_history_.append(self.loss_.eval(Y, F, w))
 
             if Fv is not None:
-                for k in range(K):
-                    Fv[:, k] += round_trees[k].predict(Xvb)
+                Fv += tree.values[tree.apply(Xvb)]
                 val = self._val_score(Yv, Fv, wv)   # wv=None -> unweighted
                 self.valid_history_.append(val)
                 if stopper.step(val, m):
@@ -865,13 +931,27 @@ class MulticlassBoosting(_BaseBooster):
         (pre-softmax)."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
         # Row-major binned matrix straight from the binner (see the scalar
-        # predict_raw); the K per-class walks reuse the same hot rows.
+        # predict_raw).
         Xb = self.prep_.transform(X, cat_ctx)
         if not self.trees_:
             return np.tile(self.init_, (Xb.shape[0], 1))
+        if isinstance(self.trees_[0], list):
+            # Pre-0.25.0 pickle: rounds of K per-class trees.
+            return self._predict_raw_ktrees(Xb)
+        if getattr(self, "_forest_", None) is None:
+            self._forest_ = pack_forest_vec(self.trees_, self.depth)
+        feats, thrs, depths, vals, voff, K = self._forest_
+        kernel = (_predict_forest_vec_rm_serial
+                  if Xb.shape[0] <= _SERIAL_PREDICT_N
+                  else _predict_forest_vec_rm)
+        return kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_)
+
+    def _predict_raw_ktrees(self, Xb):
+        """Legacy predict for models fitted before 0.25.0 (K trees per
+        round): one packed forest per class, K walks over the same rows."""
         # Every column is fully overwritten below; no need to tile the init.
         F = np.empty((Xb.shape[0], self.n_classes_), dtype=np.float64)
-        if self._forests_ is None:
+        if getattr(self, "_forests_", None) is None:
             # One packed forest per class: class k's trees are round_trees[k]
             # across every round.
             self._forests_ = [

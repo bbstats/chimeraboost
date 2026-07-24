@@ -756,6 +756,36 @@ def _linear_predict(leaf, lin_feats, lin_coef, centers_std, Xb):
 
 
 @njit(cache=True)
+def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
+    """Vector (K-output) Newton leaf values on ONE shared leaf partition.
+
+    ``grad``/``hess`` are the (n, K) per-class softmax gradient/hessian
+    matrices; ``coupling`` is the softmax rank correction ((K-1)/K), applied
+    to the hessian exactly as the per-class-tree path applies it before its
+    scalar `_leaf_values` call. Column k of the result is what
+    `_leaf_values(leaf, grad[:, k], hess[:, k] * coupling, ...)` returns —
+    the same Newton formula, K columns per leaf instead of K separate trees.
+    That equivalence is the oracle test in tests/test_vector_leaf.py."""
+    n, K = grad.shape
+    G = np.zeros((n_leaves, K))
+    H = np.zeros((n_leaves, K))
+    for i in range(n):
+        l = leaf[i]
+        for k in range(K):
+            G[l, k] += grad[i, k]
+            # Couple per element, BEFORE the sum, exactly like the scalar
+            # path's `hess[:, k] * coupling` argument — keeps the oracle
+            # equivalence bit-exact (c*Σh ≠ Σ(c*h) in floats).
+            H[l, k] += hess[i, k] * coupling
+    values = np.zeros((n_leaves, K))
+    for l in range(n_leaves):
+        for k in range(K):
+            if H[l, k] > 0.0:
+                values[l, k] = -lr * G[l, k] / (H[l, k] + l2)
+    return values
+
+
+@njit(cache=True)
 def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
     """Leave-one-out training step for every row, fused into two passes.
 
@@ -901,6 +931,89 @@ def pack_forest(trees, max_depth):
     for t, tree in enumerate(trees):
         vals[voff[t]:voff[t + 1]] = tree.values
     return feats, thrs, depths, vals, voff
+
+
+def pack_forest_vec(trees, max_depth):
+    """Flatten a forest of vector-leaf (K-output) oblivious trees for
+    `_predict_forest_vec_rm`.
+
+    Same layout as `pack_forest` except tree t's leaf-value block is
+    leaf-major (n_leaves, K) flattened: class k of leaf l lives at
+    vals[voff[t] + l*K + k]. Returns (feats, thrs, depths, vals, voff, K)."""
+    n_trees = len(trees)
+    K = trees[0].values.shape[1]
+    feats = np.zeros((n_trees, max_depth), dtype=np.int64)
+    thrs = np.zeros((n_trees, max_depth), dtype=np.int64)
+    depths = np.empty(n_trees, dtype=np.int64)
+    voff = np.empty(n_trees + 1, dtype=np.int64)
+    voff[0] = 0
+    for t, tree in enumerate(trees):
+        d = tree.depth
+        depths[t] = d
+        feats[t, :d] = tree.splits_feat
+        thrs[t, :d] = tree.splits_thr
+        voff[t + 1] = voff[t] + tree.values.shape[0] * K
+    vals = np.empty(voff[-1], dtype=np.float64)
+    for t, tree in enumerate(trees):
+        vals[voff[t]:voff[t + 1]] = tree.values.reshape(-1)
+    return feats, thrs, depths, vals, voff, K
+
+
+@njit(cache=True, parallel=True)
+def _predict_forest_vec_rm(Xb, feats, thrs, depths, vals, voff, K, init):
+    """Sum a forest of vector-leaf oblivious trees in one parallel pass over
+    a row-major (n_samples, n_features) binned matrix — the K-output
+    analogue of `_predict_forest_rm`. One tree walk serves all K classes
+    (the per-class-forest path walked the same rows K times). Per-sample
+    accumulation runs init + tree0 + tree1 + ... in tree order per class,
+    matching the fit loop's `F += tree.values[leaf]` bit for bit."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty((n, K), dtype=np.float64)
+    for i in prange(n):
+        for k in range(K):
+            out[i, k] = init[k]
+        for t in range(n_trees):
+            # A depth-0 tree found no legal split; it contributes nothing.
+            if depths[t] == 0:
+                continue
+            leaf = 0
+            for d in range(depths[t]):
+                if Xb[i, feats[t, d]] > thrs[t, d]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            base = voff[t] + leaf * K
+            for k in range(K):
+                out[i, k] += vals[base + k]
+    return out
+
+
+@njit(cache=True)
+def _predict_forest_vec_rm_serial(Xb, feats, thrs, depths, vals, voff, K,
+                                  init):
+    """Serial twin of `_predict_forest_vec_rm` for tiny batches — see
+    `_predict_forest_rm_serial`. Bit-identical (independent per-row
+    writes); the booster dispatches on `binning._SERIAL_PREDICT_N`."""
+    n = Xb.shape[0]
+    n_trees = feats.shape[0]
+    out = np.empty((n, K), dtype=np.float64)
+    for i in range(n):
+        for k in range(K):
+            out[i, k] = init[k]
+        for t in range(n_trees):
+            if depths[t] == 0:
+                continue
+            leaf = 0
+            for d in range(depths[t]):
+                if Xb[i, feats[t, d]] > thrs[t, d]:
+                    leaf = leaf * 2 + 1
+                else:
+                    leaf = leaf * 2
+            base = voff[t] + leaf * K
+            for k in range(K):
+                out[i, k] += vals[base + k]
+    return out
 
 
 def pack_forest_linear(trees, max_depth):

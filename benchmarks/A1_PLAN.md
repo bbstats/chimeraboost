@@ -137,6 +137,37 @@ win at speed parity SHIPS; both flat = KILL (churn); quality loss = KILL
 
 Aggregate table printed after every run, per standing rule.
 
+## Implementation log (2026-07-24, branch a1-vector-leaf)
+
+Shape as registered: sketch reuses the scalar split kernels verbatim
+(quantized path included); `_leaf_values_vec` (coupling applied per element
+— bit-exact oracle vs scalar `_leaf_values`, tests/test_vector_leaf.py);
+`pack_forest_vec` + `_predict_forest_vec_rm(_serial)`; one MVS row
+selection per round from the sketch (`_mvs_row_weights`, scalar
+`_maybe_subsample` untouched); per-class LOO for ordered boosting;
+legacy rounds-of-K predict fallback for ≤0.24.0 pickles. 541 tests green
+(7 new); reg/binary paths untouched by construction.
+
+**Registered-design deviation (found by smoke, fixed BEFORE any decision
+run):** the plain Rademacher sketch has a null direction — softmax
+gradient rows sum to 0, so an all-equal draw (prob 2^(1−K) per round; 25%
+at K=3) gives an identically-zero sketch → depth-0 tree → spurious
+permanent stop (wine died at round 1, covtype at 4). Fix: CENTER r
+(remove the all-ones component), rescale to Σr²=K so hessian mass stays
+on the row-sum scale, redraw the (now measure-zero) zero vector;
+projected curvature becomes hess@r² exactly. Design point 1 is amended to
+centered-Rademacher; nothing else changed.
+
+Smoke (a1_smoke, 3 seeds, defaults, worktree A/B with PYTHONPATH +
+__file__ printed; not decision-grade): digits K=10 ll 0.113→0.076, F1
+.963→.974, fit 2.7→1.0s; wine K=3 ll 0.115→0.023; toy-rotated K=4 ll
+0.150→0.137; covtype-20k K=7 ll 0.301→0.306 (−), F1 .896→.893, fit
+8.9→4.8s, predict 20→11ms. Rounds roughly double (1 tree/round vs K),
+all within the 2000 cap, ES stops naturally. Golden-panel note: wine
+fit/predict golden ratios drift partly from first-call JIT-load of the
+new kernels landing on the first multiclass set (warm wine: fit 9.3 vs
+6.9ms, predict 0.29 vs 0.38ms) — goldens re-bless at ship as registered.
+
 ## Acceptance checklist
 
 - [ ] Implementation on branch `a1-vector-leaf` + tests green
