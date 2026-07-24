@@ -12,10 +12,12 @@ import numpy as np
 
 from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor, as_model_array
+from .binning import _SERIAL_PREDICT_N
 from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
                    _linear_predict,
-                   _predict_forest_rm, pack_forest, _predict_forest_linear,
-                   _predict_forest_linear_rm,
+                   _predict_forest_rm, _predict_forest_rm_serial,
+                   pack_forest, _predict_forest_linear,
+                   _predict_forest_linear_rm, _predict_forest_linear_rm_serial,
                    pack_forest_linear, _shap_forest_linear)
 
 
@@ -637,20 +639,24 @@ class GradientBoosting(_BaseBooster):
         Xb = self.prep_.transform(X, cat_ctx)
         if not self.trees_:
             return np.full(Xb.shape[0], self.init_, dtype=np.float64)
+        # Tiny batches take the serial kernel twins: the OpenMP fork/join
+        # costs more than the whole walk there (both sides bit-identical).
+        small = Xb.shape[0] <= _SERIAL_PREDICT_N
         if getattr(self, "_centers_std_", None) is not None:
             # Linear-leaf path: a dedicated fused kernel walks the whole forest
             # in one parallel pass (constant trees ride along as k=0).
             if self._forest_ is None:
                 self._forest_ = pack_forest_linear(self.trees_, self.depth)
             feats, thrs, depths, lin_k, foff, lidx, coff, coef = self._forest_
-            return _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k,
-                                             foff, lidx, coff, coef,
-                                             self._centers_std_, self.init_)
+            kernel = (_predict_forest_linear_rm_serial if small
+                      else _predict_forest_linear_rm)
+            return kernel(Xb, feats, thrs, depths, lin_k, foff, lidx, coff,
+                          coef, self._centers_std_, self.init_)
         if self._forest_ is None:
             self._forest_ = pack_forest(self.trees_, self.depth)
         feats, thrs, depths, vals, voff = self._forest_
-        return _predict_forest_rm(Xb, feats, thrs, depths, vals, voff,
-                                  self.init_)
+        kernel = _predict_forest_rm_serial if small else _predict_forest_rm
+        return kernel(Xb, feats, thrs, depths, vals, voff, self.init_)
 
     def staged_predict_raw(self, X):
         """Yield the cumulative raw prediction after each tree (1..n_trees)."""
@@ -850,8 +856,10 @@ class MulticlassBoosting(_BaseBooster):
             self._forests_ = [
                 pack_forest([rt[k] for rt in self.trees_], self.depth)
                 for k in range(self.n_classes_)]
+        kernel = (_predict_forest_rm_serial
+                  if Xb.shape[0] <= _SERIAL_PREDICT_N else _predict_forest_rm)
         for k in range(self.n_classes_):
             feats, thrs, depths, vals, voff = self._forests_[k]
-            F[:, k] = _predict_forest_rm(Xb, feats, thrs, depths, vals, voff,
-                                         self.init_[k])
+            F[:, k] = kernel(Xb, feats, thrs, depths, vals, voff,
+                             self.init_[k])
         return F

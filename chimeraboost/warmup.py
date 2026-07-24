@@ -74,6 +74,7 @@ def warmup(verbose=False, background=False):
     clf = ChimeraBoostClassifier(n_estimators=2, random_state=0)
     clf.fit(X[128:], y[128:], cat_features=[3], eval_set=(X[:128], y[:128]))
     clf.predict_proba(X[:8])
+    clf.predict_proba(X[:1])   # tiny-batch serial predict kernels
     _log("binary + linear leaves + categoricals")
 
     # Multiclass (constant-leaf forest predictor).
@@ -81,6 +82,7 @@ def warmup(verbose=False, background=False):
     mc = ChimeraBoostClassifier(n_estimators=2, random_state=0)
     mc.fit(X[:320, :3], ym)
     mc.predict_proba(X[:8, :3])
+    mc.predict_proba(X[:1, :3])   # constant-forest serial twin
     _log("multiclass")
 
     # Regression, ordered boosting on (the LOO leaf-step kernel), with a

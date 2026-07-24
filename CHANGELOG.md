@@ -5,6 +5,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Categorical combinations are pairs, not concatenated strings.** A combo
+  category is now the pair of its parents' canonical categories. The old
+  "a_x_b" string building aliased distinct pairs whose values contain the
+  delimiter, turned real missing values into the literal string "nan"
+  (bypassing the ``__nan__`` missing sentinel), and split int/float
+  spellings of one value ("1" vs "1.0"). Grouping — and therefore the model
+  — is unchanged on data without those edge cases; models pickled with the
+  old string-keyed maps keep predicting through the legacy path. Combo
+  fits also skip the per-row string building.
+- **Cross-feature columns are written straight into their output block**
+  (ufunc ``out=``), removing a per-column temporary and the final
+  ``column_stack`` copy at fit and predict. Bit-identical.
+- **Tiny predict batches (≤4 rows) take serial kernel twins.** The binning
+  and forest-walk kernels are parallel; on a 1-row call the OpenMP
+  fork/join (~20 µs on 12 threads) costs more than the whole walk, and the
+  parallel kernels only overtake serial around 5 rows. Measured numeric
+  1-row predict: 56 µs → 36 µs. Bit-identical (the fit path already uses
+  the same serial-twin dispatch); ``warmup()`` compiles both sides.
+### Fixed
+- **Grouped classification's automatic early-stopping split honors
+  `random_state`.** It used an unshuffled `StratifiedGroupKFold`, so the
+  holdout was always the same first fold and the seed was inert — unlike
+  every other split branch. A seed now shuffles fold selection;
+  `random_state=None` keeps the historical deterministic split.
+- **Bool columns are no longer named in the "add these to cat_features"
+  error guidance** (they cast to 0/1 cleanly; the guidance was wrong).
+
+## [0.22.0] - 2026-07-23
+### Changed
 - **Cross-feature columns no longer re-cast their parent columns per pair.**
   `_cross_block` reads numeric parents from the float64 numeric block the
   transform already builds (one cast per input column instead of one per
