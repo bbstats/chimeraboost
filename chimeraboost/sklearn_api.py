@@ -41,7 +41,7 @@ def _fit_temperature(raw, y, multiclass):
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "max_samples",
                            "cat_features", "cross_features",
-                           "selection_rounds"})
+                           "selection_rounds", "refit_full"})
 
 
 def _validate_hyperparams(estimator):
@@ -107,6 +107,9 @@ def _validate_hyperparams(estimator):
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
     _in_range("max_samples", 0.0, 1.0, lo_incl=False)
+    v = p.get("refit_full")
+    if v is not None and not isinstance(v, (bool, np.bool_)):
+        raise ValueError(f"refit_full must be True, False or None; got {v!r}.")
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
     if "loss" in p:
         loss = p["loss"]
@@ -949,6 +952,51 @@ def _stop_if_behind(k, target_best):
     return cb
 
 
+def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
+                   loss_kwargs=None):
+    """Retrain ``winner``'s configuration on all rows (benchmarks/
+    REFIT_PLAN.md): rounds scaled by the train-size ratio, resolved learning
+    rate pinned so the early-stopped budget keeps its meaning, selected
+    linear-leaf variant and cross pairs carried over. The winner's ES curves
+    are copied so ``validation_history_`` keeps reporting the curve that
+    chose the budget. Size-adaptive autos (the classifier's min_child_weight,
+    cat_combinations) re-resolve at the full row count; user callbacks
+    observed the ES fits and are not re-run."""
+    t_star = len(winner.trees_)
+    rounds = min(int(np.ceil(t_star / (1.0 - est.validation_fraction))),
+                 int(est.n_estimators))
+    rkw = dict(kw)
+    rkw["n_estimators"] = rounds
+    rkw["early_stopping_rounds"] = None
+    rkw["learning_rate"] = float(winner.lr_)
+    # The classifier's auto min_child_weight is size-adaptive (the regressor
+    # resolves None to a flat 1.0 before kw is built).
+    if est.min_child_weight is None and loss_kwargs is None:
+        rkw["min_child_weight"] = _auto_min_child_weight(len(X_full))
+    if est.cat_combinations is None:
+        rkw["cat_combinations"] = _auto_cat_combinations(
+            cat_features, est.n_features_in_, len(X_full))
+    rkw.pop("linear_leaves", None)
+    if loss_kwargs is not None:      # scalar regressor path
+        b = GradientBoosting(loss=est.loss, loss_kwargs=loss_kwargs,
+                             linear_leaves=winner.linear_leaves,
+                             cross_pairs=winner.cross_pairs, **rkw)
+    elif getattr(est, "_multiclass", False):
+        b = MulticlassBoosting(linear_leaves=winner.linear_leaves,
+                               cross_pairs=winner.cross_pairs, **rkw)
+    else:
+        b = GradientBoosting(loss="Logloss",
+                             linear_leaves=winner.linear_leaves,
+                             cross_pairs=winner.cross_pairs, **rkw)
+    if est.verbose:
+        print(f"refit_full: retraining on all {len(X_full)} rows for "
+              f"{rounds} rounds (early stopping chose {t_star})")
+    b.fit(X_full, y_full, cat_features=cat_features, sample_weight=sw_full)
+    b.train_history_ = winner.train_history_
+    b.valid_history_ = winner.valid_history_
+    return b
+
+
 def _add_callback(callbacks, extra):
     """Compose the user callbacks argument (None, a callable, or a sequence)
     with one internal callback; extra=None returns callbacks unchanged."""
@@ -1107,6 +1155,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
+    refit_full : bool, default False
+        After the automatic early-stopping split has chosen the tree budget
+        (and model selection / calibration have used it), retrain the winning
+        configuration on 100% of the rows — rounds scaled by the train-size
+        ratio, learning rate pinned — so the final model does not pay the
+        holdout data tax. Only affects fits that used the automatic split
+        (an explicit ``eval_set`` or ``early_stopping=False`` is unchanged);
+        ``loss="Quantile"`` ignores it to keep its conformal holdout honest.
+        ``validation_history_`` keeps the early-stopped fit's curve. Costs
+        roughly one extra fit.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1152,7 +1210,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None, delta=1.0, tweedie_variance_power=1.5):
+                 eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
+                 refit_full=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1186,6 +1245,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.ensemble_n_jobs = ensemble_n_jobs
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
+        self.refit_full = refit_full
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1279,6 +1339,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     UserWarning, stacklevel=2)
 
         es_active = bool(self.early_stopping)
+        # Kept for the optional full-data refit below: the auto split
+        # reassigns X/y, but the refit retrains on every row.
+        X_full, y_full, sw_full = X, y, sample_weight
+        auto_split = False
         if es_active and eval_set is None:
             split = _make_eval_split(
                 X, y, self.validation_fraction, self.random_state,
@@ -1287,6 +1351,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             if split is None:
                 es_active = False  # data too small to hold out a val set
             else:
+                auto_split = True
                 train_idx, val_idx = split
                 if self.verbose and not getattr(self, "_is_bag_member", False):
                     print(f"early_stopping=True: holding out {len(val_idx)} "
@@ -1504,6 +1569,20 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     resid.shape[0])
             if k >= 1:
                 self.quantile_offset_ = float(resid[k - 1])
+
+        # Full-data refit (benchmarks/REFIT_PLAN.md): the auto-split holdout
+        # is a pure data tax once early stopping, selection and calibration
+        # have consumed it — retrain the winning configuration on 100% of the
+        # rows at the selected budget, rounds scaled by the train-size ratio,
+        # the resolved learning rate pinned so the budget keeps its meaning.
+        # Only the auto-split path ever paid the tax (explicit eval_set /
+        # early_stopping=False are untouched); Quantile keeps its genuine
+        # conformal holdout instead.
+        if (self.refit_full and auto_split and self.loss != "Quantile"
+                and self.model_.trees_):
+            self.model_ = _refit_on_full(
+                self, self.model_, X_full, y_full, sw_full, cat_features, kw,
+                loss_kwargs=loss_kwargs)
         return self
 
     def _transform_raw(self, raw):
@@ -1726,6 +1805,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
+    refit_full : bool, default False
+        After the automatic early-stopping split has chosen the tree budget
+        (and model selection / temperature scaling have used it), retrain the
+        winning configuration on 100% of the rows — rounds scaled by the
+        train-size ratio, learning rate pinned — so the final model does not
+        pay the holdout data tax. Only affects fits that used the automatic
+        split (an explicit ``eval_set`` or ``early_stopping=False`` is
+        unchanged); the calibrated temperature transfers to the refit model.
+        ``validation_history_`` keeps the early-stopped fit's curve. Costs
+        roughly one extra fit.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1765,7 +1854,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None):
+                 eval_metric=None, refit_full=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1795,6 +1884,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.ensemble_n_jobs = ensemble_n_jobs
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
+        self.refit_full = refit_full
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1887,6 +1977,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
 
         es_active = bool(self.early_stopping)
+        # Kept for the optional full-data refit below: the auto split
+        # reassigns X/y, but the refit retrains on every row.
+        X_full, y_full, sw_full = X, y, sample_weight
+        auto_split = False
         if es_active and eval_set is None:
             split = _make_eval_split(
                 X, y, self.validation_fraction, self.random_state,
@@ -1895,6 +1989,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             if split is None:
                 es_active = False  # data too small to hold out a val set
             else:
+                auto_split = True
                 train_idx, val_idx = split
                 if self.verbose and not getattr(self, "_is_bag_member", False):
                     print(f"early_stopping=True: holding out {len(val_idx)} "
@@ -2096,6 +2191,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if cal_Xv is not None:
             raw = self.model_.predict_raw(cal_Xv)
             self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass)
+
+        # Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split
+        # data tax after early stopping, selection and temperature scaling
+        # have consumed the holdout. The temperature above was calibrated on
+        # the ES winner's validation scores and transfers to the refit model.
+        if self.refit_full and auto_split and self.model_.trees_:
+            y_refit = (y_full if self._multiclass else
+                       (y_full == self.classes_[1]).astype(np.float64))
+            self.model_ = _refit_on_full(
+                self, self.model_, X_full, y_refit, sw_full, cat_features, kw)
         return self
 
     def predict_proba(self, X):
