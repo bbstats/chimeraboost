@@ -4,6 +4,21 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **Vector-leaf multiclass.** ``MulticlassBoosting`` now grows ONE oblivious
+  tree per round with K-vector Newton leaves (shared structure, per-class
+  values) instead of K per-class trees; splits are scored on a centered
+  Rademacher projection of the K gradient columns (a 1-d Newton sketch —
+  SketchBoost-style), reusing the scalar split kernels, quantized path
+  included. Multiclass models get better-calibrated and faster: synth
+  screen Brier 23W-8L +5.0% at F1 parity with fits 2.5× faster; OpenML
+  gate 10W-0L across every multiclass set; high-card multiclass fits 1.6×
+  faster at parity, and the 8-member ensemble now leads CatBoost on both
+  hc multiclass quality columns. Regression/binary paths are bit-identical
+  (Grinsztajn 59/59 exact ties). Models pickled on ≤0.24.0 still load and
+  predict via a legacy per-class-forest path. Evidence:
+  benchmarks/A1_PLAN.md.
+
 ### Added
 - **``refit_full`` (default ``False``): full-data refit of the early-stopped
   winner.** The automatic early-stopping split holds out 20% of the training
