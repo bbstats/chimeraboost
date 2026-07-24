@@ -59,4 +59,43 @@ deltas will be smaller where crosses/LL already fix the same underfit.
 
 ## Results log
 
-(appended as runs complete)
+- 2026-07-24 tests: 556 green (10 new in tests/test_refit_full.py);
+  default-off paths bit-identical by construction + test.
+- **Tier 1 (synth screen) PASS**: base 20260724-125452 vs variant
+  20260724-125608 (worktree results/): **95W-39L-2T, mean +1.023%**
+  (sign bar 69, p≈0). Attribution: reg +2.19% (40-8), binary +0.17%
+  (p=.04), multi +0.72%; n<2000 +1.27% vs n>=2000 +0.89% (steep-curve
+  concentration as predicted); canaries flat (0-1-2, −0.16%); no
+  low-noise overfit cluster (noise_level t=−0.47); saturated slice
+  −0.84% p=.61 = the at-ceiling zone, noise-level. Fallback (drop the
+  rounds scaling) NOT triggered.
+- **Tier 2 Grinsztajn PASS**: certified base 20260723-192007
+  (fingerprint 27/27 exact) vs variant 20260724-125955:
+  **48W-11L, mean +2.000%** primary; **Brier 18W-5L +2.428%**; worst
+  loss −0.29% (credit). The reg CatBoost-gap cluster collapses:
+  Brazilian_houses +18.4/+19.8%, sulfur +11.3%, visualizing_soil
+  +13.5%, cpu_act +6.6%, pol +5.8%, superconduct +4.4%.
+  **Fit cost: ChimeraBoost summed 492→974 s = ×1.98** (the refit is a
+  second winner-length fit at 1.25× rows; expected).
+- **Tier 2 hc PASS**: certified base 20260720-210906 (fingerprint 12/12
+  exact) vs variant 20260724-130543: **10W-3L-1T, mean +0.571%**;
+  **Brier 8W-0L sweep** (the CatBoost high-card Brier regime). Losses:
+  eucalyptus −2.06%, okcupid −1.16% (both multiclass, small), Moneyball
+  −0.62%. Pooled gr+hc: 58W-14L-1T, ≈+1.73% dataset-weighted.
+- **OpenML one-shot gate PASS**: certified base 20260720-212313
+  (fingerprint 30/30 exact) vs variant 20260724-130721:
+  **26W-8L-2T, mean +1.270%** (worst loss diabetes −1.74%, 442-row toy).
+- **Headline (spliced 20260723-192007 field, control = fingerprinted
+  base): single win rate 55.7 → 73.7% (5-arm incl Ens8); external field
+  only 73.7 → 93.0%; CatBoost 50.9 → 43.4. Slowdown approx 4.9× →
+  ~9.7× (fit ×1.98) vs CatBoost 12.9× — CatBoost dominated on both
+  axes.** Canonical 5-arm chart re-run deferred to the default-flip
+  decision.
+
+## Verdict
+
+All pre-registered gates PASS. Feature ships default-OFF in the PR;
+the DEFAULT FLIP (accuracy vs ×1.98 single-model fit) is Nathan's
+sign-off per the ship rules (precedent: cross_features 7.9× accepted
+"as long as we are Pareto and all python"). Ens8/bag members have no
+data tax — bagged points unchanged.
