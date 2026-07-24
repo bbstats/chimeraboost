@@ -207,6 +207,24 @@ p ≥ 0.05). Both hold → hc bar = PASS (quality parity + speed win).
 Either fails → KILL (registered contingency s∈{2,4} may be auditioned
 at tier 1 only if the failure pattern implicates sketch dimension).
 
+## hc 6-seed extension (2026-07-24; BASE `20260724-145648` worktree@main vs NEW `20260724-145622`)
+
+**PASS on the pre-stated instrument.** Validity canaries EXACT: extension
+NEW bit-reproduces the 5-arm NEW on all 12 shared (set,seed) pairs;
+extension BASE bit-reproduces the 3-seed BASE values. (Process note: the
+PYTHONPATH worktree mechanism WORKS for script runs — sys.path[0] is the
+script dir, not cwd; only a `python -c` spot-check resolves cwd first and
+briefly mis-flagged the BASE run as invalid. Recorded so the next A/B
+doesn't repeat the scare.) Instrument: (a) pooled Brier delta positive
+(relative +4.9%, absolute +0.008 summed-mean) ✓; (b) F1 pairs 10W-9L-5T,
+two-sided p=1.0 — not decisively negative ✓. okcupid at 6 seeds: F1 mean
+−0.40% with 2 positive seeds (the 3-seed "all seeds down" was a small
+sample); Brier −0.4%, down on all 6 — a real, small, single-set cost,
+far from decisive, balanced by eucalyptus (+0.21pp F1 mean, Brier +) and
+Traffic (+). hc verdict: quality parity, fits 1.6× faster on the big
+multiclass sets, Ens8 now ahead of CatBoost on both hc multiclass
+columns. → gr identity.
+
 ## Acceptance checklist
 
 - [ ] Implementation on branch `a1-vector-leaf` + tests green
