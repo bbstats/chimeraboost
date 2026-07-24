@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.24.0] - 2026-07-24
 ### Added
 - **Custom objectives.** The regressor's ``loss`` accepts a user objective
   instance: subclass ``chimeraboost.CustomObjective``, implement
