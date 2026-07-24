@@ -225,10 +225,39 @@ Traffic (+). hc verdict: quality parity, fits 1.6× faster on the big
 multiclass sets, Ens8 now ahead of CatBoost on both hc multiclass
 columns. → gr identity.
 
+## OpenML one-shot gate (2026-07-24; BASE `20260724-150151` worktree@main vs NEW `20260724-150520`; arms ChimeraBoost + LightGBM, seeds 3)
+
+**PASS, decisively.** LightGBM canary 36/36 exact ties. ChimeraBoost:
+**10W-0L-26T — every non-tie is a multiclass set, every multiclass set
+positive** (car +1.22%, optdigits +0.85%, wine +0.83%, letter +0.68%,
+cat_multiclass +0.56%, segment +0.36%, satimage +0.25%, pendigits +0.24%,
+splice +0.09%, vehicle +0.06%; sign p≈0.002), all 26 non-multiclass sets
+exact ties. (BASE-run validity: ties `20260720-212313` 35/36; the one
+non-tie, oml:ailerons −0.06% on a 2e-4 RMSE, is a pre-A1 historical nit
+between BASE-era runs — both gate arms are same-day paired.)
+
+## VERDICT (2026-07-24): SHIP — vector-leaf multiclass, default path.
+
+All three registered bars passed: tier-1 identity 102/102 + F1 parity +
+Brier 23W-8L +5.0% + fit 2.5× faster; tier-2 gr 59/59 identity, hc PASS
+via the pre-stated 6-seed extension (F1 10W-9L-5T p=1.0, Brier pooled
+positive, fits 1.6× faster, Ens8 ahead of CatBoost on both hc multiclass
+columns); gate 10W-0L multiclass sweep. One registered design deviation
+(centered projection, fixed pre-run at smoke) and one pre-stated
+extension — no bar was moved after seeing data. Multiclass simultaneously
+got better-calibrated AND markedly faster: both Pareto axes, as the
+flagship brief demanded.
+
 ## Acceptance checklist
 
-- [ ] Implementation on branch `a1-vector-leaf` + tests green
-- [ ] Tier-1 screen vs kill bar
-- [ ] Tier-2 hc + gr identity
-- [ ] OpenML one-shot gate
-- [ ] SHIP or KILL recorded here + memory; pareto/CHANGELOG on ship
+- [x] Implementation on branch `a1-vector-leaf` + tests green — DONE
+      2026-07-24 (541 green + 7 new; centered-projection deviation recorded)
+- [x] Tier-1 screen vs kill bar — PASS 2026-07-24 (identity 102/102, F1
+      parity, Brier 23W-8L +5.0%, fit 0.405×)
+- [x] Tier-2 hc + gr identity — PASS 2026-07-24 (hc via pre-stated 6-seed
+      extension; gr 59/59 exact ties)
+- [x] OpenML one-shot gate — PASS 2026-07-24 (canary 36/36; 10W-0L, all
+      multiclass positive)
+- [x] SHIP 2026-07-24 — goldens re-blessed (wine/cat_multiclass, intended),
+      CHANGELOG [Unreleased], PROJECT_STATUS note, pareto refresh + memory
+      at close

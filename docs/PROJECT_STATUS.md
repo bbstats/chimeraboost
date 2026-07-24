@@ -198,7 +198,8 @@ This list is the most valuable part for a fresh collaborator — these are dead 
 - Histogram subtraction trick (both branch and compact-index variants) — breaks Numba
   vectorization / cache prefetch.
 - K-tree multiclass parallelism via ThreadPoolExecutor — `parallel=True` over features
-  already saturates cores; outer threading just adds queue contention.
+  already saturates cores; outer threading just adds queue contention. (Premise
+  since removed: A1 vector-leaf multiclass grows ONE tree per round, benchmarks/A1_PLAN.md.)
 
 **Lesson encoded across these:** quantization/parallelism wins need either a working
 set that overflows cache or wider SIMD — Numba-on-CPU at our scale has neither. Future
