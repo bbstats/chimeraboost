@@ -169,6 +169,20 @@ Members fit in parallel worker processes by default, splitting the thread
 budget so a bagged fit uses the same cores a single fit would; pass
 `ensemble_n_jobs=1` to fit them sequentially instead.
 
+## Full-data refit
+
+`refit_full=True` is the cheaper accuracy lever: after early stopping has
+chosen the tree budget on the automatic validation split, the winning
+configuration is retrained on 100% of the rows at that budget, so the final
+model does not pay the 20% holdout data tax. About 2x fit time for a broad
+accuracy gain — largest on small or high-signal data. It composes with
+everything above but is a no-op inside bagged members (their held-out rows
+already serve as an external eval set).
+
+```python
+reg = ChimeraBoostRegressor(refit_full=True, random_state=0).fit(X_train, y_train)
+```
+
 `feature_importances_` and `shap_values` average across the bag automatically.
 
 ## Early stopping

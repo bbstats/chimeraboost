@@ -99,3 +99,10 @@ the DEFAULT FLIP (accuracy vs ×1.98 single-model fit) is Nathan's
 sign-off per the ship rules (precedent: cross_features 7.9× accepted
 "as long as we are Pareto and all python"). Ens8/bag members have no
 data tax — bagged points unchanged.
+
+**DECISION (Nathan, 2026-07-24): ship as an opt-in accuracy option
+(like `n_ensembles`), NOT the default.** Default stays `False`;
+documented in docs/parameters.md + recipes.md. Consequently no pareto
+or README refresh (the chart measures defaults, which are unchanged)
+and no TabArena re-read needed. The spliced 73.7%/93.0% single-model
+headline stays a plan-file fact, not a chart claim.
