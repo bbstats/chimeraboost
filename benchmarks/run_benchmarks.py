@@ -627,7 +627,8 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  mcw=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
-                 cat_smoothing=None, selection_rounds=None, quantize=False):
+                 cat_smoothing=None, selection_rounds=None, quantize=False,
+                 refit_full=False):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -636,6 +637,8 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
     if quantize:
         kw["quantize_gradients"] = True
+    if refit_full:
+        kw["refit_full"] = True
     if leaf_estimation_iterations is not None:
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
     if mcw is not None:
@@ -1164,6 +1167,11 @@ def main():
                     dest="no_linear_leaves",
                     help="force linear_leaves=False for both classes (ablation "
                          "arm vs the class defaults).")
+    ap.add_argument("--chimera-refit-full", action="store_true",
+                    dest="refit_full",
+                    help="refit_full=True on the single ChimeraBoost arm: "
+                         "retrain the ES winner on 100%% of train at the "
+                         "selected budget (REFIT_PLAN.md A/B arm).")
     ap.add_argument("--chimera-selection-rounds", type=int, default=None,
                     dest="selection_rounds",
                     help="cap the internal selection fits at this many rounds; "
@@ -1306,7 +1314,8 @@ def main():
                        else args.cross_features,
                        selection_rounds="full" if args.full_selection
                        else args.selection_rounds,
-                       quantize=args.chimera_quantize)
+                       quantize=args.chimera_quantize,
+                       refit_full=args.refit_full)
 
     # Split the thread budget across parallel jobs: GBDT thread scaling is
     # sublinear, so running J seeds at threads/J each beats one fit at all cores.

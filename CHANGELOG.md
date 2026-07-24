@@ -3,6 +3,23 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **``refit_full`` (default ``False``): full-data refit of the early-stopped
+  winner.** The automatic early-stopping split holds out 20% of the training
+  rows that the final model otherwise never learns from; with
+  ``refit_full=True`` the winning configuration (selected linear-leaf
+  variant, cross pairs, resolved learning rate) is retrained on 100% of the
+  rows at the selected budget, rounds scaled by the train-size ratio.
+  Temperature scaling transfers; ``validation_history_`` keeps the
+  early-stopped fit's curve. No-ops (bit-identical) with an explicit
+  ``eval_set``, ``early_stopping=False``, ``loss="Quantile"`` (its conformal
+  offset needs a genuine holdout), and inside bagged members (their OOB rows
+  are already an external eval set). Costs about one extra fit.
+  Evidence (benchmarks/REFIT_PLAN.md): Grinsztajn 48W-11L +2.0% (Brier
+  18W-5L +2.4%), high-card 10W-3L (Brier 8W-0L), OpenML one-shot 26W-8L
+  +1.3%, synth screen 95W-39L +1.0%.
+
 ## [0.24.0] - 2026-07-24
 ### Added
 - **Custom objectives.** The regressor's ``loss`` accepts a user objective
