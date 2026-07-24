@@ -1283,6 +1283,11 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <td><code>0.2</code></td>
 <td>Held-out fraction (stratified for classifiers). Ignored when <code>eval_set</code> is passed to <code>fit</code>.</td>
 </tr>
+<tr>
+<td><code>refit_full</code></td>
+<td><code>False</code></td>
+<td>Accuracy mode: after early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on 100% of the rows at that budget (rounds scaled by the train-size ratio). Roughly doubles fit time; broad accuracy gain everywhere the automatic split ran. No effect with an explicit <code>eval_set</code>, <code>early_stopping=False</code>, <code>loss="Quantile"</code>, or inside bagged members.</td>
+</tr>
 </tbody>
 </table>
 <p>See <a href="../recipes/#early-stopping">Recipes → early stopping</a> for <code>eval_set</code> and <code>groups</code>.</p>
