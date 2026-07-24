@@ -658,6 +658,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#validation-metric-both-estimators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation metric (both estimators)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#leaf-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -892,6 +903,17 @@
     <span class="md-ellipsis">
       
         Loss (regressor only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-metric-both-estimators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation metric (both estimators)
       
     </span>
   </a>
@@ -1138,16 +1160,43 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 <tr>
 <td><code>loss</code></td>
 <td><code>"RMSE"</code></td>
-<td><code>"RMSE"</code>, <code>"MAE"</code> (median), or <code>"Quantile"</code>.</td>
+<td><code>"RMSE"</code>, <code>"MAE"</code> (median), <code>"Quantile"</code>, <code>"Huber"</code>, or the log-link losses <code>"Poisson"</code> (counts), <code>"Gamma"</code> (positive, right-skewed), <code>"Tweedie"</code> (non-negative with exact zeros) — predictions are <code>exp(raw) &gt; 0</code>. Or a custom objective instance: subclass <code>chimeraboost.CustomObjective</code>, implement <code>grad_hess(y, raw)</code> and <code>eval(y, raw, sample_weight=None)</code>, optionally override <code>init</code>/<code>transform</code>.</td>
 </tr>
 <tr>
 <td><code>alpha</code></td>
 <td><code>0.5</code></td>
 <td>Quantile level for <code>loss="Quantile"</code>.</td>
 </tr>
+<tr>
+<td><code>delta</code></td>
+<td><code>1.0</code></td>
+<td>Huber transition point, in y units (quadratic within, linear beyond; fixed, so scale it to the data).</td>
+</tr>
+<tr>
+<td><code>tweedie_variance_power</code></td>
+<td><code>1.5</code></td>
+<td>Tweedie variance power, strictly between 1 (Poisson) and 2 (Gamma).</td>
+</tr>
 </tbody>
 </table>
 <p>The classifier picks its loss automatically: binary logloss for 2 classes, softmax for 3+.</p>
+<h2 id="validation-metric-both-estimators">Validation metric (both estimators)<a class="headerlink" href="#validation-metric-both-estimators" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eval_metric</code></td>
+<td><code>None</code></td>
+<td>Callable <code>metric(y_true, y_pred[, sample_weight]) -&gt; float</code> scored on the validation set each round; drives early stopping and the internal selections instead of the training loss. <code>y_pred</code> is the prediction (probabilities for the classifier; multiclass metrics get one-hot <code>y_true</code> and the probability matrix). Lower is better unless the callable has a <code>greater_is_better = True</code> attribute (<code>validation_history_</code> then records negated values). Gradients still come from the training loss.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="leaf-models">Leaf models<a class="headerlink" href="#leaf-models" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

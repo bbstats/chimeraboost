@@ -988,7 +988,10 @@ guidance on which ones to tweak, see <a href="../parameters/">Parameters</a>.</p
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
 <a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="p">)</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">eval_metric</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">delta</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">tweedie_variance_power</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -1193,11 +1196,17 @@ when early stopping is active.</p>
                 <code>loss</code>
             </td>
             <td>
-                  <code>(<span title="RMSE">RMSE</span>, <span title="MAE">MAE</span>, <span title="Quantile">Quantile</span>)</code>
+                  <code><span title="str">str</span> or <span title="object">object</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Training objective. Set the level with <code>alpha</code> for <code>"Quantile"</code>.</p>
+                <p>Training objective. Built in: <code>"RMSE"</code>, <code>"MAE"</code>, <code>"Quantile"</code>
+(level set by <code>alpha</code>), <code>"Huber"</code> (transition set by <code>delta</code>),
+and the log-link losses <code>"Poisson"</code>, <code>"Gamma"</code>, <code>"Tweedie"</code>
+(power set by <code>tweedie_variance_power</code>), whose predictions are
+<code>exp(raw score) &gt; 0</code>. Alternatively a custom objective <em>instance</em>:
+subclass <code>chimeraboost.CustomObjective</code> and implement
+<code>grad_hess(y, raw)</code> and <code>eval(y, raw, sample_weight=None)</code>.</p>
               </div>
             </td>
             <td>
@@ -1218,6 +1227,65 @@ when early stopping is active.</p>
             </td>
             <td>
                   <code>0.5</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>delta</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Huber transition point for <code>loss="Huber"</code>, in y units: quadratic
+within <code>delta</code> of the target, linear beyond. Fixed, not
+quantile-adaptive -- scale it to the data.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>tweedie_variance_power</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Variance power for <code>loss="Tweedie"</code>, strictly between 1 (Poisson)
+and 2 (Gamma).</p>
+              </div>
+            </td>
+            <td>
+                  <code>1.5</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>eval_metric</code>
+            </td>
+            <td>
+                  <code><span title="callable">callable</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Custom validation metric <code>metric(y_true, y_pred[, sample_weight]) -&gt;
+float</code> scored on the validation set each round and used for early
+stopping and the internal model selections instead of the training
+loss. <code>y_pred</code> is the prediction (after the loss link). Lower is
+better, unless the callable carries a <code>greater_is_better = True</code>
+attribute -- <code>validation_history_</code> then records negated values so
+the internal lower-is-better machinery is unchanged. The training
+loss still drives the gradients; the verbose per-round "train" column
+stays in training-loss units.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -1667,89 +1735,97 @@ validation selection. <code>None</code> when no selection took place.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1093">1093</a></span>
-<span class="normal"><a href="#__codelineno-0-1094">1094</a></span>
-<span class="normal"><a href="#__codelineno-0-1095">1095</a></span>
-<span class="normal"><a href="#__codelineno-0-1096">1096</a></span>
-<span class="normal"><a href="#__codelineno-0-1097">1097</a></span>
-<span class="normal"><a href="#__codelineno-0-1098">1098</a></span>
-<span class="normal"><a href="#__codelineno-0-1099">1099</a></span>
-<span class="normal"><a href="#__codelineno-0-1100">1100</a></span>
-<span class="normal"><a href="#__codelineno-0-1101">1101</a></span>
-<span class="normal"><a href="#__codelineno-0-1102">1102</a></span>
-<span class="normal"><a href="#__codelineno-0-1103">1103</a></span>
-<span class="normal"><a href="#__codelineno-0-1104">1104</a></span>
-<span class="normal"><a href="#__codelineno-0-1105">1105</a></span>
-<span class="normal"><a href="#__codelineno-0-1106">1106</a></span>
-<span class="normal"><a href="#__codelineno-0-1107">1107</a></span>
-<span class="normal"><a href="#__codelineno-0-1108">1108</a></span>
-<span class="normal"><a href="#__codelineno-0-1109">1109</a></span>
-<span class="normal"><a href="#__codelineno-0-1110">1110</a></span>
-<span class="normal"><a href="#__codelineno-0-1111">1111</a></span>
-<span class="normal"><a href="#__codelineno-0-1112">1112</a></span>
-<span class="normal"><a href="#__codelineno-0-1113">1113</a></span>
-<span class="normal"><a href="#__codelineno-0-1114">1114</a></span>
-<span class="normal"><a href="#__codelineno-0-1115">1115</a></span>
-<span class="normal"><a href="#__codelineno-0-1116">1116</a></span>
-<span class="normal"><a href="#__codelineno-0-1117">1117</a></span>
-<span class="normal"><a href="#__codelineno-0-1118">1118</a></span>
-<span class="normal"><a href="#__codelineno-0-1119">1119</a></span>
-<span class="normal"><a href="#__codelineno-0-1120">1120</a></span>
-<span class="normal"><a href="#__codelineno-0-1121">1121</a></span>
-<span class="normal"><a href="#__codelineno-0-1122">1122</a></span>
-<span class="normal"><a href="#__codelineno-0-1123">1123</a></span>
-<span class="normal"><a href="#__codelineno-0-1124">1124</a></span>
-<span class="normal"><a href="#__codelineno-0-1125">1125</a></span>
-<span class="normal"><a href="#__codelineno-0-1126">1126</a></span>
-<span class="normal"><a href="#__codelineno-0-1127">1127</a></span>
-<span class="normal"><a href="#__codelineno-0-1128">1128</a></span>
-<span class="normal"><a href="#__codelineno-0-1129">1129</a></span>
-<span class="normal"><a href="#__codelineno-0-1130">1130</a></span>
-<span class="normal"><a href="#__codelineno-0-1131">1131</a></span>
-<span class="normal"><a href="#__codelineno-0-1132">1132</a></span>
-<span class="normal"><a href="#__codelineno-0-1133">1133</a></span>
-<span class="normal"><a href="#__codelineno-0-1134">1134</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1093" name="__codelineno-0-1093"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">learning_rate</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1094" name="__codelineno-0-1094"></a>             <span class="n">l2_leaf_reg</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">max_bins</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">subsample</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">colsample</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1095" name="__codelineno-0-1095"></a>             <span class="n">cat_smoothing</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cat_n_permutations</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-0-1096" name="__codelineno-0-1096"></a>             <span class="n">early_stopping_rounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1097" name="__codelineno-0-1097"></a>             <span class="n">loss</span><span class="o">=</span><span class="s2">&quot;RMSE&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">min_child_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">thread_count</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1098" name="__codelineno-0-1098"></a>             <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ordered_boosting</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-1099" name="__codelineno-0-1099"></a>             <span class="n">cat_combinations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">leaf_estimation_iterations</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-1100" name="__codelineno-0-1100"></a>             <span class="n">linear_leaves</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">linear_lambda</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cross_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1101" name="__codelineno-0-1101"></a>             <span class="n">selection_rounds</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
-<a id="__codelineno-0-1102" name="__codelineno-0-1102"></a>             <span class="n">early_stopping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">validation_fraction</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
-<a id="__codelineno-0-1103" name="__codelineno-0-1103"></a>             <span class="n">n_ensembles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ensemble_n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
-<a id="__codelineno-0-1104" name="__codelineno-0-1104"></a>             <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-<a id="__codelineno-0-1105" name="__codelineno-0-1105"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_estimators</span> <span class="o">=</span> <span class="n">n_estimators</span>
-<a id="__codelineno-0-1106" name="__codelineno-0-1106"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span> <span class="o">=</span> <span class="n">learning_rate</span>
-<a id="__codelineno-0-1107" name="__codelineno-0-1107"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="n">depth</span>
-<a id="__codelineno-0-1108" name="__codelineno-0-1108"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">l2_leaf_reg</span> <span class="o">=</span> <span class="n">l2_leaf_reg</span>
-<a id="__codelineno-0-1109" name="__codelineno-0-1109"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_bins</span> <span class="o">=</span> <span class="n">max_bins</span>
-<a id="__codelineno-0-1110" name="__codelineno-0-1110"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">subsample</span> <span class="o">=</span> <span class="n">subsample</span>
-<a id="__codelineno-0-1111" name="__codelineno-0-1111"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">colsample</span> <span class="o">=</span> <span class="n">colsample</span>
-<a id="__codelineno-0-1112" name="__codelineno-0-1112"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_smoothing</span> <span class="o">=</span> <span class="n">cat_smoothing</span>
-<a id="__codelineno-0-1113" name="__codelineno-0-1113"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_n_permutations</span> <span class="o">=</span> <span class="n">cat_n_permutations</span>
-<a id="__codelineno-0-1114" name="__codelineno-0-1114"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping_rounds</span> <span class="o">=</span> <span class="n">early_stopping_rounds</span>
-<a id="__codelineno-0-1115" name="__codelineno-0-1115"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_features</span> <span class="o">=</span> <span class="n">cat_features</span>
-<a id="__codelineno-0-1116" name="__codelineno-0-1116"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">loss</span> <span class="o">=</span> <span class="n">loss</span>
-<a id="__codelineno-0-1117" name="__codelineno-0-1117"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span> <span class="o">=</span> <span class="n">alpha</span>
-<a id="__codelineno-0-1118" name="__codelineno-0-1118"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_child_weight</span> <span class="o">=</span> <span class="n">min_child_weight</span>
-<a id="__codelineno-0-1119" name="__codelineno-0-1119"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">thread_count</span> <span class="o">=</span> <span class="n">thread_count</span>
-<a id="__codelineno-0-1120" name="__codelineno-0-1120"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">random_state</span> <span class="o">=</span> <span class="n">random_state</span>
-<a id="__codelineno-0-1121" name="__codelineno-0-1121"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
-<a id="__codelineno-0-1122" name="__codelineno-0-1122"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ordered_boosting</span> <span class="o">=</span> <span class="n">ordered_boosting</span>
-<a id="__codelineno-0-1123" name="__codelineno-0-1123"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_combinations</span> <span class="o">=</span> <span class="n">cat_combinations</span>
-<a id="__codelineno-0-1124" name="__codelineno-0-1124"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">leaf_estimation_iterations</span> <span class="o">=</span> <span class="n">leaf_estimation_iterations</span>
-<a id="__codelineno-0-1125" name="__codelineno-0-1125"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_leaves</span> <span class="o">=</span> <span class="n">linear_leaves</span>
-<a id="__codelineno-0-1126" name="__codelineno-0-1126"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_lambda</span> <span class="o">=</span> <span class="n">linear_lambda</span>
-<a id="__codelineno-0-1127" name="__codelineno-0-1127"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cross_features</span> <span class="o">=</span> <span class="n">cross_features</span>
-<a id="__codelineno-0-1128" name="__codelineno-0-1128"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">selection_rounds</span> <span class="o">=</span> <span class="n">selection_rounds</span>
-<a id="__codelineno-0-1129" name="__codelineno-0-1129"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping</span> <span class="o">=</span> <span class="n">early_stopping</span>
-<a id="__codelineno-0-1130" name="__codelineno-0-1130"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">validation_fraction</span> <span class="o">=</span> <span class="n">validation_fraction</span>
-<a id="__codelineno-0-1131" name="__codelineno-0-1131"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">=</span> <span class="n">n_ensembles</span>
-<a id="__codelineno-0-1132" name="__codelineno-0-1132"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ensemble_n_jobs</span> <span class="o">=</span> <span class="n">ensemble_n_jobs</span>
-<a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_samples</span> <span class="o">=</span> <span class="n">max_samples</span>
-<a id="__codelineno-0-1134" name="__codelineno-0-1134"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">quantize_gradients</span> <span class="o">=</span> <span class="n">quantize_gradients</span>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1143">1143</a></span>
+<span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
+<span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
+<span class="normal"><a href="#__codelineno-0-1146">1146</a></span>
+<span class="normal"><a href="#__codelineno-0-1147">1147</a></span>
+<span class="normal"><a href="#__codelineno-0-1148">1148</a></span>
+<span class="normal"><a href="#__codelineno-0-1149">1149</a></span>
+<span class="normal"><a href="#__codelineno-0-1150">1150</a></span>
+<span class="normal"><a href="#__codelineno-0-1151">1151</a></span>
+<span class="normal"><a href="#__codelineno-0-1152">1152</a></span>
+<span class="normal"><a href="#__codelineno-0-1153">1153</a></span>
+<span class="normal"><a href="#__codelineno-0-1154">1154</a></span>
+<span class="normal"><a href="#__codelineno-0-1155">1155</a></span>
+<span class="normal"><a href="#__codelineno-0-1156">1156</a></span>
+<span class="normal"><a href="#__codelineno-0-1157">1157</a></span>
+<span class="normal"><a href="#__codelineno-0-1158">1158</a></span>
+<span class="normal"><a href="#__codelineno-0-1159">1159</a></span>
+<span class="normal"><a href="#__codelineno-0-1160">1160</a></span>
+<span class="normal"><a href="#__codelineno-0-1161">1161</a></span>
+<span class="normal"><a href="#__codelineno-0-1162">1162</a></span>
+<span class="normal"><a href="#__codelineno-0-1163">1163</a></span>
+<span class="normal"><a href="#__codelineno-0-1164">1164</a></span>
+<span class="normal"><a href="#__codelineno-0-1165">1165</a></span>
+<span class="normal"><a href="#__codelineno-0-1166">1166</a></span>
+<span class="normal"><a href="#__codelineno-0-1167">1167</a></span>
+<span class="normal"><a href="#__codelineno-0-1168">1168</a></span>
+<span class="normal"><a href="#__codelineno-0-1169">1169</a></span>
+<span class="normal"><a href="#__codelineno-0-1170">1170</a></span>
+<span class="normal"><a href="#__codelineno-0-1171">1171</a></span>
+<span class="normal"><a href="#__codelineno-0-1172">1172</a></span>
+<span class="normal"><a href="#__codelineno-0-1173">1173</a></span>
+<span class="normal"><a href="#__codelineno-0-1174">1174</a></span>
+<span class="normal"><a href="#__codelineno-0-1175">1175</a></span>
+<span class="normal"><a href="#__codelineno-0-1176">1176</a></span>
+<span class="normal"><a href="#__codelineno-0-1177">1177</a></span>
+<span class="normal"><a href="#__codelineno-0-1178">1178</a></span>
+<span class="normal"><a href="#__codelineno-0-1179">1179</a></span>
+<span class="normal"><a href="#__codelineno-0-1180">1180</a></span>
+<span class="normal"><a href="#__codelineno-0-1181">1181</a></span>
+<span class="normal"><a href="#__codelineno-0-1182">1182</a></span>
+<span class="normal"><a href="#__codelineno-0-1183">1183</a></span>
+<span class="normal"><a href="#__codelineno-0-1184">1184</a></span>
+<span class="normal"><a href="#__codelineno-0-1185">1185</a></span>
+<span class="normal"><a href="#__codelineno-0-1186">1186</a></span>
+<span class="normal"><a href="#__codelineno-0-1187">1187</a></span>
+<span class="normal"><a href="#__codelineno-0-1188">1188</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1143" name="__codelineno-0-1143"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">learning_rate</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a>             <span class="n">l2_leaf_reg</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">max_bins</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">subsample</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">colsample</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a>             <span class="n">cat_smoothing</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cat_n_permutations</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a>             <span class="n">early_stopping_rounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a>             <span class="n">loss</span><span class="o">=</span><span class="s2">&quot;RMSE&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">min_child_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">thread_count</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a>             <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ordered_boosting</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a>             <span class="n">cat_combinations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">leaf_estimation_iterations</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a>             <span class="n">linear_leaves</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">linear_lambda</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cross_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a>             <span class="n">selection_rounds</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a>             <span class="n">early_stopping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">validation_fraction</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a>             <span class="n">n_ensembles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ensemble_n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
+<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a>             <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a>             <span class="n">eval_metric</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">tweedie_variance_power</span><span class="o">=</span><span class="mf">1.5</span><span class="p">):</span>
+<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_estimators</span> <span class="o">=</span> <span class="n">n_estimators</span>
+<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span> <span class="o">=</span> <span class="n">learning_rate</span>
+<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="n">depth</span>
+<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">l2_leaf_reg</span> <span class="o">=</span> <span class="n">l2_leaf_reg</span>
+<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_bins</span> <span class="o">=</span> <span class="n">max_bins</span>
+<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">subsample</span> <span class="o">=</span> <span class="n">subsample</span>
+<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">colsample</span> <span class="o">=</span> <span class="n">colsample</span>
+<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_smoothing</span> <span class="o">=</span> <span class="n">cat_smoothing</span>
+<a id="__codelineno-0-1164" name="__codelineno-0-1164"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_n_permutations</span> <span class="o">=</span> <span class="n">cat_n_permutations</span>
+<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping_rounds</span> <span class="o">=</span> <span class="n">early_stopping_rounds</span>
+<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_features</span> <span class="o">=</span> <span class="n">cat_features</span>
+<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">loss</span> <span class="o">=</span> <span class="n">loss</span>
+<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span> <span class="o">=</span> <span class="n">alpha</span>
+<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="o">=</span> <span class="n">delta</span>
+<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">tweedie_variance_power</span> <span class="o">=</span> <span class="n">tweedie_variance_power</span>
+<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">eval_metric</span> <span class="o">=</span> <span class="n">eval_metric</span>
+<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_child_weight</span> <span class="o">=</span> <span class="n">min_child_weight</span>
+<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">thread_count</span> <span class="o">=</span> <span class="n">thread_count</span>
+<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">random_state</span> <span class="o">=</span> <span class="n">random_state</span>
+<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
+<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ordered_boosting</span> <span class="o">=</span> <span class="n">ordered_boosting</span>
+<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_combinations</span> <span class="o">=</span> <span class="n">cat_combinations</span>
+<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">leaf_estimation_iterations</span> <span class="o">=</span> <span class="n">leaf_estimation_iterations</span>
+<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_leaves</span> <span class="o">=</span> <span class="n">linear_leaves</span>
+<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_lambda</span> <span class="o">=</span> <span class="n">linear_lambda</span>
+<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cross_features</span> <span class="o">=</span> <span class="n">cross_features</span>
+<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">selection_rounds</span> <span class="o">=</span> <span class="n">selection_rounds</span>
+<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping</span> <span class="o">=</span> <span class="n">early_stopping</span>
+<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">validation_fraction</span> <span class="o">=</span> <span class="n">validation_fraction</span>
+<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">=</span> <span class="n">n_ensembles</span>
+<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ensemble_n_jobs</span> <span class="o">=</span> <span class="n">ensemble_n_jobs</span>
+<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_samples</span> <span class="o">=</span> <span class="n">max_samples</span>
+<a id="__codelineno-0-1188" name="__codelineno-0-1188"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">quantize_gradients</span> <span class="o">=</span> <span class="n">quantize_gradients</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -1781,10 +1857,13 @@ validation selection. <code>None</code> when no selection took place.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Per-round validation loss recorded during <code>fit</code> (RMSE-space loss for
-regression), as a list whose length is the number of rounds run. Empty
-when no <code>eval_set</code> / early-stopping split was available; for a bagged
-model (<code>n_ensembles &gt; 1</code>) a list of the members' histories.</p>
+        <p>Per-round validation score recorded during <code>fit</code> -- the training
+loss (RMSE-space for regression), or the custom <code>eval_metric</code> when
+one was set (negated when the metric declares
+<code>greater_is_better = True</code>, so lower is always better here). A list
+whose length is the number of rounds run; empty when no <code>eval_set</code> /
+early-stopping split was available; for a bagged model
+(<code>n_ensembles &gt; 1</code>) a list of the members' histories.</p>
 
     </div>
 
@@ -1962,109 +2041,109 @@ validation-curve capture and instrumentation. Not supported with
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1136">1136</a></span>
-<span class="normal"><a href="#__codelineno-0-1137">1137</a></span>
-<span class="normal"><a href="#__codelineno-0-1138">1138</a></span>
-<span class="normal"><a href="#__codelineno-0-1139">1139</a></span>
-<span class="normal"><a href="#__codelineno-0-1140">1140</a></span>
-<span class="normal"><a href="#__codelineno-0-1141">1141</a></span>
-<span class="normal"><a href="#__codelineno-0-1142">1142</a></span>
-<span class="normal"><a href="#__codelineno-0-1143">1143</a></span>
-<span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
-<span class="normal"><a href="#__codelineno-0-1145">1145</a></span>
-<span class="normal"><a href="#__codelineno-0-1146">1146</a></span>
-<span class="normal"><a href="#__codelineno-0-1147">1147</a></span>
-<span class="normal"><a href="#__codelineno-0-1148">1148</a></span>
-<span class="normal"><a href="#__codelineno-0-1149">1149</a></span>
-<span class="normal"><a href="#__codelineno-0-1150">1150</a></span>
-<span class="normal"><a href="#__codelineno-0-1151">1151</a></span>
-<span class="normal"><a href="#__codelineno-0-1152">1152</a></span>
-<span class="normal"><a href="#__codelineno-0-1153">1153</a></span>
-<span class="normal"><a href="#__codelineno-0-1154">1154</a></span>
-<span class="normal"><a href="#__codelineno-0-1155">1155</a></span>
-<span class="normal"><a href="#__codelineno-0-1156">1156</a></span>
-<span class="normal"><a href="#__codelineno-0-1157">1157</a></span>
-<span class="normal"><a href="#__codelineno-0-1158">1158</a></span>
-<span class="normal"><a href="#__codelineno-0-1159">1159</a></span>
-<span class="normal"><a href="#__codelineno-0-1160">1160</a></span>
-<span class="normal"><a href="#__codelineno-0-1161">1161</a></span>
-<span class="normal"><a href="#__codelineno-0-1162">1162</a></span>
-<span class="normal"><a href="#__codelineno-0-1163">1163</a></span>
-<span class="normal"><a href="#__codelineno-0-1164">1164</a></span>
-<span class="normal"><a href="#__codelineno-0-1165">1165</a></span>
-<span class="normal"><a href="#__codelineno-0-1166">1166</a></span>
-<span class="normal"><a href="#__codelineno-0-1167">1167</a></span>
-<span class="normal"><a href="#__codelineno-0-1168">1168</a></span>
-<span class="normal"><a href="#__codelineno-0-1169">1169</a></span>
-<span class="normal"><a href="#__codelineno-0-1170">1170</a></span>
-<span class="normal"><a href="#__codelineno-0-1171">1171</a></span>
-<span class="normal"><a href="#__codelineno-0-1172">1172</a></span>
-<span class="normal"><a href="#__codelineno-0-1173">1173</a></span>
-<span class="normal"><a href="#__codelineno-0-1174">1174</a></span>
-<span class="normal"><a href="#__codelineno-0-1175">1175</a></span>
-<span class="normal"><a href="#__codelineno-0-1176">1176</a></span>
-<span class="normal"><a href="#__codelineno-0-1177">1177</a></span>
-<span class="normal"><a href="#__codelineno-0-1178">1178</a></span>
-<span class="normal"><a href="#__codelineno-0-1179">1179</a></span>
-<span class="normal"><a href="#__codelineno-0-1180">1180</a></span>
-<span class="normal"><a href="#__codelineno-0-1181">1181</a></span>
-<span class="normal"><a href="#__codelineno-0-1182">1182</a></span>
-<span class="normal"><a href="#__codelineno-0-1183">1183</a></span>
-<span class="normal"><a href="#__codelineno-0-1184">1184</a></span>
-<span class="normal"><a href="#__codelineno-0-1185">1185</a></span>
-<span class="normal"><a href="#__codelineno-0-1186">1186</a></span>
-<span class="normal"><a href="#__codelineno-0-1187">1187</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1136" name="__codelineno-0-1136"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1137" name="__codelineno-0-1137"></a>        <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">callbacks</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-1138" name="__codelineno-0-1138"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit the model.</span>
-<a id="__codelineno-0-1139" name="__codelineno-0-1139"></a>
-<a id="__codelineno-0-1140" name="__codelineno-0-1140"></a><span class="sd">    Parameters</span>
-<a id="__codelineno-0-1141" name="__codelineno-0-1141"></a><span class="sd">    ----------</span>
-<a id="__codelineno-0-1142" name="__codelineno-0-1142"></a><span class="sd">    X, y : array-like</span>
-<a id="__codelineno-0-1143" name="__codelineno-0-1143"></a><span class="sd">        Training data.</span>
-<a id="__codelineno-0-1144" name="__codelineno-0-1144"></a><span class="sd">    cat_features : list of int or str, or None</span>
-<a id="__codelineno-0-1145" name="__codelineno-0-1145"></a><span class="sd">        Columns to treat as categoricals, given as integer positions and/or</span>
-<a id="__codelineno-0-1146" name="__codelineno-0-1146"></a><span class="sd">        column names (names resolved against the DataFrame). Falls back to the</span>
-<a id="__codelineno-0-1147" name="__codelineno-0-1147"></a><span class="sd">        ``cat_features`` constructor argument when not given here; passing it</span>
-<a id="__codelineno-0-1148" name="__codelineno-0-1148"></a><span class="sd">        here overrides the constructor value. (The constructor form lets</span>
-<a id="__codelineno-0-1149" name="__codelineno-0-1149"></a><span class="sd">        ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can&#39;t.)</span>
-<a id="__codelineno-0-1150" name="__codelineno-0-1150"></a><span class="sd">    eval_set : (X_val, y_val) tuple or None</span>
-<a id="__codelineno-0-1151" name="__codelineno-0-1151"></a><span class="sd">        Explicit validation set.  When provided, automatic splitting is</span>
-<a id="__codelineno-0-1152" name="__codelineno-0-1152"></a><span class="sd">        skipped regardless of the *early_stopping* setting.</span>
-<a id="__codelineno-0-1153" name="__codelineno-0-1153"></a><span class="sd">    groups : array-like of shape (n_samples,) or None</span>
-<a id="__codelineno-0-1154" name="__codelineno-0-1154"></a><span class="sd">        Group labels for the samples (e.g. ``df[&#39;subject_id&#39;]``).  When</span>
-<a id="__codelineno-0-1155" name="__codelineno-0-1155"></a><span class="sd">        supplied and *early_stopping* triggers an automatic split, groups</span>
-<a id="__codelineno-0-1156" name="__codelineno-0-1156"></a><span class="sd">        are kept intact across the train/validation boundary using</span>
-<a id="__codelineno-0-1157" name="__codelineno-0-1157"></a><span class="sd">        ``GroupShuffleSplit``.</span>
-<a id="__codelineno-0-1158" name="__codelineno-0-1158"></a><span class="sd">    sample_weight : array-like of shape (n_samples,) or None</span>
-<a id="__codelineno-0-1159" name="__codelineno-0-1159"></a><span class="sd">        Per-sample weights.  Normalized to mean 1 internally.  Applied</span>
-<a id="__codelineno-0-1160" name="__codelineno-0-1160"></a><span class="sd">        throughout: the gradient/leaf fit, the categorical target encoder,</span>
-<a id="__codelineno-0-1161" name="__codelineno-0-1161"></a><span class="sd">        the quantile bin borders, and the early-stopping metric on an</span>
-<a id="__codelineno-0-1162" name="__codelineno-0-1162"></a><span class="sd">        automatically split (or bagged out-of-bag) validation set, so a</span>
-<a id="__codelineno-0-1163" name="__codelineno-0-1163"></a><span class="sd">        zero-weight row never influences the model.  An explicitly passed</span>
-<a id="__codelineno-0-1164" name="__codelineno-0-1164"></a><span class="sd">        ``eval_set`` carries no weights and is scored unweighted.</span>
-<a id="__codelineno-0-1165" name="__codelineno-0-1165"></a><span class="sd">    callbacks : callable or list of callable, or None</span>
-<a id="__codelineno-0-1166" name="__codelineno-0-1166"></a><span class="sd">        Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;</span>
-<a id="__codelineno-0-1167" name="__codelineno-0-1167"></a><span class="sd">        a callback returning True requests an early stop. Used for live</span>
-<a id="__codelineno-0-1168" name="__codelineno-0-1168"></a><span class="sd">        validation-curve capture and instrumentation. Not supported with</span>
-<a id="__codelineno-0-1169" name="__codelineno-0-1169"></a><span class="sd">        ``n_ensembles &gt; 1`` (members fit in parallel worker processes).</span>
-<a id="__codelineno-0-1170" name="__codelineno-0-1170"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1171" name="__codelineno-0-1171"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">)</span>
-<a id="__codelineno-0-1172" name="__codelineno-0-1172"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_feature_names</span><span class="p">(</span><span class="n">cat_features</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-1173" name="__codelineno-0-1173"></a>    <span class="n">_validate_hyperparams</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
-<a id="__codelineno-0-1174" name="__codelineno-0-1174"></a>    <span class="n">y</span> <span class="o">=</span> <span class="n">_validate_fit_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">,</span>
-<a id="__codelineno-0-1175" name="__codelineno-0-1175"></a>                            <span class="n">classification</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-0-1176" name="__codelineno-0-1176"></a>    <span class="k">if</span> <span class="n">eval_set</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1177" name="__codelineno-0-1177"></a>        <span class="n">_check_eval_set</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_features_in_</span><span class="p">)</span>
-<a id="__codelineno-0-1178" name="__codelineno-0-1178"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-1179" name="__codelineno-0-1179"></a>        <span class="k">if</span> <span class="n">callbacks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1180" name="__codelineno-0-1180"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1181" name="__codelineno-0-1181"></a>                <span class="s2">&quot;callbacks are not supported with n_ensembles &gt; 1.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1182" name="__codelineno-0-1182"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="n">_fit_bagged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span>
-<a id="__codelineno-0-1183" name="__codelineno-0-1183"></a>                                       <span class="n">groups</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">)</span>
-<a id="__codelineno-0-1184" name="__codelineno-0-1184"></a>        <span class="k">return</span> <span class="bp">self</span>
-<a id="__codelineno-0-1185" name="__codelineno-0-1185"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1186" name="__codelineno-0-1186"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fit_single</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span>
-<a id="__codelineno-0-1187" name="__codelineno-0-1187"></a>                            <span class="n">sample_weight</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1190">1190</a></span>
+<span class="normal"><a href="#__codelineno-0-1191">1191</a></span>
+<span class="normal"><a href="#__codelineno-0-1192">1192</a></span>
+<span class="normal"><a href="#__codelineno-0-1193">1193</a></span>
+<span class="normal"><a href="#__codelineno-0-1194">1194</a></span>
+<span class="normal"><a href="#__codelineno-0-1195">1195</a></span>
+<span class="normal"><a href="#__codelineno-0-1196">1196</a></span>
+<span class="normal"><a href="#__codelineno-0-1197">1197</a></span>
+<span class="normal"><a href="#__codelineno-0-1198">1198</a></span>
+<span class="normal"><a href="#__codelineno-0-1199">1199</a></span>
+<span class="normal"><a href="#__codelineno-0-1200">1200</a></span>
+<span class="normal"><a href="#__codelineno-0-1201">1201</a></span>
+<span class="normal"><a href="#__codelineno-0-1202">1202</a></span>
+<span class="normal"><a href="#__codelineno-0-1203">1203</a></span>
+<span class="normal"><a href="#__codelineno-0-1204">1204</a></span>
+<span class="normal"><a href="#__codelineno-0-1205">1205</a></span>
+<span class="normal"><a href="#__codelineno-0-1206">1206</a></span>
+<span class="normal"><a href="#__codelineno-0-1207">1207</a></span>
+<span class="normal"><a href="#__codelineno-0-1208">1208</a></span>
+<span class="normal"><a href="#__codelineno-0-1209">1209</a></span>
+<span class="normal"><a href="#__codelineno-0-1210">1210</a></span>
+<span class="normal"><a href="#__codelineno-0-1211">1211</a></span>
+<span class="normal"><a href="#__codelineno-0-1212">1212</a></span>
+<span class="normal"><a href="#__codelineno-0-1213">1213</a></span>
+<span class="normal"><a href="#__codelineno-0-1214">1214</a></span>
+<span class="normal"><a href="#__codelineno-0-1215">1215</a></span>
+<span class="normal"><a href="#__codelineno-0-1216">1216</a></span>
+<span class="normal"><a href="#__codelineno-0-1217">1217</a></span>
+<span class="normal"><a href="#__codelineno-0-1218">1218</a></span>
+<span class="normal"><a href="#__codelineno-0-1219">1219</a></span>
+<span class="normal"><a href="#__codelineno-0-1220">1220</a></span>
+<span class="normal"><a href="#__codelineno-0-1221">1221</a></span>
+<span class="normal"><a href="#__codelineno-0-1222">1222</a></span>
+<span class="normal"><a href="#__codelineno-0-1223">1223</a></span>
+<span class="normal"><a href="#__codelineno-0-1224">1224</a></span>
+<span class="normal"><a href="#__codelineno-0-1225">1225</a></span>
+<span class="normal"><a href="#__codelineno-0-1226">1226</a></span>
+<span class="normal"><a href="#__codelineno-0-1227">1227</a></span>
+<span class="normal"><a href="#__codelineno-0-1228">1228</a></span>
+<span class="normal"><a href="#__codelineno-0-1229">1229</a></span>
+<span class="normal"><a href="#__codelineno-0-1230">1230</a></span>
+<span class="normal"><a href="#__codelineno-0-1231">1231</a></span>
+<span class="normal"><a href="#__codelineno-0-1232">1232</a></span>
+<span class="normal"><a href="#__codelineno-0-1233">1233</a></span>
+<span class="normal"><a href="#__codelineno-0-1234">1234</a></span>
+<span class="normal"><a href="#__codelineno-0-1235">1235</a></span>
+<span class="normal"><a href="#__codelineno-0-1236">1236</a></span>
+<span class="normal"><a href="#__codelineno-0-1237">1237</a></span>
+<span class="normal"><a href="#__codelineno-0-1238">1238</a></span>
+<span class="normal"><a href="#__codelineno-0-1239">1239</a></span>
+<span class="normal"><a href="#__codelineno-0-1240">1240</a></span>
+<span class="normal"><a href="#__codelineno-0-1241">1241</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1190" name="__codelineno-0-1190"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1191" name="__codelineno-0-1191"></a>        <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">callbacks</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-1192" name="__codelineno-0-1192"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit the model.</span>
+<a id="__codelineno-0-1193" name="__codelineno-0-1193"></a>
+<a id="__codelineno-0-1194" name="__codelineno-0-1194"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-1195" name="__codelineno-0-1195"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-1196" name="__codelineno-0-1196"></a><span class="sd">    X, y : array-like</span>
+<a id="__codelineno-0-1197" name="__codelineno-0-1197"></a><span class="sd">        Training data.</span>
+<a id="__codelineno-0-1198" name="__codelineno-0-1198"></a><span class="sd">    cat_features : list of int or str, or None</span>
+<a id="__codelineno-0-1199" name="__codelineno-0-1199"></a><span class="sd">        Columns to treat as categoricals, given as integer positions and/or</span>
+<a id="__codelineno-0-1200" name="__codelineno-0-1200"></a><span class="sd">        column names (names resolved against the DataFrame). Falls back to the</span>
+<a id="__codelineno-0-1201" name="__codelineno-0-1201"></a><span class="sd">        ``cat_features`` constructor argument when not given here; passing it</span>
+<a id="__codelineno-0-1202" name="__codelineno-0-1202"></a><span class="sd">        here overrides the constructor value. (The constructor form lets</span>
+<a id="__codelineno-0-1203" name="__codelineno-0-1203"></a><span class="sd">        ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can&#39;t.)</span>
+<a id="__codelineno-0-1204" name="__codelineno-0-1204"></a><span class="sd">    eval_set : (X_val, y_val) tuple or None</span>
+<a id="__codelineno-0-1205" name="__codelineno-0-1205"></a><span class="sd">        Explicit validation set.  When provided, automatic splitting is</span>
+<a id="__codelineno-0-1206" name="__codelineno-0-1206"></a><span class="sd">        skipped regardless of the *early_stopping* setting.</span>
+<a id="__codelineno-0-1207" name="__codelineno-0-1207"></a><span class="sd">    groups : array-like of shape (n_samples,) or None</span>
+<a id="__codelineno-0-1208" name="__codelineno-0-1208"></a><span class="sd">        Group labels for the samples (e.g. ``df[&#39;subject_id&#39;]``).  When</span>
+<a id="__codelineno-0-1209" name="__codelineno-0-1209"></a><span class="sd">        supplied and *early_stopping* triggers an automatic split, groups</span>
+<a id="__codelineno-0-1210" name="__codelineno-0-1210"></a><span class="sd">        are kept intact across the train/validation boundary using</span>
+<a id="__codelineno-0-1211" name="__codelineno-0-1211"></a><span class="sd">        ``GroupShuffleSplit``.</span>
+<a id="__codelineno-0-1212" name="__codelineno-0-1212"></a><span class="sd">    sample_weight : array-like of shape (n_samples,) or None</span>
+<a id="__codelineno-0-1213" name="__codelineno-0-1213"></a><span class="sd">        Per-sample weights.  Normalized to mean 1 internally.  Applied</span>
+<a id="__codelineno-0-1214" name="__codelineno-0-1214"></a><span class="sd">        throughout: the gradient/leaf fit, the categorical target encoder,</span>
+<a id="__codelineno-0-1215" name="__codelineno-0-1215"></a><span class="sd">        the quantile bin borders, and the early-stopping metric on an</span>
+<a id="__codelineno-0-1216" name="__codelineno-0-1216"></a><span class="sd">        automatically split (or bagged out-of-bag) validation set, so a</span>
+<a id="__codelineno-0-1217" name="__codelineno-0-1217"></a><span class="sd">        zero-weight row never influences the model.  An explicitly passed</span>
+<a id="__codelineno-0-1218" name="__codelineno-0-1218"></a><span class="sd">        ``eval_set`` carries no weights and is scored unweighted.</span>
+<a id="__codelineno-0-1219" name="__codelineno-0-1219"></a><span class="sd">    callbacks : callable or list of callable, or None</span>
+<a id="__codelineno-0-1220" name="__codelineno-0-1220"></a><span class="sd">        Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;</span>
+<a id="__codelineno-0-1221" name="__codelineno-0-1221"></a><span class="sd">        a callback returning True requests an early stop. Used for live</span>
+<a id="__codelineno-0-1222" name="__codelineno-0-1222"></a><span class="sd">        validation-curve capture and instrumentation. Not supported with</span>
+<a id="__codelineno-0-1223" name="__codelineno-0-1223"></a><span class="sd">        ``n_ensembles &gt; 1`` (members fit in parallel worker processes).</span>
+<a id="__codelineno-0-1224" name="__codelineno-0-1224"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1225" name="__codelineno-0-1225"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">)</span>
+<a id="__codelineno-0-1226" name="__codelineno-0-1226"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_feature_names</span><span class="p">(</span><span class="n">cat_features</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-1227" name="__codelineno-0-1227"></a>    <span class="n">_validate_hyperparams</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+<a id="__codelineno-0-1228" name="__codelineno-0-1228"></a>    <span class="n">y</span> <span class="o">=</span> <span class="n">_validate_fit_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">,</span>
+<a id="__codelineno-0-1229" name="__codelineno-0-1229"></a>                            <span class="n">classification</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-0-1230" name="__codelineno-0-1230"></a>    <span class="k">if</span> <span class="n">eval_set</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1231" name="__codelineno-0-1231"></a>        <span class="n">_check_eval_set</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_features_in_</span><span class="p">)</span>
+<a id="__codelineno-0-1232" name="__codelineno-0-1232"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-1233" name="__codelineno-0-1233"></a>        <span class="k">if</span> <span class="n">callbacks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1234" name="__codelineno-0-1234"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1235" name="__codelineno-0-1235"></a>                <span class="s2">&quot;callbacks are not supported with n_ensembles &gt; 1.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1236" name="__codelineno-0-1236"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="n">_fit_bagged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span>
+<a id="__codelineno-0-1237" name="__codelineno-0-1237"></a>                                       <span class="n">groups</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">)</span>
+<a id="__codelineno-0-1238" name="__codelineno-0-1238"></a>        <span class="k">return</span> <span class="bp">self</span>
+<a id="__codelineno-0-1239" name="__codelineno-0-1239"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1240" name="__codelineno-0-1240"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fit_single</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span>
+<a id="__codelineno-0-1241" name="__codelineno-0-1241"></a>                            <span class="n">sample_weight</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2091,27 +2170,27 @@ final stage equals <code>predict</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1462">1462</a></span>
-<span class="normal"><a href="#__codelineno-0-1463">1463</a></span>
-<span class="normal"><a href="#__codelineno-0-1464">1464</a></span>
-<span class="normal"><a href="#__codelineno-0-1465">1465</a></span>
-<span class="normal"><a href="#__codelineno-0-1466">1466</a></span>
-<span class="normal"><a href="#__codelineno-0-1467">1467</a></span>
-<span class="normal"><a href="#__codelineno-0-1468">1468</a></span>
-<span class="normal"><a href="#__codelineno-0-1469">1469</a></span>
-<span class="normal"><a href="#__codelineno-0-1470">1470</a></span>
-<span class="normal"><a href="#__codelineno-0-1471">1471</a></span>
-<span class="normal"><a href="#__codelineno-0-1472">1472</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1462" name="__codelineno-0-1462"></a><span class="k">def</span><span class="w"> </span><span class="nf">staged_predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
-<a id="__codelineno-0-1463" name="__codelineno-0-1463"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Yield the prediction after each successive tree (the conformal</span>
-<a id="__codelineno-0-1464" name="__codelineno-0-1464"></a><span class="sd">    quantile offset, a post-fit constant, is included in every stage so the</span>
-<a id="__codelineno-0-1465" name="__codelineno-0-1465"></a><span class="sd">    final stage equals ``predict``).&quot;&quot;&quot;</span>
-<a id="__codelineno-0-1466" name="__codelineno-0-1466"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-1467" name="__codelineno-0-1467"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
-<a id="__codelineno-0-1468" name="__codelineno-0-1468"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1469" name="__codelineno-0-1469"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;staged_predict is not defined for a &quot;</span>
-<a id="__codelineno-0-1470" name="__codelineno-0-1470"></a>                                  <span class="s2">&quot;bagged ensemble (n_ensembles &gt; 1).&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1471" name="__codelineno-0-1471"></a>    <span class="k">for</span> <span class="n">staged</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">staged_predict_raw</span><span class="p">(</span><span class="n">X</span><span class="p">):</span>
-<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>        <span class="k">yield</span> <span class="n">staged</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantile_offset_</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1534">1534</a></span>
+<span class="normal"><a href="#__codelineno-0-1535">1535</a></span>
+<span class="normal"><a href="#__codelineno-0-1536">1536</a></span>
+<span class="normal"><a href="#__codelineno-0-1537">1537</a></span>
+<span class="normal"><a href="#__codelineno-0-1538">1538</a></span>
+<span class="normal"><a href="#__codelineno-0-1539">1539</a></span>
+<span class="normal"><a href="#__codelineno-0-1540">1540</a></span>
+<span class="normal"><a href="#__codelineno-0-1541">1541</a></span>
+<span class="normal"><a href="#__codelineno-0-1542">1542</a></span>
+<span class="normal"><a href="#__codelineno-0-1543">1543</a></span>
+<span class="normal"><a href="#__codelineno-0-1544">1544</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1534" name="__codelineno-0-1534"></a><span class="k">def</span><span class="w"> </span><span class="nf">staged_predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
+<a id="__codelineno-0-1535" name="__codelineno-0-1535"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Yield the prediction after each successive tree (the conformal</span>
+<a id="__codelineno-0-1536" name="__codelineno-0-1536"></a><span class="sd">    quantile offset, a post-fit constant, is included in every stage so the</span>
+<a id="__codelineno-0-1537" name="__codelineno-0-1537"></a><span class="sd">    final stage equals ``predict``).&quot;&quot;&quot;</span>
+<a id="__codelineno-0-1538" name="__codelineno-0-1538"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-1539" name="__codelineno-0-1539"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-1540" name="__codelineno-0-1540"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1541" name="__codelineno-0-1541"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;staged_predict is not defined for a &quot;</span>
+<a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>                                  <span class="s2">&quot;bagged ensemble (n_ensembles &gt; 1).&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1543" name="__codelineno-0-1543"></a>    <span class="k">for</span> <span class="n">staged</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">staged_predict_raw</span><span class="p">(</span><span class="n">X</span><span class="p">):</span>
+<a id="__codelineno-0-1544" name="__codelineno-0-1544"></a>        <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transform_raw</span><span class="p">(</span><span class="n">staged</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantile_offset_</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2139,62 +2218,74 @@ entry is a feature's signed additive contribution to the prediction;
 linear-leaf slopes are included exactly. Averaged across the bag when
 <code>n_ensembles &gt; 1</code> (the bag prediction is the members' mean, so the
 averaged attribution stays exact). <code>X_background</code> overrides the
-reference distribution (default: a sample of the training data).</p>
+reference distribution (default: a sample of the training data).
+For the log-link losses (Poisson/Gamma/Tweedie) and custom losses
+with a non-identity <code>transform</code>, attributions are in raw (link)
+space -- rows sum to the log of the prediction, the usual GBDT
+margin-space convention.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1497">1497</a></span>
-<span class="normal"><a href="#__codelineno-0-1498">1498</a></span>
-<span class="normal"><a href="#__codelineno-0-1499">1499</a></span>
-<span class="normal"><a href="#__codelineno-0-1500">1500</a></span>
-<span class="normal"><a href="#__codelineno-0-1501">1501</a></span>
-<span class="normal"><a href="#__codelineno-0-1502">1502</a></span>
-<span class="normal"><a href="#__codelineno-0-1503">1503</a></span>
-<span class="normal"><a href="#__codelineno-0-1504">1504</a></span>
-<span class="normal"><a href="#__codelineno-0-1505">1505</a></span>
-<span class="normal"><a href="#__codelineno-0-1506">1506</a></span>
-<span class="normal"><a href="#__codelineno-0-1507">1507</a></span>
-<span class="normal"><a href="#__codelineno-0-1508">1508</a></span>
-<span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
-<span class="normal"><a href="#__codelineno-0-1510">1510</a></span>
-<span class="normal"><a href="#__codelineno-0-1511">1511</a></span>
-<span class="normal"><a href="#__codelineno-0-1512">1512</a></span>
-<span class="normal"><a href="#__codelineno-0-1513">1513</a></span>
-<span class="normal"><a href="#__codelineno-0-1514">1514</a></span>
-<span class="normal"><a href="#__codelineno-0-1515">1515</a></span>
-<span class="normal"><a href="#__codelineno-0-1516">1516</a></span>
-<span class="normal"><a href="#__codelineno-0-1517">1517</a></span>
-<span class="normal"><a href="#__codelineno-0-1518">1518</a></span>
-<span class="normal"><a href="#__codelineno-0-1519">1519</a></span>
-<span class="normal"><a href="#__codelineno-0-1520">1520</a></span>
-<span class="normal"><a href="#__codelineno-0-1521">1521</a></span>
-<span class="normal"><a href="#__codelineno-0-1522">1522</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1497" name="__codelineno-0-1497"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-1498" name="__codelineno-0-1498"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact interventional TreeSHAP contributions to the predicted target.</span>
-<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>
-<a id="__codelineno-0-1500" name="__codelineno-0-1500"></a><span class="sd">    Returns an array of shape ``(n_samples, n_features)`` whose rows sum to</span>
-<a id="__codelineno-0-1501" name="__codelineno-0-1501"></a><span class="sd">    ``predict(X) - expected_value_``, where ``expected_value_`` (set as an</span>
-<a id="__codelineno-0-1502" name="__codelineno-0-1502"></a><span class="sd">    attribute by this call) is the mean prediction over the background. Each</span>
-<a id="__codelineno-0-1503" name="__codelineno-0-1503"></a><span class="sd">    entry is a feature&#39;s signed additive contribution to the prediction;</span>
-<a id="__codelineno-0-1504" name="__codelineno-0-1504"></a><span class="sd">    linear-leaf slopes are included exactly. Averaged across the bag when</span>
-<a id="__codelineno-0-1505" name="__codelineno-0-1505"></a><span class="sd">    ``n_ensembles &gt; 1`` (the bag prediction is the members&#39; mean, so the</span>
-<a id="__codelineno-0-1506" name="__codelineno-0-1506"></a><span class="sd">    averaged attribution stays exact). ``X_background`` overrides the</span>
-<a id="__codelineno-0-1507" name="__codelineno-0-1507"></a><span class="sd">    reference distribution (default: a sample of the training data).&quot;&quot;&quot;</span>
-<a id="__codelineno-0-1508" name="__codelineno-0-1508"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
-<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span><span class="p">]</span>
-<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a>        <span class="c1"># Fold each member&#39;s conformal quantile offset into the baseline so</span>
-<a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>        <span class="c1"># rows still sum to predict(X) - expected_value_.</span>
-<a id="__codelineno-0-1515" name="__codelineno-0-1515"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span>
-<a id="__codelineno-0-1516" name="__codelineno-0-1516"></a>            <span class="p">[</span><span class="n">b</span> <span class="o">+</span> <span class="n">m</span><span class="o">.</span><span class="n">quantile_offset_</span> <span class="k">for</span> <span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span><span class="p">,</span> <span class="n">out</span><span class="p">)]))</span>
-<a id="__codelineno-0-1517" name="__codelineno-0-1517"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-1518" name="__codelineno-0-1518"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-1519" name="__codelineno-0-1519"></a>    <span class="c1"># The conformal quantile offset is a constant shift; it belongs to the</span>
-<a id="__codelineno-0-1520" name="__codelineno-0-1520"></a>    <span class="c1"># baseline, keeping rows summing to predict(X) - expected_value_.</span>
-<a id="__codelineno-0-1521" name="__codelineno-0-1521"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantile_offset_</span>
-<a id="__codelineno-0-1522" name="__codelineno-0-1522"></a>    <span class="k">return</span> <span class="n">phi</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1572">1572</a></span>
+<span class="normal"><a href="#__codelineno-0-1573">1573</a></span>
+<span class="normal"><a href="#__codelineno-0-1574">1574</a></span>
+<span class="normal"><a href="#__codelineno-0-1575">1575</a></span>
+<span class="normal"><a href="#__codelineno-0-1576">1576</a></span>
+<span class="normal"><a href="#__codelineno-0-1577">1577</a></span>
+<span class="normal"><a href="#__codelineno-0-1578">1578</a></span>
+<span class="normal"><a href="#__codelineno-0-1579">1579</a></span>
+<span class="normal"><a href="#__codelineno-0-1580">1580</a></span>
+<span class="normal"><a href="#__codelineno-0-1581">1581</a></span>
+<span class="normal"><a href="#__codelineno-0-1582">1582</a></span>
+<span class="normal"><a href="#__codelineno-0-1583">1583</a></span>
+<span class="normal"><a href="#__codelineno-0-1584">1584</a></span>
+<span class="normal"><a href="#__codelineno-0-1585">1585</a></span>
+<span class="normal"><a href="#__codelineno-0-1586">1586</a></span>
+<span class="normal"><a href="#__codelineno-0-1587">1587</a></span>
+<span class="normal"><a href="#__codelineno-0-1588">1588</a></span>
+<span class="normal"><a href="#__codelineno-0-1589">1589</a></span>
+<span class="normal"><a href="#__codelineno-0-1590">1590</a></span>
+<span class="normal"><a href="#__codelineno-0-1591">1591</a></span>
+<span class="normal"><a href="#__codelineno-0-1592">1592</a></span>
+<span class="normal"><a href="#__codelineno-0-1593">1593</a></span>
+<span class="normal"><a href="#__codelineno-0-1594">1594</a></span>
+<span class="normal"><a href="#__codelineno-0-1595">1595</a></span>
+<span class="normal"><a href="#__codelineno-0-1596">1596</a></span>
+<span class="normal"><a href="#__codelineno-0-1597">1597</a></span>
+<span class="normal"><a href="#__codelineno-0-1598">1598</a></span>
+<span class="normal"><a href="#__codelineno-0-1599">1599</a></span>
+<span class="normal"><a href="#__codelineno-0-1600">1600</a></span>
+<span class="normal"><a href="#__codelineno-0-1601">1601</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1572" name="__codelineno-0-1572"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-1573" name="__codelineno-0-1573"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact interventional TreeSHAP contributions to the predicted target.</span>
+<a id="__codelineno-0-1574" name="__codelineno-0-1574"></a>
+<a id="__codelineno-0-1575" name="__codelineno-0-1575"></a><span class="sd">    Returns an array of shape ``(n_samples, n_features)`` whose rows sum to</span>
+<a id="__codelineno-0-1576" name="__codelineno-0-1576"></a><span class="sd">    ``predict(X) - expected_value_``, where ``expected_value_`` (set as an</span>
+<a id="__codelineno-0-1577" name="__codelineno-0-1577"></a><span class="sd">    attribute by this call) is the mean prediction over the background. Each</span>
+<a id="__codelineno-0-1578" name="__codelineno-0-1578"></a><span class="sd">    entry is a feature&#39;s signed additive contribution to the prediction;</span>
+<a id="__codelineno-0-1579" name="__codelineno-0-1579"></a><span class="sd">    linear-leaf slopes are included exactly. Averaged across the bag when</span>
+<a id="__codelineno-0-1580" name="__codelineno-0-1580"></a><span class="sd">    ``n_ensembles &gt; 1`` (the bag prediction is the members&#39; mean, so the</span>
+<a id="__codelineno-0-1581" name="__codelineno-0-1581"></a><span class="sd">    averaged attribution stays exact). ``X_background`` overrides the</span>
+<a id="__codelineno-0-1582" name="__codelineno-0-1582"></a><span class="sd">    reference distribution (default: a sample of the training data).</span>
+<a id="__codelineno-0-1583" name="__codelineno-0-1583"></a><span class="sd">    For the log-link losses (Poisson/Gamma/Tweedie) and custom losses</span>
+<a id="__codelineno-0-1584" name="__codelineno-0-1584"></a><span class="sd">    with a non-identity ``transform``, attributions are in raw (link)</span>
+<a id="__codelineno-0-1585" name="__codelineno-0-1585"></a><span class="sd">    space -- rows sum to the log of the prediction, the usual GBDT</span>
+<a id="__codelineno-0-1586" name="__codelineno-0-1586"></a><span class="sd">    margin-space convention.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-1587" name="__codelineno-0-1587"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-1588" name="__codelineno-0-1588"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-1589" name="__codelineno-0-1589"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1590" name="__codelineno-0-1590"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-1591" name="__codelineno-0-1591"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span><span class="p">]</span>
+<a id="__codelineno-0-1592" name="__codelineno-0-1592"></a>        <span class="c1"># Fold each member&#39;s conformal quantile offset into the baseline so</span>
+<a id="__codelineno-0-1593" name="__codelineno-0-1593"></a>        <span class="c1"># rows still sum to predict(X) - expected_value_.</span>
+<a id="__codelineno-0-1594" name="__codelineno-0-1594"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span>
+<a id="__codelineno-0-1595" name="__codelineno-0-1595"></a>            <span class="p">[</span><span class="n">b</span> <span class="o">+</span> <span class="n">m</span><span class="o">.</span><span class="n">quantile_offset_</span> <span class="k">for</span> <span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span><span class="p">,</span> <span class="n">out</span><span class="p">)]))</span>
+<a id="__codelineno-0-1596" name="__codelineno-0-1596"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-1597" name="__codelineno-0-1597"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-1598" name="__codelineno-0-1598"></a>    <span class="c1"># The conformal quantile offset is a constant shift; it belongs to the</span>
+<a id="__codelineno-0-1599" name="__codelineno-0-1599"></a>    <span class="c1"># baseline, keeping rows summing to predict(X) - expected_value_.</span>
+<a id="__codelineno-0-1600" name="__codelineno-0-1600"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantile_offset_</span>
+<a id="__codelineno-0-1601" name="__codelineno-0-1601"></a>    <span class="k">return</span> <span class="n">phi</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2247,7 +2338,8 @@ reference distribution (default: a sample of the training data).</p>
 <a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="p">)</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">eval_metric</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -2619,6 +2711,31 @@ split selection and is deterministic for a fixed <code>random_state</code>.
           </tr>
           <tr class="doc-section-item">
             <td>
+                <code>eval_metric</code>
+            </td>
+            <td>
+                  <code><span title="callable">callable</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Custom validation metric <code>metric(y_true, y_pred[, sample_weight]) -&gt;
+float</code> scored on the validation set each round and used for early
+stopping and the internal model selections instead of log loss.
+Binary: <code>y_true</code> is the 0/1-encoded target and <code>y_pred</code> the
+positive-class probability; multiclass: <code>y_true</code> is one-hot
+<code>(n, K)</code> and <code>y_pred</code> the probability matrix. Lower is better,
+unless the callable carries a <code>greater_is_better = True</code> attribute
+-- <code>validation_history_</code> then records negated values so the
+internal lower-is-better machinery is unchanged. Temperature scaling
+still calibrates on log loss.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                 <code>cross_features</code>
             </td>
             <td>
@@ -2881,85 +2998,89 @@ values always win). Set only when <code>n_ensembles &gt; 1</code>.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1666">1666</a></span>
-<span class="normal"><a href="#__codelineno-0-1667">1667</a></span>
-<span class="normal"><a href="#__codelineno-0-1668">1668</a></span>
-<span class="normal"><a href="#__codelineno-0-1669">1669</a></span>
-<span class="normal"><a href="#__codelineno-0-1670">1670</a></span>
-<span class="normal"><a href="#__codelineno-0-1671">1671</a></span>
-<span class="normal"><a href="#__codelineno-0-1672">1672</a></span>
-<span class="normal"><a href="#__codelineno-0-1673">1673</a></span>
-<span class="normal"><a href="#__codelineno-0-1674">1674</a></span>
-<span class="normal"><a href="#__codelineno-0-1675">1675</a></span>
-<span class="normal"><a href="#__codelineno-0-1676">1676</a></span>
-<span class="normal"><a href="#__codelineno-0-1677">1677</a></span>
-<span class="normal"><a href="#__codelineno-0-1678">1678</a></span>
-<span class="normal"><a href="#__codelineno-0-1679">1679</a></span>
-<span class="normal"><a href="#__codelineno-0-1680">1680</a></span>
-<span class="normal"><a href="#__codelineno-0-1681">1681</a></span>
-<span class="normal"><a href="#__codelineno-0-1682">1682</a></span>
-<span class="normal"><a href="#__codelineno-0-1683">1683</a></span>
-<span class="normal"><a href="#__codelineno-0-1684">1684</a></span>
-<span class="normal"><a href="#__codelineno-0-1685">1685</a></span>
-<span class="normal"><a href="#__codelineno-0-1686">1686</a></span>
-<span class="normal"><a href="#__codelineno-0-1687">1687</a></span>
-<span class="normal"><a href="#__codelineno-0-1688">1688</a></span>
-<span class="normal"><a href="#__codelineno-0-1689">1689</a></span>
-<span class="normal"><a href="#__codelineno-0-1690">1690</a></span>
-<span class="normal"><a href="#__codelineno-0-1691">1691</a></span>
-<span class="normal"><a href="#__codelineno-0-1692">1692</a></span>
-<span class="normal"><a href="#__codelineno-0-1693">1693</a></span>
-<span class="normal"><a href="#__codelineno-0-1694">1694</a></span>
-<span class="normal"><a href="#__codelineno-0-1695">1695</a></span>
-<span class="normal"><a href="#__codelineno-0-1696">1696</a></span>
-<span class="normal"><a href="#__codelineno-0-1697">1697</a></span>
-<span class="normal"><a href="#__codelineno-0-1698">1698</a></span>
-<span class="normal"><a href="#__codelineno-0-1699">1699</a></span>
-<span class="normal"><a href="#__codelineno-0-1700">1700</a></span>
-<span class="normal"><a href="#__codelineno-0-1701">1701</a></span>
-<span class="normal"><a href="#__codelineno-0-1702">1702</a></span>
-<span class="normal"><a href="#__codelineno-0-1703">1703</a></span>
-<span class="normal"><a href="#__codelineno-0-1704">1704</a></span>
-<span class="normal"><a href="#__codelineno-0-1705">1705</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1666" name="__codelineno-0-1666"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">learning_rate</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
-<a id="__codelineno-0-1667" name="__codelineno-0-1667"></a>             <span class="n">l2_leaf_reg</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">max_bins</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">subsample</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">colsample</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1668" name="__codelineno-0-1668"></a>             <span class="n">cat_smoothing</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cat_n_permutations</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-0-1669" name="__codelineno-0-1669"></a>             <span class="n">early_stopping_rounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1670" name="__codelineno-0-1670"></a>             <span class="n">min_child_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">thread_count</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1671" name="__codelineno-0-1671"></a>             <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ordered_boosting</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-1672" name="__codelineno-0-1672"></a>             <span class="n">cat_combinations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">leaf_estimation_iterations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1673" name="__codelineno-0-1673"></a>             <span class="n">linear_leaves</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">linear_lambda</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cross_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1674" name="__codelineno-0-1674"></a>             <span class="n">selection_rounds</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
-<a id="__codelineno-0-1675" name="__codelineno-0-1675"></a>             <span class="n">early_stopping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">validation_fraction</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
-<a id="__codelineno-0-1676" name="__codelineno-0-1676"></a>             <span class="n">n_ensembles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ensemble_n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
-<a id="__codelineno-0-1677" name="__codelineno-0-1677"></a>             <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-<a id="__codelineno-0-1678" name="__codelineno-0-1678"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_estimators</span> <span class="o">=</span> <span class="n">n_estimators</span>
-<a id="__codelineno-0-1679" name="__codelineno-0-1679"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span> <span class="o">=</span> <span class="n">learning_rate</span>
-<a id="__codelineno-0-1680" name="__codelineno-0-1680"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="n">depth</span>
-<a id="__codelineno-0-1681" name="__codelineno-0-1681"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">l2_leaf_reg</span> <span class="o">=</span> <span class="n">l2_leaf_reg</span>
-<a id="__codelineno-0-1682" name="__codelineno-0-1682"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_bins</span> <span class="o">=</span> <span class="n">max_bins</span>
-<a id="__codelineno-0-1683" name="__codelineno-0-1683"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">subsample</span> <span class="o">=</span> <span class="n">subsample</span>
-<a id="__codelineno-0-1684" name="__codelineno-0-1684"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">colsample</span> <span class="o">=</span> <span class="n">colsample</span>
-<a id="__codelineno-0-1685" name="__codelineno-0-1685"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_smoothing</span> <span class="o">=</span> <span class="n">cat_smoothing</span>
-<a id="__codelineno-0-1686" name="__codelineno-0-1686"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_n_permutations</span> <span class="o">=</span> <span class="n">cat_n_permutations</span>
-<a id="__codelineno-0-1687" name="__codelineno-0-1687"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping_rounds</span> <span class="o">=</span> <span class="n">early_stopping_rounds</span>
-<a id="__codelineno-0-1688" name="__codelineno-0-1688"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_features</span> <span class="o">=</span> <span class="n">cat_features</span>
-<a id="__codelineno-0-1689" name="__codelineno-0-1689"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_child_weight</span> <span class="o">=</span> <span class="n">min_child_weight</span>
-<a id="__codelineno-0-1690" name="__codelineno-0-1690"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">thread_count</span> <span class="o">=</span> <span class="n">thread_count</span>
-<a id="__codelineno-0-1691" name="__codelineno-0-1691"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">random_state</span> <span class="o">=</span> <span class="n">random_state</span>
-<a id="__codelineno-0-1692" name="__codelineno-0-1692"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
-<a id="__codelineno-0-1693" name="__codelineno-0-1693"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ordered_boosting</span> <span class="o">=</span> <span class="n">ordered_boosting</span>
-<a id="__codelineno-0-1694" name="__codelineno-0-1694"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_combinations</span> <span class="o">=</span> <span class="n">cat_combinations</span>
-<a id="__codelineno-0-1695" name="__codelineno-0-1695"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">leaf_estimation_iterations</span> <span class="o">=</span> <span class="n">leaf_estimation_iterations</span>
-<a id="__codelineno-0-1696" name="__codelineno-0-1696"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_leaves</span> <span class="o">=</span> <span class="n">linear_leaves</span>
-<a id="__codelineno-0-1697" name="__codelineno-0-1697"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_lambda</span> <span class="o">=</span> <span class="n">linear_lambda</span>
-<a id="__codelineno-0-1698" name="__codelineno-0-1698"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cross_features</span> <span class="o">=</span> <span class="n">cross_features</span>
-<a id="__codelineno-0-1699" name="__codelineno-0-1699"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">selection_rounds</span> <span class="o">=</span> <span class="n">selection_rounds</span>
-<a id="__codelineno-0-1700" name="__codelineno-0-1700"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping</span> <span class="o">=</span> <span class="n">early_stopping</span>
-<a id="__codelineno-0-1701" name="__codelineno-0-1701"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">validation_fraction</span> <span class="o">=</span> <span class="n">validation_fraction</span>
-<a id="__codelineno-0-1702" name="__codelineno-0-1702"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">=</span> <span class="n">n_ensembles</span>
-<a id="__codelineno-0-1703" name="__codelineno-0-1703"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ensemble_n_jobs</span> <span class="o">=</span> <span class="n">ensemble_n_jobs</span>
-<a id="__codelineno-0-1704" name="__codelineno-0-1704"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_samples</span> <span class="o">=</span> <span class="n">max_samples</span>
-<a id="__codelineno-0-1705" name="__codelineno-0-1705"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">quantize_gradients</span> <span class="o">=</span> <span class="n">quantize_gradients</span>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1756">1756</a></span>
+<span class="normal"><a href="#__codelineno-0-1757">1757</a></span>
+<span class="normal"><a href="#__codelineno-0-1758">1758</a></span>
+<span class="normal"><a href="#__codelineno-0-1759">1759</a></span>
+<span class="normal"><a href="#__codelineno-0-1760">1760</a></span>
+<span class="normal"><a href="#__codelineno-0-1761">1761</a></span>
+<span class="normal"><a href="#__codelineno-0-1762">1762</a></span>
+<span class="normal"><a href="#__codelineno-0-1763">1763</a></span>
+<span class="normal"><a href="#__codelineno-0-1764">1764</a></span>
+<span class="normal"><a href="#__codelineno-0-1765">1765</a></span>
+<span class="normal"><a href="#__codelineno-0-1766">1766</a></span>
+<span class="normal"><a href="#__codelineno-0-1767">1767</a></span>
+<span class="normal"><a href="#__codelineno-0-1768">1768</a></span>
+<span class="normal"><a href="#__codelineno-0-1769">1769</a></span>
+<span class="normal"><a href="#__codelineno-0-1770">1770</a></span>
+<span class="normal"><a href="#__codelineno-0-1771">1771</a></span>
+<span class="normal"><a href="#__codelineno-0-1772">1772</a></span>
+<span class="normal"><a href="#__codelineno-0-1773">1773</a></span>
+<span class="normal"><a href="#__codelineno-0-1774">1774</a></span>
+<span class="normal"><a href="#__codelineno-0-1775">1775</a></span>
+<span class="normal"><a href="#__codelineno-0-1776">1776</a></span>
+<span class="normal"><a href="#__codelineno-0-1777">1777</a></span>
+<span class="normal"><a href="#__codelineno-0-1778">1778</a></span>
+<span class="normal"><a href="#__codelineno-0-1779">1779</a></span>
+<span class="normal"><a href="#__codelineno-0-1780">1780</a></span>
+<span class="normal"><a href="#__codelineno-0-1781">1781</a></span>
+<span class="normal"><a href="#__codelineno-0-1782">1782</a></span>
+<span class="normal"><a href="#__codelineno-0-1783">1783</a></span>
+<span class="normal"><a href="#__codelineno-0-1784">1784</a></span>
+<span class="normal"><a href="#__codelineno-0-1785">1785</a></span>
+<span class="normal"><a href="#__codelineno-0-1786">1786</a></span>
+<span class="normal"><a href="#__codelineno-0-1787">1787</a></span>
+<span class="normal"><a href="#__codelineno-0-1788">1788</a></span>
+<span class="normal"><a href="#__codelineno-0-1789">1789</a></span>
+<span class="normal"><a href="#__codelineno-0-1790">1790</a></span>
+<span class="normal"><a href="#__codelineno-0-1791">1791</a></span>
+<span class="normal"><a href="#__codelineno-0-1792">1792</a></span>
+<span class="normal"><a href="#__codelineno-0-1793">1793</a></span>
+<span class="normal"><a href="#__codelineno-0-1794">1794</a></span>
+<span class="normal"><a href="#__codelineno-0-1795">1795</a></span>
+<span class="normal"><a href="#__codelineno-0-1796">1796</a></span>
+<span class="normal"><a href="#__codelineno-0-1797">1797</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1756" name="__codelineno-0-1756"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">learning_rate</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+<a id="__codelineno-0-1757" name="__codelineno-0-1757"></a>             <span class="n">l2_leaf_reg</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">max_bins</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">subsample</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">colsample</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1758" name="__codelineno-0-1758"></a>             <span class="n">cat_smoothing</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cat_n_permutations</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-0-1759" name="__codelineno-0-1759"></a>             <span class="n">early_stopping_rounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1760" name="__codelineno-0-1760"></a>             <span class="n">min_child_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">thread_count</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1761" name="__codelineno-0-1761"></a>             <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ordered_boosting</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-1762" name="__codelineno-0-1762"></a>             <span class="n">cat_combinations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">leaf_estimation_iterations</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1763" name="__codelineno-0-1763"></a>             <span class="n">linear_leaves</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">linear_lambda</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">cross_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1764" name="__codelineno-0-1764"></a>             <span class="n">selection_rounds</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-0-1765" name="__codelineno-0-1765"></a>             <span class="n">early_stopping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">validation_fraction</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-0-1766" name="__codelineno-0-1766"></a>             <span class="n">n_ensembles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">ensemble_n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
+<a id="__codelineno-0-1767" name="__codelineno-0-1767"></a>             <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">quantize_gradients</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-1768" name="__codelineno-0-1768"></a>             <span class="n">eval_metric</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-1769" name="__codelineno-0-1769"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_estimators</span> <span class="o">=</span> <span class="n">n_estimators</span>
+<a id="__codelineno-0-1770" name="__codelineno-0-1770"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate</span> <span class="o">=</span> <span class="n">learning_rate</span>
+<a id="__codelineno-0-1771" name="__codelineno-0-1771"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="n">depth</span>
+<a id="__codelineno-0-1772" name="__codelineno-0-1772"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">l2_leaf_reg</span> <span class="o">=</span> <span class="n">l2_leaf_reg</span>
+<a id="__codelineno-0-1773" name="__codelineno-0-1773"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_bins</span> <span class="o">=</span> <span class="n">max_bins</span>
+<a id="__codelineno-0-1774" name="__codelineno-0-1774"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">subsample</span> <span class="o">=</span> <span class="n">subsample</span>
+<a id="__codelineno-0-1775" name="__codelineno-0-1775"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">colsample</span> <span class="o">=</span> <span class="n">colsample</span>
+<a id="__codelineno-0-1776" name="__codelineno-0-1776"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_smoothing</span> <span class="o">=</span> <span class="n">cat_smoothing</span>
+<a id="__codelineno-0-1777" name="__codelineno-0-1777"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_n_permutations</span> <span class="o">=</span> <span class="n">cat_n_permutations</span>
+<a id="__codelineno-0-1778" name="__codelineno-0-1778"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping_rounds</span> <span class="o">=</span> <span class="n">early_stopping_rounds</span>
+<a id="__codelineno-0-1779" name="__codelineno-0-1779"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_features</span> <span class="o">=</span> <span class="n">cat_features</span>
+<a id="__codelineno-0-1780" name="__codelineno-0-1780"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_child_weight</span> <span class="o">=</span> <span class="n">min_child_weight</span>
+<a id="__codelineno-0-1781" name="__codelineno-0-1781"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">eval_metric</span> <span class="o">=</span> <span class="n">eval_metric</span>
+<a id="__codelineno-0-1782" name="__codelineno-0-1782"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">thread_count</span> <span class="o">=</span> <span class="n">thread_count</span>
+<a id="__codelineno-0-1783" name="__codelineno-0-1783"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">random_state</span> <span class="o">=</span> <span class="n">random_state</span>
+<a id="__codelineno-0-1784" name="__codelineno-0-1784"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
+<a id="__codelineno-0-1785" name="__codelineno-0-1785"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ordered_boosting</span> <span class="o">=</span> <span class="n">ordered_boosting</span>
+<a id="__codelineno-0-1786" name="__codelineno-0-1786"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cat_combinations</span> <span class="o">=</span> <span class="n">cat_combinations</span>
+<a id="__codelineno-0-1787" name="__codelineno-0-1787"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">leaf_estimation_iterations</span> <span class="o">=</span> <span class="n">leaf_estimation_iterations</span>
+<a id="__codelineno-0-1788" name="__codelineno-0-1788"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_leaves</span> <span class="o">=</span> <span class="n">linear_leaves</span>
+<a id="__codelineno-0-1789" name="__codelineno-0-1789"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">linear_lambda</span> <span class="o">=</span> <span class="n">linear_lambda</span>
+<a id="__codelineno-0-1790" name="__codelineno-0-1790"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">cross_features</span> <span class="o">=</span> <span class="n">cross_features</span>
+<a id="__codelineno-0-1791" name="__codelineno-0-1791"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">selection_rounds</span> <span class="o">=</span> <span class="n">selection_rounds</span>
+<a id="__codelineno-0-1792" name="__codelineno-0-1792"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">early_stopping</span> <span class="o">=</span> <span class="n">early_stopping</span>
+<a id="__codelineno-0-1793" name="__codelineno-0-1793"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">validation_fraction</span> <span class="o">=</span> <span class="n">validation_fraction</span>
+<a id="__codelineno-0-1794" name="__codelineno-0-1794"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">=</span> <span class="n">n_ensembles</span>
+<a id="__codelineno-0-1795" name="__codelineno-0-1795"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">ensemble_n_jobs</span> <span class="o">=</span> <span class="n">ensemble_n_jobs</span>
+<a id="__codelineno-0-1796" name="__codelineno-0-1796"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_samples</span> <span class="o">=</span> <span class="n">max_samples</span>
+<a id="__codelineno-0-1797" name="__codelineno-0-1797"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">quantize_gradients</span> <span class="o">=</span> <span class="n">quantize_gradients</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -3171,135 +3292,135 @@ validation-curve capture and instrumentation. Not supported with
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1707">1707</a></span>
-<span class="normal"><a href="#__codelineno-0-1708">1708</a></span>
-<span class="normal"><a href="#__codelineno-0-1709">1709</a></span>
-<span class="normal"><a href="#__codelineno-0-1710">1710</a></span>
-<span class="normal"><a href="#__codelineno-0-1711">1711</a></span>
-<span class="normal"><a href="#__codelineno-0-1712">1712</a></span>
-<span class="normal"><a href="#__codelineno-0-1713">1713</a></span>
-<span class="normal"><a href="#__codelineno-0-1714">1714</a></span>
-<span class="normal"><a href="#__codelineno-0-1715">1715</a></span>
-<span class="normal"><a href="#__codelineno-0-1716">1716</a></span>
-<span class="normal"><a href="#__codelineno-0-1717">1717</a></span>
-<span class="normal"><a href="#__codelineno-0-1718">1718</a></span>
-<span class="normal"><a href="#__codelineno-0-1719">1719</a></span>
-<span class="normal"><a href="#__codelineno-0-1720">1720</a></span>
-<span class="normal"><a href="#__codelineno-0-1721">1721</a></span>
-<span class="normal"><a href="#__codelineno-0-1722">1722</a></span>
-<span class="normal"><a href="#__codelineno-0-1723">1723</a></span>
-<span class="normal"><a href="#__codelineno-0-1724">1724</a></span>
-<span class="normal"><a href="#__codelineno-0-1725">1725</a></span>
-<span class="normal"><a href="#__codelineno-0-1726">1726</a></span>
-<span class="normal"><a href="#__codelineno-0-1727">1727</a></span>
-<span class="normal"><a href="#__codelineno-0-1728">1728</a></span>
-<span class="normal"><a href="#__codelineno-0-1729">1729</a></span>
-<span class="normal"><a href="#__codelineno-0-1730">1730</a></span>
-<span class="normal"><a href="#__codelineno-0-1731">1731</a></span>
-<span class="normal"><a href="#__codelineno-0-1732">1732</a></span>
-<span class="normal"><a href="#__codelineno-0-1733">1733</a></span>
-<span class="normal"><a href="#__codelineno-0-1734">1734</a></span>
-<span class="normal"><a href="#__codelineno-0-1735">1735</a></span>
-<span class="normal"><a href="#__codelineno-0-1736">1736</a></span>
-<span class="normal"><a href="#__codelineno-0-1737">1737</a></span>
-<span class="normal"><a href="#__codelineno-0-1738">1738</a></span>
-<span class="normal"><a href="#__codelineno-0-1739">1739</a></span>
-<span class="normal"><a href="#__codelineno-0-1740">1740</a></span>
-<span class="normal"><a href="#__codelineno-0-1741">1741</a></span>
-<span class="normal"><a href="#__codelineno-0-1742">1742</a></span>
-<span class="normal"><a href="#__codelineno-0-1743">1743</a></span>
-<span class="normal"><a href="#__codelineno-0-1744">1744</a></span>
-<span class="normal"><a href="#__codelineno-0-1745">1745</a></span>
-<span class="normal"><a href="#__codelineno-0-1746">1746</a></span>
-<span class="normal"><a href="#__codelineno-0-1747">1747</a></span>
-<span class="normal"><a href="#__codelineno-0-1748">1748</a></span>
-<span class="normal"><a href="#__codelineno-0-1749">1749</a></span>
-<span class="normal"><a href="#__codelineno-0-1750">1750</a></span>
-<span class="normal"><a href="#__codelineno-0-1751">1751</a></span>
-<span class="normal"><a href="#__codelineno-0-1752">1752</a></span>
-<span class="normal"><a href="#__codelineno-0-1753">1753</a></span>
-<span class="normal"><a href="#__codelineno-0-1754">1754</a></span>
-<span class="normal"><a href="#__codelineno-0-1755">1755</a></span>
-<span class="normal"><a href="#__codelineno-0-1756">1756</a></span>
-<span class="normal"><a href="#__codelineno-0-1757">1757</a></span>
-<span class="normal"><a href="#__codelineno-0-1758">1758</a></span>
-<span class="normal"><a href="#__codelineno-0-1759">1759</a></span>
-<span class="normal"><a href="#__codelineno-0-1760">1760</a></span>
-<span class="normal"><a href="#__codelineno-0-1761">1761</a></span>
-<span class="normal"><a href="#__codelineno-0-1762">1762</a></span>
-<span class="normal"><a href="#__codelineno-0-1763">1763</a></span>
-<span class="normal"><a href="#__codelineno-0-1764">1764</a></span>
-<span class="normal"><a href="#__codelineno-0-1765">1765</a></span>
-<span class="normal"><a href="#__codelineno-0-1766">1766</a></span>
-<span class="normal"><a href="#__codelineno-0-1767">1767</a></span>
-<span class="normal"><a href="#__codelineno-0-1768">1768</a></span>
-<span class="normal"><a href="#__codelineno-0-1769">1769</a></span>
-<span class="normal"><a href="#__codelineno-0-1770">1770</a></span>
-<span class="normal"><a href="#__codelineno-0-1771">1771</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1707" name="__codelineno-0-1707"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-1708" name="__codelineno-0-1708"></a>        <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">callbacks</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-1709" name="__codelineno-0-1709"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit the model.</span>
-<a id="__codelineno-0-1710" name="__codelineno-0-1710"></a>
-<a id="__codelineno-0-1711" name="__codelineno-0-1711"></a><span class="sd">    Parameters</span>
-<a id="__codelineno-0-1712" name="__codelineno-0-1712"></a><span class="sd">    ----------</span>
-<a id="__codelineno-0-1713" name="__codelineno-0-1713"></a><span class="sd">    X, y : array-like</span>
-<a id="__codelineno-0-1714" name="__codelineno-0-1714"></a><span class="sd">        Training data.</span>
-<a id="__codelineno-0-1715" name="__codelineno-0-1715"></a><span class="sd">    cat_features : list of int or str, or None</span>
-<a id="__codelineno-0-1716" name="__codelineno-0-1716"></a><span class="sd">        Columns to treat as categoricals, given as integer positions and/or</span>
-<a id="__codelineno-0-1717" name="__codelineno-0-1717"></a><span class="sd">        column names (names resolved against the DataFrame). Falls back to the</span>
-<a id="__codelineno-0-1718" name="__codelineno-0-1718"></a><span class="sd">        ``cat_features`` constructor argument when not given here; passing it</span>
-<a id="__codelineno-0-1719" name="__codelineno-0-1719"></a><span class="sd">        here overrides the constructor value. (The constructor form lets</span>
-<a id="__codelineno-0-1720" name="__codelineno-0-1720"></a><span class="sd">        ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can&#39;t.)</span>
-<a id="__codelineno-0-1721" name="__codelineno-0-1721"></a><span class="sd">    eval_set : (X_val, y_val) tuple or None</span>
-<a id="__codelineno-0-1722" name="__codelineno-0-1722"></a><span class="sd">        Explicit validation set with original class labels.  When provided,</span>
-<a id="__codelineno-0-1723" name="__codelineno-0-1723"></a><span class="sd">        automatic splitting is skipped.</span>
-<a id="__codelineno-0-1724" name="__codelineno-0-1724"></a><span class="sd">    groups : array-like of shape (n_samples,) or None</span>
-<a id="__codelineno-0-1725" name="__codelineno-0-1725"></a><span class="sd">        Group labels (e.g. ``df[&#39;subject_id&#39;]``).  When supplied and early</span>
-<a id="__codelineno-0-1726" name="__codelineno-0-1726"></a><span class="sd">        stopping triggers an automatic split, ``StratifiedGroupKFold`` keeps</span>
-<a id="__codelineno-0-1727" name="__codelineno-0-1727"></a><span class="sd">        groups intact and class proportions balanced across the split.</span>
-<a id="__codelineno-0-1728" name="__codelineno-0-1728"></a><span class="sd">    sample_weight : array-like of shape (n_samples,) or None</span>
-<a id="__codelineno-0-1729" name="__codelineno-0-1729"></a><span class="sd">        Per-sample weights.  Normalized to mean 1 internally.  Applied</span>
-<a id="__codelineno-0-1730" name="__codelineno-0-1730"></a><span class="sd">        throughout: the gradient/leaf fit, the categorical target encoder,</span>
-<a id="__codelineno-0-1731" name="__codelineno-0-1731"></a><span class="sd">        the quantile bin borders, and the early-stopping metric on an</span>
-<a id="__codelineno-0-1732" name="__codelineno-0-1732"></a><span class="sd">        automatically split (or bagged out-of-bag) validation set, so a</span>
-<a id="__codelineno-0-1733" name="__codelineno-0-1733"></a><span class="sd">        zero-weight row never influences the model.  An explicitly passed</span>
-<a id="__codelineno-0-1734" name="__codelineno-0-1734"></a><span class="sd">        ``eval_set`` carries no weights and is scored unweighted.</span>
-<a id="__codelineno-0-1735" name="__codelineno-0-1735"></a><span class="sd">    callbacks : callable or list of callable, or None</span>
-<a id="__codelineno-0-1736" name="__codelineno-0-1736"></a><span class="sd">        Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;</span>
-<a id="__codelineno-0-1737" name="__codelineno-0-1737"></a><span class="sd">        a callback returning True requests an early stop. Used for live</span>
-<a id="__codelineno-0-1738" name="__codelineno-0-1738"></a><span class="sd">        validation-curve capture and instrumentation. Not supported with</span>
-<a id="__codelineno-0-1739" name="__codelineno-0-1739"></a><span class="sd">        ``n_ensembles &gt; 1`` (members fit in parallel worker processes).</span>
-<a id="__codelineno-0-1740" name="__codelineno-0-1740"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-1741" name="__codelineno-0-1741"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">)</span>
-<a id="__codelineno-0-1742" name="__codelineno-0-1742"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_feature_names</span><span class="p">(</span><span class="n">cat_features</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-1743" name="__codelineno-0-1743"></a>    <span class="n">_validate_hyperparams</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
-<a id="__codelineno-0-1744" name="__codelineno-0-1744"></a>    <span class="n">y</span> <span class="o">=</span> <span class="n">_validate_fit_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">,</span>
-<a id="__codelineno-0-1745" name="__codelineno-0-1745"></a>                            <span class="n">classification</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-1746" name="__codelineno-0-1746"></a>    <span class="k">if</span> <span class="n">eval_set</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1747" name="__codelineno-0-1747"></a>        <span class="n">_check_eval_set</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_features_in_</span><span class="p">)</span>
-<a id="__codelineno-0-1748" name="__codelineno-0-1748"></a>        <span class="c1"># Bag members are exempt: their OOB eval set may legitimately hold</span>
-<a id="__codelineno-0-1749" name="__codelineno-0-1749"></a>        <span class="c1"># a rare label their row sample missed, and the parent aligns</span>
-<a id="__codelineno-0-1750" name="__codelineno-0-1750"></a>        <span class="c1"># member probability columns to the global class set.</span>
-<a id="__codelineno-0-1751" name="__codelineno-0-1751"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_is_bag_member&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
-<a id="__codelineno-0-1752" name="__codelineno-0-1752"></a>            <span class="n">_check_eval_labels</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-1753" name="__codelineno-0-1753"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-0-1754" name="__codelineno-0-1754"></a>        <span class="k">if</span> <span class="n">callbacks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-1755" name="__codelineno-0-1755"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1756" name="__codelineno-0-1756"></a>                <span class="s2">&quot;callbacks are not supported with n_ensembles &gt; 1.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1757" name="__codelineno-0-1757"></a>        <span class="c1"># Fix the global class set up front: a member&#39;s bootstrap may miss a</span>
-<a id="__codelineno-0-1758" name="__codelineno-0-1758"></a>        <span class="c1"># rare class, and predict_proba aligns each member&#39;s columns to this.</span>
-<a id="__codelineno-0-1759" name="__codelineno-0-1759"></a>        <span class="n">yarr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-1760" name="__codelineno-0-1760"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">classes_</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">yarr</span><span class="p">)</span>
-<a id="__codelineno-0-1761" name="__codelineno-0-1761"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">classes_</span><span class="o">.</span><span class="n">size</span>
-<a id="__codelineno-0-1762" name="__codelineno-0-1762"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
-<a id="__codelineno-0-1763" name="__codelineno-0-1763"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-1764" name="__codelineno-0-1764"></a>                <span class="sa">f</span><span class="s2">&quot;Need at least 2 classes; got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span><span class="si">}</span><span class="s2"> class(es).&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-1765" name="__codelineno-0-1765"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">&gt;</span> <span class="mi">2</span>
-<a id="__codelineno-0-1766" name="__codelineno-0-1766"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="n">_fit_bagged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">yarr</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span>
-<a id="__codelineno-0-1767" name="__codelineno-0-1767"></a>                                       <span class="n">groups</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">)</span>
-<a id="__codelineno-0-1768" name="__codelineno-0-1768"></a>        <span class="k">return</span> <span class="bp">self</span>
-<a id="__codelineno-0-1769" name="__codelineno-0-1769"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-1770" name="__codelineno-0-1770"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fit_single</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span>
-<a id="__codelineno-0-1771" name="__codelineno-0-1771"></a>                            <span class="n">sample_weight</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1799">1799</a></span>
+<span class="normal"><a href="#__codelineno-0-1800">1800</a></span>
+<span class="normal"><a href="#__codelineno-0-1801">1801</a></span>
+<span class="normal"><a href="#__codelineno-0-1802">1802</a></span>
+<span class="normal"><a href="#__codelineno-0-1803">1803</a></span>
+<span class="normal"><a href="#__codelineno-0-1804">1804</a></span>
+<span class="normal"><a href="#__codelineno-0-1805">1805</a></span>
+<span class="normal"><a href="#__codelineno-0-1806">1806</a></span>
+<span class="normal"><a href="#__codelineno-0-1807">1807</a></span>
+<span class="normal"><a href="#__codelineno-0-1808">1808</a></span>
+<span class="normal"><a href="#__codelineno-0-1809">1809</a></span>
+<span class="normal"><a href="#__codelineno-0-1810">1810</a></span>
+<span class="normal"><a href="#__codelineno-0-1811">1811</a></span>
+<span class="normal"><a href="#__codelineno-0-1812">1812</a></span>
+<span class="normal"><a href="#__codelineno-0-1813">1813</a></span>
+<span class="normal"><a href="#__codelineno-0-1814">1814</a></span>
+<span class="normal"><a href="#__codelineno-0-1815">1815</a></span>
+<span class="normal"><a href="#__codelineno-0-1816">1816</a></span>
+<span class="normal"><a href="#__codelineno-0-1817">1817</a></span>
+<span class="normal"><a href="#__codelineno-0-1818">1818</a></span>
+<span class="normal"><a href="#__codelineno-0-1819">1819</a></span>
+<span class="normal"><a href="#__codelineno-0-1820">1820</a></span>
+<span class="normal"><a href="#__codelineno-0-1821">1821</a></span>
+<span class="normal"><a href="#__codelineno-0-1822">1822</a></span>
+<span class="normal"><a href="#__codelineno-0-1823">1823</a></span>
+<span class="normal"><a href="#__codelineno-0-1824">1824</a></span>
+<span class="normal"><a href="#__codelineno-0-1825">1825</a></span>
+<span class="normal"><a href="#__codelineno-0-1826">1826</a></span>
+<span class="normal"><a href="#__codelineno-0-1827">1827</a></span>
+<span class="normal"><a href="#__codelineno-0-1828">1828</a></span>
+<span class="normal"><a href="#__codelineno-0-1829">1829</a></span>
+<span class="normal"><a href="#__codelineno-0-1830">1830</a></span>
+<span class="normal"><a href="#__codelineno-0-1831">1831</a></span>
+<span class="normal"><a href="#__codelineno-0-1832">1832</a></span>
+<span class="normal"><a href="#__codelineno-0-1833">1833</a></span>
+<span class="normal"><a href="#__codelineno-0-1834">1834</a></span>
+<span class="normal"><a href="#__codelineno-0-1835">1835</a></span>
+<span class="normal"><a href="#__codelineno-0-1836">1836</a></span>
+<span class="normal"><a href="#__codelineno-0-1837">1837</a></span>
+<span class="normal"><a href="#__codelineno-0-1838">1838</a></span>
+<span class="normal"><a href="#__codelineno-0-1839">1839</a></span>
+<span class="normal"><a href="#__codelineno-0-1840">1840</a></span>
+<span class="normal"><a href="#__codelineno-0-1841">1841</a></span>
+<span class="normal"><a href="#__codelineno-0-1842">1842</a></span>
+<span class="normal"><a href="#__codelineno-0-1843">1843</a></span>
+<span class="normal"><a href="#__codelineno-0-1844">1844</a></span>
+<span class="normal"><a href="#__codelineno-0-1845">1845</a></span>
+<span class="normal"><a href="#__codelineno-0-1846">1846</a></span>
+<span class="normal"><a href="#__codelineno-0-1847">1847</a></span>
+<span class="normal"><a href="#__codelineno-0-1848">1848</a></span>
+<span class="normal"><a href="#__codelineno-0-1849">1849</a></span>
+<span class="normal"><a href="#__codelineno-0-1850">1850</a></span>
+<span class="normal"><a href="#__codelineno-0-1851">1851</a></span>
+<span class="normal"><a href="#__codelineno-0-1852">1852</a></span>
+<span class="normal"><a href="#__codelineno-0-1853">1853</a></span>
+<span class="normal"><a href="#__codelineno-0-1854">1854</a></span>
+<span class="normal"><a href="#__codelineno-0-1855">1855</a></span>
+<span class="normal"><a href="#__codelineno-0-1856">1856</a></span>
+<span class="normal"><a href="#__codelineno-0-1857">1857</a></span>
+<span class="normal"><a href="#__codelineno-0-1858">1858</a></span>
+<span class="normal"><a href="#__codelineno-0-1859">1859</a></span>
+<span class="normal"><a href="#__codelineno-0-1860">1860</a></span>
+<span class="normal"><a href="#__codelineno-0-1861">1861</a></span>
+<span class="normal"><a href="#__codelineno-0-1862">1862</a></span>
+<span class="normal"><a href="#__codelineno-0-1863">1863</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1799" name="__codelineno-0-1799"></a><span class="k">def</span><span class="w"> </span><span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1800" name="__codelineno-0-1800"></a>        <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">callbacks</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-1801" name="__codelineno-0-1801"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit the model.</span>
+<a id="__codelineno-0-1802" name="__codelineno-0-1802"></a>
+<a id="__codelineno-0-1803" name="__codelineno-0-1803"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-1804" name="__codelineno-0-1804"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-1805" name="__codelineno-0-1805"></a><span class="sd">    X, y : array-like</span>
+<a id="__codelineno-0-1806" name="__codelineno-0-1806"></a><span class="sd">        Training data.</span>
+<a id="__codelineno-0-1807" name="__codelineno-0-1807"></a><span class="sd">    cat_features : list of int or str, or None</span>
+<a id="__codelineno-0-1808" name="__codelineno-0-1808"></a><span class="sd">        Columns to treat as categoricals, given as integer positions and/or</span>
+<a id="__codelineno-0-1809" name="__codelineno-0-1809"></a><span class="sd">        column names (names resolved against the DataFrame). Falls back to the</span>
+<a id="__codelineno-0-1810" name="__codelineno-0-1810"></a><span class="sd">        ``cat_features`` constructor argument when not given here; passing it</span>
+<a id="__codelineno-0-1811" name="__codelineno-0-1811"></a><span class="sd">        here overrides the constructor value. (The constructor form lets</span>
+<a id="__codelineno-0-1812" name="__codelineno-0-1812"></a><span class="sd">        ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can&#39;t.)</span>
+<a id="__codelineno-0-1813" name="__codelineno-0-1813"></a><span class="sd">    eval_set : (X_val, y_val) tuple or None</span>
+<a id="__codelineno-0-1814" name="__codelineno-0-1814"></a><span class="sd">        Explicit validation set with original class labels.  When provided,</span>
+<a id="__codelineno-0-1815" name="__codelineno-0-1815"></a><span class="sd">        automatic splitting is skipped.</span>
+<a id="__codelineno-0-1816" name="__codelineno-0-1816"></a><span class="sd">    groups : array-like of shape (n_samples,) or None</span>
+<a id="__codelineno-0-1817" name="__codelineno-0-1817"></a><span class="sd">        Group labels (e.g. ``df[&#39;subject_id&#39;]``).  When supplied and early</span>
+<a id="__codelineno-0-1818" name="__codelineno-0-1818"></a><span class="sd">        stopping triggers an automatic split, ``StratifiedGroupKFold`` keeps</span>
+<a id="__codelineno-0-1819" name="__codelineno-0-1819"></a><span class="sd">        groups intact and class proportions balanced across the split.</span>
+<a id="__codelineno-0-1820" name="__codelineno-0-1820"></a><span class="sd">    sample_weight : array-like of shape (n_samples,) or None</span>
+<a id="__codelineno-0-1821" name="__codelineno-0-1821"></a><span class="sd">        Per-sample weights.  Normalized to mean 1 internally.  Applied</span>
+<a id="__codelineno-0-1822" name="__codelineno-0-1822"></a><span class="sd">        throughout: the gradient/leaf fit, the categorical target encoder,</span>
+<a id="__codelineno-0-1823" name="__codelineno-0-1823"></a><span class="sd">        the quantile bin borders, and the early-stopping metric on an</span>
+<a id="__codelineno-0-1824" name="__codelineno-0-1824"></a><span class="sd">        automatically split (or bagged out-of-bag) validation set, so a</span>
+<a id="__codelineno-0-1825" name="__codelineno-0-1825"></a><span class="sd">        zero-weight row never influences the model.  An explicitly passed</span>
+<a id="__codelineno-0-1826" name="__codelineno-0-1826"></a><span class="sd">        ``eval_set`` carries no weights and is scored unweighted.</span>
+<a id="__codelineno-0-1827" name="__codelineno-0-1827"></a><span class="sd">    callbacks : callable or list of callable, or None</span>
+<a id="__codelineno-0-1828" name="__codelineno-0-1828"></a><span class="sd">        Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;</span>
+<a id="__codelineno-0-1829" name="__codelineno-0-1829"></a><span class="sd">        a callback returning True requests an early stop. Used for live</span>
+<a id="__codelineno-0-1830" name="__codelineno-0-1830"></a><span class="sd">        validation-curve capture and instrumentation. Not supported with</span>
+<a id="__codelineno-0-1831" name="__codelineno-0-1831"></a><span class="sd">        ``n_ensembles &gt; 1`` (members fit in parallel worker processes).</span>
+<a id="__codelineno-0-1832" name="__codelineno-0-1832"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-1833" name="__codelineno-0-1833"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">)</span>
+<a id="__codelineno-0-1834" name="__codelineno-0-1834"></a>    <span class="n">cat_features</span> <span class="o">=</span> <span class="n">_resolve_cat_feature_names</span><span class="p">(</span><span class="n">cat_features</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-1835" name="__codelineno-0-1835"></a>    <span class="n">_validate_hyperparams</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+<a id="__codelineno-0-1836" name="__codelineno-0-1836"></a>    <span class="n">y</span> <span class="o">=</span> <span class="n">_validate_fit_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">,</span>
+<a id="__codelineno-0-1837" name="__codelineno-0-1837"></a>                            <span class="n">classification</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1838" name="__codelineno-0-1838"></a>    <span class="k">if</span> <span class="n">eval_set</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1839" name="__codelineno-0-1839"></a>        <span class="n">_check_eval_set</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_features_in_</span><span class="p">)</span>
+<a id="__codelineno-0-1840" name="__codelineno-0-1840"></a>        <span class="c1"># Bag members are exempt: their OOB eval set may legitimately hold</span>
+<a id="__codelineno-0-1841" name="__codelineno-0-1841"></a>        <span class="c1"># a rare label their row sample missed, and the parent aligns</span>
+<a id="__codelineno-0-1842" name="__codelineno-0-1842"></a>        <span class="c1"># member probability columns to the global class set.</span>
+<a id="__codelineno-0-1843" name="__codelineno-0-1843"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_is_bag_member&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+<a id="__codelineno-0-1844" name="__codelineno-0-1844"></a>            <span class="n">_check_eval_labels</span><span class="p">(</span><span class="n">eval_set</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-0-1845" name="__codelineno-0-1845"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_ensembles</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-0-1846" name="__codelineno-0-1846"></a>        <span class="k">if</span> <span class="n">callbacks</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1847" name="__codelineno-0-1847"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1848" name="__codelineno-0-1848"></a>                <span class="s2">&quot;callbacks are not supported with n_ensembles &gt; 1.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1849" name="__codelineno-0-1849"></a>        <span class="c1"># Fix the global class set up front: a member&#39;s bootstrap may miss a</span>
+<a id="__codelineno-0-1850" name="__codelineno-0-1850"></a>        <span class="c1"># rare class, and predict_proba aligns each member&#39;s columns to this.</span>
+<a id="__codelineno-0-1851" name="__codelineno-0-1851"></a>        <span class="n">yarr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-0-1852" name="__codelineno-0-1852"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">classes_</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">yarr</span><span class="p">)</span>
+<a id="__codelineno-0-1853" name="__codelineno-0-1853"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">classes_</span><span class="o">.</span><span class="n">size</span>
+<a id="__codelineno-0-1854" name="__codelineno-0-1854"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+<a id="__codelineno-0-1855" name="__codelineno-0-1855"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1856" name="__codelineno-0-1856"></a>                <span class="sa">f</span><span class="s2">&quot;Need at least 2 classes; got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span><span class="si">}</span><span class="s2"> class(es).&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-1857" name="__codelineno-0-1857"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_classes_</span> <span class="o">&gt;</span> <span class="mi">2</span>
+<a id="__codelineno-0-1858" name="__codelineno-0-1858"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="n">_fit_bagged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">yarr</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span>
+<a id="__codelineno-0-1859" name="__codelineno-0-1859"></a>                                       <span class="n">groups</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">)</span>
+<a id="__codelineno-0-1860" name="__codelineno-0-1860"></a>        <span class="k">return</span> <span class="bp">self</span>
+<a id="__codelineno-0-1861" name="__codelineno-0-1861"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1862" name="__codelineno-0-1862"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fit_single</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="p">,</span> <span class="n">eval_set</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span>
+<a id="__codelineno-0-1863" name="__codelineno-0-1863"></a>                            <span class="n">sample_weight</span><span class="p">,</span> <span class="n">callbacks</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -3331,55 +3452,55 @@ supported yet. <code>X_background</code> overrides the reference distribution.</
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2064">2064</a></span>
-<span class="normal"><a href="#__codelineno-0-2065">2065</a></span>
-<span class="normal"><a href="#__codelineno-0-2066">2066</a></span>
-<span class="normal"><a href="#__codelineno-0-2067">2067</a></span>
-<span class="normal"><a href="#__codelineno-0-2068">2068</a></span>
-<span class="normal"><a href="#__codelineno-0-2069">2069</a></span>
-<span class="normal"><a href="#__codelineno-0-2070">2070</a></span>
-<span class="normal"><a href="#__codelineno-0-2071">2071</a></span>
-<span class="normal"><a href="#__codelineno-0-2072">2072</a></span>
-<span class="normal"><a href="#__codelineno-0-2073">2073</a></span>
-<span class="normal"><a href="#__codelineno-0-2074">2074</a></span>
-<span class="normal"><a href="#__codelineno-0-2075">2075</a></span>
-<span class="normal"><a href="#__codelineno-0-2076">2076</a></span>
-<span class="normal"><a href="#__codelineno-0-2077">2077</a></span>
-<span class="normal"><a href="#__codelineno-0-2078">2078</a></span>
-<span class="normal"><a href="#__codelineno-0-2079">2079</a></span>
-<span class="normal"><a href="#__codelineno-0-2080">2080</a></span>
-<span class="normal"><a href="#__codelineno-0-2081">2081</a></span>
-<span class="normal"><a href="#__codelineno-0-2082">2082</a></span>
-<span class="normal"><a href="#__codelineno-0-2083">2083</a></span>
-<span class="normal"><a href="#__codelineno-0-2084">2084</a></span>
-<span class="normal"><a href="#__codelineno-0-2085">2085</a></span>
-<span class="normal"><a href="#__codelineno-0-2086">2086</a></span>
-<span class="normal"><a href="#__codelineno-0-2087">2087</a></span>
-<span class="normal"><a href="#__codelineno-0-2088">2088</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-2064" name="__codelineno-0-2064"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-2065" name="__codelineno-0-2065"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.</span>
-<a id="__codelineno-0-2066" name="__codelineno-0-2066"></a>
-<a id="__codelineno-0-2067" name="__codelineno-0-2067"></a><span class="sd">    Binary only. Returns an array of shape ``(n_samples, n_features)`` whose</span>
-<a id="__codelineno-0-2068" name="__codelineno-0-2068"></a><span class="sd">    rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with</span>
-<a id="__codelineno-0-2069" name="__codelineno-0-2069"></a><span class="sd">    ``expected_value_`` set as an attribute. Each entry is a feature&#39;s signed</span>
-<a id="__codelineno-0-2070" name="__codelineno-0-2070"></a><span class="sd">    contribution to the log-odds of the positive class; linear-leaf slopes are</span>
-<a id="__codelineno-0-2071" name="__codelineno-0-2071"></a><span class="sd">    included exactly. Averaged across the bag when ``n_ensembles &gt; 1`` (an</span>
-<a id="__codelineno-0-2072" name="__codelineno-0-2072"></a><span class="sd">    additive surrogate for the soft-voted probability). Multiclass is not</span>
-<a id="__codelineno-0-2073" name="__codelineno-0-2073"></a><span class="sd">    supported yet. ``X_background`` overrides the reference distribution.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-2074" name="__codelineno-0-2074"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-2075" name="__codelineno-0-2075"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
-<a id="__codelineno-0-2076" name="__codelineno-0-2076"></a>    <span class="n">members</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-<a id="__codelineno-0-2077" name="__codelineno-0-2077"></a>    <span class="k">if</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">members</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;_multiclass&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span> \
-<a id="__codelineno-0-2078" name="__codelineno-0-2078"></a>            <span class="ow">or</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span><span class="p">):</span>
-<a id="__codelineno-0-2079" name="__codelineno-0-2079"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-<a id="__codelineno-0-2080" name="__codelineno-0-2080"></a>            <span class="s2">&quot;shap_values is not supported for multiclass classification yet.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-2081" name="__codelineno-0-2081"></a>    <span class="k">if</span> <span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-2082" name="__codelineno-0-2082"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-2083" name="__codelineno-0-2083"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">members</span><span class="p">]</span>
-<a id="__codelineno-0-2084" name="__codelineno-0-2084"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">b</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">out</span><span class="p">]))</span>
-<a id="__codelineno-0-2085" name="__codelineno-0-2085"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-2086" name="__codelineno-0-2086"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-2087" name="__codelineno-0-2087"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
-<a id="__codelineno-0-2088" name="__codelineno-0-2088"></a>    <span class="k">return</span> <span class="n">phi</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2156">2156</a></span>
+<span class="normal"><a href="#__codelineno-0-2157">2157</a></span>
+<span class="normal"><a href="#__codelineno-0-2158">2158</a></span>
+<span class="normal"><a href="#__codelineno-0-2159">2159</a></span>
+<span class="normal"><a href="#__codelineno-0-2160">2160</a></span>
+<span class="normal"><a href="#__codelineno-0-2161">2161</a></span>
+<span class="normal"><a href="#__codelineno-0-2162">2162</a></span>
+<span class="normal"><a href="#__codelineno-0-2163">2163</a></span>
+<span class="normal"><a href="#__codelineno-0-2164">2164</a></span>
+<span class="normal"><a href="#__codelineno-0-2165">2165</a></span>
+<span class="normal"><a href="#__codelineno-0-2166">2166</a></span>
+<span class="normal"><a href="#__codelineno-0-2167">2167</a></span>
+<span class="normal"><a href="#__codelineno-0-2168">2168</a></span>
+<span class="normal"><a href="#__codelineno-0-2169">2169</a></span>
+<span class="normal"><a href="#__codelineno-0-2170">2170</a></span>
+<span class="normal"><a href="#__codelineno-0-2171">2171</a></span>
+<span class="normal"><a href="#__codelineno-0-2172">2172</a></span>
+<span class="normal"><a href="#__codelineno-0-2173">2173</a></span>
+<span class="normal"><a href="#__codelineno-0-2174">2174</a></span>
+<span class="normal"><a href="#__codelineno-0-2175">2175</a></span>
+<span class="normal"><a href="#__codelineno-0-2176">2176</a></span>
+<span class="normal"><a href="#__codelineno-0-2177">2177</a></span>
+<span class="normal"><a href="#__codelineno-0-2178">2178</a></span>
+<span class="normal"><a href="#__codelineno-0-2179">2179</a></span>
+<span class="normal"><a href="#__codelineno-0-2180">2180</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-2156" name="__codelineno-0-2156"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-2157" name="__codelineno-0-2157"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.</span>
+<a id="__codelineno-0-2158" name="__codelineno-0-2158"></a>
+<a id="__codelineno-0-2159" name="__codelineno-0-2159"></a><span class="sd">    Binary only. Returns an array of shape ``(n_samples, n_features)`` whose</span>
+<a id="__codelineno-0-2160" name="__codelineno-0-2160"></a><span class="sd">    rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with</span>
+<a id="__codelineno-0-2161" name="__codelineno-0-2161"></a><span class="sd">    ``expected_value_`` set as an attribute. Each entry is a feature&#39;s signed</span>
+<a id="__codelineno-0-2162" name="__codelineno-0-2162"></a><span class="sd">    contribution to the log-odds of the positive class; linear-leaf slopes are</span>
+<a id="__codelineno-0-2163" name="__codelineno-0-2163"></a><span class="sd">    included exactly. Averaged across the bag when ``n_ensembles &gt; 1`` (an</span>
+<a id="__codelineno-0-2164" name="__codelineno-0-2164"></a><span class="sd">    additive surrogate for the soft-voted probability). Multiclass is not</span>
+<a id="__codelineno-0-2165" name="__codelineno-0-2165"></a><span class="sd">    supported yet. ``X_background`` overrides the reference distribution.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-2166" name="__codelineno-0-2166"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-2167" name="__codelineno-0-2167"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-2168" name="__codelineno-0-2168"></a>    <span class="n">members</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-2169" name="__codelineno-0-2169"></a>    <span class="k">if</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">members</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;_multiclass&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span> \
+<a id="__codelineno-0-2170" name="__codelineno-0-2170"></a>            <span class="ow">or</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span><span class="p">):</span>
+<a id="__codelineno-0-2171" name="__codelineno-0-2171"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+<a id="__codelineno-0-2172" name="__codelineno-0-2172"></a>            <span class="s2">&quot;shap_values is not supported for multiclass classification yet.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-2173" name="__codelineno-0-2173"></a>    <span class="k">if</span> <span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-2174" name="__codelineno-0-2174"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-2175" name="__codelineno-0-2175"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">members</span><span class="p">]</span>
+<a id="__codelineno-0-2176" name="__codelineno-0-2176"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">b</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">out</span><span class="p">]))</span>
+<a id="__codelineno-0-2177" name="__codelineno-0-2177"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-2178" name="__codelineno-0-2178"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-2179" name="__codelineno-0-2179"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
+<a id="__codelineno-0-2180" name="__codelineno-0-2180"></a>    <span class="k">return</span> <span class="n">phi</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
