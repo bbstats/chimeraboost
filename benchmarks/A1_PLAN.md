@@ -184,6 +184,29 @@ factor concentration (all |t|<2); watch item missing>0 slice 0W-4L
 −0.185% (p=0.125, small). Bar was parity quality + real speed win: both
 met, Brier a bonus. → tier 2.
 
+## Tier-2 hc (2026-07-24; BASE `20260720-210906` vs NEW `20260724-144000`, 5 arms)
+
+Run clean: LightGBM canary 14/14 exact ties, CatBoost canary 14/14, single
+arm 10/10 non-multiclass exact ties. Treatment: eucalyptus +0.02% F1 /
++1.38% Brier, Traffic_violations +0.03% F1 / Brier slightly better, cjs
+near-ceiling −0.04%, **okcupid-stem −0.96% F1 / −0.31% Brier, down on all
+3 seeds on both metrics** — small but consistent; pooled mc F1 −0.24%,
+pooled clf Brier +1.92%. Fits 1.6× faster on the two big mc sets. Ens8
+arm (report context): now beats CatBoost on BOTH hc multiclass columns
+(F1 99.8 vs 99.4, Brier 99.7 vs 98.8 of best).
+
+**Registered deviation (recorded BEFORE running it, M1 precedent —
+power, not judgment):** 3 seeds cannot separate a consistent −1% from
+noise on one set. Extend THE 4 hc multiclass sets to 6 seeds, both arms
+(BASE from the main worktree via PYTHONPATH, `chimeraboost.__file__`
+printed; seeds 0-2 must bit-reproduce the 3-seed runs as a validity
+canary). Pre-stated instrument, judged once, no further re-rolls: pooled
+over the 4 sets × 6 seeds, (a) Brier mean delta not negative AND (b) F1
+sign test over (set,seed) pairs not decisively negative (two-sided
+p ≥ 0.05). Both hold → hc bar = PASS (quality parity + speed win).
+Either fails → KILL (registered contingency s∈{2,4} may be auditioned
+at tier 1 only if the failure pattern implicates sketch dimension).
+
 ## Acceptance checklist
 
 - [ ] Implementation on branch `a1-vector-leaf` + tests green
