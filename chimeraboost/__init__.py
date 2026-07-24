@@ -17,6 +17,7 @@ from .sklearn_api import (
     ChimeraBoostRegressor,
     ChimeraBoostClassifier,
 )
+from .losses import CustomObjective
 from .warmup import warmup, _warmup_from_env
 
 # CHIMERABOOST_WARMUP=1 -> compile the numba kernels at import ("background"
@@ -27,6 +28,7 @@ _warmup_from_env(_os.environ.get("CHIMERABOOST_WARMUP"))
 __all__ = [
     "ChimeraBoostRegressor",
     "ChimeraBoostClassifier",
+    "CustomObjective",
     "warmup",
 ]
 __version__ = "0.23.0"

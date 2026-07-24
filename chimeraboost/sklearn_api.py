@@ -109,11 +109,38 @@ def _validate_hyperparams(estimator):
     _in_range("max_samples", 0.0, 1.0, lo_incl=False)
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
     if "loss" in p:
-        if p["loss"] not in ("RMSE", "MAE", "Quantile"):
-            raise ValueError(
-                f"loss must be one of 'RMSE', 'MAE', 'Quantile'; got {p['loss']!r}.")
-        if p["loss"] == "Quantile":
-            _in_range("alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
+        loss = p["loss"]
+        if isinstance(loss, str):
+            known = ("RMSE", "MAE", "Quantile", "Huber", "Poisson", "Gamma",
+                     "Tweedie")
+            if loss not in known:
+                raise ValueError(
+                    f"loss must be one of {known} or a custom objective "
+                    f"instance; got {loss!r}.")
+            if loss == "Quantile":
+                _in_range("alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
+            if loss == "Huber":
+                _in_range("delta", 0.0, np.inf, lo_incl=False)
+            if loss == "Tweedie":
+                _in_range("tweedie_variance_power", 1.0, 2.0,
+                          lo_incl=False, hi_incl=False)
+        else:
+            # Custom objective: an instance implementing the losses.py
+            # protocol (subclass chimeraboost.CustomObjective for the
+            # optional-method defaults).
+            missing = [a for a in ("init", "grad_hess", "eval")
+                       if not callable(getattr(loss, a, None))]
+            if missing:
+                raise ValueError(
+                    "A custom loss must be an instance with callable "
+                    f"init/grad_hess/eval (missing: {missing}); subclass "
+                    "chimeraboost.CustomObjective. Got "
+                    f"{loss!r}.")
+    if p.get("eval_metric") is not None and not callable(p["eval_metric"]):
+        raise ValueError(
+            "eval_metric must be a callable metric(y_true, y_pred"
+            "[, sample_weight]) -> float, or None; got "
+            f"{p['eval_metric']!r}.")
 
 
 def _resolve_cat_features(estimator, cat_features):
@@ -975,10 +1002,33 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     early_stopping_rounds : int or None, default None
         Rounds without validation improvement before stopping. ``None`` becomes 50
         when early stopping is active.
-    loss : {"RMSE", "MAE", "Quantile"}, default "RMSE"
-        Training objective. Set the level with ``alpha`` for ``"Quantile"``.
+    loss : str or object, default "RMSE"
+        Training objective. Built in: ``"RMSE"``, ``"MAE"``, ``"Quantile"``
+        (level set by ``alpha``), ``"Huber"`` (transition set by ``delta``),
+        and the log-link losses ``"Poisson"``, ``"Gamma"``, ``"Tweedie"``
+        (power set by ``tweedie_variance_power``), whose predictions are
+        ``exp(raw score) > 0``. Alternatively a custom objective *instance*:
+        subclass ``chimeraboost.CustomObjective`` and implement
+        ``grad_hess(y, raw)`` and ``eval(y, raw, sample_weight=None)``.
     alpha : float, default 0.5
         Quantile level for ``loss="Quantile"`` (e.g. 0.9 for the 90th percentile).
+    delta : float, default 1.0
+        Huber transition point for ``loss="Huber"``, in y units: quadratic
+        within ``delta`` of the target, linear beyond. Fixed, not
+        quantile-adaptive -- scale it to the data.
+    tweedie_variance_power : float, default 1.5
+        Variance power for ``loss="Tweedie"``, strictly between 1 (Poisson)
+        and 2 (Gamma).
+    eval_metric : callable or None, default None
+        Custom validation metric ``metric(y_true, y_pred[, sample_weight]) ->
+        float`` scored on the validation set each round and used for early
+        stopping and the internal model selections instead of the training
+        loss. ``y_pred`` is the prediction (after the loss link). Lower is
+        better, unless the callable carries a ``greater_is_better = True``
+        attribute -- ``validation_history_`` then records negated values so
+        the internal lower-is-better machinery is unchanged. The training
+        loss still drives the gradients; the verbose per-round "train" column
+        stays in training-loss units.
     min_child_weight : float, default 1.0
         Minimum total hessian required on each side of a split.
     thread_count : int or None, default None
@@ -1101,7 +1151,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
-                 cat_features=None, quantize_gradients=True):
+                 cat_features=None, quantize_gradients=True,
+                 eval_metric=None, delta=1.0, tweedie_variance_power=1.5):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1115,6 +1166,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.cat_features = cat_features
         self.loss = loss
         self.alpha = alpha
+        self.delta = delta
+        self.tweedie_variance_power = tweedie_variance_power
+        self.eval_metric = eval_metric
         self.min_child_weight = min_child_weight
         self.thread_count = thread_count
         self.random_state = random_state
@@ -1273,9 +1327,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         if es_active and es_rounds is None:
             es_rounds = 50
 
-        loss_kwargs = {"alpha": self.alpha} if self.loss == "Quantile" else {}
+        loss_kwargs = {}
+        if self.loss == "Quantile":
+            loss_kwargs["alpha"] = self.alpha
+        elif self.loss == "Huber":
+            loss_kwargs["delta"] = self.delta
+        elif self.loss == "Tweedie":
+            loss_kwargs["power"] = self.tweedie_variance_power
         kw = {k: v for k, v in self.get_params().items()
-              if k not in {"loss", "alpha"} | _SKLEARN_ONLY}
+              if k not in {"loss", "alpha", "delta",
+                           "tweedie_variance_power"} | _SKLEARN_ONLY}
         kw["early_stopping_rounds"] = es_rounds
         # Resolve the loss-adaptive depth default (see the `depth` docstring):
         # 6 for RMSE/MAE (unchanged), 4 for Quantile, where deep leaves overfit
@@ -1445,19 +1506,30 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 self.quantile_offset_ = float(resid[k - 1])
         return self
 
+    def _transform_raw(self, raw):
+        """Map raw additive scores to predictions through the loss link --
+        identity for RMSE/MAE/Quantile/Huber (returns ``raw`` unchanged, so
+        those paths stay bit-identical), ``exp`` for Poisson/Gamma/Tweedie,
+        the custom loss's ``transform`` when it defines one."""
+        tf = getattr(self.model_.loss_, "transform", None)
+        return raw if tf is None else tf(raw)
+
     def predict(self, X):
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
         if self.estimators_ is not None:
             # One shared conversion + factorization cache for the whole bag;
-            # each member applies its own conformal offset. One thread-limit
+            # each member applies its own link + conformal offset (the bag
+            # prediction is the mean of member predictions). One thread-limit
             # switch for the whole bag (members' re-entries are no-ops).
             with _thread_limit(self.thread_count):
                 Xc, ctx = _bag_predict_context(self, X)
                 return np.mean(
-                    [m.model_.predict_raw(Xc, ctx) + m.quantile_offset_
+                    [m._transform_raw(m.model_.predict_raw(Xc, ctx))
+                     + m.quantile_offset_
                      for m in self.estimators_], axis=0)
-        return self.model_.predict_raw(X) + self.quantile_offset_
+        return self._transform_raw(self.model_.predict_raw(X)) \
+            + self.quantile_offset_
 
     def staged_predict(self, X):
         """Yield the prediction after each successive tree (the conformal
@@ -1469,7 +1541,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
         for staged in self.model_.staged_predict_raw(X):
-            yield staged + self.quantile_offset_
+            yield self._transform_raw(staged) + self.quantile_offset_
 
     @property
     def best_iteration_(self):
@@ -1479,10 +1551,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
     @property
     def validation_history_(self):
-        """Per-round validation loss recorded during ``fit`` (RMSE-space loss for
-        regression), as a list whose length is the number of rounds run. Empty
-        when no ``eval_set`` / early-stopping split was available; for a bagged
-        model (``n_ensembles > 1``) a list of the members' histories."""
+        """Per-round validation score recorded during ``fit`` -- the training
+        loss (RMSE-space for regression), or the custom ``eval_metric`` when
+        one was set (negated when the metric declares
+        ``greater_is_better = True``, so lower is always better here). A list
+        whose length is the number of rounds run; empty when no ``eval_set`` /
+        early-stopping split was available; for a bagged model
+        (``n_ensembles > 1``) a list of the members' histories."""
         if self.estimators_ is not None:
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
@@ -1504,7 +1579,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         linear-leaf slopes are included exactly. Averaged across the bag when
         ``n_ensembles > 1`` (the bag prediction is the members' mean, so the
         averaged attribution stays exact). ``X_background`` overrides the
-        reference distribution (default: a sample of the training data)."""
+        reference distribution (default: a sample of the training data).
+        For the log-link losses (Poisson/Gamma/Tweedie) and custom losses
+        with a non-identity ``transform``, attributions are in raw (link)
+        space -- rows sum to the log of the prediction, the usual GBDT
+        margin-space convention."""
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
         if self.estimators_ is not None:
@@ -1595,6 +1674,17 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         use the exact float gradients; the rounding noise touches only
         split selection and is deterministic for a fixed ``random_state``.
         ``False`` restores exact float64 histograms.
+    eval_metric : callable or None, default None
+        Custom validation metric ``metric(y_true, y_pred[, sample_weight]) ->
+        float`` scored on the validation set each round and used for early
+        stopping and the internal model selections instead of log loss.
+        Binary: ``y_true`` is the 0/1-encoded target and ``y_pred`` the
+        positive-class probability; multiclass: ``y_true`` is one-hot
+        ``(n, K)`` and ``y_pred`` the probability matrix. Lower is better,
+        unless the callable carries a ``greater_is_better = True`` attribute
+        -- ``validation_history_`` then records negated values so the
+        internal lower-is-better machinery is unchanged. Temperature scaling
+        still calibrates on log loss.
     cross_features : bool or None, default None
         Numeric interaction columns. ``None`` (the default) refits the model
         with difference and product columns for the pairs of the top numeric
@@ -1674,7 +1764,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
-                 cat_features=None, quantize_gradients=True):
+                 cat_features=None, quantize_gradients=True,
+                 eval_metric=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1687,6 +1778,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.early_stopping_rounds = early_stopping_rounds
         self.cat_features = cat_features
         self.min_child_weight = min_child_weight
+        self.eval_metric = eval_metric
         self.thread_count = thread_count
         self.random_state = random_state
         self.verbose = verbose

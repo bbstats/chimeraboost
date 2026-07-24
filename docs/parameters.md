@@ -44,10 +44,18 @@ mix — e.g. `cat_features=["city", "brand"]` or `cat_features=[0, 3]`.
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `loss` | `"RMSE"` | `"RMSE"`, `"MAE"` (median), or `"Quantile"`. |
+| `loss` | `"RMSE"` | `"RMSE"`, `"MAE"` (median), `"Quantile"`, `"Huber"`, or the log-link losses `"Poisson"` (counts), `"Gamma"` (positive, right-skewed), `"Tweedie"` (non-negative with exact zeros) — predictions are `exp(raw) > 0`. Or a custom objective instance: subclass `chimeraboost.CustomObjective`, implement `grad_hess(y, raw)` and `eval(y, raw, sample_weight=None)`, optionally override `init`/`transform`. |
 | `alpha` | `0.5` | Quantile level for `loss="Quantile"`. |
+| `delta` | `1.0` | Huber transition point, in y units (quadratic within, linear beyond; fixed, so scale it to the data). |
+| `tweedie_variance_power` | `1.5` | Tweedie variance power, strictly between 1 (Poisson) and 2 (Gamma). |
 
 The classifier picks its loss automatically: binary logloss for 2 classes, softmax for 3+.
+
+## Validation metric (both estimators)
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `eval_metric` | `None` | Callable `metric(y_true, y_pred[, sample_weight]) -> float` scored on the validation set each round; drives early stopping and the internal selections instead of the training loss. `y_pred` is the prediction (probabilities for the classifier; multiclass metrics get one-hot `y_true` and the probability matrix). Lower is better unless the callable has a `greater_is_better = True` attribute (`validation_history_` then records negated values). Gradients still come from the training loss. |
 
 ## Leaf models
 

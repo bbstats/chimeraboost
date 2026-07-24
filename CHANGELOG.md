@@ -3,6 +3,25 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **Custom objectives.** The regressor's ``loss`` accepts a user objective
+  instance: subclass ``chimeraboost.CustomObjective``, implement
+  ``grad_hess(y, raw)`` and ``eval(y, raw, sample_weight=None)``, optionally
+  override ``init`` / ``transform``. Flows through the full stack —
+  quantized histograms, subsampling, bagging, pickling.
+- **Four new built-in regression losses on that hook:** ``"Huber"``
+  (``delta``), and the log-link family ``"Poisson"``, ``"Gamma"``,
+  ``"Tweedie"`` (``tweedie_variance_power``), whose predictions are
+  ``exp(raw) > 0``. y-domain violations raise clear errors at fit.
+- **``eval_metric``** on both estimators: a callable
+  ``metric(y_true, y_pred[, sample_weight])`` scored on the validation set
+  each round, driving early stopping and the internal model selections
+  instead of the training loss; ``greater_is_better = True`` attribute
+  supported (``validation_history_`` records negated values).
+  All defaults are bit-identical: string losses take the exact old path and
+  ``eval_metric=None`` changes nothing (numerical-identity goldens green).
+
 ## [0.23.0] - 2026-07-23
 ### Changed
 - **Categorical combinations are pairs, not concatenated strings.** A combo

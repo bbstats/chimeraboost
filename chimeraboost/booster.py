@@ -162,7 +162,7 @@ class _BaseBooster:
                  ordered_boosting=False, cat_combinations=False,
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
-                 quantize_gradients=True):
+                 quantize_gradients=True, eval_metric=None):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -184,6 +184,7 @@ class _BaseBooster:
         self.linear_lambda = float(linear_lambda)
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
         self.quantize_gradients = bool(quantize_gradients)
+        self.eval_metric = eval_metric
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -249,6 +250,23 @@ class _BaseBooster:
         with _thread_limit(self.thread_count) as n:
             self.n_threads_ = n
             return self._fit_impl(X, y, *args, **kwargs)
+
+    def _val_score(self, yv, Fv, wv):
+        """One entry of the validation series (early stopping and the sklearn
+        layer's selections take the min of this). Default: the training loss
+        on raw scores. With a custom ``eval_metric``, the metric on transformed
+        predictions instead — negated when the metric declares
+        ``greater_is_better = True`` so the lower-is-better machinery is
+        untouched (``valid_history_`` then holds the negated values)."""
+        if self.eval_metric is None:
+            return self.loss_.eval(yv, Fv, wv)
+        pred = self.loss_.transform(Fv)
+        # Two-arg call when there are no validation weights, so plain
+        # ``lambda y, p: ...`` metrics work.
+        val = float(self.eval_metric(yv, pred) if wv is None
+                    else self.eval_metric(yv, pred, wv))
+        return -val if getattr(self.eval_metric, "greater_is_better", False) \
+            else val
 
     def predict_raw(self, X, cat_ctx=None):
         """Predict under this model's thread limit (restored on exit).
@@ -466,7 +484,10 @@ class GradientBoosting(_BaseBooster):
         n_samples = X.shape[0]
         w = self._normalize_weights(sample_weight, n_samples)
 
-        self.loss_ = LOSSES[self.loss_name](**self.loss_kwargs)
+        # A non-string loss is a user objective instance implementing the
+        # losses.py protocol (see losses.CustomObjective); used as-is.
+        self.loss_ = (LOSSES[self.loss_name](**self.loss_kwargs)
+                      if isinstance(self.loss_name, str) else self.loss_name)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
         Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
@@ -576,7 +597,7 @@ class GradientBoosting(_BaseBooster):
 
             if Fv is not None:
                 Fv += tree.predict(Xvb)
-                val = self.loss_.eval(yv, Fv, wv)   # wv=None -> unweighted
+                val = self._val_score(yv, Fv, wv)   # wv=None -> unweighted
                 self.valid_history_.append(val)
                 if stopper.step(val, m):
                     if self.verbose:
@@ -807,7 +828,7 @@ class MulticlassBoosting(_BaseBooster):
             if Fv is not None:
                 for k in range(K):
                     Fv[:, k] += round_trees[k].predict(Xvb)
-                val = self.loss_.eval(Yv, Fv, wv)   # wv=None -> unweighted
+                val = self._val_score(Yv, Fv, wv)   # wv=None -> unweighted
                 self.valid_history_.append(val)
                 if stopper.step(val, m):
                     if self.verbose:

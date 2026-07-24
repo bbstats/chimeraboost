@@ -76,6 +76,50 @@ validation split, which restores near-nominal marginal coverage at the tails.
 With `early_stopping=False` and no `eval_set` there is no split to calibrate on,
 and the raw (typically under-dispersed) quantiles are returned.
 
+## Counts, positive targets, zero-inflated targets
+
+The log-link losses keep predictions positive and match the noise model:
+
+```python
+counts = ChimeraBoostRegressor(loss="Poisson").fit(X, y_counts)        # y >= 0
+costs = ChimeraBoostRegressor(loss="Gamma").fit(X, y_positive)         # y > 0
+claims = ChimeraBoostRegressor(loss="Tweedie",
+                               tweedie_variance_power=1.5).fit(X, y)   # y >= 0, exact zeros
+```
+
+`loss="Huber"` (transition `delta`, in y units) is squared error that tolerates
+outliers.
+
+## Custom objectives and metrics
+
+Subclass `CustomObjective` with the gradient/hessian of your loss on the raw
+score; pass an instance as `loss`. `eval_metric` swaps the early-stopping
+metric on either estimator:
+
+```python
+from chimeraboost import ChimeraBoostRegressor, CustomObjective
+
+class LogCosh(CustomObjective):          # smooth MAE
+    def grad_hess(self, y, raw):
+        t = np.tanh(raw - y)
+        return t, 1.0 - t**2 + 1e-6
+    def eval(self, y, raw, sample_weight=None):
+        return float(np.average(np.logaddexp(raw - y, y - raw) - np.log(2),
+                                weights=sample_weight))
+
+model = ChimeraBoostRegressor(loss=LogCosh()).fit(X_train, y_train)
+
+def mae(y_true, y_pred):                 # early-stop on MAE instead of RMSE
+    return float(np.mean(np.abs(y_true - y_pred)))
+
+model = ChimeraBoostRegressor(eval_metric=mae).fit(X_train, y_train)
+```
+
+A metric where larger is better declares it: `mae.greater_is_better = True`-style
+attribute (then `validation_history_` records negated values). Define custom
+objectives at module level — bagged members fit in worker processes and must
+pickle the loss.
+
 ## Multiclass classification
 
 No configuration needed — the classifier switches to softmax when it sees 3 or more
