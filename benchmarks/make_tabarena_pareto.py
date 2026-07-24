@@ -28,24 +28,24 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-07-18 (51-task run, 0/51 fail) after 0.18.0 shipped quantized-gradient
-# histograms as the default (packed-int64 split search; see CHANGELOG).
-# Elo is relative, so the whole pool was re-read from the regenerated leaderboard.
-# HONEST READ: ChimeraBoost Elo 1267 -> 1264 (-3) -- inside the +-58/60 CI band, i.e.
-# statistically flat, reported as-is per the sealed-holdout vow (no per-task digging).
-# The pool sat still same-run (CatBoost 1346->1348, XGB/LGBM/RF/Linear exact), so the
-# -3 is our-row noise, not a pool shift. The meaningful check passed: accuracy did NOT
-# drop after the quantization default flip (rank 32/68 unchanged). Train 0.79 -> 0.81
-# s/1K is flat: Lite's median task is small and overhead-dominated, so the 20-26% fit
-# win the quantization gives on Grinsztajn/high-card does NOT express here (a known
-# property of Lite -- don't read TabArena speed from it). Predict flat.
+# Refreshed 2026-07-23 (51-task run, 0/51 fail, fresh fits) on 0.23.0, after the
+# predict-side engineering releases 0.21.0-0.23.0 (per-member cat-transform sharing,
+# cross-block cast reuse, serial kernel twins for tiny batches -- all bit-identical
+# on default paths). Elo is relative, so the whole pool was re-read from the
+# regenerated leaderboard.
+# HONEST READ: every Elo in the pool is byte-identical to the 2026-07-20 read
+# (ChimeraBoost 1278, rank 31/68) -- exactly what bit-identical engineering should
+# do to a sealed holdout. The payoff is the timing column: predict 0.162 -> 0.125
+# s/1K (-23%), recovering most of the 0.109 -> 0.162 regression the 0.20.0
+# cat-cross columns introduced. Train 0.83 -> 0.82 = flat (Lite's median task is
+# small and overhead-dominated -- don't read TabArena fit speed from it).
 DATA = {
     "CatBoost":     (1348, 42, 43, 6.70, 0.088),
-    "ChimeraBoost": (1278, 55, 57, 0.83, 0.162),
+    "ChimeraBoost": (1278, 55, 57, 0.82, 0.125),
     "XGBoost":      (1187, 54, 53, 2.06, 0.122),
     "LightGBM":     (1155, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
-    "Linear":       (813, 81, 109, 1.23, 0.115),
+    "Linear":       (813, 81, 108, 1.23, 0.115),
 }
 
 
