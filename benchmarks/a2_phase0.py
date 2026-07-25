@@ -88,6 +88,10 @@ def run(args):
                     "dataset": key, "seed": seed, "task": task,
                     "config": cfg_id, "secs": secs,
                     "n_train": int(Xtr.shape[0]),
+                    # Target scale, so the near-solved regression guard can be
+                    # applied downstream (same rule as summarize.py).
+                    "y_std": (float(np.std(y)) if task == "regression"
+                              else None),
                     "rmse": metrics.get("rmse"),
                     "brier": metrics.get("brier"),
                     "f1_macro": metrics.get("f1_macro"),
@@ -120,6 +124,53 @@ def _cells(records):
     return cells
 
 
+def _retain(cells):
+    """Drop near-perfectly-solved cells, using summarize.py's exact convention:
+    classification cells whose best Brier is below 1e-3, and regression cells
+    whose best NRMSE (best RMSE / target std) is below NEAR_SOLVED_NRMSE.
+
+    This is not optional bookkeeping. On such a cell every configuration scores
+    a practically-zero loss, so the ratio between two of them is pure numerical
+    noise -- pm:tune/nursery lands at a Brier of ~1e-49 and manufactured a
+    -8e21% "mean delta" before this guard was applied.
+    """
+    from summarize import NEAR_SOLVED_NRMSE
+    keep, dropped = {}, []
+    for key, cell in cells.items():
+        losses = [_loss(r["task"], r) for r in cell.values()]
+        task = next(iter(cell.values()))["task"]
+        if task == "regression":
+            y_std = next(iter(cell.values())).get("y_std")
+            near = bool(y_std) and (min(losses) / y_std) < NEAR_SOLVED_NRMSE
+        else:
+            near = min(losses) < 1e-3
+        if near:
+            dropped.append(key)
+        else:
+            keep[key] = cell
+    return keep, dropped
+
+
+def _sign_test(deltas, eps=0.0):
+    """Wins/losses/ties + two-sided binomial p, on deltas where positive means
+    the variant is better (mirrors research/cascade.sign_test, sign flipped)."""
+    import math
+    wins = sum(1 for d in deltas if d > eps)
+    losses = sum(1 for d in deltas if d < -eps)
+    ties = len(deltas) - wins - losses
+    n = wins + losses
+    if n == 0:
+        return dict(wins=wins, losses=losses, ties=ties, n=n, p=1.0)
+    try:
+        from scipy.stats import binomtest
+        p = binomtest(min(wins, losses), n, 0.5,
+                      alternative="two-sided").pvalue
+    except Exception:
+        z = abs(wins - losses) / math.sqrt(n)
+        p = math.erfc(z / math.sqrt(2))
+    return dict(wins=wins, losses=losses, ties=ties, n=n, p=float(p))
+
+
 def _pick_by_val(cell, k=None):
     """Lowest best-validation-loss config; ties go to `default` (the incumbent
     rule everywhere else in this codebase)."""
@@ -145,10 +196,19 @@ def report(data):
         print(s)
         lines.append(s)
 
+    all_cells = cells
+    cells, dropped = _retain(cells)
+
     emit("# A2 Phase 0 - config-portfolio headroom (PMLB tune fold)")
     emit()
-    emit(f"{len(cells)} cells (dataset x seed), "
+    emit(f"{len(cells)} cells (dataset x seed) retained of {len(all_cells)}, "
          f"{len(PORTFOLIO)} configs, seeds={data['seeds']}")
+    if dropped:
+        emit()
+        emit(f"Dropped as near-perfectly solved (summarize.py convention): "
+             f"{sorted({d[0] for d in dropped})} "
+             f"({len(dropped)} cells). Every configuration scores a "
+             f"practically-zero loss there, so percentage deltas are noise.")
     emit()
 
     # ---- per-config summary vs default -----------------------------------
@@ -202,15 +262,20 @@ def report(data):
 
     emit("## Bars A and B - is there headroom, and can validation see it?")
     emit()
+    st = _sign_test(valsel_d)
     emit("| quantity | value | bar | verdict |")
     emit("|---|--:|---|---|")
     emit(f"| Test-oracle headroom (ceiling) | {np.mean(oracle_d):+.3f}% "
          f"| >= +0.50% | {'PASS' if bar_b else 'FAIL'} |")
-    emit(f"| Validation-selected headroom | {np.mean(valsel_d):+.3f}% "
+    emit(f"| Validation-selected headroom (mean) | {np.mean(valsel_d):+.3f}% "
          f"| >= +0.30% | {'PASS' if np.mean(valsel_d) >= 0.30 else 'FAIL'} |")
+    emit(f"| Validation-selected headroom (median) | "
+         f"{np.median(valsel_d):+.3f}% | - | - |")
     emit(f"| Validation-selected win rate | {win_rate:.1f}% "
          f"({valsel_w}W-{valsel_l}L-{valsel_t}T) | >= 55% "
          f"| {'PASS' if win_rate >= 55.0 else 'FAIL'} |")
+    emit(f"| Sign test vs default | {st['wins']}W-{st['losses']}L-"
+         f"{st['ties']}T, p={st['p']:.3f} | - | - |")
     emit()
     emit(f"Oracle picks: {oracle_counts}")
     emit(f"Validation picks: {pick_counts}")
@@ -294,6 +359,78 @@ def report(data):
                 cost += per_round * min(k, per_cfg_rounds[cfg_id])
             row.append(f"{(base_secs + cost) / base_secs:.2f}x")
         emit(f"| {n_extra} | {row[0]} | {row[1]} |")
+    emit()
+
+    # ---- secondary: cheaper sub-portfolios -------------------------------
+    # POST-HOC. The pre-registered portfolio is the four configs above; this
+    # section asks what a cheaper subset would have delivered on the SAME
+    # curves, because Bar D is the only bar the full portfolio failed. Picking
+    # a subset by its score on this panel is a garden-of-forking-paths risk, so
+    # nothing here is evidence on its own -- any subset carried forward must be
+    # re-validated out of sample by the /experiment protocol (synth screen ->
+    # Grinsztajn + high-card -> OpenML one-shot gate).
+    emit("## Secondary (POST-HOC) - what would a cheaper subset have done?")
+    emit()
+    emit("Same curves, no new fits. Selection bias applies: these subsets are")
+    emit("chosen with knowledge of this panel and prove nothing until they are")
+    emit("re-validated out of sample.")
+    emit()
+    emit("| portfolio | mean % | median % | W-L-T | p | k=50 fidelity | cost k=50 | cost k=100 |")
+    emit("|---|--:|--:|--:|--:|--:|--:|--:|")
+    from itertools import combinations
+    others = [c for c in PORTFOLIO if c != "default"]
+    subsets = []
+    for n in range(1, len(others) + 1):
+        subsets.extend(combinations(others, n))
+    for extra in subsets:
+        members = ("default",) + extra
+        deltas, agree50 = [], 0
+        for cell in cells.values():
+            sub = {k: v for k, v in cell.items() if k in members}
+            if "default" not in sub:
+                continue
+            task = sub["default"]["task"]
+            pick = _pick_by_val(sub)
+            deltas.append(_pct_better(task, sub["default"], sub[pick]))
+            if _pick_by_val(sub, k=50) == pick:
+                agree50 += 1
+        s = _sign_test(deltas)
+        costs = []
+        for k in (50, 100):
+            c = 0.0
+            for cfg_id in extra:
+                per_round = per_cfg_secs[cfg_id] / max(per_cfg_rounds[cfg_id], 1)
+                c += per_round * min(k, per_cfg_rounds[cfg_id])
+            costs.append((base_secs + c) / base_secs)
+        emit(f"| default+{'+'.join(extra)} | {np.mean(deltas):+.3f}% | "
+             f"{np.median(deltas):+.3f}% | {s['wins']}W-{s['losses']}L-"
+             f"{s['ties']}T | {s['p']:.3f} | "
+             f"{100.0 * agree50 / max(len(deltas), 1):.0f}% | "
+             f"{costs[0]:.2f}x | {costs[1]:.2f}x |")
+    emit()
+
+    # ---- per-dataset breakdown ------------------------------------------
+    # The size question: this project has been burned before by small panels
+    # inverting knob verdicts. If the winning configuration tracks n_train,
+    # a per-dataset RACE is defensible where a global default flip is not.
+    emit("## Per-dataset breakdown (does the winner track dataset size?)")
+    emit()
+    emit("| dataset | task | n_train | validation picks | mean % vs default |")
+    emit("|---|---|--:|---|--:|")
+    by_ds = {}
+    for (ds, seed), cell in cells.items():
+        by_ds.setdefault(ds, []).append(cell)
+    for ds in sorted(by_ds, key=lambda d: by_ds[d][0]["default"]["n_train"]):
+        picks, deltas = {}, []
+        for cell in by_ds[ds]:
+            task = cell["default"]["task"]
+            p = _pick_by_val(cell)
+            picks[p] = picks.get(p, 0) + 1
+            deltas.append(_pct_better(task, cell["default"], cell[p]))
+        c0 = by_ds[ds][0]["default"]
+        pick_s = ", ".join(f"{k}x{v}" for k, v in sorted(picks.items()))
+        emit(f"| {ds.replace('pm:tune/', '')} | {c0['task'][:5]} | "
+             f"{c0['n_train']} | {pick_s} | {np.mean(deltas):+.3f}% |")
     emit()
 
     emit("## Verdict")
