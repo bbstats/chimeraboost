@@ -100,6 +100,57 @@ OpenML gate is owed. If a later idea needs a "use cross features without
 auditioning" mode (no such mode exists today — `cross_features=True`
 still races, `:1443`), that becomes its own /experiment with a gate.
 
+## Phase 0 results (2026-07-25, `results/20260725-150712.json`)
+
+Grinsztajn, 3 seeds, 177 dataset-seed draws, 57 datasets scored
+head-to-head. Field as registered (no Ens8), so **absolute win rates are
+NOT comparable to the charted 55.7%** — every bar is judged within-run.
+
+| model | win rate | 95% CI | slowdown | frontier |
+|---|--:|--:|--:|---|
+| ChimeraBoost (default) | 72.2% | [65.5, 78.4] | 5.33x | yes |
+| ChimeraBoostSel25 | 70.2% | [64.2, 75.9] | 3.93x | yes |
+| CatBoost | 64.9% | [56.7, 73.4] | 14.74x | — |
+| **ChimeraBoostOneLin** | **52.0%** | [45.5, 58.6] | **1.98x** | **yes** |
+| LightGBM | 35.4% | [28.6, 42.7] | 1.26x | yes |
+| ChimeraBoostOne | 31.6% | [24.6, 38.9] | 1.73x | — |
+| sklearn_HGB | 23.7% | [15.8, 31.9] | 5.65x | — |
+
+### Verdict: `OneLin` PASSES all three bars — the 1-5x region is reachable
+
+- **Bar A** 1.98x ≤ 2.5x PASS. **Bar B** chord at 1.98x needs 41.8%,
+  `OneLin` reaches 52.0% — **+10.2 points above the chord**, PASS.
+  **Bar C** vs LightGBM on the primary sign test: **38W-21L-0T, mean
+  +0.664%, median +0.133%** (n=57 after the near-solved guard dropped
+  `SGEMM_GPU_kernel_performance` and `visualizing_soil`) PASS.
+- One booster fit instead of 2-4 costs **20.2 points** of win rate
+  (72.2 → 52.0) and returns **2.7x** of fit time (5.33 → 1.98). The
+  search is load-bearing, exactly as P2 predicted — but P4 was right that
+  cost falls faster than strength.
+
+### `One` is dead — constant leaves are the wrong economy
+
+31.6% @ 1.73x is **dominated by LightGBM itself** (35.4% @ 1.26x: both
+stronger and faster). Dropping selection is survivable; dropping linear
+leaves with it is not. Predictions P1/P2 held (0.32x of default fit;
+default beats it 47W-12L).
+
+### Unregistered second finding: the audition budget is oversized
+
+`Sel25` (auditions cut 100 → 25) is **statistically indistinguishable
+from the default** — 20W-23L-**16T**, mean **−0.044%**, median **exactly
++0.000%** — while returning 26% of fit time (5.33x → 3.93x). This is
+parity, not a win; the sign-test FAIL is the ship bar for an
+*improvement*, which is the wrong instrument for a non-inferiority
+question. Recorded as a candidate default change requiring its own full
+/experiment (synth → gr + hc → OpenML gate), NOT shipped here.
+
+Note the 24 exact ties in this run (charted runs report 0): `Sel25` and
+the default frequently resolve to the identical model, which is itself
+the evidence that the extra 75 audition rounds usually change nothing.
+
 ## Log
 
-- 2026-07-25: pre-registered. Phase 0 pending.
+- 2026-07-25: pre-registered.
+- 2026-07-25: Phase 0 PASS on `OneLin`; `One` killed; `Sel25` parity
+  finding recorded for a separate /experiment. Phase 1 next.

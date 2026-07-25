@@ -58,8 +58,9 @@ def main():
         wr, lo, hi = s["winrate"], s["wr_lo"], s["wr_hi"]
         if wr is None or s["slowdown"] is None:
             continue
-        print(f"{m:<22}{wr*100:>9.1f}%"
-              f"{'[%.1f, %.1f]' % (lo*100, hi*100):>16}"
+        # summarize.winrate_vs_field already returns percent, not a fraction.
+        print(f"{m:<22}{wr:>9.1f}%"
+              f"{'[%.1f, %.1f]' % (lo, hi):>16}"
               f"{s['slowdown']:>10.2f}x"
               f"{'yes' if m in front else '-':>10}")
     print()
@@ -70,8 +71,8 @@ def main():
         return
     wr_f, s_f = ref_f["winrate"], ref_f["slowdown"]
     wr_s, s_s = ref_s["winrate"], ref_s["slowdown"]
-    print(f"chord anchors: {args.fast_ref} {wr_f*100:.1f}% @ {s_f:.2f}x  ->  "
-          f"{args.strong_ref} {wr_s*100:.1f}% @ {s_s:.2f}x")
+    print(f"chord anchors: {args.fast_ref} {wr_f:.1f}% @ {s_f:.2f}x  ->  "
+          f"{args.strong_ref} {wr_s:.1f}% @ {s_s:.2f}x")
     print()
 
     for cand in args.candidates:
@@ -84,12 +85,12 @@ def main():
         bar_a = sl <= args.cost_bar
         bar_b = need is not None and wr > need
         print(f"{cand}")
-        print(f"   win rate {wr*100:.1f}%  slowdown {sl:.2f}x")
+        print(f"   win rate {wr:.1f}%  slowdown {sl:.2f}x")
         print(f"   Bar A (cost <= {args.cost_bar}x):        "
               f"{'PASS' if bar_a else 'FAIL'}")
-        print(f"   Bar B (chord needs > {need*100:.1f}%):   "
+        print(f"   Bar B (chord needs > {need:.1f}%):   "
               f"{'PASS' if bar_b else 'FAIL'}"
-              f"   margin {(wr - need)*100:+.1f} pts")
+              f"   margin {(wr - need):+.1f} pts")
         print(f"   on Pareto frontier: {'yes' if cand in front else 'no'}")
         print()
 
