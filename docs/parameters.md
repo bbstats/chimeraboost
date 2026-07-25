@@ -2,6 +2,12 @@
 
 For more detail, see [API reference](api.md).
 
+## Operating point
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `quality` | `None` | Named operating point on the speed/accuracy curve, `1` (fastest) to `5` (strongest). Sets only the parameters listed in [Recipes → speed/accuracy ladder](recipes.md#speedaccuracy-ladder); `None` and `2` are both exactly the shipped defaults. Where it collides with a parameter you set yourself, `quality` wins and warns — drop it to take control back. |
+
 ## Core boosting
 
 | Parameter | Default | Effect |

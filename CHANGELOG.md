@@ -4,6 +4,26 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **``quality=1..5``: named operating points on the speed/accuracy curve.**
+  ``1`` fast, ``2`` balanced (the shipped defaults), ``3`` accurate,
+  ``4`` ensemble, ``5`` max. Each rung only pins parameters that already
+  exist, so nothing new is computed and ``quality=None``/``quality=2`` are
+  bit-identical to previous releases. Measured on Grinsztajn (3 seeds, one
+  co-run so the column is comparable), **all five rungs sit on the
+  accuracy/speed Pareto frontier**: 31.1% of head-to-head matchups won at
+  1.95x fit time, 45.6% at 5.22x, 69.9% at 9.15x, 83.7% at 17.07x, 94.0%
+  at 24.74x — against LightGBM's 21.6% at 1.14x and CatBoost's 40.9% at
+  13.93x, which is dominated by rung 3 on both axes. Rung 1 buys out the
+  configuration search (the default auditions constant-vs-linear leaves
+  and plain-vs-cross features, costing two to four boosting fits) and
+  fits once; it still beats LightGBM 38W-21L on Grinsztajn, but on
+  high-cardinality categorical data it loses to the default (1W-6L-7T)
+  and saves only 1.5x, so prefer ``quality=2`` there. Rungs 4 and 5 build
+  on the defaults, not on rung 3 — ``refit_full`` is a no-op inside bagged
+  members. Where ``quality`` collides with a parameter you set yourself it
+  wins and warns. Evidence: benchmarks/SELECT_PLAN.md.
+
 ### Changed
 - **Vector-leaf multiclass.** ``MulticlassBoosting`` now grows ONE oblivious
   tree per round with K-vector Newton leaves (shared structure, per-class

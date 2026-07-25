@@ -20,6 +20,46 @@ proba = clf.predict_proba(X_test)       # columns follow clf.classes_
 
 A plain `fit(X, y)` early-stops on an internal holdout — see [Early stopping](#early-stopping).
 
+## Speed/accuracy ladder
+
+`quality` picks an operating point, from `1` (fastest) to `5` (strongest).
+It is shorthand only: every rung just sets the parameters in the last column,
+and `quality=2` is byte-for-byte the shipped defaults.
+
+```python
+reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
+```
+
+| `quality` | name | fit time | sets |
+|---|---|--:|---|
+| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False` |
+| `2` | balanced *(= default)* | 5.2x | — |
+| `3` | accurate | 9.2x | `refit_full=True` |
+| `4` | ensemble | 17.1x | `n_ensembles=5` |
+| `5` | max | 24.7x | `n_ensembles=8` |
+
+Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
+3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
+buys real accuracy for its extra time, and none is dominated by another.
+
+**What rung 1 gives up.** By default ChimeraBoost auditions its own
+configuration — constant against linear leaves, plain against cross features —
+which costs two to four boosting fits. `quality=1` pins both decisions instead
+of racing them, so it fits once. On the Grinsztajn suite it still beats
+LightGBM (38 wins to 21) at roughly 1.7x LightGBM's fit time. On
+high-cardinality categorical data the trade is thinner: the saving drops to
+about 1.5x, because categorical preprocessing is a fixed cost the audition
+skip cannot touch, and it loses to the default (1 win, 6 losses, 7 ties). Pin
+it for numeric-heavy data and large sweeps; prefer `2` when categoricals
+dominate.
+
+**Rungs 4 and 5 do not stack on rung 3.** `refit_full` is a no-op inside
+bagged members — their out-of-bag rows already act as an eval set — so the
+ensemble rungs build on the plain defaults, not on `accurate`.
+
+If you set `quality` alongside a parameter it controls, `quality` wins and
+warns. Drop it to set those parameters yourself.
+
 ## Categorical features
 
 Pass your categoricals as `cat_features`, by integer position or — for a DataFrame — by

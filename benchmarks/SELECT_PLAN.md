@@ -149,8 +149,83 @@ Note the 24 exact ties in this run (charted runs report 0): `Sel25` and
 the default frequently resolve to the identical model, which is itself
 the evidence that the extra 75 audition rounds usually change nothing.
 
+## Phase 1 — canonical field (`results/20260725-152037.json`)
+
+`OneLin` holds up against the charted 5-arm field plus itself: **41.4% @
+1.93x**, on the frontier, chord needed 34.8% ⇒ **+6.6 points**. Reference
+points that run: ChimeraBoost 60.0% @ 5.13x, Ens8 98.6% @ 24.80x,
+LightGBM 28.8% @ 1.16x, CatBoost 53.0% @ 13.61x (dominated).
+
+### High-card is where rung 1 is weakest (`results/20260725-154149.json`)
+
+Sign-tested separately as registered, 14 sets, 3 seeds:
+
+- vs the default: **1W-6L-7T, mean −0.228%, median +0.000%** — it loses.
+- vs LightGBM: **7W-6L-1T, mean +0.936%** (7W-5L excluding the near-solved
+  `hc:cjs`; the full-set bar reads FAIL, the near-solved-excluded bar
+  PASS — `compare_runs` flags the disagreement).
+- Speed saving shrinks to **1.54x** (vs 2.7x on Grinsztajn): the cat/prep
+  block is a fixed 15-25% of fit that skipping auditions cannot touch.
+
+Documented as a caveat rather than hidden — rung 1 is for numeric-heavy
+data and sweeps; categorical-dominated data wants rung 2.
+
+## Ladder co-run (`results/20260725-155127.json`) — all five rungs on the frontier
+
+Every rung measured in ONE run against one field, which is what makes the
+column comparable. This run regenerated `images/pareto.png`.
+
+| rung | arm | win rate | slowdown | frontier |
+|---|---|--:|--:|---|
+| 5 max | Ens8 | 94.0% | 24.74x | yes |
+| 4 ensemble | Ens5 | 83.7% | 17.07x | yes |
+| 3 accurate | Refit | 69.9% | 9.15x | yes |
+| 2 balanced | ChimeraBoost | 45.6% | 5.22x | yes |
+| 1 fast | OneLin | 31.1% | 1.95x | yes |
+| — | CatBoost | 40.9% | 13.93x | **no** |
+| — | LightGBM | 21.6% | 1.14x | yes |
+| — | sklearn_HGB | 13.3% | 5.39x | no |
+
+- **The frontier is a ChimeraBoost ladder**: five non-dominated rungs from
+  1.95x to 24.74x, with LightGBM holding only the extreme-left corner.
+  CatBoost is dominated outright — rung 3 is both stronger (69.9 vs 40.9)
+  and faster (9.15x vs 13.93x).
+- **Rung 4 finally has a number: 17.07x**, not the stale ~43x that
+  predated quantized histograms and `selection_rounds=100`.
+- Win rate is **field-relative**. Absolute values are lower here than in
+  Phase 1 because the field now holds five ChimeraBoost arms, which are
+  strong opponents. Only within-run comparisons are meaningful.
+- Bars A/B were registered for the FAST rung. Applying the chord to rungs
+  3-5 is meaningless — it extrapolates past its own strong anchor and
+  demands >100% win rates. Frontier membership is by domination and is
+  the valid reading there.
+
+## Shipped
+
+`quality=1..5` (`chimeraboost/sklearn_api.py`), a named operating point
+that only pins existing parameters. `quality=None` and `quality=2` are
+both bit-identical to the current defaults, and `quality=1` is
+bit-identical to the benchmarked `OneLin` arm on both estimators — so the
+numbers above are the parameter's own, not a lookalike's. Defaults
+unchanged, so no OpenML gate is owed. Docs: `docs/recipes.md`,
+`docs/parameters.md`.
+
+## Still open
+
+- **`Sel25`** — auditions at 25 rounds instead of 100 were parity on
+  Grinsztajn (20W-23L-16T, mean −0.044%, median exactly +0.000%) for 26%
+  less fit time. A default change, so it needs its own /experiment with
+  the full gate. The 16 exact ties are the tell: three-quarters of the
+  audition budget usually changes nothing.
+- **A "use cross features without auditioning" mode.** Rung 1 currently
+  drops cross features entirely because `cross_features=True` still races
+  (`sklearn_api.py:1443`). A forced-on mode could give a stronger rung 1
+  at the same one-fit cost. Untested.
+
 ## Log
 
 - 2026-07-25: pre-registered.
 - 2026-07-25: Phase 0 PASS on `OneLin`; `One` killed; `Sel25` parity
-  finding recorded for a separate /experiment. Phase 1 next.
+  finding recorded for a separate /experiment.
+- 2026-07-25: Phase 1 PASS, high-card caveat measured, ladder co-run
+  charted, `quality=1..5` shipped. Program closed.
