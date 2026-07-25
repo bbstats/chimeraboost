@@ -737,6 +737,38 @@ def _run_chimera_ensemble_8(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
     return _chimera_ens(8, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
 
 
+# --- SELECT program arms (benchmarks/SELECT_PLAN.md) ------------------------
+# Fixed-config ChimeraBoost variants that trade model selection for fit time,
+# so the empty 1x-5x stretch of the strength/slowdown Pareto can be measured.
+# They deliberately ignore the --chimera-* CLI knobs: each is one pinned
+# operating point, and several run side by side in a single benchmark.
+#
+# Passing the STRING "off" is what forces a knob off; the runner's plain
+# `False` defaults mean "don't override the class default" (see _run_chimera).
+# Disabling both decisions statically collapses the search to exactly one
+# booster fit: `select_ll` needs linear_leaves to be None (sklearn_api.py:1436),
+# `cross_ok` and the classifier's `fast` audition both need cross_features to
+# be anything but False (sklearn_api.py:1443, :2101).
+
+
+def _run_chimera_one(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Speed floor: no selection at all, constant leaves. One booster fit."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves="off", cross_features="off")
+
+
+def _run_chimera_one_lin(task, Xtr, ytr, Xte, yte, cat, threads):
+    """One booster fit, but linear leaves pinned on instead of auditioned."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves=True, cross_features="off")
+
+
+def _run_chimera_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Full search, quarter-length auditions (selection_rounds 100 -> 25)."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        selection_rounds=25)
+
+
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
     """sklearn HGB with native categorical support.
 
@@ -877,6 +909,9 @@ RUNNERS = {
     "ChimeraBoostEns5": _run_chimera_ensemble_5,
     "ChimeraBoostEns8": _run_chimera_ensemble_8,
     "ChimeraBoostEns10": _run_chimera_ensemble,
+    "ChimeraBoostOne": _run_chimera_one,
+    "ChimeraBoostOneLin": _run_chimera_one_lin,
+    "ChimeraBoostSel25": _run_chimera_sel25,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -888,7 +923,9 @@ RUNNERS = {
 # default (like XGBoost).
 _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
 _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
-                   "ChimeraBoostEns8", "ChimeraBoostEns10")
+                   "ChimeraBoostEns8", "ChimeraBoostEns10",
+                   "ChimeraBoostOne", "ChimeraBoostOneLin",
+                   "ChimeraBoostSel25")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
