@@ -769,6 +769,19 @@ def _run_chimera_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
                         selection_rounds=25)
 
 
+def _run_chimera_refit(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Defaults + refit_full: retrain the ES winner on 100% of the rows.
+
+    The ladder rung above the default. Note it does NOT stack with the
+    bagged rungs -- refit_full is a deliberate no-op inside ensemble
+    members, whose OOB rows already act as an eval set (REFIT_PLAN.md), so
+    ChimeraBoostEns5/Ens8 sit on top of the plain default, not on top of
+    this arm.
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_full=True)
+
+
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
     """sklearn HGB with native categorical support.
 
@@ -912,6 +925,7 @@ RUNNERS = {
     "ChimeraBoostOne": _run_chimera_one,
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostSel25": _run_chimera_sel25,
+    "ChimeraBoostRefit": _run_chimera_refit,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -925,7 +939,7 @@ _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
 _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8", "ChimeraBoostEns10",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
-                   "ChimeraBoostSel25")
+                   "ChimeraBoostSel25", "ChimeraBoostRefit")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 

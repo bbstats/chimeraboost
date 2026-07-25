@@ -1,5 +1,7 @@
 """Scikit-learn flavored estimators: fit / predict / predict_proba."""
 
+import contextlib
+import inspect
 import warnings
 
 import numpy as np
@@ -41,7 +43,79 @@ def _fit_temperature(raw, y, multiclass):
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "max_samples",
                            "cat_features", "cross_features",
-                           "selection_rounds", "refit_full"})
+                           "selection_rounds", "refit_full", "quality"})
+
+# --- quality: named operating points on the strength/slowdown Pareto --------
+# Evidence: benchmarks/SELECT_PLAN.md. Every recipe only pins parameters that
+# already exist -- nothing new is computed, and quality=None (the default)
+# leaves every code path byte-identical to before this parameter existed.
+QUALITY_NAMES = {1: "fast", 2: "balanced", 3: "accurate",
+                 4: "ensemble", 5: "max"}
+
+
+def _quality_overrides(estimator, level):
+    """The parameters ``quality=level`` pins on this estimator."""
+    if level == 1:
+        # Buy out the model-selection search: one booster fit instead of the
+        # default's two-to-four. Only the regressor needs linear_leaves
+        # pinned -- there None means "audition const vs linear", which is
+        # precisely the search this rung declines to pay for. On the
+        # classifier None is already an auto rule (on for binary, off for
+        # multiclass, where an explicit True raises), and it costs no extra
+        # fit, so leave it alone.
+        ov = {"cross_features": False}
+        if estimator._QUALITY_PINS_LINEAR_LEAVES:
+            ov["linear_leaves"] = True
+        return ov
+    if level == 3:
+        return {"refit_full": True}
+    # Bagging sits on top of the plain defaults, NOT on top of rung 3:
+    # refit_full is a deliberate no-op inside members (their OOB rows are
+    # already an eval set), so the rungs do not stack -- see REFIT_PLAN.md.
+    if level == 4:
+        return {"n_ensembles": 5}
+    if level == 5:
+        return {"n_ensembles": 8}
+    return {}
+
+
+def _ctor_default(estimator, name):
+    return inspect.signature(type(estimator).__init__).parameters[name].default
+
+
+@contextlib.contextmanager
+def _quality_applied(estimator):
+    """Apply the ``quality`` recipe for the duration of a fit.
+
+    Constructor parameters are restored on the way out so ``get_params``
+    keeps returning what the user passed (sklearn requires ``fit`` not to
+    rewrite them). The recipe wins over an explicitly-set parameter it
+    controls, with a warning naming the override.
+    """
+    level = getattr(estimator, "quality", None)
+    if level is None:
+        yield
+        return
+    overrides = _quality_overrides(estimator, int(level))
+    clashes = {k: getattr(estimator, k) for k, v in overrides.items()
+               if getattr(estimator, k) != v
+               and getattr(estimator, k) != _ctor_default(estimator, k)}
+    if clashes:
+        warnings.warn(
+            f"quality={int(level)} ({QUALITY_NAMES[int(level)]}) sets "
+            + ", ".join(f"{k}={overrides[k]}" for k in clashes)
+            + "; the explicit "
+            + ", ".join(f"{k}={v}" for k, v in clashes.items())
+            + " you passed is ignored. Drop quality to set these yourself.",
+            UserWarning, stacklevel=3)
+    saved = {k: getattr(estimator, k) for k in overrides}
+    for k, v in overrides.items():
+        setattr(estimator, k, v)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            setattr(estimator, k, v)
 
 
 def _validate_hyperparams(estimator):
@@ -110,6 +184,13 @@ def _validate_hyperparams(estimator):
     v = p.get("refit_full")
     if v is not None and not isinstance(v, (bool, np.bool_)):
         raise ValueError(f"refit_full must be True, False or None; got {v!r}.")
+    v = p.get("quality")
+    if v is not None:
+        if isinstance(v, (bool, np.bool_)) or v not in QUALITY_NAMES:
+            raise ValueError(
+                "quality must be None or one of "
+                + ", ".join(f"{k} ({n})" for k, n in QUALITY_NAMES.items())
+                + f"; got {v!r}.")
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
     if "loss" in p:
         loss = p["loss"]
@@ -354,9 +435,12 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             UserWarning, stacklevel=3)
 
     def _fit_one(seed):
+        # quality=None on members: the recipe has already been resolved on the
+        # bag itself, and rungs 4/5 set n_ensembles -- leaving quality on a
+        # member would re-apply it and recurse into another bag.
         member = clone(estimator).set_params(
-            n_ensembles=None, random_state=int(seed), thread_count=member_threads,
-            **member_defaults)
+            n_ensembles=None, quality=None, random_state=int(seed),
+            thread_count=member_threads, **member_defaults)
         # Members receive internally-constructed inputs (ndarray rows, OOB eval
         # sets), so the strict user-facing input checks that assume "the caller
         # chose this" are relaxed for them -- see _fit_single.
@@ -1198,6 +1282,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         validation selection. ``None`` when no selection took place.
     """
 
+    # quality=1 pins linear leaves here: on the regressor, linear_leaves=None
+    # means "audition const vs linear", the search the fast rung declines.
+    _QUALITY_PINS_LINEAR_LEAVES = True
+
     def __init__(self, n_estimators=2000, learning_rate=None, depth=None,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=None,
                  cat_smoothing=1.0, cat_n_permutations=4,
@@ -1211,7 +1299,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
-                 refit_full=False):
+                 refit_full=False, quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1246,6 +1334,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
         self.refit_full = refit_full
+        self.quality = quality
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1289,16 +1378,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                 classification=False)
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
-        if self.n_ensembles and self.n_ensembles > 1:
-            if callbacks is not None:
-                raise ValueError(
-                    "callbacks are not supported with n_ensembles > 1.")
-            self.estimators_ = _fit_bagged(self, X, y, cat_features, eval_set,
-                                           groups, sample_weight)
-            return self
-        self.estimators_ = None
-        return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight, callbacks)
+        with _quality_applied(self):
+            if self.n_ensembles and self.n_ensembles > 1:
+                if callbacks is not None:
+                    raise ValueError(
+                        "callbacks are not supported with n_ensembles > 1.")
+                self.estimators_ = _fit_bagged(self, X, y, cat_features,
+                                               eval_set, groups, sample_weight)
+                return self
+            self.estimators_ = None
+            return self._fit_single(X, y, cat_features, eval_set, groups,
+                                    sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -1842,6 +1932,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         values always win). Set only when ``n_ensembles > 1``.
     """
 
+    # Not pinned on the classifier: linear_leaves=None is already an auto rule
+    # (on for binary, off for multiclass -- where an explicit True raises) and
+    # costs no extra fit, so quality=1 leaves it alone.
+    _QUALITY_PINS_LINEAR_LEAVES = False
+
     def __init__(self, n_estimators=2000, learning_rate=None, depth=6,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=None,
                  cat_smoothing=1.0, cat_n_permutations=4,
@@ -1854,7 +1949,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None, refit_full=False):
+                 eval_metric=None, refit_full=False,
+                 quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1885,6 +1981,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
         self.refit_full = refit_full
+        self.quality = quality
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -1932,25 +2029,28 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             # member probability columns to the global class set.
             if not getattr(self, "_is_bag_member", False):
                 _check_eval_labels(eval_set, y)
-        if self.n_ensembles and self.n_ensembles > 1:
-            if callbacks is not None:
-                raise ValueError(
-                    "callbacks are not supported with n_ensembles > 1.")
-            # Fix the global class set up front: a member's bootstrap may miss a
-            # rare class, and predict_proba aligns each member's columns to this.
-            yarr = np.asarray(y)
-            self.classes_ = np.unique(yarr)
-            self.n_classes_ = self.classes_.size
-            if self.n_classes_ < 2:
-                raise ValueError(
-                    f"Need at least 2 classes; got {self.n_classes_} class(es).")
-            self._multiclass = self.n_classes_ > 2
-            self.estimators_ = _fit_bagged(self, X, yarr, cat_features, eval_set,
-                                           groups, sample_weight)
-            return self
-        self.estimators_ = None
-        return self._fit_single(X, y, cat_features, eval_set, groups,
-                                sample_weight, callbacks)
+        with _quality_applied(self):
+            if self.n_ensembles and self.n_ensembles > 1:
+                if callbacks is not None:
+                    raise ValueError(
+                        "callbacks are not supported with n_ensembles > 1.")
+                # Fix the global class set up front: a member's bootstrap may
+                # miss a rare class, and predict_proba aligns each member's
+                # columns to this.
+                yarr = np.asarray(y)
+                self.classes_ = np.unique(yarr)
+                self.n_classes_ = self.classes_.size
+                if self.n_classes_ < 2:
+                    raise ValueError(
+                        f"Need at least 2 classes; got {self.n_classes_} "
+                        "class(es).")
+                self._multiclass = self.n_classes_ > 2
+                self.estimators_ = _fit_bagged(self, X, yarr, cat_features,
+                                               eval_set, groups, sample_weight)
+                return self
+            self.estimators_ = None
+            return self._fit_single(X, y, cat_features, eval_set, groups,
+                                    sample_weight, callbacks)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
