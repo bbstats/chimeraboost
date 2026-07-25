@@ -47,6 +47,11 @@ Ship rules:
   (user accepted 7.9× for cross_features: "as long as we are Pareto and all python").
 - Near-solved guards (`summarize.NEAR_SOLVED_NRMSE`, Brier `skip_best_below`) exist because
   %-vs-best explodes when best→0 — don't chase wins/losses on near-solved sets.
+  `compare_runs.py` applies the same guard to its MEAN (and prints a median beside it);
+  excluded sets are named in the output. Its sign test and PASS/FAIL bar still count every
+  dataset, so the guard can't flip a verdict recorded in an older plan file — `--keep-near-solved`
+  reproduces pre-fix numbers when auditing one. Every suite has such sets (gr: visualizing_soil,
+  SGEMM; hc: cjs; oml: mushroom, nursery), so read the median whenever the mean looks wild.
 - Bit-identical refactors: goldens + numerical-identity tests must pass exactly; keep old kernels
   as oracle tests when replacing kernels.
 

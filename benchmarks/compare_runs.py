@@ -15,29 +15,99 @@ hold the other models fixed, but the deltas are diluted).
 ChimeraBoost vs an arm's ChimeraBoostEns2).
 --metric brier judges on Brier instead: classification sets only (regression
 records carry no Brier), oriented so NEW wins = lower Brier.
+
+NEAR-SOLVED DATASETS
+--------------------
+A dataset every model solves to a practically-zero loss carries no information
+about a change, but it wrecks a RELATIVE mean: the ratio of two tiny numbers is
+numerical noise. Measured on a real historical screen, one such dataset
+(syn:v2/117, base Brier ~0) contributed -12555% by itself and dragged the
+reported mean of an 88-dataset comparison to -144.7% while the sign test read
+54 wins / 31 losses. The old floor here (`abs(base) > 1e-12`) only caught
+values that were literally zero to floating point, and silently scored them as
+0.0 -- everything in the wide band between 1e-12 and "actually solved" sailed
+through and distorted the mean.
+
+The exclusion now uses the same thresholds as the rest of the analysis stack
+(summarize.py, make_tables.py): regression drops when best NRMSE (RMSE / target
+std) is below NEAR_SOLVED_NRMSE, classification when best Brier is below
+NEAR_SOLVED_BRIER. Excluded datasets are always named in the output -- never
+dropped silently. `--keep-near-solved` restores the old unguarded arithmetic
+for auditing numbers quoted in older plan files.
+
+The SIGN TEST and its PASS/FAIL bar deliberately still run over every shared
+dataset, so this fix cannot silently flip a historical verdict. The sign test
+is sign-based and was never distorted by this. The retained-only sign test is
+printed alongside as a diagnostic, with a warning if the two disagree.
 """
 import argparse
 import json
+import os
+import sys
 from collections import defaultdict
 
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize import NEAR_SOLVED_NRMSE  # noqa: E402  (shared with make_tables)
 
-def per_dataset_metric(path, model=None, metric="primary"):
-    recs = json.load(open(path))["records"]
+# Classification analog of NEAR_SOLVED_NRMSE, matching summarize.primary_scores.
+NEAR_SOLVED_BRIER = 1e-3
+
+
+def load_run(path, model=None, metric="primary"):
+    """(metric values, rmse, brier, dataset metadata), each keyed by dataset
+    and averaged over seeds. rmse/brier come along regardless of the compared
+    metric because the near-solved test needs them."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
     sign = -1.0 if metric == "brier" else 1.0   # orient higher = better
-    bucket = defaultdict(list)
-    for r in recs:
+    bucket, rmse, brier = defaultdict(list), defaultdict(list), defaultdict(list)
+    for r in data["records"]:
         if model is not None and r["model"] != model:
             continue
-        if r["metrics"].get(metric) is None:
+        m = r["metrics"]
+        if m.get("rmse") is not None:
+            rmse[r["dataset"]].append(m["rmse"])
+        if m.get("brier") is not None:
+            brier[r["dataset"]].append(m["brier"])
+        if m.get(metric) is None:
             continue
-        bucket[r["dataset"]].append(sign * r["metrics"][metric])
-    return {ds: float(np.mean(v)) for ds, v in bucket.items()}
+        bucket[r["dataset"]].append(sign * m[metric])
+
+    def _mean(d):
+        return {k: float(np.mean(v)) for k, v in d.items()}
+
+    return _mean(bucket), _mean(rmse), _mean(brier), data.get("datasets", {})
 
 
-def per_dataset_primary(path, model=None):
-    return per_dataset_metric(path, model, "primary")
+def is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n):
+    """Is `ds` solved well enough that a relative delta on it is meaningless?
+
+    Uses the best (lowest) loss either run achieved, mirroring summarize's
+    "best across models" rule.
+
+    The two rules degrade differently on an older JSON with no dataset
+    metadata, and deliberately so. The regression rule needs y_std to form an
+    NRMSE, so without it a dataset is never excluded. The Brier rule needs no
+    metadata at all -- a Brier below 1e-3 is solved whatever the record says --
+    so it still applies to anything that recorded one. Regression records carry
+    no Brier, so they cannot be caught by it accidentally.
+    """
+    meta = ds_meta.get(ds) or {}
+    if meta.get("task") == "regression":
+        y_std = meta.get("y_std")
+        vals = [v for v in (rmse_b.get(ds), rmse_n.get(ds)) if v is not None]
+        return bool(y_std) and bool(vals) and min(vals) / y_std < NEAR_SOLVED_NRMSE
+    vals = [v for v in (brier_b.get(ds), brier_n.get(ds)) if v is not None]
+    return bool(vals) and min(vals) < NEAR_SOLVED_BRIER
+
+
+def _sign_counts(pairs):
+    """(wins, losses, ties) over (base, new) pairs on a higher-is-better metric."""
+    wins = sum(1 for b, n in pairs if n - b > 1e-9)
+    losses = sum(1 for b, n in pairs if n - b < -1e-9)
+    return wins, losses, len(pairs) - wins - losses
 
 
 def main():
@@ -53,43 +123,79 @@ def main():
     ap.add_argument("--metric", choices=["primary", "brier"], default="primary",
                     help="judge metric; brier = classification only, "
                          "oriented so NEW wins = lower Brier.")
+    ap.add_argument("--keep-near-solved", action="store_true",
+                    help="do NOT exclude near-solved datasets from the mean "
+                         "(reproduces pre-fix numbers quoted in older plans).")
     args = ap.parse_args()
     base_label, new_label = args.base_label, args.new_label
 
-    base = per_dataset_metric(args.base_path, args.model, args.metric)
-    new = per_dataset_metric(args.new_path, args.model_new or args.model,
-                             args.metric)
+    base, rmse_b, brier_b, meta_b = load_run(
+        args.base_path, args.model, args.metric)
+    new, rmse_n, brier_n, meta_n = load_run(
+        args.new_path, args.model_new or args.model, args.metric)
+    ds_meta = {**meta_b, **meta_n}
     shared = sorted(set(base) & set(new))
+
+    near = set() if args.keep_near_solved else {
+        ds for ds in shared
+        if is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n)}
 
     wins = losses = ties = 0
     print(f"{'dataset':22s} {base_label:>12s} {new_label:>12s} {'delta':>12s}  result")
-    rel_deltas = []
+    rel_deltas, all_pairs = [], []
     for ds in shared:
         b, n = base[ds], new[ds]
         d = n - b                       # primary is higher-better
-        # relative improvement (guard tiny/zero base)
-        rel = d / abs(b) if abs(b) > 1e-12 else 0.0
-        rel_deltas.append(rel)
+        all_pairs.append((b, n))
         if d > 1e-9:
             wins += 1; tag = f"{new_label} wins"
         elif d < -1e-9:
             losses += 1; tag = f"{base_label} wins"
         else:
             ties += 1; tag = "tie"
+        if ds in near:
+            print(f"{ds:22s} {b:12.4f} {n:12.4f} {d:+12.4f}  {tag}  "
+                  f"(near-solved: excluded from mean)")
+            continue
+        # relative improvement (guard tiny/zero base)
+        rel = d / abs(b) if abs(b) > 1e-12 else 0.0
+        rel_deltas.append(rel)
         print(f"{ds:22s} {b:12.4f} {n:12.4f} {d:+12.4f}  {tag}  ({rel:+.2%})")
 
-    n = len(shared)
+    n_ds = len(shared)
     mtag = args.model or ""
     if args.model_new and args.model_new != args.model:
         mtag = f"{mtag}->{args.model_new}"
     print(f"\n{new_label} vs {base_label}: {wins} wins / {losses} losses / {ties} ties  "
-          f"(of {n} datasets)"
+          f"(of {n_ds} datasets)"
           + (f"  [model={mtag}]" if mtag else ""))
-    print(f"mean relative change in {args.metric} (+ = better): "
-          f"{np.mean(rel_deltas):+.3%}")
-    need = n // 2 + 1
+
+    if near:
+        print(f"excluded {len(near)} near-solved dataset(s) from the mean "
+              f"(regression NRMSE < {NEAR_SOLVED_NRMSE}, "
+              f"classification Brier < {NEAR_SOLVED_BRIER}): "
+              + ", ".join(sorted(near)))
+    if rel_deltas:
+        print(f"mean relative change in {args.metric} (+ = better): "
+              f"{np.mean(rel_deltas):+.3%}   "
+              f"[median {np.median(rel_deltas):+.3%}, n={len(rel_deltas)}]")
+    else:
+        print(f"mean relative change in {args.metric}: n/a (no scored datasets)")
+
+    need = n_ds // 2 + 1
     verdict = "PASS" if wins >= need else "FAIL"
     print(f"sign-test bar (> half = {need}+ wins): {verdict}")
+
+    # Diagnostic only: the bar above intentionally stays over ALL datasets so
+    # this guard cannot silently flip a verdict recorded in an older plan file.
+    if near:
+        kept = [p for ds, p in zip(shared, all_pairs) if ds not in near]
+        kw, kl, kt = _sign_counts(kept)
+        k_need = len(kept) // 2 + 1
+        k_verdict = "PASS" if kw >= k_need else "FAIL"
+        note = "" if k_verdict == verdict else "   <-- DISAGREES with the bar above"
+        print(f"  (excluding near-solved: {kw} wins / {kl} losses / {kt} ties, "
+              f"bar {k_need}+ = {k_verdict}){note}")
 
 
 if __name__ == "__main__":
