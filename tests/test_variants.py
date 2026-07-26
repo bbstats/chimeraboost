@@ -180,6 +180,19 @@ def test_time_sort_key_handles_unordered_category():
     assert key.tolist() == [2014.0, 2003.0, 2010.0]
 
 
+def test_time_sort_key_handles_mixed_timezones():
+    """Timestamps carrying more than one UTC offset (kickstarter_projects does)
+    make pandas raise rather than coerce, on the fallback call too -- so without
+    utc=True this kills the run instead of ordering it."""
+    pd = pytest.importorskip("pandas")
+    s = pd.Series(["2013-06-01T12:00:00+02:00", "2013-06-01T09:00:00+00:00",
+                   "2013-06-01T05:00:00-05:00"])
+    key = rb._time_sort_key(s)
+    assert key is not None
+    # 10:00, 09:00 and 10:00 UTC: the +00:00 row is genuinely first.
+    assert key.argsort(kind="stable").iloc[0] == 1
+
+
 def test_task_of_strips_variant():
     rb._add_highcard_datasets()
     assert rb._task_of("hc:Moneyball@sus25") == rb._task_of("hc:Moneyball")

@@ -218,17 +218,25 @@ def _time_sort_key(series):
     category (sf-police ships Year as a category whose order is not guaranteed
     chronological). Datetime second, for real date strings -- employee_salaries
     stores MM/DD/YYYY, where a lexicographic sort would order by month.
+
+    utc=True is required, not cosmetic: a column carrying more than one UTC
+    offset (kickstarter_projects does) makes pandas raise "Mixed timezones
+    detected" instead of coercing, and the raise happens on BOTH the format=
+    "mixed" call and the fallback -- so without it the fallback re-raises and
+    the run dies. Normalising to UTC is also the only ordering that means
+    anything across offsets. Timezone-naive input is merely localised, which
+    leaves the sort order untouched.
     """
     import pandas as pd
     num = pd.to_numeric(series, errors="coerce")
     if num.notna().mean() > 0.5:
         return num
     try:
-        dt = pd.to_datetime(series, errors="coerce", format="mixed")
+        dt = pd.to_datetime(series, errors="coerce", format="mixed", utc=True)
     except (TypeError, ValueError):
         # format="mixed" needs pandas >= 2.0; the dev extras declare >= 1.3, so
         # fall back to plain inference rather than failing on an older resolve.
-        dt = pd.to_datetime(series, errors="coerce")
+        dt = pd.to_datetime(series, errors="coerce", utc=True)
     if dt.notna().mean() > 0.5:
         return dt
     return None
@@ -708,6 +716,15 @@ def _make_highcard_builder(spec, time_col=None, max_rows=None):
                      .sort_values("_t", kind="stable")
                      .drop(columns=["_t"]).reset_index(drop=True))
         X_df = frame.drop(columns=[target])
+        # Per-dataset column cuts, for what near-uniqueness cannot catch: a
+        # NUMERIC row id (freMTPL2freq's IDpol survives the categorical-only
+        # filter below) or a pre-baked split marker (rossmann ships a `Set`
+        # column reading train/test/valid, which is an artifact of whoever
+        # uploaded it, not a feature). Named per dataset in the frozen list so
+        # every cut is visible and reviewable.
+        drop = [c for c in spec.get("drop_cols", ()) if c in X_df.columns]
+        if drop:
+            X_df = X_df.drop(columns=drop)
         # Drop near-unique categorical columns (row identifiers / free text).
         n = len(X_df)
         id_cols = [c for c in X_df.columns
