@@ -223,7 +223,12 @@ def _time_sort_key(series):
     num = pd.to_numeric(series, errors="coerce")
     if num.notna().mean() > 0.5:
         return num
-    dt = pd.to_datetime(series, errors="coerce", format="mixed")
+    try:
+        dt = pd.to_datetime(series, errors="coerce", format="mixed")
+    except (TypeError, ValueError):
+        # format="mixed" needs pandas >= 2.0; the dev extras declare >= 1.3, so
+        # fall back to plain inference rather than failing on an older resolve.
+        dt = pd.to_datetime(series, errors="coerce")
     if dt.notna().mean() > 0.5:
         return dt
     return None
