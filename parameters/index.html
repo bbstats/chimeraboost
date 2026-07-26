@@ -603,6 +603,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#operating-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operating point
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#core-boosting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -855,6 +866,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#operating-point" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operating point
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#core-boosting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1030,6 +1052,23 @@
 
 <h1 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h1>
 <p>For more detail, see <a href="../api/">API reference</a>.</p>
+<h2 id="operating-point">Operating point<a class="headerlink" href="#operating-point" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>quality</code></td>
+<td><code>None</code></td>
+<td>Named operating point on the speed/accuracy curve, <code>1</code> (fastest) to <code>5</code> (strongest). Sets only the parameters listed in <a href="../recipes/#speedaccuracy-ladder">Recipes → speed/accuracy ladder</a>; <code>None</code> and <code>2</code> are both exactly the shipped defaults. Where it collides with a parameter you set yourself, <code>quality</code> wins and warns — drop it to take control back.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="core-boosting">Core boosting<a class="headerlink" href="#core-boosting" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1285,8 +1324,8 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 </tr>
 <tr>
 <td><code>refit_full</code></td>
-<td><code>False</code></td>
-<td>Accuracy mode: after early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on 100% of the rows at that budget (rounds scaled by the train-size ratio). Roughly doubles fit time; broad accuracy gain everywhere the automatic split ran. No effect with an explicit <code>eval_set</code>, <code>early_stopping=False</code>, <code>loss="Quantile"</code>, or inside bagged members.</td>
+<td><code>True</code></td>
+<td>After early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on 100% of the rows at that budget (rounds scaled by the train-size ratio), so the model does not pay the holdout data tax. Roughly doubles fit time; broad accuracy gain everywhere the automatic split ran, and the strongest single-model setting measured. Set <code>False</code> (or <code>quality=2</code>) for the faster pre-0.25.0 behaviour. No effect with an explicit <code>eval_set</code>, <code>early_stopping=False</code>, <code>loss="Quantile"</code>, or inside bagged members.</td>
 </tr>
 </tbody>
 </table>

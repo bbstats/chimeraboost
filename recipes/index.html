@@ -443,6 +443,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#speedaccuracy-ladder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Speed/accuracy ladder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#categorical-features" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -899,6 +910,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#speedaccuracy-ladder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Speed/accuracy ladder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#categorical-features" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1108,17 +1130,86 @@
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>       <span class="c1"># columns follow clf.classes_</span>
 </code></pre></div>
 <p>A plain <code>fit(X, y)</code> early-stops on an internal holdout — see <a href="#early-stopping">Early stopping</a>.</p>
+<h2 id="speedaccuracy-ladder">Speed/accuracy ladder<a class="headerlink" href="#speedaccuracy-ladder" title="Permanent link">&para;</a></h2>
+<p><code>quality</code> picks an operating point, from <code>1</code> (fastest) to <code>5</code> (strongest).
+It is shorthand only: every rung just sets the parameters in the last column,
+and <code>quality=2</code> is byte-for-byte the shipped defaults.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th><code>quality</code></th>
+<th>name</th>
+<th style="text-align: right;">fit time</th>
+<th>sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code></td>
+<td>fast</td>
+<td style="text-align: right;"><strong>1.9x</strong></td>
+<td><code>linear_leaves=True</code>, <code>cross_features=False</code>, <code>refit_full=False</code></td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>balanced</td>
+<td style="text-align: right;">5.2x</td>
+<td><code>refit_full=False</code></td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td>accurate <em>(= default)</em></td>
+<td style="text-align: right;">9.2x</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td>ensemble</td>
+<td style="text-align: right;">17.1x</td>
+<td><code>n_ensembles=5</code></td>
+</tr>
+<tr>
+<td><code>5</code></td>
+<td>max</td>
+<td style="text-align: right;">24.7x</td>
+<td><code>n_ensembles=8</code></td>
+</tr>
+</tbody>
+</table>
+<p>Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
+3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
+buys real accuracy for its extra time, and none is dominated by another.</p>
+<p>The default is rung 3, the strongest setting that does not build an ensemble.
+<code>quality=2</code> is the pre-0.25.0 default: the same model without the full-data
+refit, for about half the fit time.</p>
+<p><strong>What rung 1 gives up.</strong> By default ChimeraBoost auditions its own
+configuration — constant against linear leaves, plain against cross features —
+which costs two to four boosting fits. <code>quality=1</code> pins both decisions instead
+of racing them, so it fits once. On the Grinsztajn suite it still beats
+LightGBM (38 wins to 21) at roughly 1.7x LightGBM's fit time. On
+high-cardinality categorical data the trade is thinner: the saving drops to
+about 1.5x, because categorical preprocessing is a fixed cost the audition
+skip cannot touch, and it loses to the default (1 win, 6 losses, 7 ties). Pin
+it for numeric-heavy data and large sweeps; prefer <code>2</code> when categoricals
+dominate.</p>
+<p><strong>Rungs 4 and 5 do not stack on rung 3.</strong> <code>refit_full</code> is a no-op inside
+bagged members — their out-of-bag rows already act as an eval set — so the
+ensemble rungs build on the plain defaults, not on <code>accurate</code>.</p>
+<p>If you set <code>quality</code> alongside a parameter it controls, <code>quality</code> wins and
+warns. Drop it to set those parameters yourself.</p>
 <h2 id="categorical-features">Categorical features<a class="headerlink" href="#categorical-features" title="Permanent link">&para;</a></h2>
 <p>Pass your categoricals as <code>cat_features</code>, by integer position or — for a DataFrame — by
 column name (or a mix of both). They are encoded with ordered target statistics
 (CatBoost-style), so there is no one-hot or <code>LabelEncoder</code> step. Categorical columns can be
 strings or objects; the rest of the matrix stays numeric.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># columns 0 and 3 are categorical (e.g. &quot;city&quot;, &quot;device_type&quot;)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># equivalently, by name when X is a DataFrame</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;city&quot;</span><span class="p">,</span> <span class="s2">&quot;device_type&quot;</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># columns 0 and 3 are categorical (e.g. &quot;city&quot;, &quot;device_type&quot;)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># equivalently, by name when X is a DataFrame</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;city&quot;</span><span class="p">,</span> <span class="s2">&quot;device_type&quot;</span><span class="p">])</span>
 </code></pre></div>
 <p><code>cat_combinations</code> adds all pairwise category-by-category features. They help when the
 target depends on categorical interactions but can crowd out numerics on mixed data, so
@@ -1128,17 +1219,17 @@ the interactions matter) or disable with <code>False</code>.</p>
 <h2 id="missing-values">Missing values<a class="headerlink" href="#missing-values" title="Permanent link">&para;</a></h2>
 <p>NaNs route to a dedicated histogram bin — no imputation needed. This works for both
 numeric and categorical columns, at fit and at predict time.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">X</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># handled directly</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">X</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># handled directly</span>
 </code></pre></div>
 <h2 id="quantile-regression">Quantile regression<a class="headerlink" href="#quantile-regression" title="Permanent link">&para;</a></h2>
 <p>Set <code>loss="Quantile"</code> and the level <code>alpha</code>. For a prediction interval, fit one model
 per quantile:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">lo</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">md</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.50</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">hi</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">lower</span><span class="p">,</span> <span class="n">median</span><span class="p">,</span> <span class="n">upper</span> <span class="o">=</span> <span class="n">lo</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">md</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">hi</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">lo</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">md</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.50</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">hi</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">lower</span><span class="p">,</span> <span class="n">median</span><span class="p">,</span> <span class="n">upper</span> <span class="o">=</span> <span class="n">lo</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">md</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">hi</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
 </code></pre></div>
 <p><code>loss="MAE"</code> gives median regression; <code>loss="RMSE"</code> (default) is squared error.</p>
 <p>Quantile models default to a shallower tree (<code>depth=4</code>) than the squared-error
@@ -1151,10 +1242,10 @@ With <code>early_stopping=False</code> and no <code>eval_set</code> there is no 
 and the raw (typically under-dispersed) quantiles are returned.</p>
 <h2 id="counts-positive-targets-zero-inflated-targets">Counts, positive targets, zero-inflated targets<a class="headerlink" href="#counts-positive-targets-zero-inflated-targets" title="Permanent link">&para;</a></h2>
 <p>The log-link losses keep predictions positive and match the noise model:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">counts</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Poisson&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_counts</span><span class="p">)</span>        <span class="c1"># y &gt;= 0</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">costs</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Gamma&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_positive</span><span class="p">)</span>         <span class="c1"># y &gt; 0</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">claims</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Tweedie&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>                               <span class="n">tweedie_variance_power</span><span class="o">=</span><span class="mf">1.5</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># y &gt;= 0, exact zeros</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">counts</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Poisson&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_counts</span><span class="p">)</span>        <span class="c1"># y &gt;= 0</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">costs</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Gamma&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y_positive</span><span class="p">)</span>         <span class="c1"># y &gt; 0</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">claims</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Tweedie&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>                               <span class="n">tweedie_variance_power</span><span class="o">=</span><span class="mf">1.5</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># y &gt;= 0, exact zeros</span>
 </code></pre></div>
 <p><code>loss="Huber"</code> (transition <code>delta</code>, in y units) is squared error that tolerates
 outliers.</p>
@@ -1162,22 +1253,22 @@ outliers.</p>
 <p>Subclass <code>CustomObjective</code> with the gradient/hessian of your loss on the raw
 score; pass an instance as <code>loss</code>. <code>eval_metric</code> swaps the early-stopping
 metric on either estimator:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostRegressor</span><span class="p">,</span> <span class="n">CustomObjective</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">LogCosh</span><span class="p">(</span><span class="n">CustomObjective</span><span class="p">):</span>          <span class="c1"># smooth MAE</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">grad_hess</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">raw</span><span class="p">):</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>        <span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">raw</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>        <span class="k">return</span> <span class="n">t</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">t</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="mf">1e-6</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">raw</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">average</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">logaddexp</span><span class="p">(</span><span class="n">raw</span> <span class="o">-</span> <span class="n">y</span><span class="p">,</span> <span class="n">y</span> <span class="o">-</span> <span class="n">raw</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>                                <span class="n">weights</span><span class="o">=</span><span class="n">sample_weight</span><span class="p">))</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="n">LogCosh</span><span class="p">())</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
-<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="k">def</span><span class="w"> </span><span class="nf">mae</span><span class="p">(</span><span class="n">y_true</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">):</span>                 <span class="c1"># early-stop on MAE instead of RMSE</span>
-<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">y_true</span> <span class="o">-</span> <span class="n">y_pred</span><span class="p">)))</span>
-<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>
-<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">eval_metric</span><span class="o">=</span><span class="n">mae</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostRegressor</span><span class="p">,</span> <span class="n">CustomObjective</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">LogCosh</span><span class="p">(</span><span class="n">CustomObjective</span><span class="p">):</span>          <span class="c1"># smooth MAE</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">grad_hess</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">raw</span><span class="p">):</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>        <span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">raw</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        <span class="k">return</span> <span class="n">t</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">t</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="mf">1e-6</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">raw</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">average</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">logaddexp</span><span class="p">(</span><span class="n">raw</span> <span class="o">-</span> <span class="n">y</span><span class="p">,</span> <span class="n">y</span> <span class="o">-</span> <span class="n">raw</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>                                <span class="n">weights</span><span class="o">=</span><span class="n">sample_weight</span><span class="p">))</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="n">LogCosh</span><span class="p">())</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="k">def</span><span class="w"> </span><span class="nf">mae</span><span class="p">(</span><span class="n">y_true</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">):</span>                 <span class="c1"># early-stop on MAE instead of RMSE</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">y_true</span> <span class="o">-</span> <span class="n">y_pred</span><span class="p">)))</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">eval_metric</span><span class="o">=</span><span class="n">mae</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>A metric where larger is better declares it: <code>mae.greater_is_better = True</code>-style
 attribute (then <code>validation_history_</code> records negated values). Define custom
@@ -1186,15 +1277,15 @@ pickle the loss.</p>
 <h2 id="multiclass-classification">Multiclass classification<a class="headerlink" href="#multiclass-classification" title="Permanent link">&para;</a></h2>
 <p>No configuration needed — the classifier switches to softmax when it sees 3 or more
 classes, and <code>classes_</code> preserves your original labels.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># 3+ classes</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># shape (n_samples, n_classes)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>   <span class="c1"># 3+ classes</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># shape (n_samples, n_classes)</span>
 </code></pre></div>
 <p><code>linear_leaves</code> and <code>shap_values</code> are binary/regression only; multiclass uses constant
 leaves and raises <code>NotImplementedError</code> from <code>shap_values</code>.</p>
 <h2 id="sample-weights">Sample weights<a class="headerlink" href="#sample-weights" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">y_train</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>     <span class="c1"># upweight the positive class</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">y_train</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>     <span class="c1"># upweight the positive class</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
 </code></pre></div>
 <p>Weights are normalized to mean 1 internally and apply to training only; the
 early-stopping metric stays unweighted.</p>
@@ -1204,7 +1295,7 @@ regressors average predictions, classifiers soft-vote calibrated probabilities.
 Each member trains on <code>max_samples</code> (default 0.8) of the rows drawn without
 replacement — measurably stronger and faster than the classic bootstrap —
 and early-stops on its own unsampled rows.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Recommended size is <code>n_ensembles=8</code> (benchmarked stronger than 5 at similar
 cost). Avoid <code>n_ensembles=2</code>: two members measure worse than one model.</p>
@@ -1217,34 +1308,38 @@ and passing explicit values disables it.</p>
 budget so a bagged fit uses the same cores a single fit would; pass
 <code>ensemble_n_jobs=1</code> to fit them sequentially instead.</p>
 <h2 id="full-data-refit">Full-data refit<a class="headerlink" href="#full-data-refit" title="Permanent link">&para;</a></h2>
-<p><code>refit_full=True</code> is the cheaper accuracy lever: after early stopping has
+<p><code>refit_full</code> is <strong>on by default</strong> (since 0.25.0). After early stopping has
 chosen the tree budget on the automatic validation split, the winning
 configuration is retrained on 100% of the rows at that budget, so the final
-model does not pay the 20% holdout data tax. About 2x fit time for a broad
-accuracy gain — largest on small or high-signal data. It composes with
-everything above but is a no-op inside bagged members (their held-out rows
-already serve as an external eval set).</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">refit_full</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+model does not pay the 20% holdout data tax. It roughly doubles fit time for a
+broad accuracy gain — largest on small or high-signal data — and it is the
+strongest single-model setting measured. It is a no-op inside bagged members
+(their held-out rows already serve as an external eval set), so <code>n_ensembles</code>
+builds on the non-refit model rather than stacking with this.</p>
+<p>Turn it off when fit time matters more than the last increment of accuracy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">refit_full</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="c1"># equivalently</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p><code>feature_importances_</code> and <code>shap_values</code> average across the bag automatically.</p>
 <h2 id="early-stopping">Early stopping<a class="headerlink" href="#early-stopping" title="Permanent link">&para;</a></h2>
 <p>Early stopping is on by default. With no <code>eval_set</code>, the estimator holds out a
 validation split (<code>validation_fraction=0.2</code>, stratified for classifiers), stops after a
 plateau, and keeps the best round.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># default: automatic internal holdout</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">best_iteration_</span><span class="p">)</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="c1"># explicit validation set (overrides the internal split)</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="p">(</span><span class="n">X_val</span><span class="p">,</span> <span class="n">y_val</span><span class="p">))</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="c1"># grouped split: keep each group entirely in train or validation</span>
-<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="n">subject_ids</span><span class="p">)</span>
-<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
-<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="c1"># fixed number of trees, no stopping</span>
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">early_stopping</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># default: automatic internal holdout</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">best_iteration_</span><span class="p">)</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># explicit validation set (overrides the internal split)</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">eval_set</span><span class="o">=</span><span class="p">(</span><span class="n">X_val</span><span class="p">,</span> <span class="n">y_val</span><span class="p">))</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="c1"># grouped split: keep each group entirely in train or validation</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="n">subject_ids</span><span class="p">)</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="c1"># fixed number of trees, no stopping</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">early_stopping</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_estimators</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="n">m</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>After fitting, <code>validation_history_</code> holds the per-round validation loss, and the
 regressor's <code>staged_predict(X)</code> yields the prediction after each successive tree
@@ -1253,62 +1348,62 @@ regressor's <code>staged_predict(X)</code> yields the prediction after each succ
 <p><code>predict_proba</code> is temperature-scaled on the validation split to minimize log loss. The
 scaling is monotonic, so <code>predict()</code>, AUC, and accuracy are unchanged while the
 probabilities themselves are better calibrated.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># already calibrated</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">clf</span><span class="o">.</span><span class="n">temperature_</span><span class="p">)</span>                  <span class="c1"># &gt; 1 means raw scores were over-confident</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># already calibrated</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">clf</span><span class="o">.</span><span class="n">temperature_</span><span class="p">)</span>                  <span class="c1"># &gt; 1 means raw scores were over-confident</span>
 </code></pre></div>
 <h2 id="feature-importance">Feature importance<a class="headerlink" href="#feature-importance" title="Permanent link">&para;</a></h2>
 <p><code>feature_importances_</code> is total split gain per input column, normalized to sum to 1
 (averaged across the bag when <code>n_ensembles &gt; 1</code>).</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">feature_importances_</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">5</span><span class="p">]:</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">feature_importances_</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">feature_importances_</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">5</span><span class="p">]:</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;feature </span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">feature_importances_</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Gain reflects what the trees split on, not how much each feature moves a given
 prediction, and it ignores the per-leaf linear models. For a faithful decomposition of
 the output, use <a href="../shap/">SHAP</a>.</p>
 <h2 id="cross-validation-and-hyperparameter-search">Cross-validation and hyperparameter search<a class="headerlink" href="#cross-validation-and-hyperparameter-search" title="Permanent link">&para;</a></h2>
 <p>The estimators are standard scikit-learn objects:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">cross_val_score</span><span class="p">,</span> <span class="n">GridSearchCV</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">scores</span> <span class="o">=</span> <span class="n">cross_val_score</span><span class="p">(</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="n">scoring</span><span class="o">=</span><span class="s2">&quot;neg_root_mean_squared_error&quot;</span><span class="p">,</span>
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="p">)</span>
-<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>
-<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="n">search</span> <span class="o">=</span> <span class="n">GridSearchCV</span><span class="p">(</span>
-<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
-<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>    <span class="p">{</span><span class="s2">&quot;depth&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="s2">&quot;l2_leaf_reg&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]},</span>
-<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>    <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="p">)</span>
-<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="n">search</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">search</span><span class="o">.</span><span class="n">best_params_</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">cross_val_score</span><span class="p">,</span> <span class="n">GridSearchCV</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">scores</span> <span class="o">=</span> <span class="n">cross_val_score</span><span class="p">(</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="n">scoring</span><span class="o">=</span><span class="s2">&quot;neg_root_mean_squared_error&quot;</span><span class="p">,</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">)</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="n">search</span> <span class="o">=</span> <span class="n">GridSearchCV</span><span class="p">(</span>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>    <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>    <span class="p">{</span><span class="s2">&quot;depth&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="s2">&quot;l2_leaf_reg&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]},</span>
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>    <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="p">)</span>
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="n">search</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">search</span><span class="o">.</span><span class="n">best_params_</span><span class="p">)</span>
 </code></pre></div>
 <p>To pass <code>cat_features</code> through a search, set it on the constructor —
 <code>ChimeraBoostClassifier(cat_features=["city", "brand"])</code> — so the meta-estimator
 carries it (a fit-only kwarg can't be).</p>
 <h2 id="save-and-load-a-model">Save and load a model<a class="headerlink" href="#save-and-load-a-model" title="Permanent link">&para;</a></h2>
 <p>A fitted estimator pickles like any scikit-learn object:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">joblib</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">reg</span><span class="p">,</span> <span class="s2">&quot;model.joblib&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;model.joblib&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">joblib</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">reg</span><span class="p">,</span> <span class="s2">&quot;model.joblib&quot;</span><span class="p">)</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;model.joblib&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="interaction-heavy-regression">Interaction-heavy regression<a class="headerlink" href="#interaction-heavy-regression" title="Permanent link">&para;</a></h2>
 <p>The default <code>depth=6</code> is conservative to protect small data. On large, interaction-heavy
 problems, raise <code>depth</code> to give each tree more interaction capacity:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">depth</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">depth</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Per-leaf linear models add local slope inside each leaf (on by default for binary
 classification; the regression default picks the better of linear and constant on the
 validation split — force one variant to skip the double fit):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">linear_leaves</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">linear_leaves</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="reproducibility-and-threads">Reproducibility and threads<a class="headerlink" href="#reproducibility-and-threads" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>    <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>        <span class="c1"># deterministic for a fixed thread count</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">thread_count</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>        <span class="c1"># numba threads; None or -1 uses all cores</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>        <span class="c1"># deterministic for a fixed thread count</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">thread_count</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>        <span class="c1"># numba threads; None or -1 uses all cores</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 
 
