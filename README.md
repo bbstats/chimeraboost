@@ -1,5 +1,5 @@
 # chimeraboost
-### What if CatBoost was better, 1.5–7× faster, and all in Python?
+### Lightning fast, near-CatBoost quality, all in Python
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
