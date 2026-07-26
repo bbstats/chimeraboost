@@ -21,11 +21,15 @@ Usage:
 import argparse
 import json as _json
 import os
+import sys
 import time
 import warnings
 from collections import defaultdict
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import summarize  # noqa: E402  (sibling module; scoring shared with the charts)
 
 warnings.filterwarnings("ignore")
 
@@ -1058,21 +1062,57 @@ def _run_seed_task(task):
 # --------------------------------------------------------------------------
 # Main loop
 # --------------------------------------------------------------------------
-def _rel_gap(ours, theirs, task):
-    """Relative gap of ChimeraBoost vs a competitor, as a signed percentage
-    where POSITIVE means ChimeraBoost is better.
+def _pairwise_winrate(primary, ours, theirs, n_boot=2000):
+    """(win rate %, lo, hi, wins, losses, ties, median relative gap %) for
+    `ours` against `theirs`, on the per-dataset primary metric (lower = better).
 
-    Regression score is -RMSE (higher=better), classification is F1 macro
-    (higher=better), so in both cases higher is better and the formula is the
-    same once we work in the 'higher=better' space.
+    Restricting `primary` to the two models and reusing summarize's field-wide
+    helpers makes the two-model "field" exactly the pairwise matchup, so the win
+    rate and its bootstrap CI come from the same tested code that draws the
+    Pareto chart -- no second implementation to drift.
     """
-    # convert to higher-is-better magnitude
-    if task == "regression":
-        o, t = -ours, -theirs          # RMSE magnitudes (lower better)
-        # improvement = how much smaller our RMSE is
-        return 100.0 * (t - o) / t
-    else:
-        return 100.0 * (ours - theirs) / theirs
+    pair = {ds: {m: v for m, v in scores.items() if m in (ours, theirs)}
+            for ds, scores in primary.items()}
+    pair = {ds: s for ds, s in pair.items() if len(s) == 2}
+    if not pair:
+        return None
+    rate = summarize.winrate_vs_field(pair).get(ours)
+    lo, hi = summarize.bootstrap_winrate_ci(pair, n_boot=n_boot).get(
+        ours, (None, None))
+    wins = losses = ties = 0
+    gaps = []
+    for s in pair.values():
+        o, t = s[ours], s[theirs]
+        if o < t:
+            wins += 1
+        elif o > t:
+            losses += 1
+        else:
+            ties += 1
+        # primary is lower-better, so a positive gap means we are better.
+        gaps.append(100.0 * (t - o) / t)
+    return rate, lo, hi, wins, losses, ties, float(np.median(gaps))
+
+
+def _verdict(competitor, winrate):
+    """Ship-facing read of a pairwise win rate (% of datasets we win, ties 1/2).
+
+    Replaces the old mean-relative-gap verdict, which averaged ratios and so
+    blew up on near-solved datasets (the failure PR #31 fixed in compare_runs
+    but never here), and which judged classification on F1 while every ship
+    decision and the Pareto chart judge it on Brier.
+    """
+    if winrate is None:
+        return "no shared datasets"
+    if competitor == "sklearn_HGB":
+        return "PASS: beats sklearn" if winrate > 50.0 else "FAIL: must beat sklearn"
+    if competitor == "CatBoost":
+        if winrate >= 50.0:
+            return "PASS: matches/beats CatBoost"
+        if winrate >= 45.0:
+            return "PASS: close to CatBoost"
+        return f"GAP: behind CatBoost ({winrate:.1f}% of matchups)"
+    return "better" if winrate > 50.0 else "behind"
 
 
 class _Progress:
@@ -1468,9 +1508,8 @@ def main():
     prog.finish()
 
     metric_name = {"regression": "RMSE (lower better)",
-                   "binary": "F1 macro (higher better)",
-                   "multiclass": "F1 macro (higher better)"}
-    gap_acc = {m: [] for m in model_names if m != "ChimeraBoost"}
+                   "binary": "F1 macro shown, Brier scored (lower better)",
+                   "multiclass": "F1 macro shown, Brier scored (lower better)"}
     speed_acc = {m: [] for m in model_names if m != "ChimeraBoost"}
     raw_records = []      # one row per (dataset, model, seed); feeds make_tables
     dataset_meta = {}
@@ -1485,6 +1524,7 @@ def main():
         results = {m: [] for m in model_names}
         times = {m: [] for m in model_names}
         iters = {m: [] for m in model_names}
+        briers = {m: [] for m in model_names}
         for s in range(args.seeds):
             if s not in seed_map:
                 continue
@@ -1494,6 +1534,8 @@ def main():
                 metrics, secs, pred_secs, best_it = res
                 results[name].append(metrics["primary"])
                 times[name].append(secs)
+                if metrics.get("brier") is not None:
+                    briers[name].append(metrics["brier"])
                 if best_it is not None:
                     iters[name].append(best_it)
                 raw_records.append({
@@ -1512,32 +1554,48 @@ def main():
             disp = (-sc if task == "regression" else sc)
             it_str = f"  trees~{int(np.mean(iters[name]))}" if iters[name] else ""
             star = " <-- ours" if name == "ChimeraBoost" else ""
-            print(f"  {name:14s} {disp.mean():8.4f} +/- {disp.std():.4f}"
+            # Show Brier next to F1 on classification: Brier is what the summary
+            # win rate and every ship decision actually score, so it should be
+            # visible on the row rather than inferred.
+            br = (f"  brier {np.mean(briers[name]):.4f}"
+                  if briers[name] else "")
+            print(f"  {name:14s} {disp.mean():8.4f} +/- {disp.std():.4f}{br}"
                   f"   fit {tm.mean():6.2f}s{it_str}{star}")
 
         if results["ChimeraBoost"]:
-            our_score = np.mean(results["ChimeraBoost"])
             our_time = np.mean(times["ChimeraBoost"])
-            for name in gap_acc:
+            for name in speed_acc:
                 if results[name]:
-                    gap_acc[name].append(_rel_gap(our_score, np.mean(results[name]), task))
                     speed_acc[name].append(np.mean(times[name]) / max(our_time, 1e-9))
         print()
 
     # ---- summary verdict ----
-    print("=" * 64)
-    print("SUMMARY (averaged over datasets; + = ChimeraBoost better)")
-    print("=" * 64)
-    for rname in gap_acc:
-        if not gap_acc[rname]:
+    # Scored on the per-dataset primary metric (RMSE regression / Brier
+    # classification, both lower=better) via summarize, so this agrees with the
+    # Pareto chart and the ship gate by construction. The old summary averaged
+    # relative percentage gaps on F1 with no near-solved guard -- the statistic
+    # that produced this project's -144% and -8e21% readings.
+    run_data = {"config": {}, "datasets": dataset_meta, "records": raw_records}
+    primary = summarize.primary_scores(run_data)
+    n_excluded = len(dataset_meta) - len(primary)
+    print("=" * 78)
+    print("SUMMARY -- head-to-head win rate on the primary metric "
+          "(RMSE reg / Brier clf)")
+    print("=" * 78)
+    for rname in speed_acc:
+        pw = _pairwise_winrate(primary, "ChimeraBoost", rname)
+        if pw is None:
             continue
-        g = np.array(gap_acc[rname])
+        rate, lo, hi, w, l, t, med = pw
         sp = np.array(speed_acc[rname])
+        ci = f" [{lo:.0f}-{hi:.0f}]" if lo is not None else ""
         # speed ratio >1 means ChimeraBoost is faster
-        wins = int(np.sum(g > 0))
-        verdict = _verdict(rname, g.mean())
-        print(f"  vs {rname:12s}  F1 macro {g.mean():+6.2f}% "
-              f"(wins {wins}/{len(g)})   speed x{sp.mean():.2f}   -> {verdict}")
+        print(f"  vs {rname:12s}  win {rate:5.1f}%{ci}  (W{w}-L{l}-T{t})  "
+              f"median gap {med:+6.2f}%   speed x{sp.mean():.2f}   "
+              f"-> {_verdict(rname, rate)}")
+    print(f"\n  scored on {len(primary)} of {len(dataset_meta)} datasets"
+          + (f" ({n_excluded} near-solved, excluded)" if n_excluded else "")
+          + "; ties count 1/2; CI = 95% bootstrap over datasets.")
     print()
     if tee is not None:
         import sys
@@ -1564,18 +1622,6 @@ def main():
         print(f"# Saved raw data to: {json_path}")
         sys.stdout = real_stdout
         tee[0].close()
-
-
-def _verdict(competitor, mean_gap):
-    if competitor == "sklearn_HGB":
-        return "PASS: beats sklearn" if mean_gap > 0 else "FAIL: must beat sklearn"
-    if competitor == "CatBoost":
-        if mean_gap >= 0:
-            return "PASS: matches/beats CatBoost"
-        if mean_gap > -3.0:
-            return "PASS: within 3% of CatBoost (close, on average)"
-        return f"GAP: {-mean_gap:.1f}% behind CatBoost on average"
-    return "better" if mean_gap > 0 else "behind"
 
 
 if __name__ == "__main__":
