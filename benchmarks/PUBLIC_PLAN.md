@@ -208,17 +208,47 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
   property (adding a rung leaves every other row untouched).
 - **The fast rung is off the chart for now** (Nathan's call on this issue).
 
+## First read — 2026-07-26
+
+`--public --seeds 3` over the four charted arms: **99 minutes** wall on this box
+(5 parallel jobs, 2 threads each). Base suite only, no variant families.
+
+| model | win% vs CatBoost + LightGBM | 95% CI | slowdown | on frontier |
+|---|---|---|---|---|
+| ChimeraBoostEns8 | 66.7% | 50–83 | 34.2× | yes |
+| CatBoost | 58.3% | 33–83 | 72.8× | no — dominated |
+| ChimeraBoost (default) | 50.0% | 29–71 | 16.1× | yes |
+| LightGBM | 41.7% | 17–67 | 1.0× | yes |
+
+12 of 13 datasets scored; `kickstarter_projects` is near-solved (Brier ~1e-4 for
+three of four arms) and excluded by the guard from PR #31.
+
+**Read it honestly.** CatBoost is dominated — the ensemble is stronger *and*
+2.1× faster than it — and the default rung matches CatBoost's strength at 4.5×
+its speed. But this is a markedly weaker picture than the internal Grinsztajn
+chart, on both axes, and that is the entire point of having a sealed suite:
+
+- The internal chart puts the default at 69.9% and 9.35× slowdown. Here it is
+  50.0% and 16.1×. The slowdown gap is mostly size — these datasets run to
+  200,000 rows, where LightGBM scales better than we do, so the ~5× figure the
+  internal chart reports does not survive at this scale.
+- Two datasets are outright losses to LightGBM on both metrics: `connect-4`
+  (F1 0.6465 against 0.7163, Brier 0.2287 against 0.1943) and
+  `rossmann_store_sales` (RMSE 874 against 799).
+- `connect-4` is also the cost outlier: 766s for us and 2,177s for CatBoost
+  against LightGBM's 7s. An all-categorical 42-feature multiclass set is
+  apparently our worst case for fit time by a wide margin.
+
+Per the vow, none of this may motivate a source change. It is recorded because a
+published chart whose weaknesses are not written down next to it is a
+sales brochure.
+
 ## What remains
 
-The suite is frozen and runs. All 13 datasets and all 7 variant twins load
-through the harness, with class counts, imbalances and target ranges matching
-what the audit measured. What is left is the run itself:
-
-1. **Cost probe.** Nobody has measured what a full `--public` run costs. Time
-   one dataset at one seed across the four arms first and extrapolate before
-   committing to the whole thing.
-2. **The run and the chart** (step 3 below).
-3. **Point the README headline** at `images/public_pareto.png`.
+1. **Point the README headline** at `images/public_pareto.png` — Nathan's call,
+   given the numbers above differ substantially from the current TabArena-based
+   headline.
+2. The `@sus` and `@time` variant families, as a second figure, when wanted.
 
 **No dependency on OpenML's metadata API remains**, by design — see "Loaded from
 data.openml.org" above. `public_audit.py shortlist` still reads the harvested
