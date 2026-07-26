@@ -49,6 +49,7 @@ from collections import defaultdict
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import summarize  # noqa: E402  (sibling module)
 from summarize import NEAR_SOLVED_NRMSE  # noqa: E402  (shared with make_tables)
 from summarize import load as _load_json, timing_warning  # noqa: E402
 
@@ -127,6 +128,10 @@ def main():
     ap.add_argument("--keep-near-solved", action="store_true",
                     help="do NOT exclude near-solved datasets from the mean "
                          "(reproduces pre-fix numbers quoted in older plans).")
+    ap.add_argument("--by-suite", action="store_true",
+                    help="report an independent sign test per stratum (suite x "
+                         "variant) instead of one over the union -- the correct "
+                         "read for a --decide run.")
     args = ap.parse_args()
     base_label, new_label = args.base_label, args.new_label
 
@@ -144,6 +149,28 @@ def main():
     if warn:
         print(warn + "\n")
 
+    if args.by_suite:
+        # One INDEPENDENT sign test per stratum. The decision suites answer
+        # different questions and a variant reuses its parent's rows, so a
+        # pooled bar over the union would be a different (weaker) test than the
+        # protocol asks for. No combined verdict is printed on purpose.
+        strata = summarize.split_strata(shared)
+        for i, (stratum, ds_names) in enumerate(strata.items()):
+            if i:
+                print()
+            print(f"########## {summarize.stratum_label(stratum)} "
+                  f"({len(ds_names)} datasets) ##########")
+            _report(ds_names, base, new, ds_meta, rmse_b, rmse_n,
+                    brier_b, brier_n, args, base_label, new_label)
+        return
+    _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
+            args, base_label, new_label)
+
+
+def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
+            args, base_label, new_label):
+    """Per-dataset rows, the mean/median, and the sign-test bar for one set of
+    datasets. Behaviour on the full set is unchanged from before --by-suite."""
     near = set() if args.keep_near_solved else {
         ds for ds in shared
         if is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n)}

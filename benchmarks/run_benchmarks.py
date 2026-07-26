@@ -1215,6 +1215,11 @@ def main():
                          "categorical datasets; decision tier 2 alongside "
                          "Grinsztajn). Fetched from OpenML, cached on A: "
                          "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
+    ap.add_argument("--decide", action="store_true",
+                    help="run the full decision tier in one go: Grinsztajn + HC "
+                         "(+ their SUS/temporal variants unless --no-variants). "
+                         "Results are reported and sign-tested per stratum, "
+                         "never pooled -- see /experiment.")
     ap.add_argument("--synth", action="store_true",
                     help="run the frozen synthgen prior-sampled suite "
                          "(decision tier 1; see benchmarks/synthgen/).")
@@ -1224,6 +1229,10 @@ def main():
     ap.add_argument("--synth-n", type=int, default=None,
                     help="with --synth, run only the first N suite ids "
                          "(deterministic prefix, pairing-safe).")
+    ap.add_argument("--list-datasets", action="store_true",
+                    help="print the datasets this run WOULD use, grouped by "
+                         "stratum, then exit. Registration is lazy, so this "
+                         "downloads nothing.")
     ap.add_argument("--models", nargs="+", default=None,
                     metavar="MODEL",
                     help=("limit to specific runners, e.g. "
@@ -1329,6 +1338,13 @@ def main():
                           "under benchmarks/results/."))
     args = ap.parse_args()
 
+    # --decide is the decision tier: both suites in one run. They stay separate
+    # STRATA in every report (CLAUDE.md requires them sign-tested apart); the
+    # flag only removes the need to launch two runs by hand.
+    if args.decide:
+        args.grinsztajn = True
+        args.highcard = True
+
     # Optional tee: mirror stdout to a results file so runs are inspectable
     # later. Default location is benchmarks/results/YYYYMMDD-HHMMSS.txt.
     tee = None
@@ -1357,59 +1373,59 @@ def main():
     if args.ensemble_n is not None:
         ENSEMBLE_N = args.ensemble_n
 
+    # Each requested suite contributes a "keep this key" predicate; the actual
+    # pruning is ONE pass over the union at the end. Previously every suite
+    # deleted all keys that weren't its own the moment it registered, so asking
+    # for two suites at once (--grinsztajn --highcard, the decision pair) left
+    # nothing to run -- whichever registered last wiped the other.
+    keepers = []
+
     need_openml = (args.openml or args.no_synthetic or bool(
         args.datasets and any(d.startswith("oml:") for d in args.datasets)))
     if need_openml:
         _add_openml_datasets()
     if args.no_synthetic:
-        for k in [k for k in DATASETS if not k.startswith("oml:")]:
-            del DATASETS[k]
+        keepers.append(lambda k: k.startswith("oml:"))
 
-    # Grinsztajn suites: register them, then (unless specific --datasets were
-    # named) run ONLY them, since they are the "serious" recognized benchmark.
     need_grinsztajn = args.grinsztajn or bool(
         args.datasets and any(d.startswith("gr:") for d in args.datasets))
     if need_grinsztajn:
         _add_grinsztajn_datasets()
-        if args.grinsztajn and not args.datasets:
-            for k in [k for k in DATASETS if not k.startswith("gr:")]:
-                del DATASETS[k]
+        if args.grinsztajn:
+            keepers.append(lambda k: k.startswith("gr:"))
 
-    # PMLB tuning suite: same convention as Grinsztajn — register, then (unless
-    # specific --datasets were named) run ONLY it. --pmlb-fold narrows further.
+    # PMLB tuning suite; --pmlb-fold narrows to one fold.
     need_pmlb = args.pmlb or bool(
         args.datasets and any(d.startswith("pm:") for d in args.datasets))
     if need_pmlb:
         _add_pmlb_datasets()
-        if args.pmlb and not args.datasets:
+        if args.pmlb:
             keep_fold = (f"pm:{args.pmlb_fold}/" if args.pmlb_fold else "pm:")
-            for k in [k for k in DATASETS if not k.startswith(keep_fold)]:
-                del DATASETS[k]
+            keepers.append(lambda k, p=keep_fold: k.startswith(p))
 
-    # HC suite: same convention as Grinsztajn/PMLB — register, then (unless
-    # specific --datasets were named) run ONLY it.
     need_highcard = args.highcard or bool(
         args.datasets and any(d.startswith("hc:") for d in args.datasets))
     if need_highcard:
         _add_highcard_datasets()
-        if args.highcard and not args.datasets:
-            for k in [k for k in DATASETS if not k.startswith("hc:")]:
-                del DATASETS[k]
+        if args.highcard:
+            keepers.append(lambda k: k.startswith("hc:"))
 
-    # SynthGen suite: same convention — register, then (unless specific
-    # --datasets were named) run ONLY the chosen frozen suite.
     need_synth = args.synth or bool(
         args.datasets and any(d.startswith("syn:") for d in args.datasets))
     if need_synth:
         _add_synth_datasets()
-        if args.synth and not args.datasets:
+        if args.synth:
             import synthgen
             keep = set(synthgen.frozen_keys(args.synth_suite)[: args.synth_n])
             if not keep:
                 ap.error(f"--synth suite {args.synth_suite!r} is empty -- "
                          "freeze it first (benchmarks/synthgen/freeze.py).")
-            for k in [k for k in DATASETS if k not in keep]:
-                del DATASETS[k]
+            keepers.append(lambda k, s=keep: k in s)
+
+    if keepers and not args.datasets:
+        for k in [k for k in DATASETS
+                  if not any(keep_it(k) for keep_it in keepers)]:
+            del DATASETS[k]
 
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
@@ -1459,6 +1475,17 @@ def main():
                 if not (args.datasets and ds not in args.datasets)
                 and not (args.only == "regression" and _task_of(ds) != "regression")
                 and not (args.only == "classification" and _task_of(ds) == "regression")]
+
+    if args.list_datasets:
+        strata = summarize.split_strata(selected)
+        for stratum, ds_names in strata.items():
+            print(f"\n{summarize.stratum_label(stratum)}  ({len(ds_names)})")
+            for ds in ds_names:
+                print(f"  {ds}  [{_task_of(ds)}]")
+        n_str = len(strata)
+        print(f"\ntotal: {len(selected)} datasets in {n_str} "
+              f"{'stratum' if n_str == 1 else 'strata'}")
+        return
 
     print("Detected competitors:",
           ", ".join(k for k, v in HAVE.items() if v) or "none (sklearn only)")
@@ -1510,7 +1537,9 @@ def main():
     metric_name = {"regression": "RMSE (lower better)",
                    "binary": "F1 macro shown, Brier scored (lower better)",
                    "multiclass": "F1 macro shown, Brier scored (lower better)"}
-    speed_acc = {m: [] for m in model_names if m != "ChimeraBoost"}
+    # {competitor: {dataset: fit-time ratio vs ChimeraBoost}}; keyed by dataset
+    # so the summary can average within a stratum rather than across the run.
+    speed_acc = {m: {} for m in model_names if m != "ChimeraBoost"}
     raw_records = []      # one row per (dataset, model, seed); feeds make_tables
     dataset_meta = {}
 
@@ -1566,7 +1595,8 @@ def main():
             our_time = np.mean(times["ChimeraBoost"])
             for name in speed_acc:
                 if results[name]:
-                    speed_acc[name].append(np.mean(times[name]) / max(our_time, 1e-9))
+                    speed_acc[name][ds_name] = (
+                        np.mean(times[name]) / max(our_time, 1e-9))
         print()
 
     # ---- summary verdict ----
@@ -1576,27 +1606,39 @@ def main():
     # relative percentage gaps on F1 with no near-solved guard -- the statistic
     # that produced this project's -144% and -8e21% readings.
     run_data = {"config": {}, "datasets": dataset_meta, "records": raw_records}
-    primary = summarize.primary_scores(run_data)
-    n_excluded = len(dataset_meta) - len(primary)
-    print("=" * 78)
-    print("SUMMARY -- head-to-head win rate on the primary metric "
-          "(RMSE reg / Brier clf)")
-    print("=" * 78)
-    for rname in speed_acc:
-        pw = _pairwise_winrate(primary, "ChimeraBoost", rname)
-        if pw is None:
-            continue
-        rate, lo, hi, w, l, t, med = pw
-        sp = np.array(speed_acc[rname])
-        ci = f" [{lo:.0f}-{hi:.0f}]" if lo is not None else ""
-        # speed ratio >1 means ChimeraBoost is faster
-        print(f"  vs {rname:12s}  win {rate:5.1f}%{ci}  (W{w}-L{l}-T{t})  "
-              f"median gap {med:+6.2f}%   speed x{sp.mean():.2f}   "
-              f"-> {_verdict(rname, rate)}")
-    print(f"\n  scored on {len(primary)} of {len(dataset_meta)} datasets"
-          + (f" ({n_excluded} near-solved, excluded)" if n_excluded else "")
-          + "; ties count 1/2; CI = 95% bootstrap over datasets.")
-    print()
+    strata = summarize.split_strata(dataset_meta)
+    for stratum, ds_names in strata.items():
+        sub = summarize.subset(run_data, ds_names)
+        primary = summarize.primary_scores(sub)
+        n_excluded = len(ds_names) - len(primary)
+        title = (f"SUMMARY [{summarize.stratum_label(stratum)}]"
+                 if len(strata) > 1 else "SUMMARY")
+        print("=" * 78)
+        print(f"{title} -- head-to-head win rate "
+              "(RMSE reg / Brier clf)")
+        print("=" * 78)
+        for rname in speed_acc:
+            pw = _pairwise_winrate(primary, "ChimeraBoost", rname)
+            if pw is None:
+                continue
+            rate, lo, hi, w, l, t, med = pw
+            sp = [speed_acc[rname][ds] for ds in ds_names
+                  if ds in speed_acc[rname]]
+            ci = f" [{lo:.0f}-{hi:.0f}]" if lo is not None else ""
+            # speed ratio >1 means ChimeraBoost is faster
+            speed = f"x{np.mean(sp):.2f}" if sp else "--"
+            print(f"  vs {rname:12s}  win {rate:5.1f}%{ci}  (W{w}-L{l}-T{t})  "
+                  f"median gap {med:+6.2f}%   speed {speed}   "
+                  f"-> {_verdict(rname, rate)}")
+        print(f"\n  scored on {len(primary)} of {len(ds_names)} datasets"
+              + (f" ({n_excluded} near-solved, excluded)" if n_excluded else "")
+              + "; ties count 1/2; CI = 95% bootstrap over datasets.")
+        print()
+    if len(strata) > 1:
+        print("Strata are reported separately and never pooled -- the decision "
+              "suites answer\ndifferent questions, and a variant reuses its "
+              "parent's rows. Sign-test each\nwith: compare_runs.py BASE NEW "
+              "--by-suite\n")
     if tee is not None:
         import sys
         # Sidecar JSON: every metric for every (dataset, model, seed), plus

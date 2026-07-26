@@ -364,12 +364,69 @@ def aggregate(data):
     return cols, meta
 
 
+SUITE_TAGS = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
+              "oml:": "OpenML suite", "syn:": "SynthGen suite",
+              "hc:": "HC high-cardinality suite",
+              "pub:": "Public suite (sealed)"}
+
+# Variant marker in a dataset key: "gr:reg_num/houses@sus25". A variant is a
+# derived view of its parent dataset (fewer training rows, or a time-ordered
+# split), so it shares data with the parent and must never be pooled with it --
+# doing so would inflate the effective sample size of a sign test.
+VARIANT_SEP = "@"
+VARIANT_LABELS = {"": "full", "sus25": "SUS 25% train",
+                  "sus50": "SUS 50% train", "time": "temporal split"}
+
+
+def base_key(ds):
+    """Dataset key with any variant suffix stripped."""
+    return ds.split(VARIANT_SEP, 1)[0]
+
+
+def variant_of(ds):
+    """Variant tag for a dataset key ("" for the full-size random-split original)."""
+    parts = ds.split(VARIANT_SEP, 1)
+    return parts[1] if len(parts) == 2 else ""
+
+
+def stratum_of(ds):
+    """The reporting / sign-test stratum a dataset key belongs to.
+
+    Suite prefix crossed with variant, e.g. "gr:" + "sus25". Grinsztajn and HC
+    are separate decision suites that CLAUDE.md requires be sign-tested apart,
+    and each variant family is its own stratum for the reason above.
+    """
+    prefix = next((p for p in SUITE_TAGS if base_key(ds).startswith(p)), "")
+    return (prefix, variant_of(ds))
+
+
+def stratum_label(stratum):
+    prefix, variant = stratum
+    suite = SUITE_TAGS.get(prefix, "Built-in panel")
+    if not variant:
+        return suite
+    return f"{suite} - {VARIANT_LABELS.get(variant, variant)}"
+
+
+def split_strata(ds_names):
+    """{stratum: [dataset keys]}, ordered: full-size suites first, then variants."""
+    out = defaultdict(list)
+    for ds in ds_names:
+        out[stratum_of(ds)].append(ds)
+    return dict(sorted(out.items(), key=lambda kv: (kv[0][1] != "", kv[0])))
+
+
+def subset(data, ds_names):
+    """A results dict restricted to `ds_names`, safe to pass to aggregate()."""
+    keep = set(ds_names)
+    return {"config": data.get("config", {}),
+            "datasets": {k: v for k, v in data["datasets"].items() if k in keep},
+            "records": [r for r in data["records"] if r["dataset"] in keep]}
+
+
 def _suite_label(ds_names):
     """Human label for the caption, inferred from dataset key prefixes."""
-    tags = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
-            "oml:": "OpenML suite", "syn:": "SynthGen suite",
-            "hc:": "HC high-cardinality suite"}
-    found = {label for pre, label in tags.items()
+    found = {label for pre, label in SUITE_TAGS.items()
              if any(d.startswith(pre) for d in ds_names)}
     if not found:
         return "Built-in panel"
@@ -431,6 +488,28 @@ def format_table(data, label=None):
             f"* Reg RMSE% excludes {n} dataset{'s' if n != 1 else ''} every model "
             "solves near-perfectly (best NRMSE < 2%), where the ratio is meaningless.")
     return "\n".join(lines)
+
+
+def format_stratified(data):
+    """One table per stratum, for runs that mix suites or variants.
+
+    A single pooled table over Grinsztajn + HC + variants would be actively
+    misleading: the suites answer different questions, and a variant shares its
+    rows with the parent it was derived from. Strata with a single dataset are
+    still shown -- an honest small-n stratum beats a hidden one.
+    """
+    strata = split_strata(data["datasets"])
+    if len(strata) <= 1:
+        return format_table(data)
+    blocks = []
+    for stratum, ds_names in strata.items():
+        blocks.append(format_table(subset(data, ds_names),
+                                   f"=== {stratum_label(stratum)} "
+                                   f"({len(ds_names)} datasets) ==="))
+    blocks.append("Strata are reported separately and never pooled: the two "
+                  "decision suites answer\ndifferent questions, and a variant "
+                  "reuses its parent's rows.")
+    return "\n\n".join(blocks)
 
 
 def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
