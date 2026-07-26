@@ -73,6 +73,12 @@ a separate PR.
 
 ## Repro scripts
 
-The probe/driver scripts used for the tables live in the session scratchpad;
-the essential pattern: run `python probe.py` variants as fresh subprocesses,
-deleting `chimeraboost/__pycache__/*.nb?` between runs for the cold cells.
+`python benchmarks/cold_start.py --kernels` (committed 2026-07-26, issue #34)
+reproduces the three-regime table above and adds the per-kernel compile
+breakdown. It gets a stone-cold cache by pointing `NUMBA_CACHE_DIR` at a fresh
+directory in each subprocess, which is cleaner than the original approach of
+deleting `chimeraboost/__pycache__/*.nb?` between runs.
+
+The probe/driver scripts used for the tables in this file predate that and
+lived only in the session scratchpad — which is why the numbers here and in
+docs/deployment.md drifted several releases out of date before anyone noticed.

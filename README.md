@@ -10,8 +10,13 @@
 * **Installation**
 
 ```
-pip install chimeraboost
+pip install chimeraboost && chimeraboost-warmup
 ```
+
+`chimeraboost-warmup` compiles the numba kernels once and caches them, so the
+first `fit` is not several seconds slower than the rest. Re-run it after each
+upgrade — an upgrade resets the cache. See
+[Deployment](https://bbstats.github.io/chimeraboost/deployment/).
 
 * **Sample code:**
 
