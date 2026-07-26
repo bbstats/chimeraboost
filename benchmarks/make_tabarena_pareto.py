@@ -20,6 +20,7 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 # Same palette as make_pareto.py so ChimeraBoost stays the consistent blue.
 MODEL_COLOR = {
     "ChimeraBoost": "#3b6fb0",
+    "ChimeraBoost_fast": "#7ba7d4",
     "CatBoost": "#d1495b",
     "XGBoost": "#8d6cab",
     "LightGBM": "#5a9e6f",
@@ -47,9 +48,23 @@ MODEL_COLOR = {
 #     (multiclass fits ~2.5x faster; Lite carries multiclass tasks). Predict flat at
 #     0.125 -> 0.123. Lite's median task is small and overhead-dominated, so treat
 #     its fit-speed column as directional only.
+#
+# ChimeraBoost_fast = quality=1, the fast rung (51/51 fitted, own 51-task run):
+# 1243 Elo, rank 36/68, 0.67 s/1K train. Declining the configuration search costs
+# 36 Elo and returns ~11% of train time HERE -- a much worse trade than on the
+# development suites, where it returns 4.7x. Two reasons, both protocol: Lite's
+# median task is small and overhead-dominated, and the bagged wrapper fits 8
+# children per task, so the search is amortised over work the fast rung still has
+# to do. Rungs 2 and 3 are NOT charted separately because they are byte-identical
+# under an explicit eval_set -- the "ChimeraBoost" point is both of them.
+# CAVEAT on mixing: the two ChimeraBoost points come from separate evals, each
+# adding one method to the same baseline pool. The shared anchors moved by <=1 Elo
+# between them (CatBoost 1348/1349, LightGBM 1155/1156), so the comparison is good
+# to a point or two, not exact.
 DATA = {
     "CatBoost":     (1348, 42, 43, 6.70, 0.088),
     "ChimeraBoost": (1279, 54, 58, 0.75, 0.123),
+    "ChimeraBoost_fast": (1243, 50, 58, 0.67, 0.120),
     "XGBoost":      (1187, 54, 53, 2.06, 0.122),
     "LightGBM":     (1155, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
@@ -99,7 +114,7 @@ def render_image(out_path):
         t = total_time(m)
         color = MODEL_COLOR.get(m, "#777777")
         on_front = m in front
-        is_us = m == "ChimeraBoost"
+        is_us = m.startswith("ChimeraBoost")
         # Faint asymmetric Elo 95% CI bar.
         ax.errorbar(t, e, yerr=[[em], [ep]], fmt="none", ecolor=color,
                     elinewidth=1.0, capsize=3, alpha=0.45, zorder=2)
@@ -109,14 +124,18 @@ def render_image(out_path):
                    zorder=4 if is_us else 3, alpha=0.95)
         # Label nudges to avoid collisions.
         _offsets = {
-            "ChimeraBoost": (10, -14, "left"),
+            "ChimeraBoost": (10, 8, "left"),
+            # Centered below its point: the label is long and the region to
+            # its right belongs to XGBoost/LightGBM.
+            "ChimeraBoost_fast": (0, -34, "center"),
             "XGBoost": (10, 6, "left"),
             "LightGBM": (10, 6, "left"),
             "CatBoost": (-10, 6, "right"),
             "RandomForest": (10, 6, "left"),
         }
         ox, oy, ha = _offsets.get(m, (9, 5, "left"))
-        ax.annotate(m, (t, e), textcoords="offset points", xytext=(ox, oy),
+        ax.annotate(m.replace("_", " "), (t, e),
+                    textcoords="offset points", xytext=(ox, oy),
                     ha=ha, fontsize=10,
                     fontweight="bold" if is_us else "normal", color="#1a1a1a")
 
@@ -158,7 +177,7 @@ def main():
     print(f"{'Model':<14}{'Elo':>6}{'Time(s/1K)':>12}{'Pareto':>8}")
     print("-" * 40)
     for m in sorted(DATA, key=lambda x: -elo(x)):
-        star = "  <-- ours" if m == "ChimeraBoost" else ""
+        star = "  <-- ours" if m.startswith("ChimeraBoost") else ""
         on = "yes" if m in front else "-"
         print(f"{m:<14}{elo(m):>6}{total_time(m):>12.2f}{on:>8}{star}")
     print(f"\nWrote tabarena_pareto.png to {out_dir}")
