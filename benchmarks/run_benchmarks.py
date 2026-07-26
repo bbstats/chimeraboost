@@ -275,17 +275,20 @@ def _add_variant_datasets(base_keys):
         vkey = f"{key}{VARIANT_SEP}time"
         if vkey in DATASETS:
             continue
-        # Both suites load real OpenML frames through the same builder, so both
-        # can carry a temporal twin. Grinsztajn cannot (see VARIANTS.md).
+        # Both suites keep real column names, so both can carry a temporal twin
+        # -- they just load from different places. Grinsztajn cannot at all
+        # (see VARIANTS.md).
         if key.startswith("hc:"):
-            spec, cap = HC_DATASETS[key[len("hc:"):]], _HIGHCARD_MAX_ROWS
+            DATASETS[vkey] = _make_highcard_builder(
+                HC_DATASETS[key[len("hc:"):]], time_col=col,
+                max_rows=_HIGHCARD_MAX_ROWS)
         elif key.startswith("pub:"):
-            spec, cap = PUBLIC_DATASETS[key[len("pub:"):]], _PUBLIC_MAX_ROWS
+            DATASETS[vkey] = _make_public_builder(
+                PUBLIC_DATASETS[key[len("pub:"):]], time_col=col)
         else:
             raise ValueError(
                 "temporal variants need a builder that keeps column names; "
                 f"{key!r} is not from the hc: or pub: suites")
-        DATASETS[vkey] = _make_highcard_builder(spec, time_col=col, max_rows=cap)
 
 
 def _task_of(ds_name):
@@ -663,16 +666,64 @@ HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
 # and would contradict the north star ("true generalization, never faked from
 # data"). Decisions keep running on synth -> Grinsztajn + HC -> OpenML gate.
 #
-# EMPTY PENDING AUDIT. The selection criteria, the overlap gate and the
-# procedure are in benchmarks/PUBLIC_PLAN.md. The list is deliberately not
-# populated from remembered OpenML ids: HIGHCARD_PLAN.md's step 0 requires every
-# candidate be verified in-session, and the OpenML API was returning HTTP 504
-# throughout the session that built this machinery. Filling it in is one line
-# per dataset once the audit runs.
-PUBLIC_DATASETS = {}
+# FROZEN 2026-07-26. Audit matrix, cut reasons and the procedure are in
+# benchmarks/PUBLIC_PLAN.md; 6408 catalogue entries -> 373 survivors -> 21
+# content-verified -> these 13.
+#
+# Loaded from data.openml.org's parquet files, NOT through fetch_openml: that
+# route needs OpenML's metadata API for the default target, and the metadata
+# tier was dead for days while the data host served normally. Every `target`
+# below was read from the dataset's real columns in-session, which is also the
+# more reproducible arrangement -- a sealed suite must not be able to change
+# because someone edited a default-target field upstream.
+#
+# `drop_cols` removes what near-uniqueness cannot catch: numeric row ids and
+# uploader split markers. `time_col` must survive the near-unique filter to stay
+# a feature, which is why Medical-Appointment uses the appointment date rather
+# than the 94%-unique scheduling timestamp, and kickstarter uses `deadline`
+# rather than the 99.9%-unique `launched`.
+PUBLIC_DATASETS = {
+    # binary
+    "BNP_Paribas_Cardif_Claims_Management": dict(
+        data_id=46856, task="binary", target="target"),        # v22 card 18210, 5.1M missing
+    "Medical-Appointment-No-Shows": dict(
+        data_id=43439, task="binary", target="No-show", time_col="AppointmentDay"),
+    "kickstarter_projects": dict(
+        data_id=42076, task="binary", target="state", time_col="deadline"),
+    "SantanderCustomerSatisfaction": dict(
+        data_id=45566, task="binary", target="target"),        # wide numeric, 0.11 imbalance
+    "hcdr": dict(
+        data_id=45071, task="binary", target="class"),         # 47 categorical columns
+    # multiclass
+    "internet_firewall": dict(
+        data_id=46978, task="multiclass", target="Action"),    # NAT ports card 29152
+    "connect-4": dict(
+        data_id=40668, task="multiclass", target="class"),     # 42 categorical features
+    "Otto-Group-Product-Classification-Challenge": dict(
+        data_id=45548, task="multiclass", target="target"),    # 9 classes
+    "hls4ml_lhc_jets_hlf": dict(
+        data_id=42468, task="multiclass", target="class"),     # 5 classes, 830k rows
+    # regression
+    "rossmann_store_sales": dict(
+        data_id=45647, task="regression", target="Sales", time_col="Year",
+        drop_cols=("Set",)),                                   # `Set` = train/test/valid marker
+    "freMTPL2freq": dict(
+        data_id=41214, task="regression", target="ClaimNb",
+        drop_cols=("IDpol",)),                                 # heavy-tailed count, ~95% zeros
+    "fps-in-video-games": dict(
+        data_id=42737, task="regression", target="FPS"),       # GpuName card 446
+    "federal_election": dict(
+        data_id=42080, task="regression", target="transaction_amt",
+        drop_cols=("tran_id", "sub_id", "image_num")),         # entity cats at scale
+}
 PUBLIC_TASKS = {}   # "pub:<name>" -> task, filled at registration
 _PUBLIC_MAX_ROWS = 200000   # higher cap than HC: the speed axis is the point
 _HIGHCARD_MAX_ROWS = 100000
+# The pub: suite fetches data files straight from OpenML's data host, which has
+# no API in front of it. Cache on A: -- C: has ~4 GB free and these run to
+# hundreds of MB (override with PUBLIC_DATA_HOME).
+_PUBLIC_DATA_HOME = os.environ.get("PUBLIC_DATA_HOME") or r"A:\code\openml_pq"
+_PUBLIC_PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}.pq"
 # Categorical columns whose nunique/n exceeds this are row identifiers / free
 # text (e.g. wine-reviews' `description`/`title`, ~94% unique). They carry no
 # repeated-level signal -- the opposite of the entity-cat regime this suite
@@ -684,6 +735,44 @@ _HIGHCARD_ID_FRAC = 0.9
 # porto/sf-police/wine-reviews are 100-500 MB fetches, so default the cache to A:
 # (override with the standard SCIKIT_LEARN_DATA env var on a box where C: is fine).
 _HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
+
+
+def _prepare_frame(frame, target, spec, time_col, cap):
+    """Shared post-load shaping: row cap, optional time order, column cuts.
+
+    Returns (X_df, y). Split out so the hc: and pub: builders cannot drift --
+    they load from different places but must shape identically.
+    """
+    # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
+    # harness rng), so the train/test split stays the only seed-dependent step.
+    if len(frame) > cap:
+        frame = frame.sample(cap, random_state=0).reset_index(drop=True)
+    if time_col is not None:
+        key = _time_sort_key(frame[time_col])
+        if key is None:
+            raise ValueError(
+                f"time column {time_col!r} could not be ordered as numeric "
+                "or datetime")
+        frame = (frame.assign(_t=key).dropna(subset=["_t"])
+                 .sort_values("_t", kind="stable")
+                 .drop(columns=["_t"]).reset_index(drop=True))
+    X_df = frame.drop(columns=[target])
+    # Per-dataset column cuts, for what near-uniqueness cannot catch: a NUMERIC
+    # row id (freMTPL2freq's IDpol survives the categorical-only filter below)
+    # or a pre-baked split marker (rossmann ships a `Set` column reading
+    # train/test/valid, which is an artifact of whoever uploaded it, not a
+    # feature). Named per dataset in the frozen list so every cut is visible.
+    drop = [c for c in spec.get("drop_cols", ()) if c in X_df.columns]
+    if drop:
+        X_df = X_df.drop(columns=drop)
+    # Drop near-unique categorical columns (row identifiers / free text).
+    n = len(X_df)
+    id_cols = [c for c in X_df.columns
+               if _is_categorical_dtype(X_df[c].dtype)
+               and X_df[c].nunique(dropna=True) > _HIGHCARD_ID_FRAC * n]
+    if id_cols:
+        X_df = X_df.drop(columns=id_cols)
+    return X_df, frame[target]
 
 
 def _make_highcard_builder(spec, time_col=None, max_rows=None):
@@ -699,40 +788,54 @@ def _make_highcard_builder(spec, time_col=None, max_rows=None):
         from sklearn.datasets import fetch_openml
         ds = fetch_openml(data_id=spec["data_id"], as_frame=True,
                           data_home=_HIGHCARD_DATA_HOME)
-        frame = ds.frame
-        target = ds.target.name
-        # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
-        # harness rng), so the train/test split stays the only seed-dependent step.
-        cap = max_rows or _HIGHCARD_MAX_ROWS
-        if len(frame) > cap:
-            frame = frame.sample(cap, random_state=0).reset_index(drop=True)
-        if time_col is not None:
-            key = _time_sort_key(frame[time_col])
-            if key is None:
-                raise ValueError(
-                    f"time column {time_col!r} could not be ordered as numeric "
-                    "or datetime")
-            frame = (frame.assign(_t=key).dropna(subset=["_t"])
-                     .sort_values("_t", kind="stable")
-                     .drop(columns=["_t"]).reset_index(drop=True))
-        X_df = frame.drop(columns=[target])
-        # Per-dataset column cuts, for what near-uniqueness cannot catch: a
-        # NUMERIC row id (freMTPL2freq's IDpol survives the categorical-only
-        # filter below) or a pre-baked split marker (rossmann ships a `Set`
-        # column reading train/test/valid, which is an artifact of whoever
-        # uploaded it, not a feature). Named per dataset in the frozen list so
-        # every cut is visible and reviewable.
-        drop = [c for c in spec.get("drop_cols", ()) if c in X_df.columns]
-        if drop:
-            X_df = X_df.drop(columns=drop)
-        # Drop near-unique categorical columns (row identifiers / free text).
-        n = len(X_df)
-        id_cols = [c for c in X_df.columns
-                   if _is_categorical_dtype(X_df[c].dtype)
-                   and X_df[c].nunique(dropna=True) > _HIGHCARD_ID_FRAC * n]
-        if id_cols:
-            X_df = X_df.drop(columns=id_cols)
-        return _frame_to_dataset(X_df, frame[target], "auto", spec["task"])
+        X_df, y = _prepare_frame(ds.frame, ds.target.name, spec, time_col,
+                                 max_rows or _HIGHCARD_MAX_ROWS)
+        return _frame_to_dataset(X_df, y, "auto", spec["task"])
+    return builder
+
+
+def _public_parquet_path(data_id):
+    """Download dataset <data_id>'s parquet from data.openml.org into the cache.
+
+    The pub: suite deliberately does NOT go through fetch_openml. That route
+    needs OpenML's metadata API for the default target column, and the metadata
+    tier was returning HTTP 504 for days while the data host stayed up. Pinning
+    the target in the frozen spec instead removes the dependency entirely and is
+    the more reproducible arrangement anyway: a sealed suite should not be able
+    to change underneath us because someone edited a default-target field.
+    """
+    os.makedirs(_PUBLIC_DATA_HOME, exist_ok=True)
+    path = os.path.join(_PUBLIC_DATA_HOME, f"dataset_{data_id}.pq")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    import urllib.request
+    url = _PUBLIC_PQ_URL.format(pad=data_id // 10000, did=data_id)
+    tmp = path + ".part"
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "chimeraboost-benchmarks/public-suite"})
+    with urllib.request.urlopen(req, timeout=600) as resp, open(tmp, "wb") as f:
+        while True:
+            chunk = resp.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+    os.replace(tmp, path)   # never leave a truncated file looking complete
+    return path
+
+
+def _make_public_builder(spec, time_col=None):
+    """Builder for one pub: spec. Reads the parquet directly; target is the
+    explicit `target` key, verified in-session against the real columns."""
+    def builder(scale, rng):
+        import pandas as pd
+        frame = pd.read_parquet(_public_parquet_path(spec["data_id"]))
+        target = spec["target"]
+        if target not in frame.columns:
+            raise ValueError(
+                f"target {target!r} is not a column of dataset "
+                f"{spec['data_id']}; columns: {list(frame.columns)[:12]}...")
+        X_df, y = _prepare_frame(frame, target, spec, time_col, _PUBLIC_MAX_ROWS)
+        return _frame_to_dataset(X_df, y, "auto", spec["task"])
     return builder
 
 
@@ -750,16 +853,16 @@ def _add_highcard_datasets():
 def _add_public_datasets():
     """Register the sealed public suite as pub:<name>. Idempotent.
 
-    Reuses the HC builder (fetch by OpenML id, deterministic row cap, drop
-    near-unique categorical id columns) with a larger cap, and honours a
-    per-dataset `time_col` so a public dataset can carry a temporal variant.
+    Loads from data.openml.org's parquet files with an explicitly pinned target
+    (see _make_public_builder), shares the HC shaping (row cap, column cuts,
+    near-unique drop) with a larger cap, and honours a per-dataset `time_col` so
+    a public dataset can carry a temporal variant.
     """
     if any(k.startswith("pub:") for k in DATASETS):
         return
     for name, spec in PUBLIC_DATASETS.items():
         key = f"pub:{name}"
-        DATASETS[key] = _make_highcard_builder(
-            spec, time_col=None, max_rows=_PUBLIC_MAX_ROWS)
+        DATASETS[key] = _make_public_builder(spec, time_col=None)
         PUBLIC_TASKS[key] = spec["task"]
         if spec.get("time_col"):
             TEMPORAL_COLUMNS[key] = spec["time_col"]

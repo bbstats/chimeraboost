@@ -90,6 +90,18 @@ The HC percentages run slightly high because 14 datasets cannot be split into
 exact fifths and tenths. That is the cost of a fixed, auditable rule, and it is
 preferable to a per-suite fudge factor.
 
+### Public — 13 datasets, 3 at 25% (23.1%), 1 at 50% (7.7%)
+
+| # | dataset | twin |
+|---|---|---|
+| 0 | `pub:BNP_Paribas_Cardif_Claims_Management` | `@sus25` |
+| 3 | `pub:SantanderCustomerSatisfaction` | `@sus50` |
+| 5 | `pub:federal_election` | `@sus25` |
+| 10 | `pub:internet_firewall` | `@sus25` |
+
+Index order is the plain sort of the frozen keys, so the capitalised names sort
+ahead of the lowercase ones. Nothing chose these four — the stride did.
+
 ## Frozen temporal registry
 
 Audited by hand against the cached frames. A column qualifies only if it is a
@@ -106,6 +118,12 @@ distinct values to cut a window.
 | `hc:Moneyball` | `Year` | baseball season |
 | `hc:employee_salaries` | `date_first_hired` | **`MM/DD/YYYY` string** — a lexicographic sort would order by month |
 | `hc:eucalyptus` | `Year` | measurement year; only 736 rows, read gently |
+| `pub:Medical-Appointment-No-Shows` | `AppointmentDay` | ISO date string. Not `ScheduledDay`, which is 94% unique and so is dropped as an identifier |
+| `pub:kickstarter_projects` | `deadline` | datetime string, 3,102 distinct. Not `launched`, which is 99.9% unique. **Mixed UTC offsets** — the reason `_time_sort_key` passes `utc=True` |
+| `pub:rossmann_store_sales` | `Year` | 2013–2015; no single date column exists, so this is the coarse-year arrangement four HC sets already use |
+
+`pub:federal_election` deliberately has **no** time column: its `transaction_dt`
+is a float in `MMDDYYYY` form, which a numeric sort would order by month.
 
 `_time_sort_key` coerces numeric first, then datetime. That order matters: it
 gets year columns and epoch seconds right regardless of whether they arrive as

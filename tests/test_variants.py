@@ -29,7 +29,7 @@ def _doc_tables():
         text = fh.read()
     sus = dict(re.findall(r"^\|\s*\d+\s*\|\s*`([^`]+)`\s*\|\s*`@(\w+)`\s*\|$",
                           text, re.M))
-    temporal = dict(re.findall(r"^\|\s*`(hc:[^`]+)`\s*\|\s*`([^`]+)`\s*\|",
+    temporal = dict(re.findall(r"^\|\s*`((?:hc|pub):[^`]+)`\s*\|\s*`([^`]+)`\s*\|",
                                text, re.M))
     return sus, temporal
 
@@ -38,10 +38,11 @@ def test_sus_assignment_matches_doc():
     """The committed table is the source of truth for which datasets get twins."""
     rb._add_grinsztajn_datasets()
     rb._add_highcard_datasets()
+    rb._add_public_datasets()
     doc_sus, _ = _doc_tables()
 
     code = {}
-    for prefix in ("gr:", "hc:"):
+    for prefix in ("gr:", "hc:", "pub:"):
         keys = sorted(k for k in rb.DATASETS
                       if k.startswith(prefix) and rb.VARIANT_SEP not in k)
         code.update(rb._sus_assignment(keys))

@@ -124,57 +124,62 @@ call is visible:
   299k rows against adult's 49k — but close enough to the gate suite that
   charting it would weaken the out-of-sample claim.
 
-### Proposed suite (13 datasets) — NOT YET FROZEN
+## Step 2 — the frozen suite (13 datasets, frozen 2026-07-26)
 
-Everything in the "verified" columns was read from the parquet. The **target
-column is a presumption**, not a verification: `data.openml.org` serves data
-files only, and OpenML's default-target field is the one thing the audit could
-not reach. See "What remains" below.
+Every row was read from the dataset's real bytes in-session, including the
+target column. "rows" is the source size; the builder subsamples anything above
+200,000. "loaded" is what the harness actually hands a model, measured by
+running the builder.
 
-| candidate | id | task | rows | cats | max card | missing cells | presumed target | time_col | regime it buys |
+| pub key | id | task | rows | loaded | cats | max card | target | time_col | regime it buys |
 |---|---|---|---|---|---|---|---|---|---|
-| BNP_Paribas_Cardif_Claims_Management | 46856 | binary | 114,321 | 20 | 18,210 (`v22`) | 5.1M | `target` | — | extreme-card cat + pervasive missingness |
-| Medical-Appointment-No-Shows | 43439 | binary | 110,527 | 5 | 81 (`Neighbourhood`) | 0 | `No-show` | `ScheduledDay` | real timestamps, 0.25 imbalance |
-| kickstarter_projects | 42076 | binary | 331,675 | 7 | 3,102 (`deadline`) | 210 | `state` | `launched` | temporal + mixed-timezone dates |
-| SantanderCustomerSatisfaction | 45566 | binary | 200,000 | 0 | — | 0 | `target` | — | wide all-numeric, 0.11 imbalance |
-| hcdr | 45071 | binary | 244,280 | 47 | 58 (`ORGANIZATION_TYPE`) | 0 | `class` | — | the most categorical-heavy candidate found |
-| internet_firewall | 46978 | multiclass | 65,532 | 5 | 29,152 (`NAT_Source_Port`) | 0 | `Action` (4) | — | high-card multiclass, 0.08% rarest class |
-| connect-4 | 40668 | multiclass | 67,557 | 42 | 3 | 0 | `class` (3) | — | all-categorical multiclass |
-| Otto-Group-Product-Classification-Challenge | 45548 | multiclass | 61,878 | 0 | — | 0 | `target` (9) | — | 9-class over 93 count features |
-| hls4ml_lhc_jets_hlf | 42468 | multiclass | 830,000 | 0 | — | 0 | `class` (5) | — | multiclass at a size the speed axis can read |
-| rossmann_store_sales | 45647 | regression | 804,056 | 9 | 1,115 (`Store`) | 0 | `Sales` | `Year` | retail demand; entity cat |
-| freMTPL2freq | 41214 | regression | 678,013 | 4 | 22 (`Region`) | 0 | `ClaimNb` | — | heavy-tailed count target (~95% zeros) |
-| fps-in-video-games | 42737 | regression | 425,833 | 14 | 446 (`GpuName`) | 1.3M | `FPS` | — | entity cats + missingness |
-| federal_election | 42080 | regression | 3,348,209 | 16 | 10 cats ≥50 (`employer`, `occupation`, `city`, `zip_code`) | 10.8M | `transaction_amt` | `transaction_dt` | the entity-cat regime at full scale |
+| pub:BNP_Paribas_Cardif_Claims_Management | 46856 | binary | 114,321 | 114,321 × 132 | 19 | 18,210 (`v22`) | `target` | — | extreme-card cat + pervasive missingness (5.1M cells) |
+| pub:Medical-Appointment-No-Shows | 43439 | binary | 110,527 | 110,527 × 12 | 3 | 81 (`Neighbourhood`) | `No-show` | `AppointmentDay` | real timestamps, 0.20 minority |
+| pub:kickstarter_projects | 42076 | binary | 331,675 | 200,000 × 12 | 5 | 3,102 (`deadline`) | `state` | `deadline` | temporal, mixed-timezone dates |
+| pub:SantanderCustomerSatisfaction | 45566 | binary | 200,000 | 200,000 × 200 | 0 | — | `target` | — | wide all-numeric, 0.10 minority |
+| pub:hcdr | 45071 | binary | 244,280 | 200,000 × 69 | 47 | 58 (`ORGANIZATION_TYPE`) | `class` | — | the most categorical-heavy set found; 0.078 minority |
+| pub:internet_firewall | 46978 | multiclass | 65,532 | 65,532 × 11 | 4 | 29,152 (`NAT_Source_Port`) | `Action` | — | 4-class, high-card, rarest class 0.0008 |
+| pub:connect-4 | 40668 | multiclass | 67,557 | 67,557 × 42 | 42 | 3 | `class` | — | all-categorical multiclass |
+| pub:Otto-Group-Product-Classification-Challenge | 45548 | multiclass | 61,878 | 61,878 × 94 | 0 | — | `target` | — | 9 classes over count features |
+| pub:hls4ml_lhc_jets_hlf | 42468 | multiclass | 830,000 | 200,000 × 16 | 0 | — | `class` | — | 5-class at a size the speed axis can read |
+| pub:rossmann_store_sales | 45647 | regression | 804,056 | 200,000 × 17 | 8 | 1,115 (`Store`) | `Sales` | `Year` | retail demand, entity cat |
+| pub:freMTPL2freq | 41214 | regression | 678,013 | 200,000 × 10 | 4 | 22 (`Region`) | `ClaimNb` | — | heavy-tailed count target (~95% zeros) |
+| pub:fps-in-video-games | 42737 | regression | 425,833 | 200,000 × 44 | 14 | 446 (`GpuName`) | `FPS` | — | entity cats + missingness |
+| pub:federal_election | 42080 | regression | 3,348,209 | 200,000 × 17 | 15 | `employer`/`occupation`/`city`/`zip_code` | `transaction_amt` | — | the entity-cat regime at full scale |
 
-Composition against the targets: 13 datasets; 5 binary / 4 multiclass /
-4 regression; 8 with a categorical of ≥50 levels; 3 regression-with-cats;
-4 carrying a genuine time column.
+Composition: 13 datasets; 5 binary / 4 multiclass / 4 regression; 8 with a
+categorical of ≥50 levels; 3 regression-with-cats; 3 carrying a time column.
+Registration yields 20 keys once the `@sus25`/`@sus50`/`@time` twins are added.
 
-**Per-dataset column cuts.** Three of these carry columns that near-uniqueness
-cannot catch, so the builder now honours a `drop_cols` key on the spec:
-`rossmann_store_sales` ships a `Set` column reading train/test/valid (an
-uploader's split marker, not a feature); `freMTPL2freq` ships `IDpol`, a numeric
-row id that the categorical-only filter leaves in place; `federal_election`
-ships `tran_id`/`sub_id`/`image_num`. Every cut is named in the frozen list so
-it is reviewable.
+**Loaded from data.openml.org, not through `fetch_openml`.** The `pub:` builder
+downloads the dataset's parquet directly and takes the target from the frozen
+`target` key. `fetch_openml` needs OpenML's metadata API to discover the default
+target, and that tier returned HTTP 504 for days while the data host served
+normally — but the better argument is reproducibility: a sealed benchmark must
+not be able to change underneath us because someone edited a default-target
+field upstream. HC still uses `fetch_openml`; it is a decision suite and
+changing how it loads could move results.
 
-**One trap already found.** `federal_election`'s `transaction_dt` is an integer
-in MMDDYYYY form, so a numeric sort orders it by month — the same failure
-`employee_salaries` has and the reason `_time_sort_key` coerces numerics first.
-It needs the same treatment before it can carry a `@time` variant, so the
-temporal slot for that dataset is left open pending a decision.
+**Per-dataset column cuts** (`drop_cols`, for what near-uniqueness cannot
+catch): `rossmann_store_sales` ships a `Set` column reading train/test/valid,
+an uploader's split marker rather than a feature; `freMTPL2freq` ships `IDpol`,
+a numeric row id the categorical-only filter leaves in place;
+`federal_election` ships `tran_id`, `sub_id` and `image_num`.
 
-## Step 2 — freeze (BLOCKED, see "What remains")
+**Time columns are the coarse ones on purpose.** A time column must survive the
+near-unique filter to remain a feature, so Medical-Appointment uses
+`AppointmentDay` rather than the 94%-unique `ScheduledDay`, and kickstarter uses
+`deadline` (3,102 distinct) rather than the 99.9%-unique `launched`. Rossmann has
+no single date column, so it sorts on `Year` — the same coarse-year arrangement
+four HC datasets already use.
 
-Populate `PUBLIC_DATASETS` in `run_benchmarks.py` (`name -> dict(data_id=..,
-task=.., time_col=.., drop_cols=..)`), write the frozen table into this file in
-the `| pub:<name> | <id> | <task> |` form the test parses, and the tests in
-`tests/test_public.py` start enforcing it. Those tests are already written: they
-pass vacuously while the list is empty, and the moment it is populated they
-require the doc table and the code to agree exactly and re-run the full overlap
-gate. `test_freeze_is_all_or_nothing` makes a half-freeze (code populated but
-doc not, or the reverse) a failure.
+**Two properties worth knowing before reading any result.**
+`federal_election`'s `transaction_amt` is **already log-transformed** in this
+upload: the median exponentiates to $416 and the maximum to exactly $10,000,000.
+Skew is 0.94, so it is not a heavy-tailed target — `freMTPL2freq` is the one
+carrying that regime. And `federal_election`'s `transaction_dt` is a float in
+MMDDYYYY form, so a numeric sort would order it by month; it therefore gets no
+`time_col` rather than a wrong one.
 
 ## Step 3 — first run and the chart
 
@@ -205,36 +210,23 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
 
 ## What remains
 
-The machinery — suite registration, the `--public` flag and its guard, the
-larger row cap, temporal support for `pub:` datasets, the chart and its tests —
-was complete before this audit. The audit itself (step 0 and step 1) has now
-run: the overlap gate is implemented and tested, 373 candidates survived it, and
-13 finalists are content-verified against their actual data.
+The suite is frozen and runs. All 13 datasets and all 7 variant twins load
+through the harness, with class counts, imbalances and target ranges matching
+what the audit measured. What is left is the run itself:
 
-**Three facts still block the freeze, and all three need one live metadata call
-per dataset — about 13 requests:**
+1. **Cost probe.** Nobody has measured what a full `--public` run costs. Time
+   one dataset at one seed across the four arms first and extrapolate before
+   committing to the whole thing.
+2. **The run and the chart** (step 3 below).
+3. **Point the README headline** at `images/public_pareto.png`.
 
-1. **The default target column.** `data.openml.org` serves data files only. The
-   targets in the table above are presumptions from the column names. If a
-   dataset has no default target set at all, `fetch_openml` returns `ds.target
-   = None` and the builder dies at `ds.target.name`.
-2. **The current version**, so the frozen id points at the data that was
-   audited rather than a later re-upload.
-3. **Active status**, so a deactivated dataset does not enter the suite.
+**No dependency on OpenML's metadata API remains**, by design — see "Loaded from
+data.openml.org" above. `public_audit.py shortlist` still reads the harvested
+catalogue if the suite ever needs re-auditing, and `--refresh` would need the
+API back, but nothing in the run path touches it.
 
-The OpenML REST API was returning HTTP 504 for every endpoint — single-dataset
-metadata, qualities and the filtered listing alike — throughout both the session
-that built the machinery (2026-07-25) and the session that ran the audit
-(2026-07-26). `api.openml.org` 301-redirects onto the same dead gateway. General
-connectivity was fine and `data.openml.org` was serving normally, so this is an
-OpenML-side outage of the metadata tier specifically.
-
-When it comes back:
-
-```
-python benchmarks/public_audit.py shortlist --refresh   # re-harvest, re-gate
-```
-
-then confirm target/version/status per finalist, populate `PUBLIC_DATASETS`,
-write the frozen `| pub:... |` table into this file, and run `pytest
-tests/test_public.py`. Nothing else in the path is outstanding.
+**Re-auditing.** The frozen list changes only with a re-run of
+`public_audit.py shortlist` and a fresh content verification, on the
+synthgen-freeze discipline. `tests/test_public.py` keeps the list, this document
+and the overlap gate in agreement on every test run, and
+`test_freeze_is_all_or_nothing` makes a half-edit fail.
