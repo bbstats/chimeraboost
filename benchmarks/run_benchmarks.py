@@ -157,8 +157,121 @@ SYNTH_TASKS = {
 }
 
 
+# --------------------------------------------------------------------------
+# Variant families (issue #37). A variant is a derived VIEW of a parent dataset
+# that probes one named failure regime. Keys are "<parent>@<variant>", so every
+# downstream consumer (summarize, compare_runs, the charts) keeps working, and
+# summarize.stratum_of puts each family in its own stratum -- a variant reuses
+# its parent's rows, so pooling the two would inflate a sign test's sample size.
+#
+#   @sus25 / @sus50 -- supplemental under-sampling: train on 25% / 50% of the
+#       training rows, TEST SET UNCHANGED. Isolates data volume: the twin and
+#       its parent are scored on identical rows, so the pair reads as a learning
+#       curve, and the small arm doesn't gain variance from a smaller test set.
+#       Datasets grow over time; this asks how the models rank earlier in that life.
+#   @time -- temporal split: rows ordered by a real observation timestamp, train
+#       on earlier rows and test on later ones. Isolates distribution shift, the
+#       most common way a deployed model fails, and the one regime every other
+#       split in this harness is blind to (they are all random).
+#
+# The two are kept apart on purpose: "earlier and smaller" is their intersection,
+# and blurring them would make a result impossible to attribute to either cause.
+VARIANT_SEP = "@"
+SUS_FRACTIONS = {"sus25": 0.25, "sus50": 0.50}
+
+# Frozen selection, per suite, over that suite's sorted keys: every 5th dataset
+# gets a 25% twin (20% of the suite) and every 10th at offset 3 gets a 50% twin
+# (10%). The offset keeps the two picks disjoint (i % 10 == 3 implies i % 5 != 0).
+# Deterministic and spread across the suite rather than clustered; the resulting
+# assignment is committed in benchmarks/VARIANTS.md and locked by a test.
+SUS_STRIDE_25, SUS_STRIDE_50, SUS_OFFSET_50 = 5, 10, 3
+
+# Rolling origin: seed s trains on the earliest cut and tests the window that
+# follows. A single fixed cut would be deterministic, and since every model runs
+# with random_state=0 all seeds would reproduce one number exactly -- replication
+# in name only. Three cuts give three genuinely different reads.
+TEMPORAL_CUTS = (0.65, 0.70, 0.75)
+TEMPORAL_TEST_FRAC = 0.25
+
+# Datasets with a genuine observation timestamp, audited by hand: the column
+# must be a real time of record (not merely year-shaped), must not be the
+# target, and must survive the near-unique-categorical drop. Verified against
+# the cached frames. Grinsztajn is absent by nature -- the HuggingFace mirror
+# ships pre-transformed numeric CSVs with no recoverable time column, so this
+# regime simply has no expression there, and we declare that rather than fake it.
+TEMPORAL_COLUMNS = {
+    "hc:kick": "PurchDate",                  # epoch seconds, vehicle purchase
+    "hc:sf-police-incidents": "Year",        # incident year (unordered category)
+    "hc:Traffic_violations": "Year",         # violation year (0.6% unparseable)
+    "hc:house_prices_nominal": "YrSold",     # year the sale closed (Ames)
+    "hc:Moneyball": "Year",                  # baseball season
+    "hc:employee_salaries": "date_first_hired",   # MM/DD/YYYY string
+    "hc:eucalyptus": "Year",                 # measurement year
+}
+
+
+def _time_sort_key(series):
+    """Sortable key for a time column, or None if it can't be ordered.
+
+    Coercion order matters. Numeric first, so year columns and epoch seconds
+    sort correctly whether they arrive as int, float, or an UNORDERED pandas
+    category (sf-police ships Year as a category whose order is not guaranteed
+    chronological). Datetime second, for real date strings -- employee_salaries
+    stores MM/DD/YYYY, where a lexicographic sort would order by month.
+    """
+    import pandas as pd
+    num = pd.to_numeric(series, errors="coerce")
+    if num.notna().mean() > 0.5:
+        return num
+    dt = pd.to_datetime(series, errors="coerce", format="mixed")
+    if dt.notna().mean() > 0.5:
+        return dt
+    return None
+
+
+def _sus_assignment(keys):
+    """{dataset key: sus variant} for one suite, from its sorted key order."""
+    out = {}
+    for i, k in enumerate(sorted(keys)):
+        if i % SUS_STRIDE_25 == 0:
+            out[k] = "sus25"
+        elif i % SUS_STRIDE_50 == SUS_OFFSET_50:
+            out[k] = "sus50"
+    return out
+
+
+def _add_variant_datasets(base_keys):
+    """Register @sus and @time twins for `base_keys`. Idempotent."""
+    by_suite = defaultdict(list)
+    for k in base_keys:
+        if VARIANT_SEP in k:
+            continue
+        by_suite[k.split(":", 1)[0] if ":" in k else ""].append(k)
+
+    for keys in by_suite.values():
+        for key, variant in _sus_assignment(keys).items():
+            vkey = f"{key}{VARIANT_SEP}{variant}"
+            if vkey not in DATASETS:
+                # Same builder as the parent; the shrink happens after the split
+                # in _run_seed_task so the twin keeps the parent's test rows.
+                DATASETS[vkey] = DATASETS[key]
+
+    for key, col in TEMPORAL_COLUMNS.items():
+        if key not in DATASETS:
+            continue
+        vkey = f"{key}{VARIANT_SEP}time"
+        if vkey in DATASETS:
+            continue
+        if not key.startswith("hc:"):
+            raise ValueError(
+                f"temporal variants are only wired for the hc: suite, got {key!r}")
+        DATASETS[vkey] = _make_highcard_builder(
+            HC_DATASETS[key[len("hc:"):]], time_col=col)
+
+
 def _task_of(ds_name):
     """Task type of a dataset by name, without building it."""
+    ds_name = ds_name.split(VARIANT_SEP, 1)[0]     # variants inherit the parent's task
     if ds_name.startswith("oml:"):
         return OPENML_SUITE[ds_name[4:]]["task"]
     if ds_name.startswith("gr:"):
@@ -533,9 +646,15 @@ _HIGHCARD_ID_FRAC = 0.9
 _HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
 
 
-def _make_highcard_builder(spec):
+def _make_highcard_builder(spec, time_col=None):
     """Build a dataset-builder closure for one HC spec (fetched by data_id, with
-    a deterministic 100k subsample). Mirrors the Grinsztajn/PMLB builders."""
+    a deterministic 100k subsample). Mirrors the Grinsztajn/PMLB builders.
+
+    With `time_col`, rows are returned in ascending time order and rows whose
+    timestamp won't parse are dropped, so _run_seed_task can cut a temporal
+    split positionally. The time column stays a FEATURE: a model meeting unseen
+    later timestamps is precisely the deployment failure the variant measures.
+    """
     def builder(scale, rng):
         from sklearn.datasets import fetch_openml
         ds = fetch_openml(data_id=spec["data_id"], as_frame=True,
@@ -547,6 +666,15 @@ def _make_highcard_builder(spec):
         if len(frame) > _HIGHCARD_MAX_ROWS:
             frame = frame.sample(_HIGHCARD_MAX_ROWS, random_state=0
                                  ).reset_index(drop=True)
+        if time_col is not None:
+            key = _time_sort_key(frame[time_col])
+            if key is None:
+                raise ValueError(
+                    f"time column {time_col!r} could not be ordered as numeric "
+                    "or datetime")
+            frame = (frame.assign(_t=key).dropna(subset=["_t"])
+                     .sort_values("_t", kind="stable")
+                     .drop(columns=["_t"]).reset_index(drop=True))
         X_df = frame.drop(columns=[target])
         # Drop near-unique categorical columns (row identifiers / free text).
         n = len(X_df)
@@ -1003,6 +1131,56 @@ def _make_runners(model_names, chimera_cfg):
     return {name: runners[name] for name in model_names}
 
 
+def _subsample_train(Xtr, ytr, frac, task):
+    """Keep `frac` of the TRAINING rows, stratified for classification.
+
+    Fixed random_state=0 -- the same house convention as the suite row caps, so
+    the train/test split stays the only seed-dependent step and a twin's shrink
+    is reproducible across runs.
+    """
+    n = int(round(len(ytr) * frac))
+    if n >= len(ytr) or n < 2:
+        return Xtr, ytr
+    strat = ytr if task != "regression" else None
+    try:
+        Xs, _, ys, _ = train_test_split(Xtr, ytr, train_size=n,
+                                        random_state=0, stratify=strat)
+    except ValueError:
+        # Too few members of some class to stratify at this size; fall back to
+        # an unstratified draw rather than dropping the variant.
+        Xs, _, ys, _ = train_test_split(Xtr, ytr, train_size=n, random_state=0)
+    return Xs, ys
+
+
+def _temporal_split(X, y, seed, task):
+    """Rolling-origin split of time-ordered rows, or None if degenerate.
+
+    X/y arrive sorted ascending by the dataset's timestamp (see
+    _make_highcard_builder). Seed s takes cut TEMPORAL_CUTS[s % 3]: train on
+    everything before it, test on the window that follows. Test rows whose class
+    never appears in training are dropped -- the model cannot emit a probability
+    for an unseen label, and scoring them would credit confident wrong answers
+    (the one-hot row would be all zeros, so Brier would reward low probabilities
+    on every real class).
+    """
+    n = len(y)
+    cut = TEMPORAL_CUTS[seed % len(TEMPORAL_CUTS)]
+    i = int(n * cut)
+    j = min(n, i + int(n * TEMPORAL_TEST_FRAC))
+    if i < 2 or j - i < 2:
+        return None
+    Xtr, ytr, Xte, yte = X[:i], y[:i], X[i:j], y[i:j]
+    if task != "regression":
+        seen = np.unique(ytr)
+        if len(seen) < 2:
+            return None
+        keep = np.isin(yte, seen)
+        if keep.sum() < 2:
+            return None
+        Xte, yte = Xte[keep], yte[keep]
+    return Xtr, Xte, ytr, yte
+
+
 def _run_seed_task(task):
     """Fit every requested model on one (dataset, seed) draw. Top-level and
     picklable so it can run in a worker process. Returns
@@ -1010,7 +1188,7 @@ def _run_seed_task(task):
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
      ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth,
-     need_highcard) = task
+     need_highcard, need_variants) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
@@ -1023,15 +1201,37 @@ def _run_seed_task(task):
         _add_synth_datasets()
     if need_highcard:
         _add_highcard_datasets()
+    if need_variants:
+        _add_variant_datasets(list(DATASETS))
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
-    strat = y if ttype != "regression" else None
-    Xtr, Xte, ytr, yte = train_test_split(
-        X, y, test_size=0.25, random_state=seed, stratify=strat)
+    variant = ds_name.split(VARIANT_SEP, 1)[1] if VARIANT_SEP in ds_name else ""
+
+    if variant == "time":
+        split = _temporal_split(X, y, seed, ttype)
+        if split is None:
+            # Degenerate window (e.g. a class the training period never saw at
+            # all). Reported as a skip rather than silently scored.
+            print(f"  [skip] {ds_name} (seed {seed}): temporal window "
+                  "left training data with fewer than 2 classes")
+            return ds_name, seed, {"task": ttype, "n_train": 0, "n_total": int(len(y)),
+                                   "n_features": int(X.shape[1]),
+                                   "has_cats": bool(cat)}, {}
+        Xtr, Xte, ytr, yte = split
+    else:
+        strat = y if ttype != "regression" else None
+        Xtr, Xte, ytr, yte = train_test_split(
+            X, y, test_size=0.25, random_state=seed, stratify=strat)
+        if variant in SUS_FRACTIONS:
+            # Shrink TRAINING rows only. The test set is identical to the
+            # parent's for this seed, so the twin reads as a point on the
+            # parent's learning curve rather than a noisier separate dataset.
+            Xtr, ytr = _subsample_train(Xtr, ytr, SUS_FRACTIONS[variant], ttype)
+
     meta = {"task": ttype, "n_train": int(Xtr.shape[0]),
             "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),
-            "has_cats": bool(cat)}
+            "has_cats": bool(cat), "variant": variant or None}
     # Target scale, so the table layer can flag "near-solved" regression datasets
     # (best NRMSE = best_RMSE / y_std below a threshold), where the "% vs best"
     # RMSE ratio explodes a negligible absolute gap. See summarize.NEAR_SOLVED_NRMSE.
@@ -1229,6 +1429,12 @@ def main():
     ap.add_argument("--synth-n", type=int, default=None,
                     help="with --synth, run only the first N suite ids "
                          "(deterministic prefix, pairing-safe).")
+    ap.add_argument("--variants", action="store_true", default=None,
+                    help="add the SUS under-sampled twins and the temporal-split "
+                         "variants for the selected suites (default: on for "
+                         "--decide, off otherwise).")
+    ap.add_argument("--no-variants", dest="variants", action="store_false",
+                    help="suppress the variant families (see --variants).")
     ap.add_argument("--list-datasets", action="store_true",
                     help="print the datasets this run WOULD use, grouped by "
                          "stratum, then exit. Registration is lazy, so this "
@@ -1427,6 +1633,17 @@ def main():
                   if not any(keep_it(k) for keep_it in keepers)]:
             del DATASETS[k]
 
+    # Variants are derived from whatever survived the prune, so they are
+    # registered last. Default on for --decide, off elsewhere, so a plain
+    # --grinsztajn / --highcard run stays comparable with every run in history.
+    need_variants = args.variants if args.variants is not None else bool(args.decide)
+    if need_variants:
+        _add_variant_datasets(list(DATASETS))
+    elif args.datasets and any(VARIANT_SEP in d for d in args.datasets):
+        # Explicitly naming a variant key implies wanting it.
+        _add_variant_datasets(list(DATASETS))
+        need_variants = True
+
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
     available = (list(_ALWAYS)
@@ -1504,7 +1721,7 @@ def main():
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
-              need_synth, need_highcard)
+              need_synth, need_highcard, need_variants)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 
