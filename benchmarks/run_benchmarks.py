@@ -637,7 +637,11 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
     if quantize:
         kw["quantize_gradients"] = True
-    if refit_full:
+    # "off" forces the full-data refit off (default-ON since 0.25.0); a plain
+    # False means "don't override the class default", as for the other knobs.
+    if refit_full == "off":
+        kw["refit_full"] = False
+    elif refit_full:
         kw["refit_full"] = True
     if leaf_estimation_iterations is not None:
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
@@ -735,6 +739,59 @@ def _run_chimera_ensemble_8(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
     # The blessed bagged config (BAGGING_PLAN.md B3): K=8 with the library's
     # bagged-member defaults.
     return _chimera_ens(8, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
+
+
+# --- SELECT program arms (benchmarks/SELECT_PLAN.md) ------------------------
+# Fixed-config ChimeraBoost variants that trade model selection for fit time,
+# so the empty 1x-5x stretch of the strength/slowdown Pareto can be measured.
+# They deliberately ignore the --chimera-* CLI knobs: each is one pinned
+# operating point, and several run side by side in a single benchmark.
+#
+# Passing the STRING "off" is what forces a knob off; the runner's plain
+# `False` defaults mean "don't override the class default" (see _run_chimera).
+# Disabling both decisions statically collapses the search to exactly one
+# booster fit: `select_ll` needs linear_leaves to be None (sklearn_api.py:1436),
+# `cross_ok` and the classifier's `fast` audition both need cross_features to
+# be anything but False (sklearn_api.py:1443, :2101).
+
+
+def _run_chimera_one(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Speed floor: no selection at all, constant leaves. One booster fit."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves="off", cross_features="off",
+                        refit_full="off")
+
+
+def _run_chimera_one_lin(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung 1 (quality=1): one booster fit, linear leaves pinned, no refit."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves=True, cross_features="off",
+                        refit_full="off")
+
+
+def _run_chimera_norefit(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung 2 (quality=2): the full search, without the default's refit."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_full="off")
+
+
+def _run_chimera_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Full search, quarter-length auditions (selection_rounds 100 -> 25)."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        selection_rounds=25)
+
+
+def _run_chimera_refit(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Defaults + refit_full: retrain the ES winner on 100% of the rows.
+
+    The ladder rung above the default. Note it does NOT stack with the
+    bagged rungs -- refit_full is a deliberate no-op inside ensemble
+    members, whose OOB rows already act as an eval set (REFIT_PLAN.md), so
+    ChimeraBoostEns5/Ens8 sit on top of the plain default, not on top of
+    this arm.
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_full=True)
 
 
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -877,6 +934,11 @@ RUNNERS = {
     "ChimeraBoostEns5": _run_chimera_ensemble_5,
     "ChimeraBoostEns8": _run_chimera_ensemble_8,
     "ChimeraBoostEns10": _run_chimera_ensemble,
+    "ChimeraBoostOne": _run_chimera_one,
+    "ChimeraBoostOneLin": _run_chimera_one_lin,
+    "ChimeraBoostSel25": _run_chimera_sel25,
+    "ChimeraBoostRefit": _run_chimera_refit,
+    "ChimeraBoostNoRefit": _run_chimera_norefit,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -888,7 +950,10 @@ RUNNERS = {
 # default (like XGBoost).
 _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
 _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
-                   "ChimeraBoostEns8", "ChimeraBoostEns10")
+                   "ChimeraBoostEns8", "ChimeraBoostEns10",
+                   "ChimeraBoostOne", "ChimeraBoostOneLin",
+                   "ChimeraBoostSel25", "ChimeraBoostRefit",
+                   "ChimeraBoostNoRefit")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 

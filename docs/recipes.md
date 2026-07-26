@@ -20,6 +20,50 @@ proba = clf.predict_proba(X_test)       # columns follow clf.classes_
 
 A plain `fit(X, y)` early-stops on an internal holdout — see [Early stopping](#early-stopping).
 
+## Speed/accuracy ladder
+
+`quality` picks an operating point, from `1` (fastest) to `5` (strongest).
+It is shorthand only: every rung just sets the parameters in the last column,
+and `quality=2` is byte-for-byte the shipped defaults.
+
+```python
+reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
+```
+
+| `quality` | name | fit time | sets |
+|---|---|--:|---|
+| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
+| `2` | balanced | 5.2x | `refit_full=False` |
+| `3` | accurate *(= default)* | 9.2x | — |
+| `4` | ensemble | 17.1x | `n_ensembles=5` |
+| `5` | max | 24.7x | `n_ensembles=8` |
+
+Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
+3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
+buys real accuracy for its extra time, and none is dominated by another.
+
+The default is rung 3, the strongest setting that does not build an ensemble.
+`quality=2` is the pre-0.25.0 default: the same model without the full-data
+refit, for about half the fit time.
+
+**What rung 1 gives up.** By default ChimeraBoost auditions its own
+configuration — constant against linear leaves, plain against cross features —
+which costs two to four boosting fits. `quality=1` pins both decisions instead
+of racing them, so it fits once. On the Grinsztajn suite it still beats
+LightGBM (38 wins to 21) at roughly 1.7x LightGBM's fit time. On
+high-cardinality categorical data the trade is thinner: the saving drops to
+about 1.5x, because categorical preprocessing is a fixed cost the audition
+skip cannot touch, and it loses to the default (1 win, 6 losses, 7 ties). Pin
+it for numeric-heavy data and large sweeps; prefer `2` when categoricals
+dominate.
+
+**Rungs 4 and 5 do not stack on rung 3.** `refit_full` is a no-op inside
+bagged members — their out-of-bag rows already act as an eval set — so the
+ensemble rungs build on the plain defaults, not on `accurate`.
+
+If you set `quality` alongside a parameter it controls, `quality` wins and
+warns. Drop it to set those parameters yourself.
+
 ## Categorical features
 
 Pass your categoricals as `cat_features`, by integer position or — for a DataFrame — by
@@ -171,16 +215,21 @@ budget so a bagged fit uses the same cores a single fit would; pass
 
 ## Full-data refit
 
-`refit_full=True` is the cheaper accuracy lever: after early stopping has
+`refit_full` is **on by default** (since 0.25.0). After early stopping has
 chosen the tree budget on the automatic validation split, the winning
 configuration is retrained on 100% of the rows at that budget, so the final
-model does not pay the 20% holdout data tax. About 2x fit time for a broad
-accuracy gain — largest on small or high-signal data. It composes with
-everything above but is a no-op inside bagged members (their held-out rows
-already serve as an external eval set).
+model does not pay the 20% holdout data tax. It roughly doubles fit time for a
+broad accuracy gain — largest on small or high-signal data — and it is the
+strongest single-model setting measured. It is a no-op inside bagged members
+(their held-out rows already serve as an external eval set), so `n_ensembles`
+builds on the non-refit model rather than stacking with this.
+
+Turn it off when fit time matters more than the last increment of accuracy:
 
 ```python
-reg = ChimeraBoostRegressor(refit_full=True, random_state=0).fit(X_train, y_train)
+reg = ChimeraBoostRegressor(refit_full=False, random_state=0).fit(X_train, y_train)
+# equivalently
+reg = ChimeraBoostRegressor(quality=2, random_state=0).fit(X_train, y_train)
 ```
 
 `feature_importances_` and `shap_values` average across the bag automatically.

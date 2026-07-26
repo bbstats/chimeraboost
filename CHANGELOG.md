@@ -4,6 +4,27 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **``quality=1..5``: named operating points on the speed/accuracy curve.**
+  ``1`` fast, ``2`` balanced (0.24.0's defaults), ``3`` accurate (the
+  current defaults), ``4`` ensemble, ``5`` max. Each rung only pins
+  parameters that already exist, so nothing new is computed;
+  ``quality=None``/``quality=3`` are the defaults and ``quality=2``
+  reproduces 0.24.0 behaviour. Measured on Grinsztajn (3 seeds, one
+  co-run so the column is comparable), **all five rungs sit on the
+  accuracy/speed Pareto frontier**: 31.1% of head-to-head matchups won at
+  1.95x fit time, 45.6% at 5.22x, 69.9% at 9.15x, 83.7% at 17.07x, 94.0%
+  at 24.74x — against LightGBM's 21.6% at 1.14x and CatBoost's 40.9% at
+  13.93x, which is dominated by rung 3 on both axes. Rung 1 buys out the
+  configuration search (the default auditions constant-vs-linear leaves
+  and plain-vs-cross features, costing two to four boosting fits) and
+  fits once; it still beats LightGBM 38W-21L on Grinsztajn, but on
+  high-cardinality categorical data it loses to the default (1W-6L-7T)
+  and saves only 1.5x, so prefer ``quality=2`` there. Rungs 4 and 5 build
+  on the defaults, not on rung 3 — ``refit_full`` is a no-op inside bagged
+  members. Where ``quality`` collides with a parameter you set yourself it
+  wins and warns. Evidence: benchmarks/SELECT_PLAN.md.
+
 ### Changed
 - **Vector-leaf multiclass.** ``MulticlassBoosting`` now grows ONE oblivious
   tree per round with K-vector Newton leaves (shared structure, per-class
@@ -19,21 +40,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   predict via a legacy per-class-forest path. Evidence:
   benchmarks/A1_PLAN.md.
 
-### Added
-- **``refit_full`` (default ``False``): full-data refit of the early-stopped
+- **``refit_full`` (default ``True``): full-data refit of the early-stopped
   winner.** The automatic early-stopping split holds out 20% of the training
-  rows that the final model otherwise never learns from; with
-  ``refit_full=True`` the winning configuration (selected linear-leaf
-  variant, cross pairs, resolved learning rate) is retrained on 100% of the
-  rows at the selected budget, rounds scaled by the train-size ratio.
-  Temperature scaling transfers; ``validation_history_`` keeps the
-  early-stopped fit's curve. No-ops (bit-identical) with an explicit
-  ``eval_set``, ``early_stopping=False``, ``loss="Quantile"`` (its conformal
-  offset needs a genuine holdout), and inside bagged members (their OOB rows
-  are already an external eval set). Costs about one extra fit.
-  Evidence (benchmarks/REFIT_PLAN.md): Grinsztajn 48W-11L +2.0% (Brier
-  18W-5L +2.4%), high-card 10W-3L (Brier 8W-0L), OpenML one-shot 26W-8L
-  +1.3%, synth screen 95W-39L +1.0%.
+  rows that the final model otherwise never learns from; the winning
+  configuration (selected linear-leaf variant, cross pairs, resolved
+  learning rate) is retrained on 100% of the rows at the selected budget,
+  rounds scaled by the train-size ratio. Temperature scaling transfers;
+  ``validation_history_`` keeps the early-stopped fit's curve.
+  **On by default because it is the strongest single-model setting
+  measured** — Grinsztajn 48W-11L +2.0% (Brier 18W-5L +2.4%), high-card
+  10W-3L (Brier 8W-0L), OpenML one-shot gate 26W-8L +1.3%, synth screen
+  95W-39L +1.0%; on the ladder co-run it wins 69.9% of head-to-head
+  matchups where the non-refit model wins 45.6%. **It costs about one extra
+  fit** (5.2x → 9.2x slowdown), so upgrading from 0.24.0 makes a default fit
+  both slower and more accurate, with different predictions. Pass
+  ``refit_full=False`` or ``quality=2`` for the 0.24.0 behaviour.
+  No-ops (bit-identical) with an explicit ``eval_set``,
+  ``early_stopping=False``, ``loss="Quantile"`` (its conformal offset needs
+  a genuine holdout), and inside bagged members (their OOB rows are already
+  an external eval set — so ``n_ensembles`` builds on the non-refit model
+  rather than stacking with this). Evidence: benchmarks/REFIT_PLAN.md,
+  benchmarks/SELECT_PLAN.md.
 
 ## [0.24.0] - 2026-07-24
 ### Added

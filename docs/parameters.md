@@ -2,6 +2,12 @@
 
 For more detail, see [API reference](api.md).
 
+## Operating point
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `quality` | `None` | Named operating point on the speed/accuracy curve, `1` (fastest) to `5` (strongest). Sets only the parameters listed in [Recipes → speed/accuracy ladder](recipes.md#speedaccuracy-ladder); `None` and `2` are both exactly the shipped defaults. Where it collides with a parameter you set yourself, `quality` wins and warns — drop it to take control back. |
+
 ## Core boosting
 
 | Parameter | Default | Effect |
@@ -84,7 +90,7 @@ The classifier picks its loss automatically: binary logloss for 2 classes, softm
 | `early_stopping` | `True` | Hold out a validation split and stop on a plateau. Set `False` to build a fixed `n_estimators` trees. |
 | `early_stopping_rounds` | `None`→`50` | Patience when early stopping is active. `50` is the sweet spot across the Grinsztajn suite; raising it to `100`–`300` helps only large, high-signal datasets (e.g. covertype, electricity, pol) and costs ~25–35% more trees, so it is not worth it as a default — bump it yourself for that kind of data. |
 | `validation_fraction` | `0.2` | Held-out fraction (stratified for classifiers). Ignored when `eval_set` is passed to `fit`. |
-| `refit_full` | `False` | Accuracy mode: after early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on 100% of the rows at that budget (rounds scaled by the train-size ratio). Roughly doubles fit time; broad accuracy gain everywhere the automatic split ran. No effect with an explicit `eval_set`, `early_stopping=False`, `loss="Quantile"`, or inside bagged members. |
+| `refit_full` | `True` | After early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on 100% of the rows at that budget (rounds scaled by the train-size ratio), so the model does not pay the holdout data tax. Roughly doubles fit time; broad accuracy gain everywhere the automatic split ran, and the strongest single-model setting measured. Set `False` (or `quality=2`) for the faster pre-0.25.0 behaviour. No effect with an explicit `eval_set`, `early_stopping=False`, `loss="Quantile"`, or inside bagged members. |
 
 See [Recipes → early stopping](recipes.md#early-stopping) for `eval_set` and `groups`.
 
