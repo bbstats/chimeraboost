@@ -18,8 +18,28 @@ near-Bayes-optimal data) — it stays as the DIAGNOSTIC:
 - `--metric blended` re-renders the legacy view (writes pareto_blended.png, never the headline)
 - x-axis = slowdown (mean fit-time multiple vs fastest model); frontier = up-and-left
 
+**Two charts now (issue #37).** `make_pareto.py` is the INTERNAL north star and is
+unchanged. `make_public_pareto.py` is the PUBLISHED one:
+- scored against **CatBoost + LightGBM only** — each ChimeraBoost point is never
+  scored against its sibling rungs. The internal axis is field-relative, so every
+  row moves when an arm is added, and with several of our rungs against two
+  competitors most opponents would be our own arms ("wins N% of matchups" would
+  largely be us beating ourselves). Competitor-relative is stable: adding a rung
+  leaves every other row untouched (pinned in `tests/test_public_winrate.py`).
+- meant for the sealed `pub:` suite (`benchmarks/PUBLIC_PLAN.md`). Pointed at any
+  other run it prints a NOT-A-PUBLISHABLE-READ banner and stamps the figure —
+  a chart on the suites we tune against is in-sample.
+- XGBoost and RandomForest are gone: XGB tracks LightGBM, and RF was never in
+  the harness (both were chart-only rows on the TabArena figure).
+
 Notes:
 - Ship-gating is UNCHANGED (sign tests per /experiment); the win-rate axis is chart legibility only.
+- Reference points below PREDATE the issue-#37 timing fix: `fit_time` no longer
+  includes predict + metric computation, so every slowdown must be re-read once
+  on a fresh run before being quoted. Scoring was 31% of the old "fit time" for
+  ChimeraBoost on breast_cancer vs 14% for LightGBM — our predict is absolutely
+  slower, so the old convention OVERSTATED our slowdown and the correction moves
+  in our favour.
 - The input JSON must be a fresh multi-model run (ChimeraBoost + CatBoost + LightGBM + sklearn_HGB
   at minimum) — mixing runs from different machines/fields breaks the %, win-rate, and speed columns.
 - `images/pareto.png` + `images/winrate_matrix.png` are committed — commit the refresh after a

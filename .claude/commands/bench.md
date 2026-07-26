@@ -11,6 +11,10 @@ output verbatim in a code block.
 - If no run is in progress, the output is the latest completed results table.
   Relay it, and if you are mid-experiment, remind the user which experiment that
   result belongs to and what is running/next.
+- A `--decide` run prints ONE TABLE PER STRATUM (Grinsztajn, high-card, and any
+  `@sus` / `@time` variant families). Relay them all; never merge them into a
+  single table or quote a combined figure — the strata answer different
+  questions and a variant reuses its parent's rows.
 
 Keep it phone-friendly: the table or progress block first, then at most two
 lines of commentary. Do not re-run the benchmark.

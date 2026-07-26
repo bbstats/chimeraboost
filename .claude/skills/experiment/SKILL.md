@@ -17,32 +17,45 @@ The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_feat
    recipe factor can express the idea. Known v1 biases (don't over-read): targets run slightly
    shallow (depth-4 arm disagrees), synthetic cats lack entity effects (CatBoost's high-card
    moat absent), mcw large-n slice leans positive — see `benchmarks/synthgen/README.md`.
-2. **Decision-suite A/B — Grinsztajn + HC (run BOTH, sign-test SEPARATELY):**
-   - Grinsztajn (the low/no-card, 0-multiclass suite):
-     `python benchmarks/run_benchmarks.py --grinsztajn --seeds 3 --save`.
-   - HC (the real high-cardinality suite: entity cats, high card, multiclass — the
-     regime Grinsztajn is blind to; `benchmarks/HIGHCARD_PLAN.md`):
-     `python benchmarks/run_benchmarks.py --highcard --seeds 3 --save`.
-     Confirmed 2026-07-15 to faithfully express the CatBoost high-card Brier moat
-     the synth entity prior predicted (86–88% CB Brier winrate; `hc_gap.py`).
-   - Baselines: reuse the newest clean `*.json` per suite if field/seeds match, else run one.
-     Variant flags: see `--chimera-*` args in run_benchmarks.py.
+2. **Decision tier — ONE run, reported per stratum:**
+   `python benchmarks/run_benchmarks.py --decide --seeds 3 --save`
+   runs Grinsztajn + HC together (73 datasets) plus their variant families
+   (~23 more; `--no-variants` to skip). Strata:
+   - **Grinsztajn** — low/no-card, zero multiclass. Note its loaders pass NO
+     `cat_features`, so cat levers cannot show up here.
+   - **HC** — real high-cardinality cats + multiclass, the regime Grinsztajn is
+     blind to (`benchmarks/HIGHCARD_PLAN.md`). Confirmed 2026-07-15 to express
+     the CatBoost high-card Brier moat (86–88% CB Brier winrate; `hc_gap.py`).
+   - **`@sus25` / `@sus50`** — 25%/50% of the training rows, test set unchanged.
+     The small-data regime; a twin reads as a point on its parent's learning curve.
+   - **`@time`** — temporal splits on 7 audited HC datasets (`VARIANTS.md`).
+     Distribution shift — the only regime probing "train on the past, predict the
+     future", which every other split here is blind to.
+   - Baselines: reuse the newest clean `*.json` if field/seeds match, else run one.
+     Variant flags: see `--chimera-*` args. `--list-datasets` shows what a run
+     will cover without downloading anything.
    - **Sequential only** — never two benchmarks at once (HC's CatBoost fits run
      50–240 s on card 7k–15k). Progress: `python benchmarks/bench_status.py`.
-   - Compare each suite: `python benchmarks/compare_runs.py BASE.json NEW.json`
-     (per-dataset sign test). **Report the two sign tests separately**, then a
-     pooled union verdict. A change that wins on only ONE suite needs a mechanism
-     story for why (e.g. a high-card lever helps HC but is inert on Grinsztajn).
-     Exact ship-rule weighting Grinsztajn vs HC = Nathan's call at first live use
-     (not hardcoded). HC multiclass Brier/F1 columns are report-only — the blended
-     north star (make_pareto) is unchanged.
+   - Sign-test: `python benchmarks/compare_runs.py BASE.json NEW.json --by-suite`
+     → one INDEPENDENT test per stratum. **Never pool them.** The suites answer
+     different questions, and a variant reuses its parent's rows, so a pooled bar
+     would count the same data twice and be a weaker test wearing the same name.
+     A change that wins on only ONE stratum needs a mechanism story for why (e.g.
+     a high-card lever helps HC but is inert on Grinsztajn). Exact ship-rule
+     weighting across strata = Nathan's call at first live use (not hardcoded).
+     HC multiclass Brier/F1 columns are report-only.
 3. **Independent one-shot gate**: `--openml` (never re-run until it passes — it's one-shot to stay independent).
    PMLB (`--pmlb --pmlb-fold tune`) is only for HP tuning, with `holdout` as its confirm fold.
 
 **Always print the aggregate table after every run** (bench_status or summarize output), unprompted.
 
 Ship rules:
-- Decisive sign test + mean improvement on Grinsztajn AND a non-negative OpenML gate.
+- Decisive sign test + a non-negative MEDIAN improvement on Grinsztajn AND a
+  non-negative OpenML gate. (Median, not mean: the mean of relative gaps is the
+  statistic that produced this project's −144% and −8e21% readings. The run
+  summary now reports head-to-head win rate with a bootstrap CI plus a median
+  gap, scored on Brier for classification like every other decision — it used to
+  print an unguarded mean on F1, disagreeing with both the chart and the gate.)
 - Brier gains ship even at small F1 cost. Large speed regressions need explicit user sign-off
   (user accepted 7.9× for cross_features: "as long as we are Pareto and all python").
 - Near-solved guards (`summarize.NEAR_SOLVED_NRMSE`, Brier `skip_best_below`) exist because
@@ -61,4 +74,11 @@ CWD. For worktree baselines set `PYTHONPATH=<worktree>` and print `chimeraboost.
 After a ship: update CHANGELOG [Unreleased], regenerate the Pareto (`/pareto`), and record the
 verdict (win or kill — kills are valuable) in memory's algorithm history.
 
-TabArena is NEVER part of this loop — it's a sealed holdout, re-read only after shipping (`/tabarena`).
+Sealed holdouts are NEVER part of this loop: TabArena (`/tabarena`) and the
+`pub:` public suite (`benchmarks/PUBLIC_PLAN.md`) are report-only. Never read
+either — aggregate or per-task — to justify a source change.
+
+Speed note: `fit_time` excludes prediction and metric computation as of issue
+#37, and runs are stamped `timing="fit_only"`. Older result JSONs charged
+scoring to fit, so their Speed columns are not comparable; `compare_runs` and
+`summarize` warn on a mix.

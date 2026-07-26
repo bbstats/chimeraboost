@@ -96,7 +96,7 @@ def report():
             mins = (time.time() - os.path.getmtime(prog_path)) / 60.0
             header += (f"\n# (a run was in progress but its tracker is stale "
                        f"~{mins:.0f}m -- it may have died; showing last results)")
-    return header + "\n" + summarize.format_table(summarize.load(latest))
+    return header + "\n" + summarize.format_stratified(summarize.load(latest))
 
 
 if __name__ == "__main__":

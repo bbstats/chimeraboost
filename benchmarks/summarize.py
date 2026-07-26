@@ -65,6 +65,29 @@ def load(json_path):
         return json.load(f)
 
 
+def timing_mode(data):
+    """"fit_only" for runs whose fit_time excludes scoring, "fit+predict" for
+    older ones.
+
+    Runs saved before the _finish fix charged prediction and metric computation
+    (two predict passes plus a per-class isotonic fit) to fit_time. Their Speed
+    columns read LOWER for slow-fitting models than they should, so the two
+    generations must never be mixed on any speed comparison.
+    """
+    return (data.get("config") or {}).get("timing", "fit+predict")
+
+
+def timing_warning(*datas):
+    """Warning string if the given runs don't share a timing convention, else ""."""
+    modes = {timing_mode(d) for d in datas}
+    if len(modes) <= 1:
+        return ""
+    return ("WARNING: mixing runs with different timing conventions "
+            f"({', '.join(sorted(modes))}). Older runs charged predict + metric "
+            "time to fit_time, so Speed/slowdown columns are NOT comparable "
+            "across them. Strength columns are unaffected.")
+
+
 def latest_json(results_dir=RESULTS_DIR):
     """Path to the most recently modified results .json that has a 'records' key, or None."""
     files = glob.glob(os.path.join(results_dir, "*.json"))
@@ -295,6 +318,63 @@ def bootstrap_winrate_ci(primary, n_boot=10000, seed=0):
     return {m: (float(lo[j]), float(hi[j])) for j, m in enumerate(models)}
 
 
+def winrate_vs_opponents(primary, opponents):
+    """{model: % of (dataset x opponent) matchups won against `opponents` only}.
+
+    The plain field win rate is FIELD-RELATIVE: every model is scored against
+    every other arm in the run, so its number moves when arms are added or
+    removed. That is fine for an internal chart where the field is the point,
+    and wrong for a published one: with several ChimeraBoost rungs against two
+    competitors, most of any rung's opponents are its own siblings, so "wins
+    N% of matchups" would largely be us beating ourselves.
+
+    Restricting the opponent set to the competitors makes the number mean what a
+    reader assumes, and makes it stable -- adding a rung no longer moves every
+    other row. A model is never scored against itself.
+    """
+    opponents = set(opponents)
+    w, c = defaultdict(float), defaultdict(int)
+    for scores in primary.values():
+        present = [o for o in opponents if o in scores]
+        for m, v in scores.items():
+            for o in present:
+                if o == m:
+                    continue
+                w[m] += 1.0 if v < scores[o] else 0.5 if v == scores[o] else 0.0
+                c[m] += 1
+    return {m: 100.0 * w[m] / c[m] for m in w if c[m]}
+
+
+def bootstrap_winrate_vs_opponents_ci(primary, opponents, n_boot=10000, seed=0):
+    """95% bootstrap CI for winrate_vs_opponents, resampling datasets."""
+    opponents = set(opponents)
+    ds_list = sorted(primary)
+    models = sorted({m for s in primary.values() for m in s})
+    W = np.zeros((len(ds_list), len(models)))
+    C = np.zeros_like(W)
+    for i, ds in enumerate(ds_list):
+        scores = primary[ds]
+        present = [o for o in opponents if o in scores]
+        for j, m in enumerate(models):
+            if m not in scores:
+                continue
+            v = scores[m]
+            for o in present:
+                if o == m:
+                    continue
+                W[i, j] += (1.0 if v < scores[o]
+                            else 0.5 if v == scores[o] else 0.0)
+                C[i, j] += 1
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(ds_list), size=(n_boot, len(ds_list)))
+    tw, tc = W[idx].sum(axis=1), C[idx].sum(axis=1)
+    with np.errstate(invalid="ignore"):
+        rates = np.where(tc > 0, 100.0 * tw / np.maximum(tc, 1e-9), np.nan)
+    lo = np.nanpercentile(rates, 2.5, axis=0)
+    hi = np.nanpercentile(rates, 97.5, axis=0)
+    return {m: (float(lo[j]), float(hi[j])) for j, m in enumerate(models)}
+
+
 def aggregate(data):
     """Return (cols, meta) where cols maps column name -> {model: value} and
     meta carries dataset counts for the caption."""
@@ -341,12 +421,69 @@ def aggregate(data):
     return cols, meta
 
 
+SUITE_TAGS = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
+              "oml:": "OpenML suite", "syn:": "SynthGen suite",
+              "hc:": "HC high-cardinality suite",
+              "pub:": "Public suite (sealed)"}
+
+# Variant marker in a dataset key: "gr:reg_num/houses@sus25". A variant is a
+# derived view of its parent dataset (fewer training rows, or a time-ordered
+# split), so it shares data with the parent and must never be pooled with it --
+# doing so would inflate the effective sample size of a sign test.
+VARIANT_SEP = "@"
+VARIANT_LABELS = {"": "full", "sus25": "SUS 25% train",
+                  "sus50": "SUS 50% train", "time": "temporal split"}
+
+
+def base_key(ds):
+    """Dataset key with any variant suffix stripped."""
+    return ds.split(VARIANT_SEP, 1)[0]
+
+
+def variant_of(ds):
+    """Variant tag for a dataset key ("" for the full-size random-split original)."""
+    parts = ds.split(VARIANT_SEP, 1)
+    return parts[1] if len(parts) == 2 else ""
+
+
+def stratum_of(ds):
+    """The reporting / sign-test stratum a dataset key belongs to.
+
+    Suite prefix crossed with variant, e.g. "gr:" + "sus25". Grinsztajn and HC
+    are separate decision suites that CLAUDE.md requires be sign-tested apart,
+    and each variant family is its own stratum for the reason above.
+    """
+    prefix = next((p for p in SUITE_TAGS if base_key(ds).startswith(p)), "")
+    return (prefix, variant_of(ds))
+
+
+def stratum_label(stratum):
+    prefix, variant = stratum
+    suite = SUITE_TAGS.get(prefix, "Built-in panel")
+    if not variant:
+        return suite
+    return f"{suite} - {VARIANT_LABELS.get(variant, variant)}"
+
+
+def split_strata(ds_names):
+    """{stratum: [dataset keys]}, ordered: full-size suites first, then variants."""
+    out = defaultdict(list)
+    for ds in ds_names:
+        out[stratum_of(ds)].append(ds)
+    return dict(sorted(out.items(), key=lambda kv: (kv[0][1] != "", kv[0])))
+
+
+def subset(data, ds_names):
+    """A results dict restricted to `ds_names`, safe to pass to aggregate()."""
+    keep = set(ds_names)
+    return {"config": data.get("config", {}),
+            "datasets": {k: v for k, v in data["datasets"].items() if k in keep},
+            "records": [r for r in data["records"] if r["dataset"] in keep]}
+
+
 def _suite_label(ds_names):
     """Human label for the caption, inferred from dataset key prefixes."""
-    tags = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
-            "oml:": "OpenML suite", "syn:": "SynthGen suite",
-            "hc:": "HC high-cardinality suite"}
-    found = {label for pre, label in tags.items()
+    found = {label for pre, label in SUITE_TAGS.items()
              if any(d.startswith(pre) for d in ds_names)}
     if not found:
         return "Built-in panel"
@@ -410,6 +547,28 @@ def format_table(data, label=None):
     return "\n".join(lines)
 
 
+def format_stratified(data):
+    """One table per stratum, for runs that mix suites or variants.
+
+    A single pooled table over Grinsztajn + HC + variants would be actively
+    misleading: the suites answer different questions, and a variant shares its
+    rows with the parent it was derived from. Strata with a single dataset are
+    still shown -- an honest small-n stratum beats a hidden one.
+    """
+    strata = split_strata(data["datasets"])
+    if len(strata) <= 1:
+        return format_table(data)
+    blocks = []
+    for stratum, ds_names in strata.items():
+        blocks.append(format_table(subset(data, ds_names),
+                                   f"=== {stratum_label(stratum)} "
+                                   f"({len(ds_names)} datasets) ==="))
+    blocks.append("Strata are reported separately and never pooled: the two "
+                  "decision suites answer\ndifferent questions, and a variant "
+                  "reuses its parent's rows.")
+    return "\n\n".join(blocks)
+
+
 def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
                    focus="ChimeraBoost"):
     """Return before/after tables plus a per-column delta for `focus` model."""
@@ -418,6 +577,9 @@ def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
     out = [format_table(base_data, f"=== {base_label} ==="), "",
            format_table(new_data, f"=== {new_label} ==="), "",
            f"=== {focus} delta ({new_label} vs {base_label}) ==="]
+    warn = timing_warning(base_data, new_data)
+    if warn:
+        out.insert(0, warn + "\n")
     # Show whichever column set is richer (multiclass columns appear if either
     # run has multiclass datasets).
     show = _display_cols(base_meta if base_meta.get("n_mul") else new_meta)
