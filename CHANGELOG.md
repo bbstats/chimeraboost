@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.25.0] - 2026-07-26
 ### Added
 - **``quality=1..5``: named operating points on the speed/accuracy curve.**
   ``1`` fast, ``2`` balanced (0.24.0's defaults), ``3`` accurate (the
