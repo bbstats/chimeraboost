@@ -712,6 +712,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-did-it-get-slow-again-after-i-upgraded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why did it get slow again after I upgraded?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#why-oblivious-symmetric-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -875,6 +886,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-did-it-get-slow-again-after-i-upgraded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why did it get slow again after I upgraded?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#why-oblivious-symmetric-trees" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -982,10 +1004,16 @@ use scikit's 'assume_finite'.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">preds</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>        <span class="c1"># finiteness scan skipped</span>
 </code></pre></div>
 <h2 id="why-is-the-very-first-fit-or-predict-slow">Why is the very first fit or predict slow?<a class="headerlink" href="#why-is-the-very-first-fit-or-predict-slow" title="Permanent link">&para;</a></h2>
-<p>That is numba compiling the kernels (one-time per process, disk-cached per
-user). Call <code>chimeraboost.warmup()</code> — or set <code>CHIMERABOOST_WARMUP=1</code> — to
-pay it at import time instead of on the first call. See
-<a href="../deployment/">Deployment</a> for numbers and short-lived-worker patterns.</p>
+<p>That is numba compiling the kernels (one-time, cached on disk per user). Run
+<code>chimeraboost-warmup</code> once after installing to pay it up front, or call
+<code>chimeraboost.warmup()</code> / set <code>CHIMERABOOST_WARMUP=1</code> to pay it at import
+time. See <a href="../deployment/">Deployment</a> for numbers and short-lived-worker
+patterns.</p>
+<h2 id="why-did-it-get-slow-again-after-i-upgraded">Why did it get slow again after I upgraded?<a class="headerlink" href="#why-did-it-get-slow-again-after-i-upgraded" title="Permanent link">&para;</a></h2>
+<p>Numba stamps each cached kernel with its source file's timestamp and size, so
+installing a new ChimeraBoost version invalidates the cache and the next run
+recompiles. Put <code>chimeraboost-warmup</code> in the same script as your
+<code>pip install -U</code>.</p>
 <h2 id="why-oblivious-symmetric-trees">Why oblivious (symmetric) trees?<a class="headerlink" href="#why-oblivious-symmetric-trees" title="Permanent link">&para;</a></h2>
 <p>They make prediction extremely fast and provide strong built-in regularization, at some
 cost to per-tree sharpness. See <a href="../concepts/#oblivious-trees">How it works</a>.</p>

@@ -750,8 +750,12 @@
 <ul>
 <li><strong>Installation</strong></li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost &amp;&amp; chimeraboost-warmup
 </code></pre></div>
+<p><code>chimeraboost-warmup</code> compiles the numba kernels once and caches them, so the
+first <code>fit</code> is not several seconds slower than the rest. Re-run it after each
+upgrade — an upgrade resets the cache. See
+<a href="https://bbstats.github.io/chimeraboost/deployment/">Deployment</a>.</p>
 <ul>
 <li><strong>Sample code:</strong></li>
 </ul>

@@ -857,45 +857,82 @@
 cost, thread control, prediction latency, big batches, model size, and
 fit-time memory.</p>
 <h2 id="the-first-call-pays-the-numba-compile">The first call pays the numba compile<a class="headerlink" href="#the-first-call-pays-the-numba-compile" title="Permanent link">&para;</a></h2>
-<p>ChimeraBoost's kernels are JIT-compiled by numba on first use. In a fresh
-process with a cold cache, the first <code>fit</code> takes several seconds and the
-first <code>predict</code> over a second — steady-state they are milliseconds
-(numbers below). Compiled kernels are cached on disk per user, so later
-processes pay only a small cache-load cost.</p>
-<p>Measured on a 12-core desktop (0.18-era code):</p>
+<p>ChimeraBoost's kernels are JIT-compiled by numba on first use. With a cold
+cache the first <code>fit</code> takes seconds; steady-state it is milliseconds.
+Compiled kernels are cached on disk per user, so later processes pay only a
+small cache-load cost.</p>
+<p>Run this once after installing and the wait never lands on a real call:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install -U chimeraboost &amp;&amp; chimeraboost-warmup
+</code></pre></div>
+<p><strong>Re-run it after every upgrade.</strong> Numba stamps each cache entry with its
+source file's modification time and size, so installing a new ChimeraBoost
+version invalidates the cache and the next run compiles from scratch again.
+This surprises people who assumed the cost was once per machine.</p>
+<p>Measured on a 12-core desktop, regenerate with
+<code>python benchmarks/cold_start.py --kernels</code>:</p>
 <table>
 <thead>
 <tr>
 <th>First call in a fresh process</th>
-<th>stone-cold</th>
-<th>warm disk cache</th>
+<th>cold cache</th>
+<th>warm cache</th>
+<th>steady state</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>fit</code> (1K rows)</td>
-<td>4.4–9.3 s</td>
-<td>≈ 0.5 s</td>
+<td><code>import chimeraboost</code></td>
+<td>1.35 s</td>
+<td>1.35 s</td>
+<td>—</td>
 </tr>
 <tr>
-<td><code>predict</code> (1K rows)</td>
-<td>1.3–1.8 s</td>
-<td>≈ 0.2 s</td>
+<td><code>warmup()</code></td>
+<td>13.2 s</td>
+<td>0.97 s</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>fit</code> (3K rows, 2 categorical)</td>
+<td>10.1 s</td>
+<td>0.83 s</td>
+<td>0.27 s</td>
+</tr>
+<tr>
+<td><code>predict</code> (1 row, unpickled model)</td>
+<td>0.98 s</td>
+<td>0.27 s</td>
+<td>0.5 ms</td>
 </tr>
 </tbody>
 </table>
+<p>Two thirds of that cold compile is two kernels: the linear-leaf solver and
+the fused tree-build level. They are parallel kernels, which are expensive to
+compile and several times faster to run — worth the trade, but it is why the
+number is seconds rather than milliseconds.</p>
 <p>The serving shape is the painful one: a process that only unpickles a model
-pays that first-predict cost on its first request. <code>warmup()</code> in a fresh
-process took 0.38 s and removed it entirely (first predict ≈ 1 ms after).</p>
-<p>For short-lived workers (serverless, per-request processes, benchmark
-harnesses that spawn fresh workers), pre-compile at import time:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">chimeraboost</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">chimeraboost</span><span class="o">.</span><span class="n">warmup</span><span class="p">()</span>          <span class="c1"># compile everything now, not on first fit</span>
+pays the first-predict cost on its first request. <code>warmup()</code> removes it.</p>
+<p>When you cannot run the command — serverless, per-request processes,
+benchmark harnesses that spawn fresh workers — compile from inside the
+process instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">chimeraboost</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">chimeraboost</span><span class="o">.</span><span class="n">warmup</span><span class="p">()</span>          <span class="c1"># compile everything now, not on first fit</span>
 </code></pre></div>
 <p>or set the environment variable <code>CHIMERABOOST_WARMUP=1</code> (compile at
 import) / <code>CHIMERABOOST_WARMUP=background</code> (compile on a daemon thread
 while your process boots). Timing a fresh worker without warmup measures
 numba's compiler, not the model.</p>
+<p><code>warmup()</code> skips the SHAP kernels by default, since most callers never use
+them and they add ~3.7 s. If you serve explanations, use <code>warmup(shap=True)</code>
+or <code>chimeraboost-warmup --shap</code>.</p>
+<p>The first fit on a cold cache prints a one-line notice to stderr explaining
+the wait. It appears only when the cache really is cold — roughly once per
+installed version — and <code>CHIMERABOOST_NO_NOTICE=1</code> silences it.</p>
+<p>There is no way to move this compile into <code>pip install</code>. Numba's
+ahead-of-time compiler was retired, and a pre-built cache cannot be shipped
+in a wheel: its key includes the exact CPU model and feature set of the
+machine that built it, plus the installed file's timestamp. One command after
+install is the whole of the fix.</p>
 <h2 id="thread-control">Thread control<a class="headerlink" href="#thread-control" title="Permanent link">&para;</a></h2>
 <p><code>thread_count</code> applies to both <code>fit</code> and <code>predict</code>, and the process-global
 numba thread setting is restored afterwards — fitting one model with
@@ -944,8 +981,8 @@ validation, dtype conversion, binning), not the forest walk:</p>
 binned matrix — roughly 10 bytes per cell of transient memory on top of
 your input. For very large scoring jobs (tens of millions of rows), chunk
 the calls; predictions are row-independent, so the results are identical:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1_000_000</span><span class="p">])</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="mi">1_000_000</span><span class="p">)])</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1_000_000</span><span class="p">])</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>                        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="mi">1_000_000</span><span class="p">)])</span>
 </code></pre></div>
 <h2 id="model-size-and-persistence">Model size and persistence<a class="headerlink" href="#model-size-and-persistence" title="Permanent link">&para;</a></h2>
 <p>A fitted estimator pickles like any scikit-learn object (see
