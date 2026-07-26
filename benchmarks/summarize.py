@@ -318,6 +318,63 @@ def bootstrap_winrate_ci(primary, n_boot=10000, seed=0):
     return {m: (float(lo[j]), float(hi[j])) for j, m in enumerate(models)}
 
 
+def winrate_vs_opponents(primary, opponents):
+    """{model: % of (dataset x opponent) matchups won against `opponents` only}.
+
+    The plain field win rate is FIELD-RELATIVE: every model is scored against
+    every other arm in the run, so its number moves when arms are added or
+    removed. That is fine for an internal chart where the field is the point,
+    and wrong for a published one: with several ChimeraBoost rungs against two
+    competitors, most of any rung's opponents are its own siblings, so "wins
+    N% of matchups" would largely be us beating ourselves.
+
+    Restricting the opponent set to the competitors makes the number mean what a
+    reader assumes, and makes it stable -- adding a rung no longer moves every
+    other row. A model is never scored against itself.
+    """
+    opponents = set(opponents)
+    w, c = defaultdict(float), defaultdict(int)
+    for scores in primary.values():
+        present = [o for o in opponents if o in scores]
+        for m, v in scores.items():
+            for o in present:
+                if o == m:
+                    continue
+                w[m] += 1.0 if v < scores[o] else 0.5 if v == scores[o] else 0.0
+                c[m] += 1
+    return {m: 100.0 * w[m] / c[m] for m in w if c[m]}
+
+
+def bootstrap_winrate_vs_opponents_ci(primary, opponents, n_boot=10000, seed=0):
+    """95% bootstrap CI for winrate_vs_opponents, resampling datasets."""
+    opponents = set(opponents)
+    ds_list = sorted(primary)
+    models = sorted({m for s in primary.values() for m in s})
+    W = np.zeros((len(ds_list), len(models)))
+    C = np.zeros_like(W)
+    for i, ds in enumerate(ds_list):
+        scores = primary[ds]
+        present = [o for o in opponents if o in scores]
+        for j, m in enumerate(models):
+            if m not in scores:
+                continue
+            v = scores[m]
+            for o in present:
+                if o == m:
+                    continue
+                W[i, j] += (1.0 if v < scores[o]
+                            else 0.5 if v == scores[o] else 0.0)
+                C[i, j] += 1
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(ds_list), size=(n_boot, len(ds_list)))
+    tw, tc = W[idx].sum(axis=1), C[idx].sum(axis=1)
+    with np.errstate(invalid="ignore"):
+        rates = np.where(tc > 0, 100.0 * tw / np.maximum(tc, 1e-9), np.nan)
+    lo = np.nanpercentile(rates, 2.5, axis=0)
+    hi = np.nanpercentile(rates, 97.5, axis=0)
+    return {m: (float(lo[j]), float(hi[j])) for j, m in enumerate(models)}
+
+
 def aggregate(data):
     """Return (cols, meta) where cols maps column name -> {model: value} and
     meta carries dataset counts for the caption."""

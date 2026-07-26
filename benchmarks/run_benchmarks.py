@@ -262,11 +262,17 @@ def _add_variant_datasets(base_keys):
         vkey = f"{key}{VARIANT_SEP}time"
         if vkey in DATASETS:
             continue
-        if not key.startswith("hc:"):
+        # Both suites load real OpenML frames through the same builder, so both
+        # can carry a temporal twin. Grinsztajn cannot (see VARIANTS.md).
+        if key.startswith("hc:"):
+            spec, cap = HC_DATASETS[key[len("hc:"):]], _HIGHCARD_MAX_ROWS
+        elif key.startswith("pub:"):
+            spec, cap = PUBLIC_DATASETS[key[len("pub:"):]], _PUBLIC_MAX_ROWS
+        else:
             raise ValueError(
-                f"temporal variants are only wired for the hc: suite, got {key!r}")
-        DATASETS[vkey] = _make_highcard_builder(
-            HC_DATASETS[key[len("hc:"):]], time_col=col)
+                "temporal variants need a builder that keeps column names; "
+                f"{key!r} is not from the hc: or pub: suites")
+        DATASETS[vkey] = _make_highcard_builder(spec, time_col=col, max_rows=cap)
 
 
 def _task_of(ds_name):
@@ -280,6 +286,8 @@ def _task_of(ds_name):
         return PMLB_TASKS[ds_name]
     if ds_name.startswith("hc:"):
         return HC_TASKS[ds_name]
+    if ds_name.startswith("pub:"):
+        return PUBLIC_TASKS[ds_name]
     if ds_name.startswith("syn:"):
         return SYN_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
@@ -632,6 +640,25 @@ HC_DATASETS = {
     "Moneyball":             dict(data_id=41021, task="regression"),  # Team 39
 }
 HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
+
+# --------------------------------------------------------------------------
+# PUBLIC suite (issue #37) -- the sealed suite behind the published chart.
+#
+# SEALED: report-only. No result from it, aggregate or per-task, may influence a
+# source change. It exists because the published chart must not run on
+# Grinsztajn or HC -- we tune against those, so charting them would be in-sample
+# and would contradict the north star ("true generalization, never faked from
+# data"). Decisions keep running on synth -> Grinsztajn + HC -> OpenML gate.
+#
+# EMPTY PENDING AUDIT. The selection criteria, the overlap gate and the
+# procedure are in benchmarks/PUBLIC_PLAN.md. The list is deliberately not
+# populated from remembered OpenML ids: HIGHCARD_PLAN.md's step 0 requires every
+# candidate be verified in-session, and the OpenML API was returning HTTP 504
+# throughout the session that built this machinery. Filling it in is one line
+# per dataset once the audit runs.
+PUBLIC_DATASETS = {}
+PUBLIC_TASKS = {}   # "pub:<name>" -> task, filled at registration
+_PUBLIC_MAX_ROWS = 200000   # higher cap than HC: the speed axis is the point
 _HIGHCARD_MAX_ROWS = 100000
 # Categorical columns whose nunique/n exceeds this are row identifiers / free
 # text (e.g. wine-reviews' `description`/`title`, ~94% unique). They carry no
@@ -646,7 +673,7 @@ _HIGHCARD_ID_FRAC = 0.9
 _HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
 
 
-def _make_highcard_builder(spec, time_col=None):
+def _make_highcard_builder(spec, time_col=None, max_rows=None):
     """Build a dataset-builder closure for one HC spec (fetched by data_id, with
     a deterministic 100k subsample). Mirrors the Grinsztajn/PMLB builders.
 
@@ -663,9 +690,9 @@ def _make_highcard_builder(spec, time_col=None):
         target = ds.target.name
         # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
         # harness rng), so the train/test split stays the only seed-dependent step.
-        if len(frame) > _HIGHCARD_MAX_ROWS:
-            frame = frame.sample(_HIGHCARD_MAX_ROWS, random_state=0
-                                 ).reset_index(drop=True)
+        cap = max_rows or _HIGHCARD_MAX_ROWS
+        if len(frame) > cap:
+            frame = frame.sample(cap, random_state=0).reset_index(drop=True)
         if time_col is not None:
             key = _time_sort_key(frame[time_col])
             if key is None:
@@ -696,6 +723,24 @@ def _add_highcard_datasets():
         key = f"hc:{name}"
         DATASETS[key] = _make_highcard_builder(spec)
         HC_TASKS[key] = spec["task"]
+
+
+def _add_public_datasets():
+    """Register the sealed public suite as pub:<name>. Idempotent.
+
+    Reuses the HC builder (fetch by OpenML id, deterministic row cap, drop
+    near-unique categorical id columns) with a larger cap, and honours a
+    per-dataset `time_col` so a public dataset can carry a temporal variant.
+    """
+    if any(k.startswith("pub:") for k in DATASETS):
+        return
+    for name, spec in PUBLIC_DATASETS.items():
+        key = f"pub:{name}"
+        DATASETS[key] = _make_highcard_builder(
+            spec, time_col=None, max_rows=_PUBLIC_MAX_ROWS)
+        PUBLIC_TASKS[key] = spec["task"]
+        if spec.get("time_col"):
+            TEMPORAL_COLUMNS[key] = spec["time_col"]
 
 
 # --------------------------------------------------------------------------
@@ -1188,7 +1233,7 @@ def _run_seed_task(task):
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
      ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth,
-     need_highcard, need_variants) = task
+     need_highcard, need_public, need_variants) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_openml:
@@ -1201,6 +1246,8 @@ def _run_seed_task(task):
         _add_synth_datasets()
     if need_highcard:
         _add_highcard_datasets()
+    if need_public:
+        _add_public_datasets()
     if need_variants:
         _add_variant_datasets(list(DATASETS))
 
@@ -1415,6 +1462,10 @@ def main():
                          "categorical datasets; decision tier 2 alongside "
                          "Grinsztajn). Fetched from OpenML, cached on A: "
                          "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
+    ap.add_argument("--public", action="store_true",
+                    help="run the SEALED public suite behind the published "
+                         "chart (report-only -- never read it to justify a "
+                         "source change; see benchmarks/PUBLIC_PLAN.md).")
     ap.add_argument("--decide", action="store_true",
                     help="run the full decision tier in one go: Grinsztajn + HC "
                          "(+ their SUS/temporal variants unless --no-variants). "
@@ -1616,6 +1667,16 @@ def main():
         if args.highcard:
             keepers.append(lambda k: k.startswith("hc:"))
 
+    need_public = args.public or bool(
+        args.datasets and any(d.startswith("pub:") for d in args.datasets))
+    if need_public:
+        if not PUBLIC_DATASETS:
+            ap.error("the public suite is empty pending its overlap audit -- "
+                     "see benchmarks/PUBLIC_PLAN.md")
+        _add_public_datasets()
+        if args.public:
+            keepers.append(lambda k: k.startswith("pub:"))
+
     need_synth = args.synth or bool(
         args.datasets and any(d.startswith("syn:") for d in args.datasets))
     if need_synth:
@@ -1721,7 +1782,7 @@ def main():
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
-              need_synth, need_highcard, need_variants)
+              need_synth, need_highcard, need_public, need_variants)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 
