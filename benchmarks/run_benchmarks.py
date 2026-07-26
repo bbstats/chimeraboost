@@ -609,6 +609,33 @@ def _compute_metrics(task, y_true, model, X_test):
             "calibration_mcb": mcb}
 
 
+def _finish(task, y_true, model, X_test, t_fit_start):
+    """Stop the fit clock, then score, timing the scoring separately.
+
+    Returns (metrics, fit_seconds, predict_seconds).
+
+    Every runner used to end with
+        return _compute_metrics(...), time.time() - t, best_iter
+    and Python evaluates tuple elements left to right, so metric computation ran
+    BEFORE the clock was read and landed inside "fit_time". For classification
+    that is a full `predict` pass, a full `predict_proba` pass, and one isotonic
+    regression fit per class (the CORP calibration term) — all charged to the
+    model's fit.
+
+    Measured on the built-in panel at the time of the fix: scoring was 31% of the
+    old "fit time" for ChimeraBoost on breast_cancer and 14% for LightGBM (7% and
+    3% on diabetes/regression). Because our predict is absolutely slower than
+    LightGBM's, the old convention OVERSTATED our slowdown — the ChimeraBoost /
+    LightGBM ratio on breast_cancer was 2.08x before and 1.69x after. Those are
+    tiny datasets where prediction dominates; expect a smaller effect on the 50k-
+    100k-row suites. Keep the clock read on its own line.
+    """
+    fit_s = time.time() - t_fit_start
+    t_pred = time.time()
+    metrics = _compute_metrics(task, y_true, model, X_test)
+    return metrics, fit_s, time.time() - t_pred
+
+
 def _val_split(Xtr, ytr, task, seed):
     """Carve an internal validation set from training data for early stopping.
     Never touches the test set."""
@@ -693,7 +720,7 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
             subsample=subsample, colsample=colsample,
             thread_count=threads, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
-    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    return (*_finish(task, yte, m, Xte, t), m.best_iteration_)
 
 
 # Bagged ChimeraBoost: train N members on bootstrap resamples, each early-stopping
@@ -720,7 +747,7 @@ def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
             subsample=subsample, colsample=colsample,
             thread_count=threads, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
-    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    return (*_finish(task, yte, m, Xte, t), m.best_iteration_)
 
 
 def _run_chimera_ensemble(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
@@ -826,7 +853,7 @@ def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
            else HistGradientBoostingClassifier)
     m = Est(**common)
     m.fit(Xtr, ytr)
-    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.n_iter_
+    return (*_finish(task, yte, m, Xte, t), m.n_iter_)
 
 
 def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -840,7 +867,7 @@ def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
     Est = CatBoostRegressor if task == "regression" else CatBoostClassifier
     m = Est(**common)
     m.fit(Xf, yf, cat_features=cat, eval_set=(Xv, yv))
-    return _compute_metrics(task, yte, m, Xte), time.time() - t, m.best_iteration_
+    return (*_finish(task, yte, m, Xte, t), m.best_iteration_)
 
 
 def _xgb_dataframes(Xtr, Xval, Xte, cat_idx):
@@ -887,7 +914,7 @@ def _run_xgboost(task, Xtr, ytr, Xte, yte, cat, threads):
     m = Est(**common)
     m.fit(Xf_in, yf, eval_set=[(Xv_in, yv)], verbose=False)
     best = getattr(m, "best_iteration", None)
-    return _compute_metrics(task, yte, m, Xte_in), time.time() - t, best
+    return (*_finish(task, yte, m, Xte_in, t), best)
 
 
 def _lgb_prepare(Xtr, Xval, Xte, cat_idx):
@@ -925,7 +952,7 @@ def _run_lightgbm(task, Xtr, ytr, Xte, yte, cat, threads):
     Est = lgb.LGBMRegressor if task == "regression" else lgb.LGBMClassifier
     m = Est(**common)
     m.fit(Xf_in, yf, **fit_kw)
-    return _compute_metrics(task, yte, m, Xte_in), time.time() - t, m.best_iteration_
+    return (*_finish(task, yte, m, Xte_in, t), m.best_iteration_)
 
 
 RUNNERS = {
@@ -1464,7 +1491,7 @@ def main():
             for name, res in seed_map[s][1].items():
                 if res is None:
                     continue
-                metrics, secs, best_it = res
+                metrics, secs, pred_secs, best_it = res
                 results[name].append(metrics["primary"])
                 times[name].append(secs)
                 if best_it is not None:
@@ -1472,6 +1499,7 @@ def main():
                 raw_records.append({
                     "dataset": ds_name, "model": name, "seed": s,
                     "metrics": metrics, "fit_time": secs,
+                    "predict_time": pred_secs,
                     "best_iter": int(best_it) if best_it is not None else None,
                 })
 
@@ -1524,6 +1552,10 @@ def main():
                     "threads_per_model": threads_per,
                     "total_threads": total_threads,
                     "jobs": jobs,
+                    # Runs written before this marker charged predict + metric
+                    # computation to fit_time (see _finish). Their speed columns
+                    # are NOT comparable with these; summarize warns on a mix.
+                    "timing": "fit_only",
                 },
                 "datasets": dataset_meta,
                 "records": raw_records,

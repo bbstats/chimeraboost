@@ -65,6 +65,29 @@ def load(json_path):
         return json.load(f)
 
 
+def timing_mode(data):
+    """"fit_only" for runs whose fit_time excludes scoring, "fit+predict" for
+    older ones.
+
+    Runs saved before the _finish fix charged prediction and metric computation
+    (two predict passes plus a per-class isotonic fit) to fit_time. Their Speed
+    columns read LOWER for slow-fitting models than they should, so the two
+    generations must never be mixed on any speed comparison.
+    """
+    return (data.get("config") or {}).get("timing", "fit+predict")
+
+
+def timing_warning(*datas):
+    """Warning string if the given runs don't share a timing convention, else ""."""
+    modes = {timing_mode(d) for d in datas}
+    if len(modes) <= 1:
+        return ""
+    return ("WARNING: mixing runs with different timing conventions "
+            f"({', '.join(sorted(modes))}). Older runs charged predict + metric "
+            "time to fit_time, so Speed/slowdown columns are NOT comparable "
+            "across them. Strength columns are unaffected.")
+
+
 def latest_json(results_dir=RESULTS_DIR):
     """Path to the most recently modified results .json that has a 'records' key, or None."""
     files = glob.glob(os.path.join(results_dir, "*.json"))
@@ -418,6 +441,9 @@ def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
     out = [format_table(base_data, f"=== {base_label} ==="), "",
            format_table(new_data, f"=== {new_label} ==="), "",
            f"=== {focus} delta ({new_label} vs {base_label}) ==="]
+    warn = timing_warning(base_data, new_data)
+    if warn:
+        out.insert(0, warn + "\n")
     # Show whichever column set is richer (multiclass columns appear if either
     # run has multiclass datasets).
     show = _display_cols(base_meta if base_meta.get("n_mul") else new_meta)

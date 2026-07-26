@@ -50,6 +50,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from summarize import NEAR_SOLVED_NRMSE  # noqa: E402  (shared with make_tables)
+from summarize import load as _load_json, timing_warning  # noqa: E402
 
 # Classification analog of NEAR_SOLVED_NRMSE, matching summarize.primary_scores.
 NEAR_SOLVED_BRIER = 1e-3
@@ -135,6 +136,13 @@ def main():
         args.new_path, args.model_new or args.model, args.metric)
     ds_meta = {**meta_b, **meta_n}
     shared = sorted(set(base) & set(new))
+
+    # Strength comparisons are unaffected by the timing convention, but say so
+    # loudly if the two runs straddle the _finish fix — anyone reading a speed
+    # number off these files needs to know.
+    warn = timing_warning(_load_json(args.base_path), _load_json(args.new_path))
+    if warn:
+        print(warn + "\n")
 
     near = set() if args.keep_near_solved else {
         ds for ds in shared
