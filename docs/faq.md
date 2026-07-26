@@ -35,10 +35,18 @@ with sklearn.config_context(assume_finite=True):
 
 ## Why is the very first fit or predict slow?
 
-That is numba compiling the kernels (one-time per process, disk-cached per
-user). Call `chimeraboost.warmup()` — or set `CHIMERABOOST_WARMUP=1` — to
-pay it at import time instead of on the first call. See
-[Deployment](deployment.md) for numbers and short-lived-worker patterns.
+That is numba compiling the kernels (one-time, cached on disk per user). Run
+`chimeraboost-warmup` once after installing to pay it up front, or call
+`chimeraboost.warmup()` / set `CHIMERABOOST_WARMUP=1` to pay it at import
+time. See [Deployment](deployment.md) for numbers and short-lived-worker
+patterns.
+
+## Why did it get slow again after I upgraded?
+
+Numba stamps each cached kernel with its source file's timestamp and size, so
+installing a new ChimeraBoost version invalidates the cache and the next run
+recompiles. Put `chimeraboost-warmup` in the same script as your
+`pip install -U`.
 
 ## Why oblivious (symmetric) trees?
 

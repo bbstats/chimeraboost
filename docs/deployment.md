@@ -6,25 +6,43 @@ fit-time memory.
 
 ## The first call pays the numba compile
 
-ChimeraBoost's kernels are JIT-compiled by numba on first use. In a fresh
-process with a cold cache, the first `fit` takes several seconds and the
-first `predict` over a second — steady-state they are milliseconds
-(numbers below). Compiled kernels are cached on disk per user, so later
-processes pay only a small cache-load cost.
+ChimeraBoost's kernels are JIT-compiled by numba on first use. With a cold
+cache the first `fit` takes seconds; steady-state it is milliseconds.
+Compiled kernels are cached on disk per user, so later processes pay only a
+small cache-load cost.
 
-Measured on a 12-core desktop (0.18-era code):
+Run this once after installing and the wait never lands on a real call:
 
-| First call in a fresh process | stone-cold | warm disk cache |
-|---|---|---|
-| `fit` (1K rows) | 4.4–9.3 s | ≈ 0.5 s |
-| `predict` (1K rows) | 1.3–1.8 s | ≈ 0.2 s |
+```
+pip install -U chimeraboost && chimeraboost-warmup
+```
+
+**Re-run it after every upgrade.** Numba stamps each cache entry with its
+source file's modification time and size, so installing a new ChimeraBoost
+version invalidates the cache and the next run compiles from scratch again.
+This surprises people who assumed the cost was once per machine.
+
+Measured on a 12-core desktop, regenerate with
+`python benchmarks/cold_start.py --kernels`:
+
+| First call in a fresh process | cold cache | warm cache | steady state |
+|---|---|---|---|
+| `import chimeraboost` | 1.35 s | 1.35 s | — |
+| `warmup()` | 13.2 s | 0.97 s | — |
+| `fit` (3K rows, 2 categorical) | 10.1 s | 0.83 s | 0.27 s |
+| `predict` (1 row, unpickled model) | 0.98 s | 0.27 s | 0.5 ms |
+
+Two thirds of that cold compile is two kernels: the linear-leaf solver and
+the fused tree-build level. They are parallel kernels, which are expensive to
+compile and several times faster to run — worth the trade, but it is why the
+number is seconds rather than milliseconds.
 
 The serving shape is the painful one: a process that only unpickles a model
-pays that first-predict cost on its first request. `warmup()` in a fresh
-process took 0.38 s and removed it entirely (first predict ≈ 1 ms after).
+pays the first-predict cost on its first request. `warmup()` removes it.
 
-For short-lived workers (serverless, per-request processes, benchmark
-harnesses that spawn fresh workers), pre-compile at import time:
+When you cannot run the command — serverless, per-request processes,
+benchmark harnesses that spawn fresh workers — compile from inside the
+process instead:
 
 ```python
 import chimeraboost
@@ -35,6 +53,20 @@ or set the environment variable `CHIMERABOOST_WARMUP=1` (compile at
 import) / `CHIMERABOOST_WARMUP=background` (compile on a daemon thread
 while your process boots). Timing a fresh worker without warmup measures
 numba's compiler, not the model.
+
+`warmup()` skips the SHAP kernels by default, since most callers never use
+them and they add ~3.7 s. If you serve explanations, use `warmup(shap=True)`
+or `chimeraboost-warmup --shap`.
+
+The first fit on a cold cache prints a one-line notice to stderr explaining
+the wait. It appears only when the cache really is cold — roughly once per
+installed version — and `CHIMERABOOST_NO_NOTICE=1` silences it.
+
+There is no way to move this compile into `pip install`. Numba's
+ahead-of-time compiler was retired, and a pre-built cache cannot be shipped
+in a wheel: its key includes the exact CPU model and feature set of the
+machine that built it, plus the installed file's timestamp. One command after
+install is the whole of the fix.
 
 ## Thread control
 

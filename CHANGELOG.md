@@ -24,6 +24,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   on the defaults, not on rung 3 — ``refit_full`` is a no-op inside bagged
   members. Where ``quality`` collides with a parameter you set yourself it
   wins and warns. Evidence: benchmarks/SELECT_PLAN.md.
+- **``chimeraboost-warmup`` command** (also ``python -m chimeraboost``) —
+  compiles the numba kernels and caches them on disk, so the wait lands where
+  you chose rather than inside the first ``fit``. Run it after installing,
+  and after every upgrade: numba stamps each cache entry with its source
+  file's mtime and size, so a new version silently resets the cache. This is
+  the closest thing to compiling at install time that numba supports —
+  ahead-of-time compilation (``numba.pycc``) requires ``numpy.distutils``,
+  removed in numpy 1.26, cannot compile ``prange``, and would make the wheel
+  platform-specific; and a pre-built cache cannot be shipped in a wheel
+  because its key includes the building machine's exact CPU model and
+  feature set as well as the installed file's timestamp.
+- **``warmup(shap=True)`` / ``chimeraboost-warmup --shap``** — the SHAP
+  kernels are ~3.7 s of compile that most callers never reach, so they stay
+  opt-in; without this the cost landed on the first ``shap_values`` call.
+- **A one-line notice on a cold first fit.** A silent 15-second first call is
+  indistinguishable from a hang. It prints to stderr only when the on-disk
+  cache really is cold — roughly once per installed version, not once per
+  session — and ``CHIMERABOOST_NO_NOTICE=1`` silences it, as does having
+  ``CHIMERABOOST_WARMUP`` set.
+- **``benchmarks/cold_start.py``** — a reproducible cold/warm/steady-state
+  measurement, including per-kernel compile cost. The numbers in
+  docs/deployment.md now come from it; previously they came from scratchpad
+  scripts that were never committed and had gone stale by six releases.
+
+### Fixed
+- **``warmup()`` missed the small-batch constant-leaf predictor.** A warmed
+  serving process still stalled ~0.31 s on its first single-row ``predict``
+  for a model without linear leaves — exactly the case warmup exists to
+  prevent. Now 0.2 ms. The guard test that should have caught this asserted
+  against a hand-written list of 11 kernels and, run in a full suite, passed
+  only because an earlier test compiled one of them as a side effect; it now
+  enumerates every numba kernel in the package and fails on any that warmup
+  leaves uncompiled without a written reason.
 
 ### Changed
 - **Vector-leaf multiclass.** ``MulticlassBoosting`` now grows ONE oblivious

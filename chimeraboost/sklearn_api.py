@@ -633,6 +633,11 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
     """
     import scipy.sparse as sp
     from sklearn.exceptions import DataConversionWarning
+    if not getattr(estimator, "_is_bag_member", False):
+        # Members fit in worker processes; without this a cold bagged fit
+        # would print the notice once per member.
+        from .warmup import _maybe_notice_cold_compile
+        _maybe_notice_cold_compile()
     if y is None:
         raise ValueError(
             "This estimator requires y to be passed, but the target y is None.")
@@ -861,6 +866,10 @@ def _check_predict_input(estimator, X):
     mismatched input. Messages match scikit-learn's wording for compatibility."""
     from sklearn.utils.validation import check_is_fitted
     check_is_fitted(estimator)
+    # A process that only unpickles a model and serves it never calls fit, so
+    # the predict path needs its own notice.
+    from .warmup import _maybe_notice_cold_compile
+    _maybe_notice_cold_compile()
     # Enforce feature-name agreement with fit (reuse sklearn's logic): a
     # DataFrame whose columns are renamed or *reordered* relative to training
     # otherwise produces silently-wrong predictions. Warns when names are
