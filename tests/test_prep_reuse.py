@@ -180,10 +180,17 @@ def _count_prep_fits(monkeypatch):
     return calls
 
 
+# These pin refit_full=False: the full-data refit (default-on since 0.25.0)
+# necessarily preps a second time, because it trains on a different row set --
+# that is the refit's own cost, not a break in selection's prep sharing, and it
+# is asserted separately in test_refit_adds_exactly_one_prep below.
+
+
 def test_regressor_preps_once(monkeypatch):
     calls = _count_prep_fits(monkeypatch)
     X, y = _mixed_data()
-    m = ChimeraBoostRegressor(n_estimators=60, random_state=0)
+    m = ChimeraBoostRegressor(n_estimators=60, random_state=0,
+                              refit_full=False)
     m.fit(X, y, cat_features=CAT)
     # Selection ran (auditions + possible cross candidate + possible refit),
     # yet the full prep was computed exactly once; the cross candidate only
@@ -195,7 +202,8 @@ def test_regressor_preps_once(monkeypatch):
 def test_classifier_preps_once(monkeypatch):
     calls = _count_prep_fits(monkeypatch)
     X, y = _mixed_data(classification=True)
-    m = ChimeraBoostClassifier(n_estimators=60, random_state=0)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               refit_full=False)
     m.fit(X, y, cat_features=CAT)
     assert calls["n"] == 1
 
@@ -205,10 +213,20 @@ def test_multiclass_classifier_preps_once(monkeypatch):
     # refit) shares one prep exactly like binary.
     calls = _count_prep_fits(monkeypatch)
     X, y = _mixed_data(classification="multiclass")
-    m = ChimeraBoostClassifier(n_estimators=60, random_state=0)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               refit_full=False)
     m.fit(X, y, cat_features=CAT)
     assert m.cross_features_selected_ in (True, False)
     assert calls["n"] == 1
+
+
+def test_refit_adds_exactly_one_prep(monkeypatch):
+    """The default refit costs one extra prep -- one, not one per variant."""
+    calls = _count_prep_fits(monkeypatch)
+    X, y = _mixed_data()
+    ChimeraBoostRegressor(n_estimators=60, random_state=0,
+                          refit_full=True).fit(X, y, cat_features=CAT)
+    assert calls["n"] == 2
 
 
 def test_sklearn_predictions_match_uncached_boosters():

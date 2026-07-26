@@ -24,17 +24,27 @@ def _clf_data(n=3000, k=2, seed=0):
     return X, y
 
 
-def test_default_off_is_identical():
+def test_default_on_is_identical_to_explicit_true():
+    """Default since 0.25.0 (benchmarks/SELECT_PLAN.md): refit_full is ON."""
     X, y = _reg_data()
     a = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
     b = ChimeraBoostRegressor(n_estimators=100, random_state=0,
-                              refit_full=False).fit(X, y)
+                              refit_full=True).fit(X, y)
     np.testing.assert_array_equal(a.predict(X), b.predict(X))
+
+
+def test_opting_out_changes_the_model():
+    X, y = _reg_data()
+    on = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
+    off = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                                refit_full=False).fit(X, y)
+    assert not np.array_equal(on.predict(X), off.predict(X))
 
 
 def test_refit_changes_predictions_and_extends_rounds():
     X, y = _reg_data()
-    base = ChimeraBoostRegressor(n_estimators=200, random_state=0).fit(X, y)
+    base = ChimeraBoostRegressor(n_estimators=200, random_state=0,
+                                 refit_full=False).fit(X, y)
     re = ChimeraBoostRegressor(n_estimators=200, random_state=0,
                                refit_full=True).fit(X, y)
     t_star = len(base.model_.trees_)
@@ -49,7 +59,8 @@ def test_refit_trains_on_the_holdout_rows():
     # The RMSE booster's init is the mean of ITS training targets: the base
     # model's is the 80% split's mean, the refit's must be the full-data mean.
     X, y = _reg_data(n=2500)
-    base = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
+    base = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                                 refit_full=False).fit(X, y)
     re = ChimeraBoostRegressor(n_estimators=100, random_state=0,
                                refit_full=True).fit(X, y)
     assert re.model_.init_ == pytest.approx(float(np.mean(y)), abs=1e-12)
@@ -88,7 +99,8 @@ def test_quantile_keeps_conformal_holdout():
 
 def test_binary_classifier_refit_and_temperature_transfer():
     X, y = _clf_data()
-    base = ChimeraBoostClassifier(n_estimators=150, random_state=0).fit(X, y)
+    base = ChimeraBoostClassifier(n_estimators=150, random_state=0,
+                                  refit_full=False).fit(X, y)
     re = ChimeraBoostClassifier(n_estimators=150, random_state=0,
                                 refit_full=True).fit(X, y)
     assert re.temperature_ == base.temperature_   # calibrated pre-refit
@@ -102,7 +114,8 @@ def test_multiclass_refit():
     X, y = _clf_data(k=3)
     re = ChimeraBoostClassifier(n_estimators=120, random_state=0,
                                 refit_full=True).fit(X, y)
-    base = ChimeraBoostClassifier(n_estimators=120, random_state=0).fit(X, y)
+    base = ChimeraBoostClassifier(n_estimators=120, random_state=0,
+                                  refit_full=False).fit(X, y)
     assert re.predict_proba(X).shape == (len(X), 3)
     assert set(np.unique(re.predict(X))) <= set(np.unique(y))
     assert len(re.model_.trees_) >= len(base.model_.trees_)

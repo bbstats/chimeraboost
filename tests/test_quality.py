@@ -43,13 +43,26 @@ def test_default_none_is_identical():
     assert np.array_equal(a.predict(X), b.predict(X))
 
 
-def test_balanced_rung_is_the_default():
-    """Rung 2 pins nothing, so it must equal the shipped defaults exactly."""
+def test_accurate_rung_is_the_default():
+    """Since 0.25.0 the default is rung 3 -- the strongest non-bagged rung."""
     X, y = _reg_data()
     a = ChimeraBoostRegressor(n_estimators=120, random_state=0).fit(X, y)
     b = ChimeraBoostRegressor(n_estimators=120, random_state=0,
+                              quality=3).fit(X, y)
+    assert np.array_equal(a.predict(X), b.predict(X))
+
+
+def test_balanced_rung_is_the_pre_025_default():
+    """Rung 2 is the old default: the search, without the full-data refit."""
+    X, y = _reg_data()
+    a = ChimeraBoostRegressor(n_estimators=120, random_state=0,
+                              refit_full=False).fit(X, y)
+    b = ChimeraBoostRegressor(n_estimators=120, random_state=0,
                               quality=2).fit(X, y)
     assert np.array_equal(a.predict(X), b.predict(X))
+    # ...and it is genuinely cheaper than the default now is.
+    c = ChimeraBoostRegressor(n_estimators=120, random_state=0).fit(X, y)
+    assert not np.array_equal(b.predict(X), c.predict(X))
 
 
 @pytest.mark.parametrize("q", sorted(QUALITY_NAMES))
@@ -90,6 +103,7 @@ def test_fit_does_not_rewrite_constructor_params():
     assert p["quality"] == 1
     assert p["cross_features"] is None      # pinned only for the fit's duration
     assert p["linear_leaves"] is None
+    assert p["refit_full"] is True          # restored to the class default
 
 
 def test_params_restored_even_when_fit_raises():

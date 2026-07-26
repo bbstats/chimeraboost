@@ -32,15 +32,19 @@ reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 
 | `quality` | name | fit time | sets |
 |---|---|--:|---|
-| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False` |
-| `2` | balanced *(= default)* | 5.2x | — |
-| `3` | accurate | 9.2x | `refit_full=True` |
+| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
+| `2` | balanced | 5.2x | `refit_full=False` |
+| `3` | accurate *(= default)* | 9.2x | — |
 | `4` | ensemble | 17.1x | `n_ensembles=5` |
 | `5` | max | 24.7x | `n_ensembles=8` |
 
 Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
 3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
 buys real accuracy for its extra time, and none is dominated by another.
+
+The default is rung 3, the strongest setting that does not build an ensemble.
+`quality=2` is the pre-0.25.0 default: the same model without the full-data
+refit, for about half the fit time.
 
 **What rung 1 gives up.** By default ChimeraBoost auditions its own
 configuration — constant against linear leaves, plain against cross features —
@@ -211,16 +215,21 @@ budget so a bagged fit uses the same cores a single fit would; pass
 
 ## Full-data refit
 
-`refit_full=True` is the cheaper accuracy lever: after early stopping has
+`refit_full` is **on by default** (since 0.25.0). After early stopping has
 chosen the tree budget on the automatic validation split, the winning
 configuration is retrained on 100% of the rows at that budget, so the final
-model does not pay the 20% holdout data tax. About 2x fit time for a broad
-accuracy gain — largest on small or high-signal data. It composes with
-everything above but is a no-op inside bagged members (their held-out rows
-already serve as an external eval set).
+model does not pay the 20% holdout data tax. It roughly doubles fit time for a
+broad accuracy gain — largest on small or high-signal data — and it is the
+strongest single-model setting measured. It is a no-op inside bagged members
+(their held-out rows already serve as an external eval set), so `n_ensembles`
+builds on the non-refit model rather than stacking with this.
+
+Turn it off when fit time matters more than the last increment of accuracy:
 
 ```python
-reg = ChimeraBoostRegressor(refit_full=True, random_state=0).fit(X_train, y_train)
+reg = ChimeraBoostRegressor(refit_full=False, random_state=0).fit(X_train, y_train)
+# equivalently
+reg = ChimeraBoostRegressor(quality=2, random_state=0).fit(X_train, y_train)
 ```
 
 `feature_importances_` and `shap_values` average across the bag automatically.

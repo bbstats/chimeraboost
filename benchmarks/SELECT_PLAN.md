@@ -200,15 +200,51 @@ column comparable. This run regenerated `images/pareto.png`.
   demands >100% win rates. Frontier membership is by domination and is
   the valid reading there.
 
+## Default flipped to rung 3 (Nathan, 2026-07-25)
+
+> "the DEFAULT should be whichever has best accuracy without ensembling."
+
+That is rung 3 — `refit_full=True`, 69.9% vs rung 2's 45.6%. Re-charted so
+the arm labelled `ChimeraBoost` IS the default
+(`results/20260725-213827.json`):
+
+| rung | arm | win rate | slowdown | frontier |
+|---|---|--:|--:|---|
+| 5 max | Ens8 | 94.0% | 25.66x | yes |
+| 4 ensemble | Ens5 | 83.7% | 17.67x | yes |
+| **3 accurate = DEFAULT** | **ChimeraBoost** | **69.9%** | **9.35x** | **yes** |
+| 2 balanced | NoRefit | 45.6% | 5.36x | yes |
+| 1 fast | OneLin | 31.1% | 2.00x | yes |
+| — | CatBoost | 40.9% | 14.14x | **no** |
+| — | LightGBM | 21.6% | 1.12x | yes |
+| — | sklearn_HGB | 13.3% | 4.84x | no |
+
+The default now beats CatBoost on **49 of 59 datasets while fitting 1.9x
+faster than it**. No new gate is owed: `refit_full` already passed every
+registered bar in REFIT_PLAN (gr 48W-11L, hc 10W-3L, OpenML one-shot
+26W-8L), and it has never shipped in a release — it sat in
+[Unreleased] — so no released behaviour changes under anyone.
+
+**Trap this created.** The rung-1/rung-2 arms only *avoided setting*
+`refit_full`; with the default ON they silently inherited it and stopped
+being those rungs. `_run_chimera` now takes `refit_full="off"` to force
+it, matching the `linear_leaves`/`cross_features` convention. Without
+that fix the ladder would have collapsed to three near-identical points
+and read as a real result.
+
+**Golden coverage gap (pre-existing, worth knowing).** The
+numerical-identity goldens run with `early_stopping=False`, a path where
+`refit_full` is a no-op — so they stayed green through a default flip
+that changes every ordinary fit. They do not cover this.
+
 ## Shipped
 
 `quality=1..5` (`chimeraboost/sklearn_api.py`), a named operating point
-that only pins existing parameters. `quality=None` and `quality=2` are
-both bit-identical to the current defaults, and `quality=1` is
+that only pins existing parameters. `quality=None` and `quality=3` are
+the defaults; `quality=2` reproduces 0.24.0 behaviour; `quality=1` is
 bit-identical to the benchmarked `OneLin` arm on both estimators — so the
-numbers above are the parameter's own, not a lookalike's. Defaults
-unchanged, so no OpenML gate is owed. Docs: `docs/recipes.md`,
-`docs/parameters.md`.
+numbers above are the parameter's own, not a lookalike's. Docs:
+`docs/recipes.md`, `docs/parameters.md`.
 
 ## Still open
 

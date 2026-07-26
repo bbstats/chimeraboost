@@ -637,7 +637,11 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
     if quantize:
         kw["quantize_gradients"] = True
-    if refit_full:
+    # "off" forces the full-data refit off (default-ON since 0.25.0); a plain
+    # False means "don't override the class default", as for the other knobs.
+    if refit_full == "off":
+        kw["refit_full"] = False
+    elif refit_full:
         kw["refit_full"] = True
     if leaf_estimation_iterations is not None:
         kw["leaf_estimation_iterations"] = leaf_estimation_iterations
@@ -754,13 +758,21 @@ def _run_chimera_ensemble_8(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
 def _run_chimera_one(task, Xtr, ytr, Xte, yte, cat, threads):
     """Speed floor: no selection at all, constant leaves. One booster fit."""
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
-                        linear_leaves="off", cross_features="off")
+                        linear_leaves="off", cross_features="off",
+                        refit_full="off")
 
 
 def _run_chimera_one_lin(task, Xtr, ytr, Xte, yte, cat, threads):
-    """One booster fit, but linear leaves pinned on instead of auditioned."""
+    """Rung 1 (quality=1): one booster fit, linear leaves pinned, no refit."""
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
-                        linear_leaves=True, cross_features="off")
+                        linear_leaves=True, cross_features="off",
+                        refit_full="off")
+
+
+def _run_chimera_norefit(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung 2 (quality=2): the full search, without the default's refit."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_full="off")
 
 
 def _run_chimera_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -926,6 +938,7 @@ RUNNERS = {
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
+    "ChimeraBoostNoRefit": _run_chimera_norefit,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -939,7 +952,8 @@ _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
 _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8", "ChimeraBoostEns10",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
-                   "ChimeraBoostSel25", "ChimeraBoostRefit")
+                   "ChimeraBoostSel25", "ChimeraBoostRefit",
+                   "ChimeraBoostNoRefit")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 

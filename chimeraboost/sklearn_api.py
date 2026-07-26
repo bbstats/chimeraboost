@@ -57,16 +57,19 @@ def _quality_overrides(estimator, level):
     """The parameters ``quality=level`` pins on this estimator."""
     if level == 1:
         # Buy out the model-selection search: one booster fit instead of the
-        # default's two-to-four. Only the regressor needs linear_leaves
-        # pinned -- there None means "audition const vs linear", which is
-        # precisely the search this rung declines to pay for. On the
-        # classifier None is already an auto rule (on for binary, off for
-        # multiclass, where an explicit True raises), and it costs no extra
-        # fit, so leave it alone.
-        ov = {"cross_features": False}
+        # default's two-to-four, and skip the full-data refit on top. Only
+        # the regressor needs linear_leaves pinned -- there None means
+        # "audition const vs linear", which is precisely the search this rung
+        # declines to pay for. On the classifier None is already an auto rule
+        # (on for binary, off for multiclass, where an explicit True raises),
+        # and it costs no extra fit, so leave it alone.
+        ov = {"cross_features": False, "refit_full": False}
         if estimator._QUALITY_PINS_LINEAR_LEAVES:
             ov["linear_leaves"] = True
         return ov
+    if level == 2:
+        # The search, without the full-data refit the default now performs.
+        return {"refit_full": False}
     if level == 3:
         return {"refit_full": True}
     # Bagging sits on top of the plain defaults, NOT on top of rung 3:
@@ -1239,7 +1242,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
-    refit_full : bool, default False
+    refit_full : bool, default True
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / calibration have used it), retrain the winning
         configuration on 100% of the rows — rounds scaled by the train-size
@@ -1248,7 +1251,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         (an explicit ``eval_set`` or ``early_stopping=False`` is unchanged);
         ``loss="Quantile"`` ignores it to keep its conformal holdout honest.
         ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        roughly one extra fit.
+        roughly one extra fit. Default since 0.25.0: it is the strongest
+        single-model setting measured (benchmarks/SELECT_PLAN.md). Set
+        ``False``, or ``quality=2``, for the faster pre-0.25 behaviour.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1299,7 +1304,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
-                 refit_full=False, quality=None):
+                 refit_full=True, quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1895,7 +1900,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
-    refit_full : bool, default False
+    refit_full : bool, default True
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / temperature scaling have used it), retrain the
         winning configuration on 100% of the rows — rounds scaled by the
@@ -1904,7 +1909,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         split (an explicit ``eval_set`` or ``early_stopping=False`` is
         unchanged); the calibrated temperature transfers to the refit model.
         ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        roughly one extra fit.
+        roughly one extra fit. Default since 0.25.0: it is the strongest
+        single-model setting measured (benchmarks/SELECT_PLAN.md). Set
+        ``False``, or ``quality=2``, for the faster pre-0.25 behaviour.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1949,7 +1956,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None, refit_full=False,
+                 eval_metric=None, refit_full=True,
                  quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
