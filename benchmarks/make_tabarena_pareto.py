@@ -28,24 +28,43 @@ MODEL_COLOR = {
 }
 
 # TabArena-Lite, default config, bagged. (elo, elo_plus, elo_minus, train_s/1K, predict_s/1K)
-# Refreshed 2026-07-23 (51-task run, 0/51 fail, fresh fits) on 0.23.0, after the
-# predict-side engineering releases 0.21.0-0.23.0 (per-member cat-transform sharing,
-# cross-block cast reuse, serial kernel twins for tiny batches -- all bit-identical
-# on default paths). Elo is relative, so the whole pool was re-read from the
-# regenerated leaderboard.
-# HONEST READ: every Elo in the pool is byte-identical to the 2026-07-20 read
-# (ChimeraBoost 1278, rank 31/68) -- exactly what bit-identical engineering should
-# do to a sealed holdout. The payoff is the timing column: predict 0.162 -> 0.125
-# s/1K (-23%), recovering most of the 0.109 -> 0.162 regression the 0.20.0
-# cat-cross columns introduced. Train 0.83 -> 0.82 = flat (Lite's median task is
-# small and overhead-dominated -- don't read TabArena fit speed from it).
+# Refreshed 2026-07-26 (51-task run, 51/51 fitted, fresh fits) on the 0.25.0 line:
+# A1 vector-leaf multiclass (merged) + the quality ladder and refit_full-by-default
+# (PR #32). Elo is relative, so the whole pool was re-read from the regenerated
+# leaderboard.
+#
+# HONEST READ, and the caveat matters more than the number:
+#   * ChimeraBoost 1278 -> 1279 Elo, rank 31/68 both times. A 1-point move inside a
+#     +54/-58 interval is a wash, and the rest of the pool came back unchanged.
+#   * **This read does NOT exercise refit_full.** TabArena runs bagged (8 child
+#     models per task) and the wrapper hands each child an explicit eval_set
+#     (benchmarks/tabarena/chimeraboost_tabarena_model.py:87-90); refit_full is a
+#     documented no-op whenever an eval_set is supplied, because there is no
+#     internal holdout being wasted. So the default flip is neither vindicated nor
+#     contradicted here -- it is simply not on this protocol's path. Do not cite
+#     this Elo as holdout evidence for it.
+#   * What DID change is train time: 0.82 -> 0.75 s/1K (-8.5%), attributable to A1
+#     (multiclass fits ~2.5x faster; Lite carries multiclass tasks). Predict flat at
+#     0.125 -> 0.123. Lite's median task is small and overhead-dominated, so treat
+#     its fit-speed column as directional only.
+#
+# MEASURED BUT DELIBERATELY NOT CHARTED (one point per chart reads better):
+# the fast rung, quality=1, has its own 51-task run and leaderboard entry
+# (ChimeraBoost_fast; benchmarks/tabarena/run_chimera_fast.py) -- 1243 Elo,
+# rank 36/68, 0.67 s/1K train. Declining the configuration search costs 36 Elo
+# and returns only ~11% of train time HERE, against 4.7x on the development
+# suites: Lite's median task is small and overhead-dominated, and the bagged
+# wrapper fits 8 children per task, so the search amortises over work the fast
+# rung still performs. Re-chart it by restoring the DATA row if ever wanted.
+# Rungs 2 and 3 need no separate point either way -- under an explicit eval_set
+# they are byte-identical, so the ChimeraBoost point below is both of them.
 DATA = {
     "CatBoost":     (1348, 42, 43, 6.70, 0.088),
-    "ChimeraBoost": (1278, 55, 57, 0.82, 0.125),
+    "ChimeraBoost": (1279, 54, 58, 0.75, 0.123),
     "XGBoost":      (1187, 54, 53, 2.06, 0.122),
     "LightGBM":     (1155, 50, 46, 2.20, 0.171),
     "RandomForest": (1000, 58, 58, 0.43, 0.053),
-    "Linear":       (813, 81, 108, 1.23, 0.115),
+    "Linear":       (813, 81, 109, 1.23, 0.115),
 }
 
 

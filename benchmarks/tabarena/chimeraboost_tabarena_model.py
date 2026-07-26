@@ -185,6 +185,45 @@ class ChimeraBoostE10Model(ChimeraBoostModel):
         # all allocated threads; avoids core oversubscription. ~10x train time.
 
 
+class ChimeraBoostFastModel(ChimeraBoostModel):
+    """Deliberate variant: the fast rung of the quality ladder (quality=1).
+
+    A distinct method so it sits ALONGSIDE the default entry, never replacing
+    it. quality=1 declines the configuration search -- one booster fit instead
+    of the default's two-to-four (benchmarks/SELECT_PLAN.md).
+
+    NOTE on which rungs are worth running here: TabArena is bagged and hands
+    every child an explicit eval_set, and refit_full is a no-op whenever one is
+    supplied. So quality=2 and quality=3 collapse to the SAME model on this
+    protocol -- the existing default entry already covers both. Only rung 1 is
+    a distinct point. Rungs 4/5 are the ensembled ones and are represented
+    separately by ChimeraBoost_e10.
+    """
+
+    ag_key = "CHIMERAFAST"
+    ag_name = "ChimeraBoost_fast"
+
+    def _set_default_params(self):
+        super()._set_default_params()   # identical default config ...
+        self._set_default_param_value("quality", 1)   # ... + the fast rung
+
+
+def get_configs_for_chimera_fast():
+    """Single experiment: quality=1, bagged, Lite."""
+    from autogluon.common.space import Int
+
+    from tabarena.utils.config_utils import ConfigGenerator
+
+    gen = ConfigGenerator(
+        model_cls=ChimeraBoostFastModel,
+        manual_configs=[{}],
+        search_space={"n_estimators": Int(100, 1000)},
+    )
+    return gen.generate_all_bag_experiments(
+        num_random_configs=0, fold_fitting_strategy="sequential_local"
+    )
+
+
 def get_configs_for_chimera_e10():
     """Single experiment: default config + n_ensembles=10, bagged, Lite."""
     from autogluon.common.space import Int

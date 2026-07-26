@@ -1,5 +1,5 @@
 # chimeraboost
-### What if CatBoost was slightly worse, 2–6× faster, and all in Python?
+### Lightning fast, near-CatBoost quality, all in Python
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
@@ -18,13 +18,14 @@ pip install chimeraboost
 ```python
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
-# classification (n_ensembles=8 is the benchmarked accuracy mode; avoid 2)
-clf = ChimeraBoostClassifier(early_stopping=True, n_ensembles=8)
+# classification. quality picks the operating point: 1 fastest .. 5 strongest,
+# defaulting to 3. Every rung is on the accuracy/speed Pareto frontier.
+clf = ChimeraBoostClassifier(quality=5)
 clf.fit(X, y, cat_features=[0, 1], sample_weight=w)
 proba = clf.predict_proba(X_test)
 
-# regression (RMSE, MAE, or Quantile)
-reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9, early_stopping=True, n_ensembles=8)
+# regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)
+reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9)
 reg.fit(X, y)
 ```
 
