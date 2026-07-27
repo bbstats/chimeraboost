@@ -1348,8 +1348,10 @@ def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
         lin_feats = donor.lin_feats
         lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
                                     centers_std, Xb, l2, linear_lambda, lr)
-    tree = ObliviousTree(sf, st, values,
-                         np.zeros(len(sf), dtype=np.float64),
+    # Carry the donor's split gains: the structure IS the donor's, so its gains
+    # are the honest attribution for it. Zeroing them would leave
+    # ``feature_importances_`` summing only the trailing grown trees.
+    tree = ObliviousTree(sf, st, values, donor.gains,
                          lin_feats=lin_feats, lin_coef=lin_coef,
                          centers_std=centers_std if lin_coef is not None
                          else None)

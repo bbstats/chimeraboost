@@ -368,13 +368,22 @@ class FeaturePreprocessor:
         return combo_codes
 
     # ---- fit / transform -----------------------------------------------------
-    def fit_transform(self, X, encode_targets, cat_features, sample_weight=None):
+    def fit_transform(self, X, encode_targets, cat_features, sample_weight=None,
+                      binner=None):
         """encode_targets: list of 1D arrays used for ordered TS (len T).
 
         ``sample_weight`` (mean-1 normalized, ``None`` == uniform) is forwarded to
         the ordered-target encoder and the binner so zero-weight rows shape
         neither the categorical statistics nor the bin borders. ``None`` is the
-        unweighted path, bit-identical to before this argument existed."""
+        unweighted path, bit-identical to before this argument existed.
+
+        ``binner`` (internal, for the replay refit) adopts an already-fitted
+        ``Binner`` instead of fitting new borders. Everything upstream --
+        categories, gdiff group means, ordered target statistics -- is still fit
+        on ``X``, so the returned matrix carries proper fit-time (non-leaky)
+        encodings; only the bin borders are held still, because the replayed
+        split thresholds are bin INDICES into them. ``None`` fits a binner as
+        before, bit-identically."""
         cat_ctx = CatTransformCache()
         num, codes = self._split_columns_fit(X, cat_features, cat_ctx)
         self._fit_gdiff(X, sample_weight, cat_ctx)
@@ -403,8 +412,12 @@ class FeaturePreprocessor:
         self.is_numeric_binned_ = np.zeros(feat.shape[1], dtype=bool)
         self.is_numeric_binned_[:num.shape[1]] = True
 
-        self.binner_ = Binner(self.max_bins)
-        X_binned = self.binner_.fit_transform(feat, sample_weight)
+        if binner is None:
+            self.binner_ = Binner(self.max_bins)
+            X_binned = self.binner_.fit_transform(feat, sample_weight)
+        else:
+            self.binner_ = binner
+            X_binned = binner.transform(feat)
         self.n_bins_ = self.binner_.n_bins_
         return X_binned
 

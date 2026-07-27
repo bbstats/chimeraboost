@@ -102,6 +102,42 @@ def test_multiclass_replay_equals_full_refit():
     np.testing.assert_array_equal(full.predict_proba(X), rep.predict_proba(X))
 
 
+def test_replay_does_not_leak_the_target_through_cat_encoding():
+    """Regression test for a real bug: the first replay implementation built
+    its training matrix with the donor's ``transform``, i.e. the INFERENCE-time
+    target statistics, in which a category's mean includes the label of the row
+    being encoded. On a pure-noise 2500-level column that handed the noise 54%
+    of the model's importance and cost 6 points of test AUC.
+
+    The fix refits the ordered (non-leaky) statistics on the refit's own rows
+    and keeps only the donor's bin borders.
+    """
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import train_test_split
+
+    rng = np.random.default_rng(0)
+    n, n_levels = 5000, 2500
+    cat = rng.integers(0, n_levels, n)          # pure noise, unrelated to y
+    num = rng.normal(size=(n, 3))
+    logit = 1.2 * num[:, 0] - num[:, 1] + rng.normal(0, 1, n)
+    y = (logit > np.median(logit)).astype(int)
+    X = np.empty((n, 4), dtype=object)
+    X[:, 0] = np.array([f"id_{c}" for c in cat], dtype=object)
+    X[:, 1:] = num
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=1,
+                                          stratify=y)
+    m = ChimeraBoostClassifier(n_estimators=200, random_state=1,
+                               refit_full="replay").fit(Xtr, ytr,
+                                                        cat_features=[0])
+    tr = roc_auc_score(ytr, m.predict_proba(Xtr)[:, 1])
+    te = roc_auc_score(yte, m.predict_proba(Xte)[:, 1])
+    imp = m.feature_importances_
+    assert te > 0.85                       # generalizes
+    assert tr - te < 0.10                  # not memorizing the noise column
+    # The leak showed up here first and most loudly: 54% vs a few percent.
+    assert imp[0] / imp.sum() < 0.15
+
+
 def test_replay_with_categoricals():
     """The donor's preprocessor (encoder + binner) is reused verbatim, because
     splits_thr are bin indices -- a re-fitted binner would move every

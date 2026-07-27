@@ -523,15 +523,34 @@ class GradientBoosting(_BaseBooster):
 
         donor_trees = None
         if self.replay_donor is not None:
-            # The donor's splits are bin INDICES, so the donor's own binner and
-            # encoder must transform the new rows -- re-fitting the
-            # preprocessor would move every threshold underneath the structures.
-            # This is the predict-time path, applied to the training matrix.
-            donor_trees, self.prep_ = self.replay_donor
+            donor_trees, donor_prep = self.replay_donor
             # Drop the reference once consumed: the donor holds a whole forest,
             # and this booster is the one that gets pickled.
             self.replay_donor = None
-            Xb = np.ascontiguousarray(self.prep_.transform(X).T)
+            # Refit every data-dependent statistic on these rows exactly as a
+            # from-scratch refit would -- categories, gdiff group means, ordered
+            # target statistics -- but ADOPT THE DONOR'S BINNER, because the
+            # replayed split thresholds are bin indices into its borders.
+            #
+            # The donor's `transform` would be wrong here, not merely
+            # approximate: it applies the INFERENCE-time target statistics, in
+            # which a category's mean includes the label of the very row being
+            # encoded. On the training matrix that is straight target leakage
+            # (caught by tests/test_chimeraboost.py::test_ordered_ts_resists_
+            # leakage, where it handed a pure-noise 2500-level column 54% of the
+            # model's importance). Ordered TS exists precisely to prevent it.
+            #
+            # `cat_combinations` is pinned to what the donor actually built
+            # rather than re-resolved at the new row count: it decides how many
+            # TS columns exist, and the transferred splits address columns by
+            # position.
+            self.prep_ = FeaturePreprocessor(
+                self.max_bins, self.cat_smoothing, self.random_state,
+                self.cat_n_permutations, bool(donor_prep.combo_pairs_),
+                self.cross_pairs)
+            Xb = np.ascontiguousarray(
+                self.prep_.fit_transform(X, [y], cat_features, w,
+                                         binner=donor_prep.binner_).T)
             Xvb = (np.ascontiguousarray(self.prep_.transform(
                 as_model_array(eval_set[0], bool(cat_features))).T)
                 if eval_set is not None else None)

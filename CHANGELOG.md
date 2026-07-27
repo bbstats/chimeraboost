@@ -4,25 +4,31 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
-### Added
-- **``refit_full="replay"``: the full-data refit at roughly a third of its
-  cost.** ``refit_full=True`` (the default) retrains the early-stopping
-  winner from scratch on 100% of the rows, and fresh attribution puts that
-  second fit at 37-49% of every default fit. But growing trees is 83-85% of
-  a fit, and the refit already knows the structures it is rediscovering.
-  ``"replay"`` replays the winner's splits round by round against gradients
-  computed on all rows and refits only the leaf values (and the linear-leaf
-  coefficients), so the held-out rows still reach the leaf estimates without
-  re-paying for the split search. Measured against the default at 3 seeds:
-  on Grinsztajn (59 datasets) accuracy is flat — 27W-32L, mean +0.005%,
-  median -0.005% — while fit time drops **34%, faster on 59 of 59
-  datasets**; on the high-cardinality suite (14 datasets) 4W-5L-5T, mean
-  -0.256%, median +0.000%, fit time down 17%. Scalar boosters only:
-  multiclass grows one vector-leaf tree per round through a separate loop
-  and keeps the from-scratch refit, so ``"replay"`` is an exact no-op there.
-  Like ``refit_full=True`` it does nothing with an explicit ``eval_set``,
-  ``early_stopping=False``, ``loss="Quantile"``, or inside bagged members.
-  Defaults are unchanged. Evidence: ``benchmarks/REPLAY_PLAN.md``.
+### Changed
+- **``refit_full`` now defaults to ``"replay"``: the same full-data refit for
+  about two thirds of the fit time.** Refitting the early-stopping winner on
+  100% of the rows has been on by default since 0.25.0, and fresh attribution
+  puts that second, from-scratch fit at 37-49% of every default fit. But
+  growing trees is 83-85% of a fit and is a SEARCH, and the refit already
+  knows the structures it is rediscovering. ``"replay"`` replays the winner's
+  splits round by round against gradients computed on all rows and refits only
+  the leaf values (and the linear-leaf coefficients), so the held-out rows
+  still shape every leaf value without the split search being paid for twice.
+
+  Measured against ``refit_full=True`` at 3 seeds, accuracy is a wash on both
+  decision suites while fit time falls sharply: **Grinsztajn (59 datasets)
+  27W-32L, mean +0.005%, median -0.005%, fit time -34.8% and faster on 58 of
+  59**; high-cardinality (14 datasets) 3W-6L-5T, mean -0.017%, median +0.000%,
+  fit time -15.2%.
+
+  ``refit_full=True`` still selects the from-scratch refit. Scalar boosters
+  only: multiclass grows one vector-leaf tree per round through a separate
+  loop and keeps the from-scratch refit, so ``"replay"`` is an exact no-op
+  there. ``quality=1``/``2`` already disable refitting, and ``quality=4``/``5``
+  are unaffected because ``refit_full`` is a no-op inside bagged members — so
+  the only rung this moves is ``3``, the default. Like ``refit_full=True`` it
+  does nothing with an explicit ``eval_set``, ``early_stopping=False``, or
+  ``loss="Quantile"``. Evidence: ``benchmarks/REPLAY_PLAN.md``.
 
 ## [0.25.0] - 2026-07-26
 ### Added

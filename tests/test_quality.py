@@ -103,7 +103,7 @@ def test_fit_does_not_rewrite_constructor_params():
     assert p["quality"] == 1
     assert p["cross_features"] is None      # pinned only for the fit's duration
     assert p["linear_leaves"] is None
-    assert p["refit_full"] is True          # restored to the class default
+    assert p["refit_full"] == "replay"      # restored to the class default
 
 
 def test_params_restored_even_when_fit_raises():
