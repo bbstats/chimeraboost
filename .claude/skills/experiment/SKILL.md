@@ -44,14 +44,21 @@ The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_feat
      a high-card lever helps HC but is inert on Grinsztajn). Exact ship-rule
      weighting across strata = Nathan's call at first live use (not hardcoded).
      HC multiclass Brier/F1 columns are report-only.
-3. **Independent one-shot gate**: `--openml` (never re-run until it passes — it's one-shot to stay independent).
+3. **RETIRED: the OpenML one-shot gate.** `--openml` is gone (2026-07-27). It was never
+   independent of what it gated — eight of its 29 datasets are exact-name Grinsztajn
+   members (bank-marketing, electricity, cpu_act, wine_quality, elevators, ailerons,
+   abalone, house_16H), so it partly re-scored the data it was meant to check, and it was
+   small and partly solved besides. **Nothing replaces it in the ship path**: Grinsztajn +
+   high-card decide. `--public` (22 audited datasets, zero overlap with anything we tune
+   on) is post-hoc validation — run it occasionally, cite it in docs, and treat a
+   surprise there as a signal to go looking. It NEVER blocks a ship.
    PMLB (`--pmlb --pmlb-fold tune`) is only for HP tuning, with `holdout` as its confirm fold.
 
 **Always print the aggregate table after every run** (bench_status or summarize output), unprompted.
 
 Ship rules:
-- Decisive sign test + a non-negative MEDIAN improvement on Grinsztajn AND a
-  non-negative OpenML gate. (Median, not mean: the mean of relative gaps is the
+- Decisive sign test + a non-negative MEDIAN improvement on Grinsztajn AND on high-card,
+  sign-tested per stratum and never pooled. (Median, not mean: the mean of relative gaps is the
   statistic that produced this project's −144% and −8e21% readings. The run
   summary now reports head-to-head win rate with a bootstrap CI plus a median
   gap, scored on Brier for classification like every other decision — it used to

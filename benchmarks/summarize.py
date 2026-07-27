@@ -424,7 +424,7 @@ def aggregate(data):
 SUITE_TAGS = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
               "oml:": "OpenML suite", "syn:": "SynthGen suite",
               "hc:": "HC high-cardinality suite",
-              "pub:": "Public suite (sealed)"}
+              "pub:": "Public suite (validation)"}
 
 # Variant marker in a dataset key: "gr:reg_num/houses@sus25". A variant is a
 # derived view of its parent dataset (fewer training rows, or a time-ordered

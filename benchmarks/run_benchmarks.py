@@ -310,12 +310,25 @@ def _task_of(ds_name):
 
 
 # --------------------------------------------------------------------------
-# Real external datasets via OpenML (the standard tabular-ML benchmark repo).
-# These are fetched on demand with --openml and cached by sklearn. They exist
-# so that decisions about defaults rest on many real datasets, not a handful of
-# synthetic ones hand-picked here. Each entry: (openml_name_or_id, task,
-# cat_feature_indices_or_None). Categoricals are auto-detected from dtype when
-# the index list is "auto".
+# RETIRED AS A GATE, 2026-07-27. This was the "independent one-shot gate": run
+# once after a change cleared the decision suites, required non-negative to
+# ship. It could not do that job, because it was not independent of what it
+# gated -- EIGHT of these 29 are exact-name members of Grinsztajn
+# (bank-marketing, electricity, cpu_act, wine_quality, elevators, ailerons,
+# abalone, house_16H), so it partly re-scored the very data it was meant to
+# check. nursery is also in PMLB and four more sit in TabArena. It is small and
+# partly solved besides (boston 506 rows, kc2 522, credit-g 1000; mushroom and
+# nursery are near-solved). It was paying compute for a confirmation that was
+# partly guaranteed. Validation now falls to the public suite, which is audited
+# for zero overlap with anything we tune on.
+#
+# The LIST survives only as a dataset registry: benchmarks/research/datasets.py,
+# knob_characterization.py and multiclass_panel.py address these by key, and
+# `--datasets oml:<name>` still registers them. There is no --openml flag and
+# no suite-level run.
+#
+# Each entry: (openml_name_or_id, task, cat_feature_indices_or_None).
+# Categoricals are auto-detected from dtype when the index list is "auto".
 #
 # This list is intentionally broad and editable -- add the datasets you care
 # about. IDs are OpenML dataset IDs (stable); names can drift, so IDs preferred.
@@ -658,13 +671,14 @@ HC_DATASETS = {
 HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
 
 # --------------------------------------------------------------------------
-# PUBLIC suite (issue #37) -- the sealed suite behind the published chart.
+# PUBLIC suite (issue #37) -- the validation suite behind the published chart.
 #
-# SEALED: report-only. No result from it, aggregate or per-task, may influence a
-# source change. It exists because the published chart must not run on
-# Grinsztajn or HC -- we tune against those, so charting them would be in-sample
-# and would contradict the north star ("true generalization, never faked from
-# data"). Decisions keep running on synth -> Grinsztajn + HC -> OpenML gate.
+# VALIDATION suite, not sealed (changed 2026-07-27). Read it freely; it never
+# blocks a ship. It exists because a published chart must not run on Grinsztajn
+# or HC -- we tune against those, so charting them would be in-sample and would
+# contradict the north star ("true generalization, never faked from data").
+# Decisions run on synth -> Grinsztajn + HC. The one sealed holdout is now
+# TabArena's full run, executed by its authors.
 #
 # FROZEN 2026-07-26. Audit matrix, cut reasons and the procedure are in
 # benchmarks/PUBLIC_PLAN.md; 6408 catalogue entries -> 373 survivors -> 21
@@ -674,7 +688,7 @@ HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
 # route needs OpenML's metadata API for the default target, and the metadata
 # tier was dead for days while the data host served normally. Every `target`
 # below was read from the dataset's real columns in-session, which is also the
-# more reproducible arrangement -- a sealed suite must not be able to change
+# more reproducible arrangement -- a frozen suite must not be able to change
 # because someone edited a default-target field upstream.
 #
 # `drop_cols` removes what near-uniqueness cannot catch: numeric row ids and
@@ -829,7 +843,7 @@ def _public_parquet_path(data_id):
     needs OpenML's metadata API for the default target column, and the metadata
     tier was returning HTTP 504 for days while the data host stayed up. Pinning
     the target in the frozen spec instead removes the dependency entirely and is
-    the more reproducible arrangement anyway: a sealed suite should not be able
+    the more reproducible arrangement anyway: a frozen suite should not be able
     to change underneath us because someone edited a default-target field.
     """
     os.makedirs(_PUBLIC_DATA_HOME, exist_ok=True)
@@ -879,7 +893,7 @@ def _add_highcard_datasets():
 
 
 def _add_public_datasets():
-    """Register the sealed public suite as pub:<name>. Idempotent.
+    """Register the public validation suite as pub:<name>. Idempotent.
 
     Loads from data.openml.org's parquet files with an explicitly pinned target
     (see _make_public_builder), shares the HC shaping (row cap, column cuts,
@@ -1597,10 +1611,10 @@ def main():
                          "closely and roughly doubles competitor runtime).")
     ap.add_argument("--only", choices=["regression", "classification"],
                     default=None)
-    ap.add_argument("--openml", action="store_true",
-                    help="include real OpenML benchmark datasets (downloads + caches)")
-    ap.add_argument("--no-synthetic", action="store_true",
-                    help="run ONLY the OpenML datasets (implies --openml)")
+    # --openml / --no-synthetic are GONE: the one-shot gate was retired
+    # 2026-07-27 (see OPENML_SUITE). The datasets stay addressable individually
+    # with --datasets oml:<name> for the research and knob-characterisation
+    # scripts that still use them.
     ap.add_argument("--grinsztajn", action="store_true",
                     help="run the Grinsztajn et al. 2022 tabular benchmark "
                          "(binary + regression), loaded from the HuggingFace mirror.")
@@ -1616,9 +1630,8 @@ def main():
                          "Grinsztajn). Fetched from OpenML, cached on A: "
                          "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
     ap.add_argument("--public", action="store_true",
-                    help="run the SEALED public suite behind the published "
-                         "chart (report-only -- never read it to justify a "
-                         "source change; see benchmarks/PUBLIC_PLAN.md).")
+                    help="run the public validation suite (post-hoc; never "
+                         "blocks a ship; see benchmarks/PUBLIC_PLAN.md).")
     ap.add_argument("--decide", action="store_true",
                     help="run the full decision tier in one go: Grinsztajn + HC "
                          "(+ their SUS/temporal variants unless --no-variants). "
@@ -1790,12 +1803,10 @@ def main():
     # nothing to run -- whichever registered last wiped the other.
     keepers = []
 
-    need_openml = (args.openml or args.no_synthetic or bool(
-        args.datasets and any(d.startswith("oml:") for d in args.datasets)))
+    need_openml = bool(
+        args.datasets and any(d.startswith("oml:") for d in args.datasets))
     if need_openml:
         _add_openml_datasets()
-    if args.no_synthetic:
-        keepers.append(lambda k: k.startswith("oml:"))
 
     need_grinsztajn = args.grinsztajn or bool(
         args.datasets and any(d.startswith("gr:") for d in args.datasets))

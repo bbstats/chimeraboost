@@ -1,10 +1,10 @@
-"""Audit tool for the sealed public suite (issue #37, benchmarks/PUBLIC_PLAN.md).
+"""Audit tool for the public validation suite (issue #37, benchmarks/PUBLIC_PLAN.md).
 
 Two jobs, matching the plan's two gates:
 
   shortlist  Step 0 + step 1. Sweep the OpenML catalogue for datasets big enough
-             to carry a speed axis, drop everything that touches a sealed
-             holdout or a decision suite, and rank what survives by regime.
+             to carry a speed axis, drop everything that touches the sealed
+             TabArena holdout or a suite we tune on, and rank what survives.
 
   verify     Step 1's in-session confirmation, for the properties the metadata
              API cannot be trusted for anyway: row count, column names, dtypes,
@@ -28,8 +28,10 @@ harvested from the live listing API by benchmarks/synthgen/harvest_metadata.py.
 It is a recorded API response, not remembered ids -- but it has a date on it, so
 `shortlist` prints that date and `--refresh` re-fetches when the API is up.
 
-SEALED SUITE. Selection is by data properties only. No model is fit here and no
-benchmark result may enter the decision, or the suite is born cherry-picked.
+Selection is by DATA PROPERTIES ONLY. No model is fit here and no benchmark
+result may enter the decision -- otherwise the suite is born cherry-picked.
+That rule survives unsealing: the suite may be read freely, but it must not be
+CHOSEN from results.
 """
 import argparse
 import json
@@ -47,31 +49,9 @@ CACHE_PATH = os.path.join(_HERE, "data_cache", "openml_meta.json")
 PQ_CACHE = os.environ.get("PUBLIC_AUDIT_CACHE") or r"A:\code\openml_pq"
 PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}.pq"
 
-# Datasets already consumed by an existing suite, spelled out in PUBLIC_PLAN.md.
-# Belt-and-braces on top of the registry pools: Grinsztajn and PMLB carry no
-# OpenML ids, so a set can hide there under a different name.
-CONSUMED = [
-    "covertype", "Higgs", "Allstate_Claims_Severity", "road-safety",
-    "nyc-taxi-green-dec-2016", "diamonds", "house_sales", "Airlines_DepDelay_1M",
-    "MiniBooNE", "jannis", "albert", "delays_zurich_transport", "medical_charges",
-    "particulate-matter-ukair-2017", "seattlecrime6", "SGEMM_GPU_kernel_performance",
-    "Diabetes130US", "superconduct", "APSFailure", "kddcup09_appetency", "adult",
-    "electricity", "letter",
-    # Verified aliases the normalised-name matcher cannot join. Each was caught
-    # by reading the actual columns, not by the gate:
-    #   uci_diabetes_p (42106) is Diabetes130US, same 101,766 rows, and
-    #     Diabetes130US is in Grinsztajn, in TabArena-51 and on this list.
-    #   Winedata (43651) is the Kaggle wine-reviews data -- country/designation/
-    #     points/price/taster_name/variety/winery -- which is hc:wine-reviews
-    #     (41275), a decision suite.
-    #   hcdr_main (45567) and rossmann_store_sales_processed (45646) are
-    #     re-uploads of pub: members already frozen below.
-    "uci_diabetes_p", "Winedata", "hcdr_main", "rossmann_store_sales_processed",
-    # Concatenations that smuggle a consumed dataset in as a column block:
-    #   AirlinesCodrnaAdult (1240) contains adult (gate suite).
-    #   CovPokElec (149) contains covertype and electricity (both consumed).
-    "AirlinesCodrnaAdult", "CovPokElec",
-]
+# The consumed/alias pool lives in suite_overlap so the audit and both suite
+# tests apply one list. Kept as a module alias for readability below.
+CONSUMED = suite_overlap.CONSUMED_ELSEWHERE
 
 # Auto-generated families (criterion 2: real data only) and the streaming
 # generators that OpenML hosts thousands of near-identical draws from.
@@ -149,8 +129,12 @@ def _row(entry):
 
 def shortlist(cat, min_rows=50000):
     """Candidates surviving every exclusion, plus a per-stage cut tally."""
+    # PUB_REUPLOADS is discovery-only: it stops a re-upload of a frozen member
+    # being proposed again, but must stay out of the shared pool (a member would
+    # substring-match its own re-upload).
     pools = suite_overlap.exclusion_pools(
-        include_hc=True, extra=[("consumed", set(), CONSUMED)])
+        include_hc=True,
+        extra=[("pub-reupload", set(), suite_overlap.PUB_REUPLOADS)])
     tab_ids = {int(i) for i in cat.get("tabarena_ids", [])}
 
     cuts = dict(size=0, junk=0, vector=0, width=0, tabarena_id=0, overlap=0)

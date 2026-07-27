@@ -39,6 +39,37 @@ TABARENA_51 = [
 ]
 
 
+# Datasets spent elsewhere that no registry pool catches by name. Two kinds:
+# well-known sets already consumed by a suite whose own list spells them
+# differently, and verified aliases found by reading columns rather than names.
+# This pool is why retiring the OpenML gate did not un-protect `adult` and
+# friends -- they were previously covered only by the gate's id set.
+CONSUMED_ELSEWHERE = [
+    # large sets already inside Grinsztajn / TabArena / HC under other spellings
+    "covertype", "Higgs", "Allstate_Claims_Severity", "road-safety",
+    "nyc-taxi-green-dec-2016", "diamonds", "house_sales", "Airlines_DepDelay_1M",
+    "MiniBooNE", "jannis", "albert", "delays_zurich_transport", "medical_charges",
+    "particulate-matter-ukair-2017", "seattlecrime6", "SGEMM_GPU_kernel_performance",
+    "Diabetes130US", "superconduct", "APSFailure", "kddcup09_appetency", "adult",
+    "electricity", "letter",
+    # verified aliases -- each caught by reading columns, not by the matcher:
+    #   uci_diabetes_p (42106) is Diabetes130US, same 101,766 rows
+    #   Winedata (43651) is the wine-reviews data that is hc:wine-reviews (41275)
+    #   Amazon_access (4135) is TabArena's Amazon_employee_access
+    "uci_diabetes_p", "Winedata", "Amazon_access",
+    # concatenations that smuggle a consumed dataset in as a column block:
+    #   AirlinesCodrnaAdult (1240) contains adult
+    #   CovPokElec (149) contains covertype and electricity
+    "AirlinesCodrnaAdult", "CovPokElec",
+]
+
+# Re-uploads of datasets ALREADY IN the public suite. These are discovery-time
+# filters only and must NOT join the exclusion pool: `rossmann_store_sales` is a
+# frozen member, and the substring matcher would flag it against its own
+# re-upload and fail the overlap test.
+PUB_REUPLOADS = ["hcdr_main", "rossmann_store_sales_processed"]
+
+
 def norm(s):
     """Lowercase and strip everything that isn't a letter or digit."""
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
@@ -74,6 +105,11 @@ def exclusion_pools(include_hc=True, extra=()):
     carries ids, and TABARENA_51 is deliberately names-only. Name matching is
     therefore the load-bearing check for those three.
 
+    The OpenML one-shot gate is NOT a pool: it was retired 2026-07-27 (see
+    OPENML_SUITE) and no longer needs protecting from contamination. Its
+    datasets that mattered are covered anyway -- eight were exact Grinsztajn
+    members and four are in TabArena, so they still fail those pools.
+
     include_hc adds the HC decision suite, checked by id AND name -- correct for
     the public suite, wrong for HC's own test (a suite cannot overlap itself).
     `extra` takes further (tag, ids, names) triples, e.g. a doc-sourced list of
@@ -84,10 +120,9 @@ def exclusion_pools(include_hc=True, extra=()):
         ("TabArena", set(), list(TABARENA_51)),
         ("Grinsztajn", set(),
          [n for names in rb.GRINSZTAJN_DATASETS.values() for n in names]),
-        ("gate", {s["data_id"] for s in rb.OPENML_SUITE.values()},
-         list(rb.OPENML_SUITE)),
         ("PMLB", set(),
          [n for items in rb.PMLB_DATASETS.values() for n, _ in items]),
+        ("consumed", set(), list(CONSUMED_ELSEWHERE)),
     ]
     if include_hc:
         pools.append(("HC", {s["data_id"] for s in rb.HC_DATASETS.values()},

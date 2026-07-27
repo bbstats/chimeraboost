@@ -11,10 +11,14 @@ Differences from make_pareto.py, which stays the internal north star:
 2. **Two competitors, by design.** LightGBM is the speed reference and CatBoost
    the quality reference; XGBoost tracks LightGBM closely and RandomForest is
    not in the harness at all.
-3. **Sealed source.** It is meant to run on the `pub:` suite, which is never
-   read to justify a source change. Pointing it at a decision-suite run is
-   supported for smoke-testing the renderer and is labelled as such on the
-   figure, because a chart drawn on the suites we tune against is in-sample.
+3. **Public-suite source.** It is meant to run on the `pub:` suite. Pointing it
+   at a decision-suite run is supported for smoke-testing the renderer and is
+   labelled as such on the figure, because a chart drawn on the suites we tune
+   against is in-sample and says nothing about generalisation.
+
+The public suite is NOT sealed (that changed 2026-07-27). It is a validation
+suite: read it freely, and it never blocks a ship. The one sealed holdout is
+TabArena's full run, executed by its authors.
 
 Usage:
     python benchmarks/make_public_pareto.py [results.json] [--no-image]
@@ -54,7 +58,14 @@ QUALITY_ARMS = {
     "ChimeraBoostEns8":    (5, "max"),
 }
 DEFAULT_RUNG = "ChimeraBoost"
-PUBLIC_ARMS = tuple(QUALITY_ARMS) + COMPETITORS
+# Only two rungs are charted (Nathan, 2026-07-27, for efficiency): the default
+# and the ensemble one above it. Rungs 1, 2 and 5 come off. quality=5 was the
+# most expensive arm on the board and scored IDENTICALLY to quality=4 across 22
+# datasets -- 64.3% each, same interval, 45% more compute -- so charting it was
+# paying for a duplicate point. quality=1 was beaten by LightGBM on strength
+# while being 2.3x slower. Both stay runnable via --models for a one-off.
+CHARTED_RUNGS = ("ChimeraBoost", "ChimeraBoostEns5")
+PUBLIC_ARMS = CHARTED_RUNGS + COMPETITORS
 
 # One blue family, light (fast) to dark (max), so the ladder reads as a ladder
 # rather than five unrelated models.
@@ -135,18 +146,18 @@ def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
         out[m] = {"winrate": rates[m], "wr_lo": lo, "wr_hi": hi,
                   "slowdown": med_x, "slowdown_mean": mean_x}
     meta["n_h2h"] = len(primary)
-    meta["sealed"] = all(d.startswith("pub:") for d in data["datasets"])
+    meta["all_public"] = all(d.startswith("pub:") for d in data["datasets"])
     return out, meta
 
 
 def text_table(scored, meta):
     front = make_pareto.pareto_frontier(scored)
     lines = []
-    if not meta.get("sealed"):
+    if not meta.get("all_public"):
         lines.append(
-            "NOT A PUBLISHABLE READ: this run is not the sealed pub: suite, so "
-            "these\nnumbers are in-sample for anything we tune. Renderer smoke "
-            "test only.\n")
+            "NOT THE PUBLIC SUITE: this run contains non-pub: datasets, so these "
+            "numbers\nare in-sample for anything we tune. Renderer smoke test "
+            "only.\n")
     lines.append(f"{'Model':<26}{'win% vs competitors':>21}{'95% CI':>16}"
                  f"{'median x':>11}{'mean x':>10}  frontier")
     lines.append("-" * 90)
@@ -230,8 +241,8 @@ def render(scored, meta, path=OUT_PNG):
     ax.set_ylabel("% of matchups won", fontsize=13)
     ax.tick_params(labelsize=12)
     title = "ChimeraBoost - strength vs speed"
-    if not meta.get("sealed"):
-        title += "  [SMOKE TEST - not the sealed suite]"
+    if not meta.get("all_public"):
+        title += "  [SMOKE TEST - not the public suite]"
     ax.set_title(title, fontsize=15, fontweight="bold")
     ax.grid(alpha=0.25)
     fig.tight_layout()

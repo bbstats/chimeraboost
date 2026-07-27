@@ -1,15 +1,16 @@
 """Public suite contracts: registration, frozen-list<->doc agreement, and the
-sealed-holdout overlap gate.
+overlap gate.
 
 The public suite is the one the published chart runs on, so its overlap gate is
 strictly harder than HC's: it checks the HC decision suite too, by OpenML id AND
-by name, because charting a dataset we tune on would make the headline figure
-in-sample.
+by name, because charting a dataset we tune on would make the figure in-sample.
 
-PUBLIC_DATASETS is empty until the audit's remaining metadata checks can run
-(benchmarks/PUBLIC_PLAN.md, "What remains"). These tests pass vacuously while it
-is empty and start biting the moment it is populated -- except
-test_freeze_is_all_or_nothing, which fails on a half-freeze right now.
+The suite itself is NOT sealed (changed 2026-07-27) -- it is validation, read
+freely, and never blocks a ship. TabArena's full run is the sealed holdout.
+
+PUBLIC_DATASETS is frozen at 22 datasets. The registration and composition tests
+skip if it is ever emptied; test_freeze_is_all_or_nothing fails on a half-freeze
+(code populated but doc not, or the reverse) either way.
 """
 import os
 import re
