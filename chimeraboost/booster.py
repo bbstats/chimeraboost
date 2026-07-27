@@ -13,7 +13,8 @@ import numpy as np
 from .losses import LOSSES, MultiSoftmax
 from .preprocessing import FeaturePreprocessor, as_model_array
 from .binning import _SERIAL_PREDICT_N
-from .tree import (build_oblivious_tree, _loo_leaf_step, _leaf_values,
+from .tree import (build_oblivious_tree, replay_oblivious_tree,
+                   _loo_leaf_step, _leaf_values,
                    _leaf_values_vec, _linear_predict,
                    _predict_forest_rm, _predict_forest_rm_serial,
                    pack_forest, pack_forest_vec,
@@ -164,7 +165,8 @@ class _BaseBooster:
                  ordered_boosting=False, cat_combinations=False,
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
-                 quantize_gradients=True, eval_metric=None):
+                 quantize_gradients=True, eval_metric=None,
+                 replay_donor=None):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -187,6 +189,10 @@ class _BaseBooster:
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
         self.quantize_gradients = bool(quantize_gradients)
         self.eval_metric = eval_metric
+        # Structure-transfer refit (see tree.replay_oblivious_tree): a
+        # (trees, preprocessor) pair whose splits are replayed instead of
+        # re-grown. None == ordinary fit, and every path below is unchanged.
+        self.replay_donor = replay_donor
 
     def _alloc_hist_buffers(self, n_features, n_bins):
         """Allocate the reusable histogram buffer once per fit.
@@ -515,8 +521,23 @@ class GradientBoosting(_BaseBooster):
                       if isinstance(self.loss_name, str) else self.loss_name)
         self.lr_ = self._resolve_lr(n_samples, eval_set)
 
-        Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
-                                      prep_cache, w)
+        donor_trees = None
+        if self.replay_donor is not None:
+            # The donor's splits are bin INDICES, so the donor's own binner and
+            # encoder must transform the new rows -- re-fitting the
+            # preprocessor would move every threshold underneath the structures.
+            # This is the predict-time path, applied to the training matrix.
+            donor_trees, self.prep_ = self.replay_donor
+            # Drop the reference once consumed: the donor holds a whole forest,
+            # and this booster is the one that gets pickled.
+            self.replay_donor = None
+            Xb = np.ascontiguousarray(self.prep_.transform(X).T)
+            Xvb = (np.ascontiguousarray(self.prep_.transform(
+                as_model_array(eval_set[0], bool(cat_features))).T)
+                if eval_set is not None else None)
+        else:
+            Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
+                                          prep_cache, w)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
         # Packed quantized grad/hess scratch, reused across trees (see
@@ -572,17 +593,26 @@ class GradientBoosting(_BaseBooster):
             # quantized path, so the float path's rng stream is unchanged).
             qseed = (int(rng.integers(1 << 63))
                      if self.quantize_gradients else 0)
-            tree, leaf = build_oblivious_tree(Xb, g, h, n_bins, self.depth,
-                                              self.l2_leaf_reg, self.lr_,
-                                              feature_mask=fmask,
-                                              min_child_weight=self.min_child_weight,
-                                              hist_buffers=hist_buffers,
-                                              linear_leaves=ll_active,
-                                              centers_std=self._centers_std_,
-                                              is_numeric=self.prep_.is_numeric_binned_,
-                                              linear_lambda=self.linear_lambda,
-                                              quantize=self.quantize_gradients,
-                                              qbuf=qbuf, qseed=qseed)
+            if donor_trees is not None and m < len(donor_trees):
+                # Replay round: structure fixed, leaf values (and linear-leaf
+                # coefficients) refit against this round's full-data gradients.
+                tree, leaf = replay_oblivious_tree(
+                    donor_trees[m], Xb, g, h, self.l2_leaf_reg, self.lr_,
+                    linear_leaves=ll_active, centers_std=self._centers_std_,
+                    linear_lambda=self.linear_lambda)
+            else:
+                tree, leaf = build_oblivious_tree(
+                    Xb, g, h, n_bins, self.depth,
+                    self.l2_leaf_reg, self.lr_,
+                    feature_mask=fmask,
+                    min_child_weight=self.min_child_weight,
+                    hist_buffers=hist_buffers,
+                    linear_leaves=ll_active,
+                    centers_std=self._centers_std_,
+                    is_numeric=self.prep_.is_numeric_binned_,
+                    linear_lambda=self.linear_lambda,
+                    quantize=self.quantize_gradients,
+                    qbuf=qbuf, qseed=qseed)
             # A depth-0 tree found no legal split; the next round on the same
             # gradients would too, so stop rather than bank empty trees. Keep
             # the best prefix exactly as the other exits do -- without this,

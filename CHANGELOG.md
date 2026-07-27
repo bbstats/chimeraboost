@@ -3,6 +3,27 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **``refit_full="replay"``: the full-data refit at roughly a third of its
+  cost.** ``refit_full=True`` (the default) retrains the early-stopping
+  winner from scratch on 100% of the rows, and fresh attribution puts that
+  second fit at 37-49% of every default fit. But growing trees is 83-85% of
+  a fit, and the refit already knows the structures it is rediscovering.
+  ``"replay"`` replays the winner's splits round by round against gradients
+  computed on all rows and refits only the leaf values (and the linear-leaf
+  coefficients), so the held-out rows still reach the leaf estimates without
+  re-paying for the split search. Measured against the default at 3 seeds:
+  on Grinsztajn (59 datasets) accuracy is flat — 27W-32L, mean +0.005%,
+  median -0.005% — while fit time drops **34%, faster on 59 of 59
+  datasets**; on the high-cardinality suite (14 datasets) 4W-5L-5T, mean
+  -0.256%, median +0.000%, fit time down 17%. Scalar boosters only:
+  multiclass grows one vector-leaf tree per round through a separate loop
+  and keeps the from-scratch refit, so ``"replay"`` is an exact no-op there.
+  Like ``refit_full=True`` it does nothing with an explicit ``eval_set``,
+  ``early_stopping=False``, ``loss="Quantile"``, or inside bagged members.
+  Defaults are unchanged. Evidence: ``benchmarks/REPLAY_PLAN.md``.
+
 ## [0.25.0] - 2026-07-26
 ### Added
 - **``quality=1..5``: named operating points on the speed/accuracy curve.**
