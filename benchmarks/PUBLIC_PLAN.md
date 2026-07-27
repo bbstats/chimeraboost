@@ -1,7 +1,8 @@
 # The public suite — sealed benchmark behind the published chart
 
-Issue #37. **Status: machinery complete, dataset list NOT yet frozen.** See
-"Why the list is empty" at the bottom.
+Issue #37. **Status: frozen at 22 datasets and run.** The audit, the frozen
+list, the first read and the open items are all below; `images/public_pareto.png`
+is the figure it produces.
 
 ## Why a new suite at all
 
@@ -254,46 +255,54 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
   property (adding a rung leaves every other row untouched).
 - **The fast rung is off the chart for now** (Nathan's call on this issue).
 
-## First read — 2026-07-26
+## First read — 2026-07-27 (22 datasets, whole quality ladder)
 
-`--public --seeds 3` over the four charted arms: **103 minutes** wall on this box
-(5 parallel jobs, 2 threads each). Base suite only, no variant families.
+`--public --seeds 3` over all five `quality` rungs plus both competitors:
+**295 minutes** wall on this box (5 parallel jobs, 2 threads each). Base suite
+only, no variant families.
 
 | model | win% vs CatBoost + LightGBM | 95% CI | slowdown | on frontier |
 |---|---|---|---|---|
-| ChimeraBoostEns8 | 65.4% | 50–81 | 32.4× | yes |
-| CatBoost | 61.5% | 38–85 | 70.9× | no — dominated |
-| ChimeraBoost (default) | 50.0% | 31–69 | 15.1× | yes |
-| LightGBM | 38.5% | 15–62 | 1.0× | yes |
+| CatBoost | 66.7% | 48–86 | 121.1× | yes |
+| quality=4 (ensemble) | 64.3% | 50–79 | 20.1× | yes |
+| quality=5 (max) | 64.3% | 50–79 | 28.1× | no — same strength as rung 4, 40% more cost |
+| quality=3 (accurate, default) | 50.0% | 33–67 | 12.9× | yes |
+| quality=2 (balanced) | 40.5% | 26–55 | 6.4× | yes |
+| LightGBM | 33.3% | 14–52 | 1.0× | yes |
+| quality=1 (fast) | 28.6% | 14–43 | 4.2× | no — weaker than LightGBM *and* 4.2× slower |
 
-13 of 14 datasets scored; `kickstarter_projects` is near-solved (Brier ~1e-4 for
-three of four arms) and excluded by the guard from PR #31.
+21 of 22 datasets scored; one near-solved set excluded by the PR #31 guard.
 
-`nba-shot-logs` came in at Brier 0.4543 for us against CatBoost's 0.4537 and
-LightGBM's 0.4670 — a narrow loss and a clear win respectively, with nobody
-anywhere near a perfect score. That is the direct confirmation that dropping
-`FGM` and `PTS` removed the leak rather than hiding it: a balanced binary target
-sitting at 0.45 Brier is a genuinely hard problem.
+**CatBoost is no longer dominated. That is a reversal, and it is the headline.**
+On 13 datasets our top rung led it 65.4% to 61.5%; on 22 it trails, 64.3%
+against 66.7%. The earlier claim was an artifact of a suite too small to
+separate them — exactly the failure mode the wide error bars were warning
+about, and the reason the suite was grown. Anyone quoting "CatBoost is
+dominated" from the earlier read should stop.
 
-**Read it honestly.** CatBoost is dominated — the ensemble is stronger *and*
-2.2× faster than it — and the default rung matches CatBoost's strength at 4.7×
-its speed. But this is a markedly weaker picture than the internal Grinsztajn
-chart, on both axes, and that is the entire point of having a sealed suite:
+What survives is a cost argument rather than a strength argument: CatBoost buys
+those 2.4 points for **6× the fit time** (121.1× against rung 4's 20.1×), and
+the gap sits well inside both confidence intervals. The defensible claim is
+"within noise of CatBoost at a sixth of the cost", not "better than CatBoost".
 
-- The internal chart puts the default at 69.9% and 9.35× slowdown. Here it is
-  50.0% and 15.1×. The slowdown gap is mostly size — these datasets run to
-  200,000 rows, where LightGBM scales better than we do, so the ~5× figure the
-  internal chart reports does not survive at this scale.
-- Two datasets are outright losses to LightGBM on both metrics: `connect-4`
-  (F1 0.6465 against 0.7163, Brier 0.2287 against 0.1943) and
-  `rossmann_store_sales` (RMSE 874 against 799).
-- `connect-4` is also the cost outlier: 766s for us and 2,177s for CatBoost
-  against LightGBM's 7s. An all-categorical 42-feature multiclass set is
-  apparently our worst case for fit time by a wide margin.
+**Two rungs are off their own frontier**, which is worth knowing and must not be
+acted on:
 
-Per the vow, none of this may motivate a source change. It is recorded because a
-published chart whose weaknesses are not written down next to it is a
-sales brochure.
+- `quality=5 (max)` scores identically to `quality=4 (ensemble)` — 64.3% each,
+  same interval — while costing 40% more. Eight bagged members bought nothing
+  over five here.
+- `quality=1 (fast)` is beaten by LightGBM on strength *and* is 4.2× slower.
+  As a speed rung it has no argument on this suite.
+
+Both are sealed-suite observations. Under the vow they may not motivate a
+change to the ladder, the defaults, or anything in `chimeraboost/`. They are
+recorded because publishing a chart while staying quiet about two rungs sitting
+off the frontier would be dishonest.
+
+**Error bars behaved as predicted.** Going from 13 to 21 scored datasets pulled
+the interval on the default rung from 38 points to 34, and rung 4 sits at 29 —
+close to the ~29 estimated from the 1/√n scaling. Seeds were never the lever;
+the bootstrap resamples datasets.
 
 ## What remains
 

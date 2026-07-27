@@ -150,7 +150,14 @@ def render(scored, meta, path=OUT_PNG):
     # actually sits. Headroom on the right so the last label is not clipped.
     ax.set_xlim(-0.03 * xmax, 1.16 * xmax)
 
-    for m, s in pts.items():
+    # Two rungs can land on the same win rate (quality=4 and quality=5 did, at
+    # 64.3% each), which overprints their labels into mush. Place labels in x
+    # order and drop one below its point whenever it would collide with the
+    # previous one.
+    order = sorted(pts, key=lambda m: pts[m]["slowdown"])
+    placed = []   # (x, y) of labels already put above their point
+    for m in order:
+        s = pts[m]
         color = arm_color(m)
         yerr = None
         if s["wr_lo"] is not None:
@@ -159,13 +166,17 @@ def render(scored, meta, path=OUT_PNG):
                     ms=12 if m in front else 9, color=color,
                     ecolor=color, elinewidth=1.4, capsize=4, alpha=0.95,
                     zorder=3)
+        x, y = s["slowdown"], s["winrate"]
+        collides = any(abs(y - py) < 5 and abs(x - px) < 0.28 * xmax
+                       for px, py in placed)
         # Flip the label inboard once a point is far enough right to run off.
-        right = s["slowdown"] > 0.66 * xmax
-        ax.annotate(display_name(m), (s["slowdown"], s["winrate"]),
-                    textcoords="offset points",
-                    xytext=(-12 if right else 12, 7),
+        right = x > 0.66 * xmax
+        ax.annotate(display_name(m), (x, y), textcoords="offset points",
+                    xytext=(-12 if right else 12, -16 if collides else 7),
                     ha="right" if right else "left",
                     fontsize=11.5, color=color)
+        if not collides:
+            placed.append((x, y))
 
     fp = sorted((scored[m]["slowdown"], scored[m]["winrate"]) for m in front)
     if len(fp) > 1:
