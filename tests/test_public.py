@@ -161,3 +161,63 @@ def test_drop_cols_removes_named_columns():
         skds.fetch_openml = orig
     assert X.shape[1] == 1, "only `keep` should survive drop_cols"
     assert task == "regression" and len(y) == 50
+
+
+# --------------------------------------------------------------------------
+# weighted aggregation
+# --------------------------------------------------------------------------
+def test_facet_metadata_covers_the_suite():
+    """Every frozen dataset needs facets, or the weighting is not reproducible."""
+    assert set(rb.PUBLIC_FACETS) == set(rb.PUBLIC_DATASETS), (
+        f"only in facets: {set(rb.PUBLIC_FACETS) - set(rb.PUBLIC_DATASETS)}; "
+        f"only in datasets: {set(rb.PUBLIC_DATASETS) - set(rb.PUBLIC_FACETS)}")
+    for name, m in rb.PUBLIC_FACETS.items():
+        assert m["rows"] >= 50_000, f"{name} is below the suite's size floor"
+        assert m["maxcard"] >= 0
+
+
+def test_weights_sum_to_one_and_respect_the_cap():
+    import suite_weights as sw
+    facets = sw.dataset_facets(rb.PUBLIC_DATASETS, rb.PUBLIC_FACETS)
+    w = sw.raked_weights(facets)
+    n = len(w)
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    lo, hi = sw.WEIGHT_CAP
+    for k, v in w.items():
+        assert lo / n - 1e-9 <= v <= hi / n + 1e-9, f"{k} escaped the cap at {v * n:.2f}x"
+
+
+def test_weighting_actually_balances_and_costs_ess():
+    """Raking must move every facet toward equal mass, and the cost of doing so
+    must be visible: effective sample size drops below n."""
+    import suite_weights as sw
+    facets = sw.dataset_facets(rb.PUBLIC_DATASETS, rb.PUBLIC_FACETS)
+    w = sw.raked_weights(facets)
+    n = len(w)
+    equal = {k: 1.0 / n for k in w}
+
+    for facet, acc in sw.facet_balance(facets, w).items():
+        target = 1.0 / len(acc)
+        before = sw.facet_balance(facets, equal)[facet]
+        worst_after = max(abs(v - target) for v in acc.values())
+        worst_before = max(abs(v - target) for v in before.values())
+        assert worst_after <= worst_before + 1e-9, f"{facet} got less balanced"
+
+    ess = sw.effective_sample_size(w)
+    assert ess < n, "weighting that costs no ESS is not weighting"
+    assert ess > 0.6 * n, f"ESS {ess:.1f} of {n} -- the cap should stop this"
+
+
+def test_average_rank_handles_ties_as_midranks():
+    import suite_weights as sw
+    scores = {"d1": {"a": 1.0, "b": 1.0, "c": 2.0}}
+    r = sw.average_rank(scores, ["a", "b", "c"])
+    assert r["a"] == r["b"] == 1.5, "a two-way tie must share the midrank"
+    assert r["c"] == 3.0
+
+
+def test_weighted_median_respects_weight():
+    import suite_weights as sw
+    # 1 carries almost all the mass, so the median must be 1 despite three 9s.
+    assert sw.weighted_median([1, 9, 9, 9], [0.97, 0.01, 0.01, 0.01]) == 1
+    assert sw.weighted_median([1, 2, 3], [1, 1, 1]) == 2

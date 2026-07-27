@@ -30,6 +30,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import summarize  # noqa: E402
 import make_pareto  # noqa: E402
+import suite_weights  # noqa: E402
 
 COMPETITORS = ("CatBoost", "LightGBM")
 IMAGES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -91,7 +92,7 @@ def arm_color(model):
     return RUNG_COLOR.get(model) or make_pareto.MODEL_COLOR.get(model, "#777777")
 
 
-def slowdown_stats(data, arms):
+def slowdown_stats(data, arms, weights=None):
     """{model: (mean, median)} fit-time multiple vs the fastest arm per dataset.
 
     The mean is what summarize reports, and on this suite it is not a
@@ -107,7 +108,7 @@ def slowdown_stats(data, arms):
         ft.setdefault(r["dataset"], {}).setdefault(r["model"], []).append(
             r["fit_time"])
     ratios = {m: [] for m in arms}
-    for _, per_model in ft.items():
+    for ds, per_model in ft.items():
         times = {m: sum(v) / len(v) for m, v in per_model.items() if m in arms}
         if len(times) < 2:
             continue
@@ -115,13 +116,47 @@ def slowdown_stats(data, arms):
         if best <= 0:
             continue
         for m, t in times.items():
-            ratios[m].append(t / best)
-    return {m: (sum(v) / len(v), statistics.median(v))
-            for m, v in ratios.items() if v}
+            ratios[m].append((t / best, ds))
+    out = {}
+    for m, v in ratios.items():
+        if not v:
+            continue
+        vals = [r for r, _ in v]
+        # `weights` is keyed by the full dataset key (pub:<name>), same as `ds`.
+        wts = [1.0 if weights is None else weights.get(ds, 0.0) for _, ds in v]
+        if weights is None:
+            out[m] = (sum(vals) / len(vals), statistics.median(vals))
+        else:
+            out[m] = (suite_weights.weighted_mean(vals, wts),
+                      suite_weights.weighted_median(vals, wts))
+    return out
 
 
-def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
-    """{model: {winrate, wr_lo, wr_hi, slowdown}} on the competitor-relative axis."""
+def _strip(ds_key):
+    """`pub:foo` -> `foo`, so a dataset key matches a PUBLIC_DATASETS name."""
+    return ds_key.split(":", 1)[1] if ":" in ds_key else ds_key
+
+
+def public_weights():
+    """{dataset key: weight} balancing task/size/cardinality, or None if the
+    suite is not frozen. Keys are full `pub:<name>` dataset keys."""
+    import run_benchmarks as rb
+    if not rb.PUBLIC_DATASETS:
+        return None, None
+    facets = suite_weights.dataset_facets(rb.PUBLIC_DATASETS, rb.PUBLIC_FACETS)
+    w = suite_weights.raked_weights(facets)
+    return {f"pub:{k}": v for k, v in w.items()}, facets
+
+
+def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT, weighted=True):
+    """{model: {rank, rank_lo, rank_hi, winrate, slowdown, slowdown_mean}}.
+
+    Y is weighted AVERAGE RANK (1 = best), the axis Nathan asked for. The
+    competitor-relative win rate rides along in the table because the two
+    disagree and the disagreement matters: rank counts our own rungs as
+    opponents, so the stronger rung banks a free point for beating the weaker
+    one. Never publish the rank alone.
+    """
     cols, meta = summarize.aggregate(data)
     primary = summarize.primary_scores(data)
     keep = set(arms)
@@ -129,60 +164,109 @@ def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
                for ds, s in primary.items()}
     primary = {ds: s for ds, s in primary.items() if len(s) >= 2}
 
+    weights, facets = (public_weights() if weighted else (None, None))
+    if weights is not None:
+        weights = {d: w for d, w in weights.items() if d in primary}
+
     opponents = [c for c in COMPETITORS if c in keep]
     rates = summarize.winrate_vs_opponents(primary, opponents)
-    ci = summarize.bootstrap_winrate_vs_opponents_ci(
-        primary, opponents, n_boot=n_boot)
-    stats = slowdown_stats(data, arms)
+    field = [m for m in arms if any(m in s for s in primary.values())]
+    ranks = suite_weights.average_rank(primary, field, weights)
+    rank_ci = suite_weights.bootstrap_average_rank_ci(
+        primary, field, weights, n_boot=min(n_boot, 2000))
+    stats = slowdown_stats(data, arms, weights)
 
     out = {}
     for m in arms:
-        if m not in rates:
+        if m not in ranks:
             continue
-        lo, hi = ci.get(m, (None, None))
+        lo, hi = rank_ci.get(m, (None, None))
         mean_x, med_x = stats.get(m, (None, None))
-        # The chart plots the MEDIAN: it is the typical dataset, and the mean is
-        # a different claim (the whole-suite bill) that one 970x outlier owns.
-        out[m] = {"winrate": rates[m], "wr_lo": lo, "wr_hi": hi,
-                  "slowdown": med_x, "slowdown_mean": mean_x}
+        # The chart plots the MEDIAN slowdown: it is the typical dataset, and
+        # the mean is a different claim (the whole-suite bill) that one 970x
+        # outlier owns.
+        out[m] = {"rank": ranks[m], "rank_lo": lo, "rank_hi": hi,
+                  "winrate": rates.get(m), "slowdown": med_x,
+                  "slowdown_mean": mean_x}
     meta["n_h2h"] = len(primary)
     meta["all_public"] = all(d.startswith("pub:") for d in data["datasets"])
+    meta["weights"] = weights
+    meta["facets"] = facets
+    if weights:
+        meta["ess"] = suite_weights.effective_sample_size(weights)
+        meta["balance"] = suite_weights.facet_balance(
+            {k: v for k, v in facets.items() if f"pub:{k}" in weights},
+            {_strip(d): w for d, w in weights.items()})
     return out, meta
 
 
+def frontier_of(scored):
+    """Pareto frontier on (low rank, low slowdown). make_pareto's helper wants a
+    higher-is-better y, so feed it the negated rank."""
+    shim = {m: {"winrate": -s["rank"], "slowdown": s["slowdown"]}
+            for m, s in scored.items() if s.get("slowdown") is not None}
+    return make_pareto.pareto_frontier(shim)
+
+
+def weights_table(meta):
+    """The weight listing, so the aggregate is auditable rather than a black box."""
+    w, facets = meta.get("weights"), meta.get("facets")
+    if not w:
+        return "UNWEIGHTED: the public suite is not frozen, every dataset counts once."
+    n = len(w)
+    lines = [f"Dataset weights -- task/size/cardinality raked to equal mass, "
+             f"capped at [{suite_weights.WEIGHT_CAP[0]}x, {suite_weights.WEIGHT_CAP[1]}x].",
+             f"Effective sample size {meta['ess']:.1f} of {n} datasets "
+             f"(equal weighting would be {n}.0; balancing costs the difference, "
+             f"widening error bars ~{100 * ((n / meta['ess']) ** 0.5 - 1):.0f}%).",
+             ""]
+    for facet, acc in meta["balance"].items():
+        tgt = 1.0 / len(acc)
+        got = ", ".join(f"{k} {v:.3f}" for k, v in sorted(acc.items()))
+        lines.append(f"  {facet:5} target {tgt:.3f} each -> {got}")
+    lines.append("")
+    lines.append(f"  {'dataset':46}{'task':11}{'size':6}{'card':6}{'rel wt':>7}")
+    for ds, wt in sorted(w.items(), key=lambda kv: -kv[1]):
+        f = facets[_strip(ds)]
+        lines.append(f"  {_strip(ds)[:44]:46}{f['task']:11}{f['size']:6}"
+                     f"{f['card']:6}{wt * n:>7.2f}")
+    return "\n".join(lines)
+
+
 def text_table(scored, meta):
-    front = make_pareto.pareto_frontier(scored)
+    front = frontier_of(scored)
     lines = []
     if not meta.get("all_public"):
         lines.append(
-            "NOT THE PUBLIC SUITE: this run contains non-pub: datasets, so these "
-            "numbers\nare in-sample for anything we tune. Renderer smoke test "
-            "only.\n")
-    lines.append(f"{'Model':<26}{'win% vs competitors':>21}{'95% CI':>16}"
-                 f"{'median x':>11}{'mean x':>10}  frontier")
-    lines.append("-" * 90)
-    for m, s in sorted(scored.items(), key=lambda kv: -(kv[1]["winrate"] or 0)):
-        ci = (f"[{s['wr_lo']:.0f}-{s['wr_hi']:.0f}]"
-              if s["wr_lo"] is not None else "--")
+            "NOT THE PUBLIC SUITE: this run contains non-pub: datasets, so "
+            "these numbers\nare in-sample for anything we tune. Renderer smoke "
+            "test only.\n")
+    lines.append(f"{'Model':<30}{'avg rank':>10}{'95% CI':>14}{'win%':>8}"
+                 f"{'median x':>10}{'mean x':>9}  frontier")
+    lines.append("-" * 88)
+    for m, s in sorted(scored.items(), key=lambda kv: kv[1]["rank"]):
+        ci = (f"[{s['rank_lo']:.2f}-{s['rank_hi']:.2f}]"
+              if s["rank_lo"] is not None else "--")
+        wr = f"{s['winrate']:.1f}%" if s.get("winrate") is not None else "--"
         sl = f"{s['slowdown']:.1f}x" if s["slowdown"] is not None else "--"
         mn = (f"{s['slowdown_mean']:.1f}x"
               if s.get("slowdown_mean") is not None else "--")
-        lines.append(f"{display_name(m):<26}{s['winrate']:>20.1f}%{ci:>16}"
-                     f"{sl:>11}{mn:>10}  {'yes' if m in front else ''}")
+        lines.append(f"{display_name(m):<30}{s['rank']:>10.2f}{ci:>14}{wr:>8}"
+                     f"{sl:>10}{mn:>9}  {'yes' if m in front else ''}")
     lines.append("")
-    lines.append(f"{meta['n_h2h']} datasets scored | win rate = % of "
-                 f"(dataset x competitor) matchups won,")
-    lines.append("primary metric RMSE (regression) / Brier (classification), "
-                 "ties count 1/2.")
-    lines.append("Opponents are CatBoost and LightGBM only -- sibling rungs are "
-                 "never opponents,")
-    lines.append("so adding a rung does not move any other row.")
-    lines.append("Slowdown is the fit-time multiple vs the fastest arm on each "
-                 "dataset. The chart")
-    lines.append("plots the MEDIAN; the mean is shown because the two differ a "
-                 "lot -- ratios are")
-    lines.append("right-skewed, and one dataset (fars: 2883s vs 3s) alone "
-                 "doubles CatBoost's mean.")
+    lines.append(f"{meta['n_h2h']} datasets scored, weighted. Average rank is over "
+                 "the charted field")
+    lines.append("(1 = best, ties share the midrank); win% is vs CatBoost and "
+                 "LightGBM only.")
+    lines.append("READ BOTH. Rank counts our own rungs as opponents, so the "
+                 "stronger rung banks a")
+    lines.append("free point for beating the weaker one -- which is why rank and "
+                 "win% can disagree")
+    lines.append("about CatBoost. Slowdown is the fit-time multiple vs the "
+                 "fastest arm per dataset;")
+    lines.append("the chart plots the median, and the mean is shown because one "
+                 "dataset (fars:")
+    lines.append("2883s vs 3s) alone doubles CatBoost's.")
     return "\n".join(lines)
 
 
@@ -191,54 +275,52 @@ def render(scored, meta, path=OUT_PNG):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    front = make_pareto.pareto_frontier(scored)
+    front = frontier_of(scored)
     fig, ax = plt.subplots(figsize=(8, 5.4), dpi=150)
 
     pts = {m: s for m, s in scored.items() if s["slowdown"] is not None}
     xmax = max(s["slowdown"] for s in pts.values()) if pts else 1.0
-    # Linear, not log: the slowdowns span 1x-71x, a range a linear axis reads
-    # cleanly, and a log axis labelled 10^0 / 10^1 hid how far right CatBoost
-    # actually sits. Headroom on the right so the last label is not clipped.
+    # Linear, not log: a log axis labelled 10^0 / 10^1 hid how far right
+    # CatBoost actually sits. Headroom so the last label is not clipped.
     ax.set_xlim(-0.03 * xmax, 1.16 * xmax)
+    # Rank 1 is best, so the axis runs downward and "up" still means "better".
+    ax.invert_yaxis()
 
-    # Two rungs can land on the same win rate (quality=4 and quality=5 did, at
-    # 64.3% each), which overprints their labels into mush. Place labels in x
-    # order and drop one below its point whenever it would collide with the
-    # previous one.
+    # Points can land on the same rank, which overprints their labels into mush.
+    # Place labels in x order and drop one below its point on a collision.
     order = sorted(pts, key=lambda m: pts[m]["slowdown"])
-    placed = []   # (x, y) of labels already put above their point
+    yspan = (max(s["rank"] for s in pts.values())
+             - min(s["rank"] for s in pts.values())) or 1.0
+    placed = []
     for m in order:
         s = pts[m]
         color = arm_color(m)
         yerr = None
-        if s["wr_lo"] is not None:
-            yerr = [[s["winrate"] - s["wr_lo"]], [s["wr_hi"] - s["winrate"]]]
-        ax.errorbar(s["slowdown"], s["winrate"], yerr=yerr, fmt="o",
+        if s["rank_lo"] is not None:
+            yerr = [[s["rank"] - s["rank_lo"]], [s["rank_hi"] - s["rank"]]]
+        ax.errorbar(s["slowdown"], s["rank"], yerr=yerr, fmt="o",
                     ms=12 if m in front else 9, color=color,
                     ecolor=color, elinewidth=1.4, capsize=4, alpha=0.95,
                     zorder=3)
-        x, y = s["slowdown"], s["winrate"]
-        collides = any(abs(y - py) < 5 and abs(x - px) < 0.28 * xmax
+        x, y = s["slowdown"], s["rank"]
+        collides = any(abs(y - py) < 0.12 * yspan and abs(x - px) < 0.28 * xmax
                        for px, py in placed)
-        # Flip the label inboard once a point is far enough right to run off.
         right = x > 0.66 * xmax
         ax.annotate(display_name(m), (x, y), textcoords="offset points",
-                    xytext=(-12 if right else 12, -16 if collides else 7),
+                    xytext=(-12 if right else 12, 16 if collides else -8),
                     ha="right" if right else "left",
                     fontsize=11.5, color=color)
         if not collides:
             placed.append((x, y))
 
-    fp = sorted((scored[m]["slowdown"], scored[m]["winrate"]) for m in front)
+    fp = sorted((scored[m]["slowdown"], scored[m]["rank"]) for m in front)
     if len(fp) > 1:
         ax.plot([p[0] for p in fp], [p[1] for p in fp], "--", lw=1.2,
                 color="#999999", zorder=1)
-
-    ax.axhline(50, color="#bbbbbb", lw=0.9, ls=":", zorder=0)
     ax.xaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}x" if v > 0 else ""))
     ax.set_xlabel("fit-time slowdown vs fastest (median dataset)", fontsize=13)
-    ax.set_ylabel("% of matchups won", fontsize=13)
+    ax.set_ylabel("average rank  (1 = best)", fontsize=13)
     ax.tick_params(labelsize=12)
     title = "ChimeraBoost - strength vs speed"
     if not meta.get("all_public"):
@@ -256,18 +338,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("results", nargs="?", default=None)
     ap.add_argument("--no-image", action="store_true")
+    ap.add_argument("--no-weights", action="store_true",
+                    help="aggregate with every dataset counting once, ignoring "
+                         "the task/size/cardinality balance (for auditing what "
+                         "the weighting changed).")
+    ap.add_argument("--hide-weight-table", action="store_true",
+                    help="suppress the per-dataset weight listing.")
     args = ap.parse_args()
 
     path = args.results or summarize.latest_json()
     if not path:
         ap.error("no results JSON found")
     data = summarize.load(path)
-    scored, meta = score(data)
+    scored, meta = score(data, weighted=not args.no_weights)
     if not scored:
         ap.error("no chartable arms in that run "
                  f"(need some of {list(PUBLIC_ARMS)})")
     print(f"# {os.path.basename(path)}\n")
     print(text_table(scored, meta))
+    if not args.hide_weight_table:
+        print()
+        print(weights_table(meta))
     if not args.no_image:
         print(f"\nwrote {render(scored, meta)}")
 

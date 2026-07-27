@@ -758,6 +758,44 @@ PUBLIC_DATASETS = {
         data_id=42080, task="regression", target="transaction_amt",
         drop_cols=("tran_id", "sub_id", "image_num")),         # entity cats at scale
 }
+
+# Frozen facet metadata, for the WEIGHTED public aggregate (make_public_pareto).
+# The suite is skewed by accident of what exists -- 9 binary / 9 multiclass but
+# only 4 regression, 11 medium-sized against 5 large -- so the aggregate rakes
+# these facets to equal mass instead of letting an over-represented stratum vote
+# twice. Frozen here rather than recomputed because deriving `maxcard` means
+# reading 1.4 GB of parquet, and a frozen suite's properties do not move.
+#
+# `rows` is the SOURCE row count (before the 200k cap). `maxcard` is the largest
+# categorical level count AS THE HARNESS SEES IT -- measured after the cap and
+# after the near-unique id drop, which is why e.g. Dota2 reads 47 (Cluster_ID)
+# rather than its raw column count. tests/test_public.py re-derives both from
+# the parquet cache when it is present.
+PUBLIC_FACETS = {
+    "BNP_Paribas_Cardif_Claims_Management": dict(rows=114321, maxcard=18210),
+    "Medical-Appointment-No-Shows":         dict(rows=110527, maxcard=81),
+    "kickstarter_projects":                 dict(rows=331675, maxcard=3077),
+    "SantanderCustomerSatisfaction":        dict(rows=200000, maxcard=0),
+    "hcdr":                                 dict(rows=244280, maxcard=58),
+    "nba-shot-logs":                        dict(rows=128069, maxcard=1808),
+    "Dota2-Games-Results":                  dict(rows=102944, maxcard=47),
+    "Cardiovascular-Disease":               dict(rows=70000,  maxcard=3),
+    "BMC_TrainingData":                     dict(rows=177640, maxcard=10),
+    "internet_firewall":                    dict(rows=65532,  maxcard=29152),
+    "connect-4":                            dict(rows=67557,  maxcard=3),
+    "Otto-Group-Product-Classification-Challenge": dict(rows=61878, maxcard=0),
+    "hls4ml_lhc_jets_hlf":                  dict(rows=830000, maxcard=0),
+    "volkert":                              dict(rows=58310,  maxcard=0),
+    "helena":                               dict(rows=65196,  maxcard=0),
+    "ldpa":                                 dict(rows=164860, maxcard=5),
+    "fars":                                 dict(rows=100959, maxcard=10),
+    "criteo-uplift-balanced":               dict(rows=1366544, maxcard=2),
+    "rossmann_store_sales":                 dict(rows=804056, maxcard=1115),
+    "freMTPL2freq":                         dict(rows=678013, maxcard=22),
+    "fps-in-video-games":                   dict(rows=425833, maxcard=403),
+    "federal_election":                     dict(rows=3348209, maxcard=174212),
+}
+
 PUBLIC_TASKS = {}   # "pub:<name>" -> task, filled at registration
 _PUBLIC_MAX_ROWS = 200000   # higher cap than HC: the speed axis is the point
 _HIGHCARD_MAX_ROWS = 100000
