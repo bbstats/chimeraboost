@@ -285,28 +285,31 @@ against CatBoost and LightGBM.
 
 | model | avg rank | 95% CI | win% vs competitors | median x | mean x | frontier |
 |---|---|---|---|---|---|---|
-| quality=4 (ensemble) | **1.93** | 1.61–2.27 | 64.3% | 16.4× | 22.5× | yes |
-| CatBoost | 2.46 | 1.86–3.04 | 66.7% | 52.0× | 100.9× | no |
-| quality=3 (accurate, default) | 2.76 | 2.38–3.17 | 50.0% | 7.2× | 15.2× | yes |
-| LightGBM | 2.84 | 2.11–3.53 | 33.3% | 1.0× | 1.0× | yes |
+| quality=4 (ensemble) | **1.73** | 1.46–1.99 | 64.3% | 16.4× | 22.5× | yes |
+| CatBoost | 1.92 | 1.53–2.31 | 66.7% | 52.0× | 100.9× | no |
+| quality=3 (accurate, default) | 1.97 | 1.67–2.28 | 50.0% | 7.2× | 15.2× | yes |
+| LightGBM | 2.23 | 1.74–2.70 | 33.3% | 1.0× | 1.0× | yes |
+
+Rank is out of three (each rung against the two competitors), so 2.0 is the
+middle of the field, not 2.5.
 
 21 of 22 datasets scored; one near-solved set excluded by the PR #31 guard.
 
-**Read rank and win rate together — they disagree, and the disagreement is the
-point.** On average rank, `quality=4` leads CatBoost 1.93 to 2.46. On
-competitor-relative win rate, CatBoost leads 66.7% to 64.3%. Rank counts our own
-rungs as opponents, so `quality=4` banks a free point every time it beats
-`quality=3`, which is most datasets. The rank number is the flattering one.
-Publishing it alone would be dishonest, which is why the table prints both and
-`text_table` says so in its footer.
+**Rank is competitor-relative, like the win rate.** Each rung is ranked in its
+own three-way contest against CatBoost and LightGBM; sibling rungs never meet.
+Ranking the whole field together handed the stronger rung a free point for
+beating the weaker one and made every row move whenever a rung was added --
+`tests/test_public.py` now pins both properties, including a case showing the
+full-field version is genuinely unstable. The two summaries still differ a
+little on CatBoost, because a competitor's rank averages over the contests it
+appears in and one of those includes a weaker rung.
 
 The defensible sentence remains a cost claim, not a strength claim:
 **within noise of CatBoost at under a third of its median fit time.**
 
 **The weighting also flatters us, and that is stated rather than buried.**
-Balancing moves CatBoost 2.29 → 2.46 and LightGBM 3.00 → 2.84, widening our rank
-gap over CatBoost from 0.39 to 0.53 — because the up-weighted regression
-datasets are where CatBoost is weakest. The facets and thresholds were fixed
+Balancing moves CatBoost 1.81 → 1.92 while our default improves 2.00 → 1.97 —
+because the up-weighted regression datasets are where CatBoost is weakest. The facets and thresholds were fixed
 from the suite's own structure before any of that was visible, and
 `--no-weights` reproduces the unweighted numbers exactly so the effect is
 auditable in one command.

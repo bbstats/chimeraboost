@@ -31,12 +31,18 @@ Our own default shows the same shape: 7× median, 15× mean. The table prints bo
 because they answer different questions — the median is the typical dataset, the
 mean is the whole-suite bill.
 
-**Read the rank next to the win rate.** Average rank counts our own operating
-points as opponents, so the stronger rung banks a free point every time it beats
-the weaker one. On rank, `quality=4` leads CatBoost; on head-to-head win rate
-against CatBoost and LightGBM only, CatBoost leads. Both are printed. The
-defensible claim is the conservative one: **within noise of CatBoost at under a
-third of its median fit time.**
+**Both axes are competitor-relative.** Each ChimeraBoost operating point is
+scored against CatBoost and LightGBM only — never against a sibling rung. Rank
+the whole field together and the stronger rung banks a free point every time it
+beats the weaker one, which is us beating ourselves; it also means adding a rung
+silently moves every other row. Here a rung's rank comes from its own three-way
+contest, so adding or dropping rungs cannot move anybody else.
+
+Rank and win rate are the same matchups summarised two ways, and they still
+differ slightly on CatBoost — a competitor's rank averages over the contests it
+appears in, one of which includes a weaker rung. The defensible claim is the
+conservative one: **within noise of CatBoost at under a third of its median fit
+time.**
 
 ## Weighting
 
@@ -60,11 +66,12 @@ bars widen about 11%. Every run prints the weight table, the balance achieved
 per facet and the effective sample size, and `--no-weights` reproduces the
 unweighted aggregate for comparison.
 
-**Balancing currently flatters us**, and that is worth stating plainly: it moves
-CatBoost's average rank from 2.29 to 2.46 and LightGBM's from 3.00 to 2.84,
-because the up-weighted regression datasets are where CatBoost is weakest. The
-facets and their thresholds were fixed from the suite's structure before that
-was visible, and one flag reproduces the unweighted numbers.
+**Balancing currently flatters us a little**, and that is worth stating plainly:
+it moves CatBoost's average rank from 1.81 to 1.92 and our default rung's from
+2.00 to 1.97, widening the gap between them, because the up-weighted regression
+datasets are where CatBoost is weakest. The facets and their thresholds were
+fixed from the suite's own structure before that was visible, and `--no-weights`
+reproduces the unweighted numbers in one command.
 
 ## What the public suite is not
 

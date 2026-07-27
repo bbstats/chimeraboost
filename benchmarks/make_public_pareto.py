@@ -151,11 +151,11 @@ def public_weights():
 def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT, weighted=True):
     """{model: {rank, rank_lo, rank_hi, winrate, slowdown, slowdown_mean}}.
 
-    Y is weighted AVERAGE RANK (1 = best), the axis Nathan asked for. The
-    competitor-relative win rate rides along in the table because the two
-    disagree and the disagreement matters: rank counts our own rungs as
-    opponents, so the stronger rung banks a free point for beating the weaker
-    one. Never publish the rank alone.
+    Y is weighted average rank (1 = best), computed COMPETITOR-RELATIVE: each of
+    our rungs is ranked against CatBoost and LightGBM alone, never against a
+    sibling rung. Ranking the whole field together would hand the stronger rung
+    a free point every time it beat the weaker one, which is us beating
+    ourselves. See suite_weights.competitor_relative_rank.
     """
     cols, meta = summarize.aggregate(data)
     primary = summarize.primary_scores(data)
@@ -170,10 +170,12 @@ def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT, weighted=True):
 
     opponents = [c for c in COMPETITORS if c in keep]
     rates = summarize.winrate_vs_opponents(primary, opponents)
-    field = [m for m in arms if any(m in s for s in primary.values())]
-    ranks = suite_weights.average_rank(primary, field, weights)
-    rank_ci = suite_weights.bootstrap_average_rank_ci(
-        primary, field, weights, n_boot=min(n_boot, 2000))
+    ours = [m for m in arms if m not in COMPETITORS
+            and any(m in s for s in primary.values())]
+    ranks = suite_weights.competitor_relative_rank(
+        primary, ours, opponents, weights)
+    rank_ci = suite_weights.bootstrap_competitor_relative_rank_ci(
+        primary, ours, opponents, weights, n_boot=min(n_boot, 2000))
     stats = slowdown_stats(data, arms, weights)
 
     out = {}
@@ -254,19 +256,18 @@ def text_table(scored, meta):
         lines.append(f"{display_name(m):<30}{s['rank']:>10.2f}{ci:>14}{wr:>8}"
                      f"{sl:>10}{mn:>9}  {'yes' if m in front else ''}")
     lines.append("")
-    lines.append(f"{meta['n_h2h']} datasets scored, weighted. Average rank is over "
-                 "the charted field")
-    lines.append("(1 = best, ties share the midrank); win% is vs CatBoost and "
-                 "LightGBM only.")
-    lines.append("READ BOTH. Rank counts our own rungs as opponents, so the "
-                 "stronger rung banks a")
-    lines.append("free point for beating the weaker one -- which is why rank and "
-                 "win% can disagree")
-    lines.append("about CatBoost. Slowdown is the fit-time multiple vs the "
-                 "fastest arm per dataset;")
-    lines.append("the chart plots the median, and the mean is shown because one "
-                 "dataset (fars:")
-    lines.append("2883s vs 3s) alone doubles CatBoost's.")
+    lines.append(f"{meta['n_h2h']} datasets scored, weighted. Average rank is vs "
+                 "CatBoost + LightGBM only")
+    lines.append("(1 = best of three, ties share the midrank); win% is the same "
+                 "matchups as a rate.")
+    lines.append("Both are competitor-relative: our rungs are never each "
+                 "other's opponents, so")
+    lines.append("adding or dropping a rung cannot move any other row.")
+    lines.append("Slowdown is the fit-time multiple vs the fastest arm on each "
+                 "dataset. The chart")
+    lines.append("plots the median; the mean is shown because one dataset "
+                 "(fars: 2883s vs 3s)")
+    lines.append("alone doubles CatBoost's.")
     return "\n".join(lines)
 
 

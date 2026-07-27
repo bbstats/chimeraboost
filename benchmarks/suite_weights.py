@@ -201,6 +201,73 @@ def average_rank(scores, field, weights=None):
     return {m: weighted_mean(acc[m], wts[m]) for m in field if acc[m]}
 
 
+def competitor_relative_rank(scores, ours, competitors, weights=None):
+    """Average rank with our OWN rungs taken out of the field.
+
+    Plain average rank over the whole field counts sibling rungs as opponents,
+    so the stronger rung banks a free point every time it beats the weaker one
+    -- which is us beating ourselves, not evidence about anybody else. Here each
+    of our rungs is ranked in its own contest against the competitors alone:
+
+        contest_r = {rung r} U competitors,  for each r in `ours`
+
+    A rung's rank is its rank in its own contest. A competitor appears in every
+    contest, so its rank is the mean across them. Adding or removing a rung
+    therefore cannot move another rung's number -- the same stability property
+    winrate_vs_opponents has, and for the same reason.
+    """
+    out = {}
+    per_competitor = {c: [] for c in competitors}
+    for r in ours:
+        field = [r] + [c for c in competitors if c != r]
+        if len(field) < 2:
+            continue
+        sub = average_rank(scores, field, weights)
+        if r in sub:
+            out[r] = sub[r]
+        for c in competitors:
+            if c in sub:
+                per_competitor[c].append(sub[c])
+    for c, vals in per_competitor.items():
+        if vals:
+            out[c] = sum(vals) / len(vals)
+    return out
+
+
+def bootstrap_competitor_relative_rank_ci(scores, ours, competitors,
+                                          weights=None, n_boot=2000, seed=0):
+    """95% CI for competitor_relative_rank, resampling DATASETS."""
+    import numpy as np
+    all_models = list(ours) + list(competitors)
+    ds_list = sorted(d for d, s in scores.items()
+                     if any(m in s for m in all_models))
+    if not ds_list:
+        return {m: (None, None) for m in all_models}
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(ds_list), size=(n_boot, len(ds_list)))
+    draws = {m: [] for m in all_models}
+    for row in idx:
+        sub, subw = {}, {}
+        for c, i in enumerate(row):
+            d = ds_list[i]
+            key = f"{d}#{c}"
+            sub[key] = scores[d]
+            subw[key] = 1.0 if weights is None else weights.get(d, 0.0)
+        r = competitor_relative_rank(sub, ours, competitors, subw)
+        for m in all_models:
+            if m in r and not math.isnan(r[m]):
+                draws[m].append(r[m])
+    out = {}
+    for m in all_models:
+        if draws[m]:
+            arr = np.array(draws[m])
+            out[m] = (float(np.percentile(arr, 2.5)),
+                      float(np.percentile(arr, 97.5)))
+        else:
+            out[m] = (None, None)
+    return out
+
+
 def bootstrap_average_rank_ci(scores, field, weights=None, n_boot=10000, seed=0):
     """95% CI for average_rank, resampling DATASETS (not seeds) with replacement.
 

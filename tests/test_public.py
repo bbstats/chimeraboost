@@ -221,3 +221,34 @@ def test_weighted_median_respects_weight():
     # 1 carries almost all the mass, so the median must be 1 despite three 9s.
     assert sw.weighted_median([1, 9, 9, 9], [0.97, 0.01, 0.01, 0.01]) == 1
     assert sw.weighted_median([1, 2, 3], [1, 1, 1]) == 2
+
+
+def test_competitor_relative_rank_is_composition_stable():
+    """Adding one of our rungs must not move another rung's rank. Plain
+    average rank over the whole field fails this -- the new rung becomes an
+    opponent -- which is exactly why the chart does not use it."""
+    import suite_weights as sw
+    scores = {
+        "d1": {"r1": 0.5, "r2": 0.4, "CatBoost": 0.45, "LightGBM": 0.6},
+        "d2": {"r1": 0.3, "r2": 0.2, "CatBoost": 0.35, "LightGBM": 0.25},
+        "d3": {"r1": 0.9, "r2": 0.8, "CatBoost": 0.7, "LightGBM": 0.95},
+    }
+    comps = ["CatBoost", "LightGBM"]
+    one = sw.competitor_relative_rank(scores, ["r1"], comps)
+    two = sw.competitor_relative_rank(scores, ["r1", "r2"], comps)
+    assert abs(one["r1"] - two["r1"]) < 1e-12, "adding a rung moved another rung"
+
+    # and the plain full-field rank demonstrably does NOT have this property
+    a = sw.average_rank(scores, ["r1"] + comps)["r1"]
+    b = sw.average_rank(scores, ["r1", "r2"] + comps)["r1"]
+    assert abs(a - b) > 1e-9, "full-field rank was expected to be unstable here"
+
+
+def test_no_rung_ranks_against_a_sibling():
+    """A rung's rank must be computed in a 3-way field, so with two competitors
+    it can never exceed 3.0 no matter how many rungs are charted."""
+    import suite_weights as sw
+    scores = {"d1": {"r1": 9.0, "r2": 8.0, "CatBoost": 1.0, "LightGBM": 2.0}}
+    r = sw.competitor_relative_rank(scores, ["r1", "r2"], ["CatBoost", "LightGBM"])
+    assert r["r1"] == 3.0 and r["r2"] == 3.0, (
+        "worst-of-three is 3.0; a larger value means siblings competed")
