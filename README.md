@@ -36,6 +36,10 @@ reg.fit(X, y)
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="500" alt="TabArena-Lite Elo vs speed Pareto" /></a></p>
 
+<sub>Measured on <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">TabArena</a>, which we never tune against. A second read on an
+independently audited 22-dataset suite — including how it is weighted, and where
+it disagrees with us — is in <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</sub>
+
 * **What?**
     * Exceedingly opinionated GBDT library that only depends on common Python libraries
         * Categorical features (catboost-like processing) and sample weights

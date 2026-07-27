@@ -29,7 +29,7 @@ def _doc_tables():
         text = fh.read()
     sus = dict(re.findall(r"^\|\s*\d+\s*\|\s*`([^`]+)`\s*\|\s*`@(\w+)`\s*\|$",
                           text, re.M))
-    temporal = dict(re.findall(r"^\|\s*`(hc:[^`]+)`\s*\|\s*`([^`]+)`\s*\|",
+    temporal = dict(re.findall(r"^\|\s*`((?:hc|pub):[^`]+)`\s*\|\s*`([^`]+)`\s*\|",
                                text, re.M))
     return sus, temporal
 
@@ -38,10 +38,11 @@ def test_sus_assignment_matches_doc():
     """The committed table is the source of truth for which datasets get twins."""
     rb._add_grinsztajn_datasets()
     rb._add_highcard_datasets()
+    rb._add_public_datasets()
     doc_sus, _ = _doc_tables()
 
     code = {}
-    for prefix in ("gr:", "hc:"):
+    for prefix in ("gr:", "hc:", "pub:"):
         keys = sorted(k for k in rb.DATASETS
                       if k.startswith(prefix) and rb.VARIANT_SEP not in k)
         code.update(rb._sus_assignment(keys))
@@ -178,6 +179,19 @@ def test_time_sort_key_handles_unordered_category():
     key = rb._time_sort_key(s)
     assert key is not None
     assert key.tolist() == [2014.0, 2003.0, 2010.0]
+
+
+def test_time_sort_key_handles_mixed_timezones():
+    """Timestamps carrying more than one UTC offset (kickstarter_projects does)
+    make pandas raise rather than coerce, on the fallback call too -- so without
+    utc=True this kills the run instead of ordering it."""
+    pd = pytest.importorskip("pandas")
+    s = pd.Series(["2013-06-01T12:00:00+02:00", "2013-06-01T09:00:00+00:00",
+                   "2013-06-01T05:00:00-05:00"])
+    key = rb._time_sort_key(s)
+    assert key is not None
+    # 10:00, 09:00 and 10:00 UTC: the +00:00 row is genuinely first.
+    assert key.argsort(kind="stable").iloc[0] == 1
 
 
 def test_task_of_strips_variant():

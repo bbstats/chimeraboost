@@ -1,10 +1,9 @@
 """HC suite contracts: registration, frozen-list<->doc agreement, the sealed-
 holdout overlap regression test, loader smoke, and summarize's multiclass columns.
 
-The overlap test embeds the TabArena-51 dataset NAMES (names only, no results of
-any kind — using the membership list to AVOID contamination is the sanctioned use
-per benchmarks/HIGHCARD_PLAN.md and the sealed-holdout vow). Source of the names:
-tabarena/nips2025_utils/metadata/curated_tabarena_dataset_metadata.csv.
+The overlap machinery (TabArena-51 names, the normaliser, the pool builder) lives
+in benchmarks/suite_overlap.py so this test, tests/test_public.py and
+benchmarks/public_audit.py all apply one rule.
 """
 import os
 import re
@@ -17,46 +16,10 @@ sys.path.insert(0, BENCH)
 
 import run_benchmarks as rb  # noqa: E402
 import summarize  # noqa: E402
+import suite_overlap  # noqa: E402
+from suite_overlap import TABARENA_51, name_hit as _name_hit, norm as _norm  # noqa: E402,F401
 
 PLAN_MD = os.path.join(BENCH, "HIGHCARD_PLAN.md")
-
-# TabArena 51 (openml_dataset_name column). NAMES ONLY — never any result.
-TABARENA_51 = [
-    "airfoil_self_noise", "Amazon_employee_access", "anneal",
-    "Another-Dataset-on-used-Fiat-500", "APSFailure", "bank-marketing",
-    "Bank_Customer_Churn", "Bioresponse", "blood-transfusion-service-center",
-    "churn", "coil2000_insurance_policies", "concrete_compressive_strength",
-    "credit-g", "credit_card_clients_default", "customer_satisfaction_in_airline",
-    "diabetes", "Diabetes130US", "diamonds", "E-CommereShippingData",
-    "Fitness_Club", "Food_Delivery_Time", "GiveMeSomeCredit",
-    "hazelnut-spread-contaminant-detection", "healthcare_insurance_expenses",
-    "heloc", "hiva_agnostic", "houses", "HR_Analytics_Job_Change_of_Data_Scientists",
-    "in_vehicle_coupon_recommendation", "Is-this-a-good-customer",
-    "kddcup09_appetency", "Marketing_Campaign", "maternal_health_risk",
-    "miami_housing", "MIC", "NATICUSdroid", "online_shoppers_intention",
-    "physiochemical_protein", "polish_companies_bankruptcy", "qsar-biodeg",
-    "QSAR-TID-11", "QSAR_fish_toxicity", "SDSS17", "seismic-bumps", "splice",
-    "students_dropout_and_academic_success", "superconductivity",
-    "taiwanese_bankruptcy_prediction", "website_phishing", "wine_quality", "jm1",
-]
-
-
-def _norm(s):
-    return re.sub(r"[^a-z0-9]", "", str(s).lower())
-
-
-def _name_hit(name, pool):
-    """(kind, matched) if `name` exact- or substring-matches any pool name
-    (shorter side >= 6 chars to avoid generic-token false hits), else None."""
-    n = _norm(name)
-    for other in pool:
-        o = _norm(other)
-        if n == o:
-            return ("exact", other)
-        short, long_ = (n, o) if len(n) <= len(o) else (o, n)
-        if len(short) >= 6 and short in long_:
-            return ("contains", other)
-    return None
 
 
 # --------------------------------------------------------------------------
@@ -112,21 +75,11 @@ def test_frozen_matches_doc():
 # sealed-holdout overlap regression test (the hard gate)
 # --------------------------------------------------------------------------
 def test_no_suite_overlap():
-    grinsztajn = [n for names in rb.GRINSZTAJN_DATASETS.values() for n in names]
-    gate_names = list(rb.OPENML_SUITE)
-    gate_ids = {spec["data_id"] for spec in rb.OPENML_SUITE.values()}
-    pmlb = [n for items in rb.PMLB_DATASETS.values() for n, _ in items]
-
+    # include_hc=False: a suite cannot overlap itself.
+    pools = suite_overlap.exclusion_pools(include_hc=False)
     failures = []
     for name, spec in rb.HC_DATASETS.items():
-        did = spec["data_id"]
-        if did in gate_ids:
-            failures.append(f"{name}: OpenML id {did} is in the gate suite")
-        for tag, pool in (("TabArena", TABARENA_51), ("Grinsztajn", grinsztajn),
-                          ("gate", gate_names), ("PMLB", pmlb)):
-            hit = _name_hit(name, pool)
-            if hit:
-                failures.append(f"{name}: {tag} {hit[0]} match '{hit[1]}'")
+        failures += suite_overlap.overlap_failures(name, spec["data_id"], pools)
     assert not failures, "HC suite overlaps a sealed/decision suite:\n" + "\n".join(failures)
 
 

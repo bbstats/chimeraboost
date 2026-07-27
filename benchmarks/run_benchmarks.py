@@ -218,17 +218,25 @@ def _time_sort_key(series):
     category (sf-police ships Year as a category whose order is not guaranteed
     chronological). Datetime second, for real date strings -- employee_salaries
     stores MM/DD/YYYY, where a lexicographic sort would order by month.
+
+    utc=True is required, not cosmetic: a column carrying more than one UTC
+    offset (kickstarter_projects does) makes pandas raise "Mixed timezones
+    detected" instead of coercing, and the raise happens on BOTH the format=
+    "mixed" call and the fallback -- so without it the fallback re-raises and
+    the run dies. Normalising to UTC is also the only ordering that means
+    anything across offsets. Timezone-naive input is merely localised, which
+    leaves the sort order untouched.
     """
     import pandas as pd
     num = pd.to_numeric(series, errors="coerce")
     if num.notna().mean() > 0.5:
         return num
     try:
-        dt = pd.to_datetime(series, errors="coerce", format="mixed")
+        dt = pd.to_datetime(series, errors="coerce", format="mixed", utc=True)
     except (TypeError, ValueError):
         # format="mixed" needs pandas >= 2.0; the dev extras declare >= 1.3, so
         # fall back to plain inference rather than failing on an older resolve.
-        dt = pd.to_datetime(series, errors="coerce")
+        dt = pd.to_datetime(series, errors="coerce", utc=True)
     if dt.notna().mean() > 0.5:
         return dt
     return None
@@ -267,17 +275,20 @@ def _add_variant_datasets(base_keys):
         vkey = f"{key}{VARIANT_SEP}time"
         if vkey in DATASETS:
             continue
-        # Both suites load real OpenML frames through the same builder, so both
-        # can carry a temporal twin. Grinsztajn cannot (see VARIANTS.md).
+        # Both suites keep real column names, so both can carry a temporal twin
+        # -- they just load from different places. Grinsztajn cannot at all
+        # (see VARIANTS.md).
         if key.startswith("hc:"):
-            spec, cap = HC_DATASETS[key[len("hc:"):]], _HIGHCARD_MAX_ROWS
+            DATASETS[vkey] = _make_highcard_builder(
+                HC_DATASETS[key[len("hc:"):]], time_col=col,
+                max_rows=_HIGHCARD_MAX_ROWS)
         elif key.startswith("pub:"):
-            spec, cap = PUBLIC_DATASETS[key[len("pub:"):]], _PUBLIC_MAX_ROWS
+            DATASETS[vkey] = _make_public_builder(
+                PUBLIC_DATASETS[key[len("pub:"):]], time_col=col)
         else:
             raise ValueError(
                 "temporal variants need a builder that keeps column names; "
                 f"{key!r} is not from the hc: or pub: suites")
-        DATASETS[vkey] = _make_highcard_builder(spec, time_col=col, max_rows=cap)
 
 
 def _task_of(ds_name):
@@ -299,12 +310,25 @@ def _task_of(ds_name):
 
 
 # --------------------------------------------------------------------------
-# Real external datasets via OpenML (the standard tabular-ML benchmark repo).
-# These are fetched on demand with --openml and cached by sklearn. They exist
-# so that decisions about defaults rest on many real datasets, not a handful of
-# synthetic ones hand-picked here. Each entry: (openml_name_or_id, task,
-# cat_feature_indices_or_None). Categoricals are auto-detected from dtype when
-# the index list is "auto".
+# RETIRED AS A GATE, 2026-07-27. This was the "independent one-shot gate": run
+# once after a change cleared the decision suites, required non-negative to
+# ship. It could not do that job, because it was not independent of what it
+# gated -- EIGHT of these 29 are exact-name members of Grinsztajn
+# (bank-marketing, electricity, cpu_act, wine_quality, elevators, ailerons,
+# abalone, house_16H), so it partly re-scored the very data it was meant to
+# check. nursery is also in PMLB and four more sit in TabArena. It is small and
+# partly solved besides (boston 506 rows, kc2 522, credit-g 1000; mushroom and
+# nursery are near-solved). It was paying compute for a confirmation that was
+# partly guaranteed. Validation now falls to the public suite, which is audited
+# for zero overlap with anything we tune on.
+#
+# The LIST survives only as a dataset registry: benchmarks/research/datasets.py,
+# knob_characterization.py and multiclass_panel.py address these by key, and
+# `--datasets oml:<name>` still registers them. There is no --openml flag and
+# no suite-level run.
+#
+# Each entry: (openml_name_or_id, task, cat_feature_indices_or_None).
+# Categoricals are auto-detected from dtype when the index list is "auto".
 #
 # This list is intentionally broad and editable -- add the datasets you care
 # about. IDs are OpenML dataset IDs (stable); names can drift, so IDs preferred.
@@ -647,24 +671,139 @@ HC_DATASETS = {
 HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
 
 # --------------------------------------------------------------------------
-# PUBLIC suite (issue #37) -- the sealed suite behind the published chart.
+# PUBLIC suite (issue #37) -- the validation suite behind the published chart.
 #
-# SEALED: report-only. No result from it, aggregate or per-task, may influence a
-# source change. It exists because the published chart must not run on
-# Grinsztajn or HC -- we tune against those, so charting them would be in-sample
-# and would contradict the north star ("true generalization, never faked from
-# data"). Decisions keep running on synth -> Grinsztajn + HC -> OpenML gate.
+# VALIDATION suite, not sealed (changed 2026-07-27). Read it freely; it never
+# blocks a ship. It exists because a published chart must not run on Grinsztajn
+# or HC -- we tune against those, so charting them would be in-sample and would
+# contradict the north star ("true generalization, never faked from data").
+# Decisions run on synth -> Grinsztajn + HC. The one sealed holdout is now
+# TabArena's full run, executed by its authors.
 #
-# EMPTY PENDING AUDIT. The selection criteria, the overlap gate and the
-# procedure are in benchmarks/PUBLIC_PLAN.md. The list is deliberately not
-# populated from remembered OpenML ids: HIGHCARD_PLAN.md's step 0 requires every
-# candidate be verified in-session, and the OpenML API was returning HTTP 504
-# throughout the session that built this machinery. Filling it in is one line
-# per dataset once the audit runs.
-PUBLIC_DATASETS = {}
+# FROZEN 2026-07-26. Audit matrix, cut reasons and the procedure are in
+# benchmarks/PUBLIC_PLAN.md; 6408 catalogue entries -> 373 survivors -> 21
+# content-verified -> these 13.
+#
+# Loaded from data.openml.org's parquet files, NOT through fetch_openml: that
+# route needs OpenML's metadata API for the default target, and the metadata
+# tier was dead for days while the data host served normally. Every `target`
+# below was read from the dataset's real columns in-session, which is also the
+# more reproducible arrangement -- a frozen suite must not be able to change
+# because someone edited a default-target field upstream.
+#
+# `drop_cols` removes what near-uniqueness cannot catch: numeric row ids and
+# uploader split markers. `time_col` must survive the near-unique filter to stay
+# a feature, which is why Medical-Appointment uses the appointment date rather
+# than the 94%-unique scheduling timestamp, and kickstarter uses `deadline`
+# rather than the 99.9%-unique `launched`.
+PUBLIC_DATASETS = {
+    # binary
+    "BNP_Paribas_Cardif_Claims_Management": dict(
+        data_id=46856, task="binary", target="target"),        # v22 card 18210, 5.1M missing
+    "Medical-Appointment-No-Shows": dict(
+        data_id=43439, task="binary", target="No-show", time_col="AppointmentDay"),
+    "kickstarter_projects": dict(
+        data_id=42076, task="binary", target="state", time_col="deadline"),
+    "SantanderCustomerSatisfaction": dict(
+        data_id=45566, task="binary", target="target"),        # wide numeric, 0.11 imbalance
+    "hcdr": dict(
+        data_id=45071, task="binary", target="class"),         # 47 categorical columns
+    "nba-shot-logs": dict(
+        data_id=42806, task="binary", target="SHOT_RESULT",
+        # FGM and PTS each determine SHOT_RESULT exactly (per-column purity
+        # 1.0000). The rest sit at the 0.548 majority baseline, bar SHOT_DIST at
+        # 0.611, which is just basketball. player_id and CLOSEST_DEFENDER_PLAYER_ID
+        # are numeric twins of the name columns -- keeping both would hand the
+        # model a leak-free numeric surrogate for the high-card cat this dataset
+        # is here to exercise. GAME_ID is a row-group id.
+        drop_cols=("FGM", "PTS", "GAME_ID", "player_id",
+                   "CLOSEST_DEFENDER_PLAYER_ID")),             # MATCHUP card 1808
+    "Dota2-Games-Results": dict(
+        data_id=45563, task="binary", target="Team_won"),      # 116 cat features
+    "Cardiovascular-Disease": dict(
+        data_id=45547, task="binary", target="cardio",
+        drop_cols=("id",)),                                    # numeric row id
+    "BMC_TrainingData": dict(
+        data_id=43066, task="binary", target="category",
+        drop_cols=("building_id",)),                           # 0.90 majority class
+    # multiclass
+    "internet_firewall": dict(
+        data_id=46978, task="multiclass", target="Action"),    # NAT ports card 29152
+    "connect-4": dict(
+        data_id=40668, task="multiclass", target="class"),     # 42 categorical features
+    "Otto-Group-Product-Classification-Challenge": dict(
+        data_id=45548, task="multiclass", target="target"),    # 9 classes
+    "hls4ml_lhc_jets_hlf": dict(
+        data_id=42468, task="multiclass", target="class"),     # 5 classes, 830k rows
+    "volkert": dict(
+        data_id=41166, task="multiclass", target="class"),     # 10 classes, 180 features
+    "helena": dict(
+        data_id=41169, task="multiclass", target="class"),     # 100 classes
+    "ldpa": dict(
+        data_id=1483, task="multiclass", target="Class"),      # 11 classes, sensor
+    "fars": dict(
+        data_id=45066, task="multiclass", target="class"),     # 7 classes, 15 cat cols
+    "criteo-uplift-balanced": dict(
+        data_id=47039, task="multiclass", target="label"),     # 4 classes, 1.37M rows
+    # regression
+    "rossmann_store_sales": dict(
+        data_id=45647, task="regression", target="Sales", time_col="Year",
+        drop_cols=("Set",)),                                   # `Set` = train/test/valid marker
+    "freMTPL2freq": dict(
+        data_id=41214, task="regression", target="ClaimNb",
+        drop_cols=("IDpol",)),                                 # heavy-tailed count, ~95% zeros
+    "fps-in-video-games": dict(
+        data_id=42737, task="regression", target="FPS"),       # GpuName card 446
+    "federal_election": dict(
+        data_id=42080, task="regression", target="transaction_amt",
+        drop_cols=("tran_id", "sub_id", "image_num")),         # entity cats at scale
+}
+
+# Frozen facet metadata, for the WEIGHTED public aggregate (make_public_pareto).
+# The suite is skewed by accident of what exists -- 9 binary / 9 multiclass but
+# only 4 regression, 11 medium-sized against 5 large -- so the aggregate rakes
+# these facets to equal mass instead of letting an over-represented stratum vote
+# twice. Frozen here rather than recomputed because deriving `maxcard` means
+# reading 1.4 GB of parquet, and a frozen suite's properties do not move.
+#
+# `rows` is the SOURCE row count (before the 200k cap). `maxcard` is the largest
+# categorical level count AS THE HARNESS SEES IT -- measured after the cap and
+# after the near-unique id drop, which is why e.g. Dota2 reads 47 (Cluster_ID)
+# rather than its raw column count. tests/test_public.py re-derives both from
+# the parquet cache when it is present.
+PUBLIC_FACETS = {
+    "BNP_Paribas_Cardif_Claims_Management": dict(rows=114321, maxcard=18210),
+    "Medical-Appointment-No-Shows":         dict(rows=110527, maxcard=81),
+    "kickstarter_projects":                 dict(rows=331675, maxcard=3077),
+    "SantanderCustomerSatisfaction":        dict(rows=200000, maxcard=0),
+    "hcdr":                                 dict(rows=244280, maxcard=58),
+    "nba-shot-logs":                        dict(rows=128069, maxcard=1808),
+    "Dota2-Games-Results":                  dict(rows=102944, maxcard=47),
+    "Cardiovascular-Disease":               dict(rows=70000,  maxcard=3),
+    "BMC_TrainingData":                     dict(rows=177640, maxcard=10),
+    "internet_firewall":                    dict(rows=65532,  maxcard=29152),
+    "connect-4":                            dict(rows=67557,  maxcard=3),
+    "Otto-Group-Product-Classification-Challenge": dict(rows=61878, maxcard=0),
+    "hls4ml_lhc_jets_hlf":                  dict(rows=830000, maxcard=0),
+    "volkert":                              dict(rows=58310,  maxcard=0),
+    "helena":                               dict(rows=65196,  maxcard=0),
+    "ldpa":                                 dict(rows=164860, maxcard=5),
+    "fars":                                 dict(rows=100959, maxcard=10),
+    "criteo-uplift-balanced":               dict(rows=1366544, maxcard=2),
+    "rossmann_store_sales":                 dict(rows=804056, maxcard=1115),
+    "freMTPL2freq":                         dict(rows=678013, maxcard=22),
+    "fps-in-video-games":                   dict(rows=425833, maxcard=403),
+    "federal_election":                     dict(rows=3348209, maxcard=174212),
+}
+
 PUBLIC_TASKS = {}   # "pub:<name>" -> task, filled at registration
 _PUBLIC_MAX_ROWS = 200000   # higher cap than HC: the speed axis is the point
 _HIGHCARD_MAX_ROWS = 100000
+# The pub: suite fetches data files straight from OpenML's data host, which has
+# no API in front of it. Cache on A: -- C: has ~4 GB free and these run to
+# hundreds of MB (override with PUBLIC_DATA_HOME).
+_PUBLIC_DATA_HOME = os.environ.get("PUBLIC_DATA_HOME") or r"A:\code\openml_pq"
+_PUBLIC_PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}.pq"
 # Categorical columns whose nunique/n exceeds this are row identifiers / free
 # text (e.g. wine-reviews' `description`/`title`, ~94% unique). They carry no
 # repeated-level signal -- the opposite of the entity-cat regime this suite
@@ -676,6 +815,44 @@ _HIGHCARD_ID_FRAC = 0.9
 # porto/sf-police/wine-reviews are 100-500 MB fetches, so default the cache to A:
 # (override with the standard SCIKIT_LEARN_DATA env var on a box where C: is fine).
 _HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
+
+
+def _prepare_frame(frame, target, spec, time_col, cap):
+    """Shared post-load shaping: row cap, optional time order, column cuts.
+
+    Returns (X_df, y). Split out so the hc: and pub: builders cannot drift --
+    they load from different places but must shape identically.
+    """
+    # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
+    # harness rng), so the train/test split stays the only seed-dependent step.
+    if len(frame) > cap:
+        frame = frame.sample(cap, random_state=0).reset_index(drop=True)
+    if time_col is not None:
+        key = _time_sort_key(frame[time_col])
+        if key is None:
+            raise ValueError(
+                f"time column {time_col!r} could not be ordered as numeric "
+                "or datetime")
+        frame = (frame.assign(_t=key).dropna(subset=["_t"])
+                 .sort_values("_t", kind="stable")
+                 .drop(columns=["_t"]).reset_index(drop=True))
+    X_df = frame.drop(columns=[target])
+    # Per-dataset column cuts, for what near-uniqueness cannot catch: a NUMERIC
+    # row id (freMTPL2freq's IDpol survives the categorical-only filter below)
+    # or a pre-baked split marker (rossmann ships a `Set` column reading
+    # train/test/valid, which is an artifact of whoever uploaded it, not a
+    # feature). Named per dataset in the frozen list so every cut is visible.
+    drop = [c for c in spec.get("drop_cols", ()) if c in X_df.columns]
+    if drop:
+        X_df = X_df.drop(columns=drop)
+    # Drop near-unique categorical columns (row identifiers / free text).
+    n = len(X_df)
+    id_cols = [c for c in X_df.columns
+               if _is_categorical_dtype(X_df[c].dtype)
+               and X_df[c].nunique(dropna=True) > _HIGHCARD_ID_FRAC * n]
+    if id_cols:
+        X_df = X_df.drop(columns=id_cols)
+    return X_df, frame[target]
 
 
 def _make_highcard_builder(spec, time_col=None, max_rows=None):
@@ -691,31 +868,54 @@ def _make_highcard_builder(spec, time_col=None, max_rows=None):
         from sklearn.datasets import fetch_openml
         ds = fetch_openml(data_id=spec["data_id"], as_frame=True,
                           data_home=_HIGHCARD_DATA_HOME)
-        frame = ds.frame
-        target = ds.target.name
-        # Deterministic subsample BEFORE the split (fixed seed 0, ignores the
-        # harness rng), so the train/test split stays the only seed-dependent step.
-        cap = max_rows or _HIGHCARD_MAX_ROWS
-        if len(frame) > cap:
-            frame = frame.sample(cap, random_state=0).reset_index(drop=True)
-        if time_col is not None:
-            key = _time_sort_key(frame[time_col])
-            if key is None:
-                raise ValueError(
-                    f"time column {time_col!r} could not be ordered as numeric "
-                    "or datetime")
-            frame = (frame.assign(_t=key).dropna(subset=["_t"])
-                     .sort_values("_t", kind="stable")
-                     .drop(columns=["_t"]).reset_index(drop=True))
-        X_df = frame.drop(columns=[target])
-        # Drop near-unique categorical columns (row identifiers / free text).
-        n = len(X_df)
-        id_cols = [c for c in X_df.columns
-                   if _is_categorical_dtype(X_df[c].dtype)
-                   and X_df[c].nunique(dropna=True) > _HIGHCARD_ID_FRAC * n]
-        if id_cols:
-            X_df = X_df.drop(columns=id_cols)
-        return _frame_to_dataset(X_df, frame[target], "auto", spec["task"])
+        X_df, y = _prepare_frame(ds.frame, ds.target.name, spec, time_col,
+                                 max_rows or _HIGHCARD_MAX_ROWS)
+        return _frame_to_dataset(X_df, y, "auto", spec["task"])
+    return builder
+
+
+def _public_parquet_path(data_id):
+    """Download dataset <data_id>'s parquet from data.openml.org into the cache.
+
+    The pub: suite deliberately does NOT go through fetch_openml. That route
+    needs OpenML's metadata API for the default target column, and the metadata
+    tier was returning HTTP 504 for days while the data host stayed up. Pinning
+    the target in the frozen spec instead removes the dependency entirely and is
+    the more reproducible arrangement anyway: a frozen suite should not be able
+    to change underneath us because someone edited a default-target field.
+    """
+    os.makedirs(_PUBLIC_DATA_HOME, exist_ok=True)
+    path = os.path.join(_PUBLIC_DATA_HOME, f"dataset_{data_id}.pq")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    import urllib.request
+    url = _PUBLIC_PQ_URL.format(pad=data_id // 10000, did=data_id)
+    tmp = path + ".part"
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "chimeraboost-benchmarks/public-suite"})
+    with urllib.request.urlopen(req, timeout=600) as resp, open(tmp, "wb") as f:
+        while True:
+            chunk = resp.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+    os.replace(tmp, path)   # never leave a truncated file looking complete
+    return path
+
+
+def _make_public_builder(spec, time_col=None):
+    """Builder for one pub: spec. Reads the parquet directly; target is the
+    explicit `target` key, verified in-session against the real columns."""
+    def builder(scale, rng):
+        import pandas as pd
+        frame = pd.read_parquet(_public_parquet_path(spec["data_id"]))
+        target = spec["target"]
+        if target not in frame.columns:
+            raise ValueError(
+                f"target {target!r} is not a column of dataset "
+                f"{spec['data_id']}; columns: {list(frame.columns)[:12]}...")
+        X_df, y = _prepare_frame(frame, target, spec, time_col, _PUBLIC_MAX_ROWS)
+        return _frame_to_dataset(X_df, y, "auto", spec["task"])
     return builder
 
 
@@ -731,18 +931,18 @@ def _add_highcard_datasets():
 
 
 def _add_public_datasets():
-    """Register the sealed public suite as pub:<name>. Idempotent.
+    """Register the public validation suite as pub:<name>. Idempotent.
 
-    Reuses the HC builder (fetch by OpenML id, deterministic row cap, drop
-    near-unique categorical id columns) with a larger cap, and honours a
-    per-dataset `time_col` so a public dataset can carry a temporal variant.
+    Loads from data.openml.org's parquet files with an explicitly pinned target
+    (see _make_public_builder), shares the HC shaping (row cap, column cuts,
+    near-unique drop) with a larger cap, and honours a per-dataset `time_col` so
+    a public dataset can carry a temporal variant.
     """
     if any(k.startswith("pub:") for k in DATASETS):
         return
     for name, spec in PUBLIC_DATASETS.items():
         key = f"pub:{name}"
-        DATASETS[key] = _make_highcard_builder(
-            spec, time_col=None, max_rows=_PUBLIC_MAX_ROWS)
+        DATASETS[key] = _make_public_builder(spec, time_col=None)
         PUBLIC_TASKS[key] = spec["task"]
         if spec.get("time_col"):
             TEMPORAL_COLUMNS[key] = spec["time_col"]
@@ -1449,10 +1649,10 @@ def main():
                          "closely and roughly doubles competitor runtime).")
     ap.add_argument("--only", choices=["regression", "classification"],
                     default=None)
-    ap.add_argument("--openml", action="store_true",
-                    help="include real OpenML benchmark datasets (downloads + caches)")
-    ap.add_argument("--no-synthetic", action="store_true",
-                    help="run ONLY the OpenML datasets (implies --openml)")
+    # --openml / --no-synthetic are GONE: the one-shot gate was retired
+    # 2026-07-27 (see OPENML_SUITE). The datasets stay addressable individually
+    # with --datasets oml:<name> for the research and knob-characterisation
+    # scripts that still use them.
     ap.add_argument("--grinsztajn", action="store_true",
                     help="run the Grinsztajn et al. 2022 tabular benchmark "
                          "(binary + regression), loaded from the HuggingFace mirror.")
@@ -1468,9 +1668,8 @@ def main():
                          "Grinsztajn). Fetched from OpenML, cached on A: "
                          "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
     ap.add_argument("--public", action="store_true",
-                    help="run the SEALED public suite behind the published "
-                         "chart (report-only -- never read it to justify a "
-                         "source change; see benchmarks/PUBLIC_PLAN.md).")
+                    help="run the public validation suite (post-hoc; never "
+                         "blocks a ship; see benchmarks/PUBLIC_PLAN.md).")
     ap.add_argument("--decide", action="store_true",
                     help="run the full decision tier in one go: Grinsztajn + HC "
                          "(+ their SUS/temporal variants unless --no-variants). "
@@ -1642,12 +1841,10 @@ def main():
     # nothing to run -- whichever registered last wiped the other.
     keepers = []
 
-    need_openml = (args.openml or args.no_synthetic or bool(
-        args.datasets and any(d.startswith("oml:") for d in args.datasets)))
+    need_openml = bool(
+        args.datasets and any(d.startswith("oml:") for d in args.datasets))
     if need_openml:
         _add_openml_datasets()
-    if args.no_synthetic:
-        keepers.append(lambda k: k.startswith("oml:"))
 
     need_grinsztajn = args.grinsztajn or bool(
         args.datasets and any(d.startswith("gr:") for d in args.datasets))
