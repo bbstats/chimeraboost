@@ -57,10 +57,20 @@ CONSUMED = [
     "particulate-matter-ukair-2017", "seattlecrime6", "SGEMM_GPU_kernel_performance",
     "Diabetes130US", "superconduct", "APSFailure", "kddcup09_appetency", "adult",
     "electricity", "letter",
-    # Verified aliases the normalised-name matcher cannot join: uci_diabetes_p
-    # (42106) is Diabetes130US, same 101,766 rows, and Diabetes130US is in
-    # Grinsztajn, in TabArena-51 and above.
-    "uci_diabetes_p",
+    # Verified aliases the normalised-name matcher cannot join. Each was caught
+    # by reading the actual columns, not by the gate:
+    #   uci_diabetes_p (42106) is Diabetes130US, same 101,766 rows, and
+    #     Diabetes130US is in Grinsztajn, in TabArena-51 and on this list.
+    #   Winedata (43651) is the Kaggle wine-reviews data -- country/designation/
+    #     points/price/taster_name/variety/winery -- which is hc:wine-reviews
+    #     (41275), a decision suite.
+    #   hcdr_main (45567) and rossmann_store_sales_processed (45646) are
+    #     re-uploads of pub: members already frozen below.
+    "uci_diabetes_p", "Winedata", "hcdr_main", "rossmann_store_sales_processed",
+    # Concatenations that smuggle a consumed dataset in as a column block:
+    #   AirlinesCodrnaAdult (1240) contains adult (gate suite).
+    #   CovPokElec (149) contains covertype and electricity (both consumed).
+    "AirlinesCodrnaAdult", "CovPokElec",
 ]
 
 # Auto-generated families (criterion 2: real data only) and the streaming

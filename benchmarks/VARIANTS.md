@@ -90,18 +90,21 @@ The HC percentages run slightly high because 14 datasets cannot be split into
 exact fifths and tenths. That is the cost of a fixed, auditable rule, and it is
 preferable to a per-suite fudge factor.
 
-### Public — 14 datasets, 3 at 25% (21.4%), 2 at 50% (14.3%)
+### Public — 22 datasets, 5 at 25% (22.7%), 2 at 50% (9.1%)
 
 | # | dataset | twin |
 |---|---|---|
-| 0 | `pub:BNP_Paribas_Cardif_Claims_Management` | `@sus25` |
-| 3 | `pub:SantanderCustomerSatisfaction` | `@sus50` |
-| 5 | `pub:federal_election` | `@sus25` |
-| 10 | `pub:internet_firewall` | `@sus25` |
-| 13 | `pub:rossmann_store_sales` | `@sus50` |
+| 0 | `pub:BMC_TrainingData` | `@sus25` |
+| 3 | `pub:Dota2-Games-Results` | `@sus50` |
+| 5 | `pub:Otto-Group-Product-Classification-Challenge` | `@sus25` |
+| 10 | `pub:federal_election` | `@sus25` |
+| 13 | `pub:hcdr` | `@sus50` |
+| 15 | `pub:hls4ml_lhc_jets_hlf` | `@sus25` |
+| 20 | `pub:rossmann_store_sales` | `@sus25` |
 
 Index order is the plain sort of the frozen keys, so the capitalised names sort
-ahead of the lowercase ones. Nothing chose these four — the stride did.
+ahead of the lowercase ones. Nothing chose these seven — the stride did, and it
+re-strides whenever the suite grows.
 
 ## Frozen temporal registry
 

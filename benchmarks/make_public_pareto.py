@@ -32,9 +32,52 @@ IMAGES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
                       "images")
 OUT_PNG = os.path.join(IMAGES, "public_pareto.png")
 
-# Arms shown on the public chart. The fast rung is deliberately absent for now
-# (Nathan, issue #37); it was also left uncharted on the TabArena figure.
-PUBLIC_ARMS = ("ChimeraBoost", "ChimeraBoostEns8", "CatBoost", "LightGBM")
+# The whole `quality` ladder, not just the default and the top rung. These are
+# the five named operating points a user actually selects with quality=N
+# (chimeraboost.sklearn_api.QUALITY_NAMES), mapped to the harness arms that
+# reproduce each one exactly:
+#
+#   quality=1 fast      one booster fit, linear leaves pinned, no refit
+#   quality=2 balanced  the full search, without the refit
+#   quality=3 accurate  refit the early-stopping winner on all rows  <- default
+#   quality=4 ensemble  5 bagged members
+#   quality=5 max       8 bagged members
+#
+# Charting all five is the point: the reader picks a rung off the frontier,
+# and a ladder with two rungs shown is not a ladder. Sibling rungs are never
+# each other's opponents (see score()), so adding rungs cannot move any row.
+QUALITY_ARMS = {
+    "ChimeraBoostOneLin":  (1, "fast"),
+    "ChimeraBoostNoRefit": (2, "balanced"),
+    "ChimeraBoost":        (3, "accurate"),
+    "ChimeraBoostEns5":    (4, "ensemble"),
+    "ChimeraBoostEns8":    (5, "max"),
+}
+DEFAULT_RUNG = "ChimeraBoost"
+PUBLIC_ARMS = tuple(QUALITY_ARMS) + COMPETITORS
+
+# One blue family, light (fast) to dark (max), so the ladder reads as a ladder
+# rather than five unrelated models.
+RUNG_COLOR = {
+    "ChimeraBoostOneLin":  "#a8cbe8",
+    "ChimeraBoostNoRefit": "#6fa3d2",
+    "ChimeraBoost":        "#3b6fb0",
+    "ChimeraBoostEns5":    "#2b5183",
+    "ChimeraBoostEns8":    "#17324f",
+}
+
+
+def display_name(model):
+    """Chart/table label: the knob a user would set, not our internal arm name."""
+    if model in QUALITY_ARMS:
+        level, name = QUALITY_ARMS[model]
+        suffix = ", default" if model == DEFAULT_RUNG else ""
+        return f"quality={level} ({name}{suffix})"
+    return model
+
+
+def arm_color(model):
+    return RUNG_COLOR.get(model) or make_pareto.MODEL_COLOR.get(model, "#777777")
 
 
 def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
@@ -72,15 +115,15 @@ def text_table(scored, meta):
             "NOT A PUBLISHABLE READ: this run is not the sealed pub: suite, so "
             "these\nnumbers are in-sample for anything we tune. Renderer smoke "
             "test only.\n")
-    lines.append(f"{'Model':<22}{'win% vs competitors':>21}{'95% CI':>16}"
+    lines.append(f"{'Model':<26}{'win% vs competitors':>21}{'95% CI':>16}"
                  f"{'slowdown':>11}  frontier")
-    lines.append("-" * 76)
+    lines.append("-" * 80)
     for m, s in sorted(scored.items(), key=lambda kv: -(kv[1]["winrate"] or 0)):
         ci = (f"[{s['wr_lo']:.0f}-{s['wr_hi']:.0f}]"
               if s["wr_lo"] is not None else "--")
         sl = f"{s['slowdown']:.1f}x" if s["slowdown"] is not None else "--"
-        lines.append(f"{m:<22}{s['winrate']:>20.1f}%{ci:>16}{sl:>11}"
-                     f"  {'yes' if m in front else ''}")
+        lines.append(f"{display_name(m):<26}{s['winrate']:>20.1f}%{ci:>16}"
+                     f"{sl:>11}  {'yes' if m in front else ''}")
     lines.append("")
     lines.append(f"{meta['n_h2h']} datasets scored | win rate = % of "
                  f"(dataset x competitor) matchups won,")
@@ -108,7 +151,7 @@ def render(scored, meta, path=OUT_PNG):
     ax.set_xlim(-0.03 * xmax, 1.16 * xmax)
 
     for m, s in pts.items():
-        color = make_pareto.MODEL_COLOR.get(m, "#777777")
+        color = arm_color(m)
         yerr = None
         if s["wr_lo"] is not None:
             yerr = [[s["winrate"] - s["wr_lo"]], [s["wr_hi"] - s["winrate"]]]
@@ -118,10 +161,11 @@ def render(scored, meta, path=OUT_PNG):
                     zorder=3)
         # Flip the label inboard once a point is far enough right to run off.
         right = s["slowdown"] > 0.66 * xmax
-        ax.annotate(m, (s["slowdown"], s["winrate"]), textcoords="offset points",
+        ax.annotate(display_name(m), (s["slowdown"], s["winrate"]),
+                    textcoords="offset points",
                     xytext=(-12 if right else 12, 7),
                     ha="right" if right else "left",
-                    fontsize=12.5, color=color)
+                    fontsize=11.5, color=color)
 
     fp = sorted((scored[m]["slowdown"], scored[m]["winrate"]) for m in front)
     if len(fp) > 1:

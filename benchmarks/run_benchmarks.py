@@ -704,6 +704,14 @@ PUBLIC_DATASETS = {
         # is here to exercise. GAME_ID is a row-group id.
         drop_cols=("FGM", "PTS", "GAME_ID", "player_id",
                    "CLOSEST_DEFENDER_PLAYER_ID")),             # MATCHUP card 1808
+    "Dota2-Games-Results": dict(
+        data_id=45563, task="binary", target="Team_won"),      # 116 cat features
+    "Cardiovascular-Disease": dict(
+        data_id=45547, task="binary", target="cardio",
+        drop_cols=("id",)),                                    # numeric row id
+    "BMC_TrainingData": dict(
+        data_id=43066, task="binary", target="category",
+        drop_cols=("building_id",)),                           # 0.90 majority class
     # multiclass
     "internet_firewall": dict(
         data_id=46978, task="multiclass", target="Action"),    # NAT ports card 29152
@@ -713,6 +721,16 @@ PUBLIC_DATASETS = {
         data_id=45548, task="multiclass", target="target"),    # 9 classes
     "hls4ml_lhc_jets_hlf": dict(
         data_id=42468, task="multiclass", target="class"),     # 5 classes, 830k rows
+    "volkert": dict(
+        data_id=41166, task="multiclass", target="class"),     # 10 classes, 180 features
+    "helena": dict(
+        data_id=41169, task="multiclass", target="class"),     # 100 classes
+    "ldpa": dict(
+        data_id=1483, task="multiclass", target="Class"),      # 11 classes, sensor
+    "fars": dict(
+        data_id=45066, task="multiclass", target="class"),     # 7 classes, 15 cat cols
+    "criteo-uplift-balanced": dict(
+        data_id=47039, task="multiclass", target="label"),     # 4 classes, 1.37M rows
     # regression
     "rossmann_store_sales": dict(
         data_id=45647, task="regression", target="Sales", time_col="Year",

@@ -111,6 +111,17 @@ Four candidates were cut on evidence that exists only in the data:
 | la_crimes | 42160 | no identifiable target; `Crime_Code` is mirrored by `Crime_Code_Description` and by `Crime_Code_1..4`, so whichever is the target, three columns leak it. Otherwise attractive (1.47M rows, 9 high-card cats, real timestamps) — kept as an alternate if a target can be established. |
 | Economic_Census_Delhi | 46096 | ambiguous target; ships both `District` and `DISTRICT`. |
 
+**Four aliases the name matcher cannot join**, each caught by reading columns
+rather than by the gate, and all now on `CONSUMED` in `public_audit.py`:
+`uci_diabetes_p` (42106) is `Diabetes130US` at the same 101,766 rows;
+**`Winedata` (43651) is the Kaggle wine-reviews data that is already
+`hc:wine-reviews` (41275)** — same country/designation/points/price/taster/
+variety/winery schema, and HC is a suite we tune on; `hcdr_main` (45567) and
+`rossmann_store_sales_processed` (45646) are re-uploads of frozen `pub:`
+members. Two concatenations were cut for smuggling a consumed dataset in as a
+column block: `AirlinesCodrnaAdult` (1240) contains `adult`, and `CovPokElec`
+(149) contains covertype and electricity.
+
 Two more were cut on judgment rather than a hard rule, and are recorded so the
 call is visible:
 
@@ -139,6 +150,14 @@ running the builder.
 | pub:SantanderCustomerSatisfaction | 45566 | binary | 200,000 | 200,000 × 200 | 0 | — | `target` | — | wide all-numeric, 0.10 minority |
 | pub:hcdr | 45071 | binary | 244,280 | 200,000 × 69 | 47 | 58 (`ORGANIZATION_TYPE`) | `class` | — | the most categorical-heavy set found; 0.078 minority |
 | pub:nba-shot-logs | 42806 | binary | 128,069 | 128,069 × 15 | 6 | 1,808 (`MATCHUP`) | `SHOT_RESULT` | — | high-card cats on a balanced, genuinely hard binary target |
+| pub:Dota2-Games-Results | 45563 | binary | 102,944 | 102,944 × 116 | 116 | 3 | `Team_won` | — | every feature categorical; best single column 0.534 against a 0.527 base |
+| pub:Cardiovascular-Disease | 45547 | binary | 70,000 | 70,000 × 11 | 6 | low | `cardio` | — | perfectly balanced real medical data |
+| pub:BMC_TrainingData | 43066 | binary | 177,640 | 177,640 × 38 | 8 | 11,200 (`geo_level_3_id`) | `category` | — | 0.096 minority; nested geographic codes |
+| pub:volkert | 41166 | multiclass | 58,310 | 58,310 × 180 | 0 | — | `class` | — | 10 classes over 180 numeric features |
+| pub:helena | 41169 | multiclass | 65,196 | 65,196 × 27 | 0 | — | `class` | — | **100 classes**, rarest at 0.0017 |
+| pub:ldpa | 1483 | multiclass | 164,860 | 164,860 × 7 | 2 | — | `Class` | — | 11 classes, rarest 0.0084, few features |
+| pub:fars | 45066 | multiclass | 100,959 | 100,959 × 29 | 15 | — | `class` | — | 7 classes with 15 categorical columns |
+| pub:criteo-uplift-balanced | 47039 | multiclass | 1,366,544 | 200,000 × 13 | 1 | — | `label` | — | 4 classes at advertising scale |
 | pub:internet_firewall | 46978 | multiclass | 65,532 | 65,532 × 11 | 4 | 29,152 (`NAT_Source_Port`) | `Action` | — | 4-class, high-card, rarest class 0.0008 |
 | pub:connect-4 | 40668 | multiclass | 67,557 | 67,557 × 42 | 42 | 3 | `class` | — | all-categorical multiclass |
 | pub:Otto-Group-Product-Classification-Challenge | 45548 | multiclass | 61,878 | 61,878 × 94 | 0 | — | `target` | — | 9 classes over count features |
@@ -148,9 +167,22 @@ running the builder.
 | pub:fps-in-video-games | 42737 | regression | 425,833 | 200,000 × 44 | 14 | 446 (`GpuName`) | `FPS` | — | entity cats + missingness |
 | pub:federal_election | 42080 | regression | 3,348,209 | 200,000 × 17 | 15 | `employer`/`occupation`/`city`/`zip_code` | `transaction_amt` | — | the entity-cat regime at full scale |
 
-Composition: 14 datasets; 6 binary / 4 multiclass / 4 regression; 9 with a
+Composition: **22 datasets**; 9 binary / 9 multiclass / 4 regression; 9 with a
 categorical of ≥50 levels; 3 regression-with-cats; 3 carrying a time column.
-Registration yields 22 keys once the `@sus25`/`@sus50`/`@time` twins are added.
+Registration yields 32 keys once the `@sus25`/`@sus50`/`@time` twins are added.
+
+**Regression is under-represented at 4 of 22, and that is a known gap.** It is
+not for want of looking: the expansion round screened nine further regression
+candidates and every one failed on the data. `Google-Play-Store-Apps` encodes
+unrated apps as `Rating` exactly 0.0 — 45.8% of rows, every one of them with
+`Rating_Count` 0, so half the target is a sentinel any model would learn in one
+split. `Cinema-Tickets` is an exact identity (`tickets_sold` × `ticket_price` =
+`total_sales`). `Bus-Breakdown-and-Delays-NYC` has a zero-inflated target with a
+median of 0 and a maximum of 9,007 students on one bus. `30mlday` has no signal
+at all — the largest absolute Spearman correlation against its target across
+every feature is 0.057. `SoilHydroDB` has no identifiable target and its
+water-retention columns leak each other. Padding the count with any of these
+would have made the suite look bigger and mean less.
 
 **On reinstating nba-shot-logs.** It was cut in the first pass for target
 leakage and then brought back, because the leak is two named columns rather than
