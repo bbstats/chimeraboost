@@ -1,4 +1,4 @@
-# The public suite — sealed benchmark behind the published chart
+# The public suite — the validation benchmark behind the published chart
 
 Issue #37. **Status: frozen at 22 datasets and run.** The audit, the frozen
 list, the first read and the open items are all below; `images/public_pareto.png`
@@ -17,12 +17,34 @@ weeks, and its median task is small enough that the figure's own source comments
 concede the fit-speed column is "directional only". A benchmark whose speed axis
 mostly measures fixed overhead cannot carry a speed claim.
 
-## The vow
+## Where this suite sits (revised 2026-07-27)
 
-**SEALED — report-only.** No result from this suite, aggregate or per-task, may
-influence a source change. Decisions keep running on synth → Grinsztajn + HC →
-the OpenML one-shot gate. This is the same vow TabArena carries, and it is the
-whole reason the chart means anything.
+**Not sealed. Never a blocker.** The suite is *validation*: run it occasionally,
+read it freely, cite it in the docs, and treat a surprise here as a signal to go
+looking. It cannot gate a ship, and it cannot settle a question — Grinsztajn +
+high-card still decide.
+
+| tier | suite | role | blocks a ship? |
+|---|---|---|---|
+| screen | SynthGen (`--synth`) | mechanism probe | no |
+| **ship** | Grinsztajn + high-card (`--decide`) | the decision, sign-tested per stratum | **yes** |
+| tune | PMLB (`--pmlb`) | HP tuning only; dormant | no |
+| validate | **public (`--public`)** | post-hoc tripwire + documented evidence | **no** |
+| holdout | TabArena full | the sealed out-of-sample read, run by its authors | no — report-only |
+
+Two things changed on 2026-07-27. **TabArena's full run became the only sealed
+holdout**, which is what freed this suite to be read. And **the OpenML one-shot
+gate was retired**: it was billed as the independent confirmation that a change
+had not overfit the decision suites, but eight of its 29 datasets are exact-name
+Grinsztajn members (`bank-marketing`, `electricity`, `cpu_act`, `wine_quality`,
+`elevators`, `ailerons`, `abalone`, `house_16H`), so it partly re-scored the
+very data it was meant to check. It was also small and partly solved — boston
+506 rows, kc2 522, credit-g 1,000. Nothing replaces it in the ship path; this
+suite covers the same intent better, with zero overlap by construction.
+
+**The selection rule survives unsealing.** Datasets are chosen by data
+properties only. The suite may be read from results; it must never be *chosen*
+from them, or it is born cherry-picked.
 
 ## Selection criteria
 
@@ -55,11 +77,11 @@ automatic cut:
 
 | list | source | why |
 |---|---|---|
-| TabArena-51 | `suite_overlap.TABARENA_51` (names) + the harvested study-457 ids | Nathan may still hand TabArena to its authors; contaminating it would burn that read |
+| TabArena-51 | `suite_overlap.TABARENA_51` (names) + the harvested study-457 ids | the sealed holdout; contaminating it would burn the one truly out-of-sample read |
 | Grinsztajn 59 | `GRINSZTAJN_DATASETS` | decision suite — overlap makes the public chart in-sample |
-| OpenML gate 29 | `OPENML_SUITE` | overlap would un-independent the one-shot gate |
 | PMLB 25 | `PMLB_DATASETS` | HP-tuning suite |
 | HC 14 | `HC_DATASETS` | decision suite |
+| consumed / aliases | `suite_overlap.CONSUMED_ELSEWHERE` | spent elsewhere under a name the matcher cannot join (e.g. `Winedata` = `hc:wine-reviews`) |
 
 Match on OpenML dataset id first, then normalised name (case, underscores and
 hyphens stripped). All of this is implemented in `benchmarks/suite_overlap.py`
@@ -255,68 +277,119 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
   property (adding a rung leaves every other row untouched).
 - **The fast rung is off the chart for now** (Nathan's call on this issue).
 
-## First read — 2026-07-27 (22 datasets, whole quality ladder)
+## First read — 2026-07-27 (22 datasets, weighted)
 
-`--public --seeds 3` over all five `quality` rungs plus both competitors:
-**295 minutes** wall on this box (5 parallel jobs, 2 threads each). Base suite
-only, no variant families.
+`--public --seeds 3`, 295 minutes wall on this box. Base suite only, no variant
+families. The chart carries two rungs — the default and the ensemble above it —
+against CatBoost and LightGBM.
 
-| model | win% vs CatBoost + LightGBM | 95% CI | median × | mean × | on frontier |
-|---|---|---|---|---|---|
-| CatBoost | 66.7% | 48–86 | **52.7×** | 121.1× | yes |
-| quality=4 (ensemble) | 64.3% | 50–79 | **15.5×** | 20.1× | yes |
-| quality=5 (max) | 64.3% | 50–79 | **22.5×** | 28.1× | no — same strength as rung 4, 45% more cost |
-| quality=3 (accurate, default) | 50.0% | 33–67 | **6.9×** | 12.9× | yes |
-| quality=2 (balanced) | 40.5% | 26–55 | **4.8×** | 6.4× | yes |
-| LightGBM | 33.3% | 14–52 | **1.0×** | 1.0× | yes |
-| quality=1 (fast) | 28.6% | 14–43 | **2.3×** | 4.2× | no — weaker than LightGBM *and* 2.3× slower |
-
-**Slowdown: report the median, and say so.** The mean fit-time multiple is not a
-representative number on this suite. Ratios are right-skewed by construction — a
-model can be 900× slower but never 900× faster — and a handful of datasets own
-the average. CatBoost needs **2,883 s against LightGBM's 3 s on `pub:fars`**, a
-970× ratio on one dataset; that alone roughly doubles its mean, taking 52.7×
-to 121.1×. Our own default rung shows the same shape, 6.9× median against 12.9×
-mean. The chart plots the median (the typical dataset) and the table carries
-both, because the mean answers a different and still-legitimate question: what
-running the whole suite costs.
-
-The worst CatBoost-vs-LightGBM ratios are all wide-categorical or many-class
-sets — `fars` 970×, `Dota2-Games-Results` 289×, `connect-4` 276×, `ldpa` 158× —
-which is ordered target statistics doing what they do.
+| model | avg rank | 95% CI | win% vs competitors | median x | mean x | frontier |
+|---|---|---|---|---|---|---|
+| quality=4 (ensemble) | **1.93** | 1.61–2.27 | 64.3% | 16.4× | 22.5× | yes |
+| CatBoost | 2.46 | 1.86–3.04 | 66.7% | 52.0× | 100.9× | no |
+| quality=3 (accurate, default) | 2.76 | 2.38–3.17 | 50.0% | 7.2× | 15.2× | yes |
+| LightGBM | 2.84 | 2.11–3.53 | 33.3% | 1.0× | 1.0× | yes |
 
 21 of 22 datasets scored; one near-solved set excluded by the PR #31 guard.
 
-**CatBoost is no longer dominated. That is a reversal, and it is the headline.**
-On 13 datasets our top rung led it 65.4% to 61.5%; on 22 it trails, 64.3%
-against 66.7%. The earlier claim was an artifact of a suite too small to
-separate them — exactly the failure mode the wide error bars were warning
-about, and the reason the suite was grown. Anyone quoting "CatBoost is
-dominated" from the earlier read should stop.
+**Read rank and win rate together — they disagree, and the disagreement is the
+point.** On average rank, `quality=4` leads CatBoost 1.93 to 2.46. On
+competitor-relative win rate, CatBoost leads 66.7% to 64.3%. Rank counts our own
+rungs as opponents, so `quality=4` banks a free point every time it beats
+`quality=3`, which is most datasets. The rank number is the flattering one.
+Publishing it alone would be dishonest, which is why the table prints both and
+`text_table` says so in its footer.
 
-What survives is a cost argument rather than a strength argument: CatBoost buys
-those 2.4 points for **6× the fit time** (121.1× against rung 4's 20.1×), and
-the gap sits well inside both confidence intervals. The defensible claim is
-"within noise of CatBoost at a sixth of the cost", not "better than CatBoost".
+The defensible sentence remains a cost claim, not a strength claim:
+**within noise of CatBoost at under a third of its median fit time.**
 
-**Two rungs are off their own frontier**, which is worth knowing and must not be
-acted on:
+**The weighting also flatters us, and that is stated rather than buried.**
+Balancing moves CatBoost 2.29 → 2.46 and LightGBM 3.00 → 2.84, widening our rank
+gap over CatBoost from 0.39 to 0.53 — because the up-weighted regression
+datasets are where CatBoost is weakest. The facets and thresholds were fixed
+from the suite's own structure before any of that was visible, and
+`--no-weights` reproduces the unweighted numbers exactly so the effect is
+auditable in one command.
 
-- `quality=5 (max)` scores identically to `quality=4 (ensemble)` — 64.3% each,
-  same interval — while costing 40% more. Eight bagged members bought nothing
-  over five here.
-- `quality=1 (fast)` is beaten by LightGBM on strength *and* is 4.2× slower.
-  As a speed rung it has no argument on this suite.
+### How the weighting works
 
-Both are sealed-suite observations. Under the vow they may not motivate a
-change to the ladder, the defaults, or anything in `chimeraboost/`. They are
-recorded because publishing a chart while staying quiet about two rungs sitting
-off the frontier would be dishonest.
+The suite is skewed by accident of what exists: 9 binary and 9 multiclass
+against only 4 regression, 11 medium-sized against 5 large, 7 high-cardinality
+against 4 low. Averaging unweighted lets the over-collected stratum vote twice.
 
-**Error bars behaved as predicted.** Going from 13 to 21 scored datasets pulled
-the interval on the default rung from 38 points to 34, and rung 4 sits at 29 —
-close to the ~29 estimated from the 1/√n scaling. Seeds were never the lever;
-the bootstrap resamples datasets.
+`benchmarks/suite_weights.py` rakes three facets to equal mass — task, size
+(small <100k rows / med / large >500k) and cardinality (none / low <10 levels /
+med / high >100). Iterative proportional fitting matches all three marginals at
+once. Weighting by the crossed cell instead would be wrong here: 3×3×4 = 36
+cells over 22 datasets leaves most empty, and a lone dataset in a rare cell
+would carry an enormous weight.
+
+Weights are capped at [0.5×, 2.0×] the equal weight. Uncapped raking hands
+`freMTPL2freq` 3.17× and `internet_firewall` 0.20×, i.e. one dataset deciding
+the regression column.
+
+| scheme | effective sample size | max/min spread |
+|---|---|---|
+| equal | 21.0 / 21 | 1.0× |
+| raked, uncapped | ~14 / 21 | 15.9× |
+| **raked, capped** | **16.9 / 21** | 3.9× |
+
+Balancing is not free — error bars widen by about 11% — and the run prints the
+weight table, the per-facet balance achieved and the effective sample size so
+the number is always quoted alongside.
+
+`PUBLIC_FACETS` in `run_benchmarks.py` freezes each dataset's row count and
+max categorical cardinality, measured *as the harness sees them* (after the 200k
+cap and the near-unique id drop). They are frozen rather than recomputed because
+deriving them means reading 1.4 GB of parquet, and a frozen suite's properties
+do not move; `tests/test_public.py` re-derives them when the cache is present.
+
+### Where SUS fits: not here
+
+A `@sus25` twin trains on 25% of its parent's rows and is scored on *exactly the
+parent's test rows*. It is a derived view, not an independent dataset, so it
+stays out of this aggregate — including it would hand its parent's stratum a
+second vote invisibly, which is worse than the raw skew this weighting exists to
+fix. `summarize.stratum_of` already keeps the families apart and no combined
+verdict is printed anywhere.
+
+Its proper home is a separate small-data reading: the same rank-vs-slowdown
+chart restricted to the `@sus` families, answering "does the ranking survive
+when training data is scarce?" That is the regime they were built to probe. If
+they are ever pooled with their parents, the rule is that a parent and its twins
+share one weight budget.
+
+### What the uncharted rungs measured
+
+Rungs 1, 2 and 5 came off the chart for efficiency, having been measured once:
+
+- `quality=5 (max)` scored **identically** to `quality=4` — 64.3% each, same
+  interval — for 45% more compute. Eight bagged members bought nothing over five
+  across 22 datasets.
+- `quality=1 (fast)` was beaten by LightGBM on strength *and* was 2.3× slower.
+
+Now that the suite is unsealed these are actionable, but they are **not
+decisions**: any change to the ladder or the defaults still has to clear
+`/experiment` on Grinsztajn + high-card. This suite raises questions; it does
+not answer them.
+
+### Where the slowdown comes from
+
+CatBoost's cost is concentrated, not uniform, and it is not a misconfiguration —
+the runner gives every model the same 2000-iteration budget, the same patience
+of 50, the same threads and the same validation split, and CatBoost's own
+auto-tuning already picks its cheap settings here (`max_ctr_complexity=1`,
+`boosting_type=Plain`; forcing complexity to 2 makes it *slower*).
+
+It is intrinsic and multiplicative. Holding everything else fixed at 20k rows
+and 60 trees: 15 numeric columns cost 6 ms/tree at 2 classes and 30 at 7; 15
+categorical columns cost 29 ms/tree at 2 classes and **414** at 7. Multiclass
+alone costs ~5×, categoricals alone ~5×, together ~69× — well beyond their
+product, because CatBoost computes categorical target statistics *per class*.
+
+That explains every outlier: the worst CatBoost-vs-LightGBM ratios are `fars`
+(7 classes, 15 cats) at 970×, `Dota2-Games-Results` (116 cats) at 289×,
+`connect-4` (3 classes, 42 cats) at 276× and `ldpa` (11 classes) at 158×.
 
 ## What remains
 
