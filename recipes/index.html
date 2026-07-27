@@ -1189,25 +1189,25 @@ and <code>quality=3</code> is byte-for-byte the shipped defaults.</p>
 <tr>
 <td><code>2</code></td>
 <td>balanced</td>
-<td style="text-align: right;">5.2x</td>
+<td style="text-align: right;">5.3x</td>
 <td><code>refit_full=False</code></td>
 </tr>
 <tr>
 <td><code>3</code></td>
 <td>accurate <em>(= default)</em></td>
-<td style="text-align: right;">9.2x</td>
+<td style="text-align: right;">6.9x</td>
 <td>—</td>
 </tr>
 <tr>
 <td><code>4</code></td>
 <td>ensemble</td>
-<td style="text-align: right;">17.1x</td>
+<td style="text-align: right;">18.1x</td>
 <td><code>n_ensembles=5</code></td>
 </tr>
 <tr>
 <td><code>5</code></td>
 <td>max</td>
-<td style="text-align: right;">24.7x</td>
+<td style="text-align: right;">26.0x</td>
 <td><code>n_ensembles=8</code></td>
 </tr>
 </tbody>
@@ -1217,7 +1217,10 @@ and <code>quality=3</code> is byte-for-byte the shipped defaults.</p>
 buys real accuracy for its extra time, and none is dominated by another.</p>
 <p>The default is rung 3, the strongest setting that does not build an ensemble.
 <code>quality=2</code> is the pre-0.25.0 default: the same model without the full-data
-refit, for about half the fit time.</p>
+refit. It saves less than it used to, because the default now does that refit
+by replaying the tree structures rather than re-growing them (see
+<a href="#full-data-refit">full-data refit</a>) — 6.9x against 5.3x, where before it was
+9.2x against 5.2x.</p>
 <p><strong>What rung 1 gives up.</strong> By default ChimeraBoost auditions its own
 configuration — constant against linear leaves, plain against cross features —
 which costs two to four boosting fits. <code>quality=1</code> pins both decisions instead
