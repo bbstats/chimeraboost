@@ -694,6 +694,16 @@ PUBLIC_DATASETS = {
         data_id=45566, task="binary", target="target"),        # wide numeric, 0.11 imbalance
     "hcdr": dict(
         data_id=45071, task="binary", target="class"),         # 47 categorical columns
+    "nba-shot-logs": dict(
+        data_id=42806, task="binary", target="SHOT_RESULT",
+        # FGM and PTS each determine SHOT_RESULT exactly (per-column purity
+        # 1.0000). The rest sit at the 0.548 majority baseline, bar SHOT_DIST at
+        # 0.611, which is just basketball. player_id and CLOSEST_DEFENDER_PLAYER_ID
+        # are numeric twins of the name columns -- keeping both would hand the
+        # model a leak-free numeric surrogate for the high-card cat this dataset
+        # is here to exercise. GAME_ID is a row-group id.
+        drop_cols=("FGM", "PTS", "GAME_ID", "player_id",
+                   "CLOSEST_DEFENDER_PLAYER_ID")),             # MATCHUP card 1808
     # multiclass
     "internet_firewall": dict(
         data_id=46978, task="multiclass", target="Action"),    # NAT ports card 29152

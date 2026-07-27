@@ -106,7 +106,7 @@ Four candidates were cut on evidence that exists only in the data:
 
 | cut | id | why |
 |---|---|---|
-| nba-shot-logs | 42806 | **target leakage.** `FGM` determines `SHOT_RESULT` exactly (the crosstab is diagonal: 57,905 made ⇔ FGM=1, 70,164 missed ⇔ FGM=0), and `PTS` does the same. Any model scores ~1.0. |
+| ~~nba-shot-logs~~ | 42806 | **reinstated** — see below. `FGM` and `PTS` each determine `SHOT_RESULT` exactly, but they are two named columns, which is what `drop_cols` is for. |
 | autos | 45080 | **not real data.** 1,000,000 rows carrying the 205-row imports-85 schema — a generator expansion that the `BNG(` prefix filter does not catch. |
 | la_crimes | 42160 | no identifiable target; `Crime_Code` is mirrored by `Crime_Code_Description` and by `Crime_Code_1..4`, so whichever is the target, three columns leak it. Otherwise attractive (1.47M rows, 9 high-card cats, real timestamps) — kept as an alternate if a target can be established. |
 | Economic_Census_Delhi | 46096 | ambiguous target; ships both `District` and `DISTRICT`. |
@@ -138,6 +138,7 @@ running the builder.
 | pub:kickstarter_projects | 42076 | binary | 331,675 | 200,000 × 12 | 5 | 3,102 (`deadline`) | `state` | `deadline` | temporal, mixed-timezone dates |
 | pub:SantanderCustomerSatisfaction | 45566 | binary | 200,000 | 200,000 × 200 | 0 | — | `target` | — | wide all-numeric, 0.10 minority |
 | pub:hcdr | 45071 | binary | 244,280 | 200,000 × 69 | 47 | 58 (`ORGANIZATION_TYPE`) | `class` | — | the most categorical-heavy set found; 0.078 minority |
+| pub:nba-shot-logs | 42806 | binary | 128,069 | 128,069 × 15 | 6 | 1,808 (`MATCHUP`) | `SHOT_RESULT` | — | high-card cats on a balanced, genuinely hard binary target |
 | pub:internet_firewall | 46978 | multiclass | 65,532 | 65,532 × 11 | 4 | 29,152 (`NAT_Source_Port`) | `Action` | — | 4-class, high-card, rarest class 0.0008 |
 | pub:connect-4 | 40668 | multiclass | 67,557 | 67,557 × 42 | 42 | 3 | `class` | — | all-categorical multiclass |
 | pub:Otto-Group-Product-Classification-Challenge | 45548 | multiclass | 61,878 | 61,878 × 94 | 0 | — | `target` | — | 9 classes over count features |
@@ -147,9 +148,22 @@ running the builder.
 | pub:fps-in-video-games | 42737 | regression | 425,833 | 200,000 × 44 | 14 | 446 (`GpuName`) | `FPS` | — | entity cats + missingness |
 | pub:federal_election | 42080 | regression | 3,348,209 | 200,000 × 17 | 15 | `employer`/`occupation`/`city`/`zip_code` | `transaction_amt` | — | the entity-cat regime at full scale |
 
-Composition: 13 datasets; 5 binary / 4 multiclass / 4 regression; 8 with a
+Composition: 14 datasets; 6 binary / 4 multiclass / 4 regression; 9 with a
 categorical of ≥50 levels; 3 regression-with-cats; 3 carrying a time column.
-Registration yields 20 keys once the `@sus25`/`@sus50`/`@time` twins are added.
+Registration yields 22 keys once the `@sus25`/`@sus50`/`@time` twins are added.
+
+**On reinstating nba-shot-logs.** It was cut in the first pass for target
+leakage and then brought back, because the leak is two named columns rather than
+a property of the dataset. Measured per-column purity — how well knowing one
+column alone pins the label — is 1.0000 for both `FGM` and `PTS`, and at or
+barely above the 0.5479 majority baseline for everything else, the one exception
+being `SHOT_DIST` at 0.611, which is just basketball. With those two dropped the
+target is balanced at 0.452 and genuinely hard, and the set contributes three
+real high-cardinality categoricals (`MATCHUP` 1,808, `CLOSEST_DEFENDER` 473,
+`player_name` 281) to a suite that was thin on high-card *binary*. `player_id`
+and `CLOSEST_DEFENDER_PLAYER_ID` go too: they are numeric twins of the name
+columns, and leaving them in hands the model a leak-free numeric surrogate for
+the very categorical the dataset is here to exercise.
 
 **Loaded from data.openml.org, not through `fetch_openml`.** The `pub:` builder
 downloads the dataset's parquet directly and takes the target from the frozen
@@ -210,26 +224,32 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
 
 ## First read — 2026-07-26
 
-`--public --seeds 3` over the four charted arms: **99 minutes** wall on this box
+`--public --seeds 3` over the four charted arms: **103 minutes** wall on this box
 (5 parallel jobs, 2 threads each). Base suite only, no variant families.
 
 | model | win% vs CatBoost + LightGBM | 95% CI | slowdown | on frontier |
 |---|---|---|---|---|
-| ChimeraBoostEns8 | 66.7% | 50–83 | 34.2× | yes |
-| CatBoost | 58.3% | 33–83 | 72.8× | no — dominated |
-| ChimeraBoost (default) | 50.0% | 29–71 | 16.1× | yes |
-| LightGBM | 41.7% | 17–67 | 1.0× | yes |
+| ChimeraBoostEns8 | 65.4% | 50–81 | 32.4× | yes |
+| CatBoost | 61.5% | 38–85 | 70.9× | no — dominated |
+| ChimeraBoost (default) | 50.0% | 31–69 | 15.1× | yes |
+| LightGBM | 38.5% | 15–62 | 1.0× | yes |
 
-12 of 13 datasets scored; `kickstarter_projects` is near-solved (Brier ~1e-4 for
+13 of 14 datasets scored; `kickstarter_projects` is near-solved (Brier ~1e-4 for
 three of four arms) and excluded by the guard from PR #31.
 
+`nba-shot-logs` came in at Brier 0.4543 for us against CatBoost's 0.4537 and
+LightGBM's 0.4670 — a narrow loss and a clear win respectively, with nobody
+anywhere near a perfect score. That is the direct confirmation that dropping
+`FGM` and `PTS` removed the leak rather than hiding it: a balanced binary target
+sitting at 0.45 Brier is a genuinely hard problem.
+
 **Read it honestly.** CatBoost is dominated — the ensemble is stronger *and*
-2.1× faster than it — and the default rung matches CatBoost's strength at 4.5×
+2.2× faster than it — and the default rung matches CatBoost's strength at 4.7×
 its speed. But this is a markedly weaker picture than the internal Grinsztajn
 chart, on both axes, and that is the entire point of having a sealed suite:
 
 - The internal chart puts the default at 69.9% and 9.35× slowdown. Here it is
-  50.0% and 16.1×. The slowdown gap is mostly size — these datasets run to
+  50.0% and 15.1×. The slowdown gap is mostly size — these datasets run to
   200,000 rows, where LightGBM scales better than we do, so the ~5× figure the
   internal chart reports does not survive at this scale.
 - Two datasets are outright losses to LightGBM on both metrics: `connect-4`

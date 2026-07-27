@@ -90,7 +90,7 @@ The HC percentages run slightly high because 14 datasets cannot be split into
 exact fifths and tenths. That is the cost of a fixed, auditable rule, and it is
 preferable to a per-suite fudge factor.
 
-### Public — 13 datasets, 3 at 25% (23.1%), 1 at 50% (7.7%)
+### Public — 14 datasets, 3 at 25% (21.4%), 2 at 50% (14.3%)
 
 | # | dataset | twin |
 |---|---|---|
@@ -98,6 +98,7 @@ preferable to a per-suite fudge factor.
 | 3 | `pub:SantanderCustomerSatisfaction` | `@sus50` |
 | 5 | `pub:federal_election` | `@sus25` |
 | 10 | `pub:internet_firewall` | `@sus25` |
+| 13 | `pub:rossmann_store_sales` | `@sus50` |
 
 Index order is the plain sort of the frozen keys, so the capitalised names sort
 ahead of the lowercase ones. Nothing chose these four — the stride did.
