@@ -80,6 +80,35 @@ def arm_color(model):
     return RUNG_COLOR.get(model) or make_pareto.MODEL_COLOR.get(model, "#777777")
 
 
+def slowdown_stats(data, arms):
+    """{model: (mean, median)} fit-time multiple vs the fastest arm per dataset.
+
+    The mean is what summarize reports, and on this suite it is not a
+    representative number: CatBoost needs 2,883s against LightGBM's 3s on
+    pub:fars, and that single 970x ratio drags its mean to 121x while its
+    median dataset costs 53x. Ratios are right-skewed by construction -- a
+    model can be 900x slower but never 900x faster -- so the median is the
+    typical dataset and the mean is the whole-suite bill. Report both.
+    """
+    import statistics
+    ft = {}
+    for r in data["records"]:
+        ft.setdefault(r["dataset"], {}).setdefault(r["model"], []).append(
+            r["fit_time"])
+    ratios = {m: [] for m in arms}
+    for _, per_model in ft.items():
+        times = {m: sum(v) / len(v) for m, v in per_model.items() if m in arms}
+        if len(times) < 2:
+            continue
+        best = min(times.values())
+        if best <= 0:
+            continue
+        for m, t in times.items():
+            ratios[m].append(t / best)
+    return {m: (sum(v) / len(v), statistics.median(v))
+            for m, v in ratios.items() if v}
+
+
 def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
     """{model: {winrate, wr_lo, wr_hi, slowdown}} on the competitor-relative axis."""
     cols, meta = summarize.aggregate(data)
@@ -93,15 +122,18 @@ def score(data, arms=PUBLIC_ARMS, n_boot=make_pareto.N_BOOT):
     rates = summarize.winrate_vs_opponents(primary, opponents)
     ci = summarize.bootstrap_winrate_vs_opponents_ci(
         primary, opponents, n_boot=n_boot)
-    speed = cols["Speed"]
+    stats = slowdown_stats(data, arms)
 
     out = {}
     for m in arms:
         if m not in rates:
             continue
         lo, hi = ci.get(m, (None, None))
+        mean_x, med_x = stats.get(m, (None, None))
+        # The chart plots the MEDIAN: it is the typical dataset, and the mean is
+        # a different claim (the whole-suite bill) that one 970x outlier owns.
         out[m] = {"winrate": rates[m], "wr_lo": lo, "wr_hi": hi,
-                  "slowdown": speed.get(m)}
+                  "slowdown": med_x, "slowdown_mean": mean_x}
     meta["n_h2h"] = len(primary)
     meta["sealed"] = all(d.startswith("pub:") for d in data["datasets"])
     return out, meta
@@ -116,14 +148,16 @@ def text_table(scored, meta):
             "these\nnumbers are in-sample for anything we tune. Renderer smoke "
             "test only.\n")
     lines.append(f"{'Model':<26}{'win% vs competitors':>21}{'95% CI':>16}"
-                 f"{'slowdown':>11}  frontier")
-    lines.append("-" * 80)
+                 f"{'median x':>11}{'mean x':>10}  frontier")
+    lines.append("-" * 90)
     for m, s in sorted(scored.items(), key=lambda kv: -(kv[1]["winrate"] or 0)):
         ci = (f"[{s['wr_lo']:.0f}-{s['wr_hi']:.0f}]"
               if s["wr_lo"] is not None else "--")
         sl = f"{s['slowdown']:.1f}x" if s["slowdown"] is not None else "--"
+        mn = (f"{s['slowdown_mean']:.1f}x"
+              if s.get("slowdown_mean") is not None else "--")
         lines.append(f"{display_name(m):<26}{s['winrate']:>20.1f}%{ci:>16}"
-                     f"{sl:>11}  {'yes' if m in front else ''}")
+                     f"{sl:>11}{mn:>10}  {'yes' if m in front else ''}")
     lines.append("")
     lines.append(f"{meta['n_h2h']} datasets scored | win rate = % of "
                  f"(dataset x competitor) matchups won,")
@@ -132,6 +166,12 @@ def text_table(scored, meta):
     lines.append("Opponents are CatBoost and LightGBM only -- sibling rungs are "
                  "never opponents,")
     lines.append("so adding a rung does not move any other row.")
+    lines.append("Slowdown is the fit-time multiple vs the fastest arm on each "
+                 "dataset. The chart")
+    lines.append("plots the MEDIAN; the mean is shown because the two differ a "
+                 "lot -- ratios are")
+    lines.append("right-skewed, and one dataset (fars: 2883s vs 3s) alone "
+                 "doubles CatBoost's mean.")
     return "\n".join(lines)
 
 
@@ -186,7 +226,7 @@ def render(scored, meta, path=OUT_PNG):
     ax.axhline(50, color="#bbbbbb", lw=0.9, ls=":", zorder=0)
     ax.xaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}x" if v > 0 else ""))
-    ax.set_xlabel("fit-time slowdown vs fastest", fontsize=13)
+    ax.set_xlabel("fit-time slowdown vs fastest (median dataset)", fontsize=13)
     ax.set_ylabel("% of matchups won", fontsize=13)
     ax.tick_params(labelsize=12)
     title = "ChimeraBoost - strength vs speed"

@@ -261,15 +261,29 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
 **295 minutes** wall on this box (5 parallel jobs, 2 threads each). Base suite
 only, no variant families.
 
-| model | win% vs CatBoost + LightGBM | 95% CI | slowdown | on frontier |
-|---|---|---|---|---|
-| CatBoost | 66.7% | 48–86 | 121.1× | yes |
-| quality=4 (ensemble) | 64.3% | 50–79 | 20.1× | yes |
-| quality=5 (max) | 64.3% | 50–79 | 28.1× | no — same strength as rung 4, 40% more cost |
-| quality=3 (accurate, default) | 50.0% | 33–67 | 12.9× | yes |
-| quality=2 (balanced) | 40.5% | 26–55 | 6.4× | yes |
-| LightGBM | 33.3% | 14–52 | 1.0× | yes |
-| quality=1 (fast) | 28.6% | 14–43 | 4.2× | no — weaker than LightGBM *and* 4.2× slower |
+| model | win% vs CatBoost + LightGBM | 95% CI | median × | mean × | on frontier |
+|---|---|---|---|---|---|
+| CatBoost | 66.7% | 48–86 | **52.7×** | 121.1× | yes |
+| quality=4 (ensemble) | 64.3% | 50–79 | **15.5×** | 20.1× | yes |
+| quality=5 (max) | 64.3% | 50–79 | **22.5×** | 28.1× | no — same strength as rung 4, 45% more cost |
+| quality=3 (accurate, default) | 50.0% | 33–67 | **6.9×** | 12.9× | yes |
+| quality=2 (balanced) | 40.5% | 26–55 | **4.8×** | 6.4× | yes |
+| LightGBM | 33.3% | 14–52 | **1.0×** | 1.0× | yes |
+| quality=1 (fast) | 28.6% | 14–43 | **2.3×** | 4.2× | no — weaker than LightGBM *and* 2.3× slower |
+
+**Slowdown: report the median, and say so.** The mean fit-time multiple is not a
+representative number on this suite. Ratios are right-skewed by construction — a
+model can be 900× slower but never 900× faster — and a handful of datasets own
+the average. CatBoost needs **2,883 s against LightGBM's 3 s on `pub:fars`**, a
+970× ratio on one dataset; that alone roughly doubles its mean, taking 52.7×
+to 121.1×. Our own default rung shows the same shape, 6.9× median against 12.9×
+mean. The chart plots the median (the typical dataset) and the table carries
+both, because the mean answers a different and still-legitimate question: what
+running the whole suite costs.
+
+The worst CatBoost-vs-LightGBM ratios are all wide-categorical or many-class
+sets — `fars` 970×, `Dota2-Games-Results` 289×, `connect-4` 276×, `ldpa` 158× —
+which is ordered target statistics doing what they do.
 
 21 of 22 datasets scored; one near-solved set excluded by the PR #31 guard.
 
