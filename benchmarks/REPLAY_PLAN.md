@@ -211,6 +211,55 @@ and the tie-break goes to the one that is a third cheaper.
 
 Defaults moved, so the Pareto chart is refreshed.
 
+## Post-hoc validation (2026-07-27, after #41/#42 merged)
+
+None of this can change the ship — it is confirmation on suites that took no
+part in the decision, plus two questions the decision suites cannot answer.
+
+**Public validation suite (22 datasets, n >= 50K, 3 seeds).** Never sealed,
+never blocking, zero overlap with the decision suites, and heavy on real
+high-cardinality categoricals — i.e. the regime where the leakage bug lived.
+`pub-scratch` vs `pub-replay`: **6W-6L-10T, mean −0.114%, median +0.000%.**
+All NINE multiclass datasets tied EXACTLY, which re-confirms the multiclass
+no-op on real large data rather than on synthetics. That is also why the
+whole-suite speed number looks modest (0.896x): those nine untouched datasets
+are 71% of the suite's compute. **On the 13 datasets replay actually touches:
+0.626x (−37.4%), faster on 13/13.** Mean is carried by two sets (rossmann
+−1.63%, BNP_Paribas −0.93%) against six wins.
+
+**PMLB (25 datasets, 3 seeds).** The suite most likely to find a weakness:
+small-data heavy, and REFIT_PLAN's gains concentrated in steep learning
+curves. It did not. **9W-5L-11T, mean −0.043%, median +0.000%** — more wins
+than losses. The one alarming cell, `pm:holdout/dis` at −3.00%, is seed noise:
+per-seed deltas −0.088 / +0.025 / −0.012 on a tiny, severely imbalanced
+binary set. Speed 0.962x summed, median 0.876x — small data saves least.
+
+**Backward compatibility.** Models fitted and pickled by the PRE-#41 library
+(566573a) load under the new code and predict **bit-identically**, for
+regression, binary and multiclass, despite their boosters predating the
+`replay_donor` attribute entirely (predict never reads it). An unpickled
+estimator still carries `refit_full=True`, so re-fitting an old model keeps
+the old behaviour rather than silently switching.
+
+**Size scaling (`benchmarks/replay_scaling.py`).** Every suite caps dataset
+size, so the headline was really "−35% at up to ~50K rows". Measured directly
+at 50K / 200K / 500K on mixed numeric+categorical data:
+
+| task | 50K | 200K | 500K |
+|---|--:|--:|--:|
+| regression | 27.5% | 28.9% | 28.4% |
+| binary | 27.0% | 29.0% | 27.2% |
+
+**The saving is FLAT at 27-29% across a 10x row range.** Combined with PMLB's
+~12% on few-thousand-row sets, the shape is: the saving climbs out of small
+data and then plateaus near 30%. It does NOT keep growing — do not promise
+more at giant n. (`scaling_giant.py` cannot measure this: it fits a fixed tree
+count with early stopping OFF, the one path on which no refit happens at all.)
+
+**Four independent suites now agree accuracy is a wash**: Grinsztajn +0.005%,
+high-card −0.017%, PMLB −0.043%, public −0.114%, all with medians of
+essentially zero, and two of the four played no part in the decision.
+
 ## Open / stackable
 
 - **`Sel25`** (auditions 100 -> 25) still stacks on top of this: it was
