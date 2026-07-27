@@ -33,10 +33,10 @@ reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 | `quality` | name | fit time | sets |
 |---|---|--:|---|
 | `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
-| `2` | balanced | 5.2x | `refit_full=False` |
-| `3` | accurate *(= default)* | 9.2x | — |
-| `4` | ensemble | 17.1x | `n_ensembles=5` |
-| `5` | max | 24.7x | `n_ensembles=8` |
+| `2` | balanced | 5.3x | `refit_full=False` |
+| `3` | accurate *(= default)* | 6.9x | — |
+| `4` | ensemble | 18.1x | `n_ensembles=5` |
+| `5` | max | 26.0x | `n_ensembles=8` |
 
 Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
 3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
@@ -44,7 +44,10 @@ buys real accuracy for its extra time, and none is dominated by another.
 
 The default is rung 3, the strongest setting that does not build an ensemble.
 `quality=2` is the pre-0.25.0 default: the same model without the full-data
-refit, for about half the fit time.
+refit. It saves less than it used to, because the default now does that refit
+by replaying the tree structures rather than re-growing them (see
+[full-data refit](#full-data-refit)) — 6.9x against 5.3x, where before it was
+9.2x against 5.2x.
 
 **What rung 1 gives up.** By default ChimeraBoost auditions its own
 configuration — constant against linear leaves, plain against cross features —
