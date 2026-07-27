@@ -24,13 +24,18 @@ def _clf_data(n=3000, k=2, seed=0):
     return X, y
 
 
-def test_default_on_is_identical_to_explicit_true():
-    """Default since 0.25.0 (benchmarks/SELECT_PLAN.md): refit_full is ON."""
+def test_default_is_the_replay_refit():
+    """Refitting has been ON since 0.25.0 (benchmarks/SELECT_PLAN.md); the
+    default WAY of doing it is the replay refit (benchmarks/REPLAY_PLAN.md),
+    which reaches the same accuracy for about two thirds of the fit."""
     X, y = _reg_data()
     a = ChimeraBoostRegressor(n_estimators=100, random_state=0).fit(X, y)
     b = ChimeraBoostRegressor(n_estimators=100, random_state=0,
-                              refit_full=True).fit(X, y)
+                              refit_full="replay").fit(X, y)
     np.testing.assert_array_equal(a.predict(X), b.predict(X))
+    scratch = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                                    refit_full=True).fit(X, y)
+    assert not np.array_equal(a.predict(X), scratch.predict(X))
 
 
 def test_opting_out_changes_the_model():

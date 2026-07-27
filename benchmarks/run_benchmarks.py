@@ -1050,6 +1050,8 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # False means "don't override the class default", as for the other knobs.
     if refit_full == "off":
         kw["refit_full"] = False
+    elif refit_full == "replay":
+        kw["refit_full"] = "replay"
     elif refit_full:
         kw["refit_full"] = True
     if leaf_estimation_iterations is not None:
@@ -1774,6 +1776,12 @@ def main():
                     help="refit_full=True on the single ChimeraBoost arm: "
                          "retrain the ES winner on 100%% of train at the "
                          "selected budget (REFIT_PLAN.md A/B arm).")
+    ap.add_argument("--chimera-refit-replay", action="store_const",
+                    const="replay", dest="refit_full",
+                    help='refit_full="replay" on the single ChimeraBoost arm: '
+                         "structure-transfer refit -- replay the ES winner's "
+                         "splits on all rows and refit only the leaf values "
+                         "(REPLAY_PLAN.md variant arm).")
     ap.add_argument("--chimera-selection-rounds", type=int, default=None,
                     dest="selection_rounds",
                     help="cap the internal selection fits at this many rounds; "

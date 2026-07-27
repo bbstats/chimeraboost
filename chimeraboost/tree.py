@@ -1315,6 +1315,49 @@ class ObliviousTree:
         return _predict_tree(Xb, self.splits_feat, self.splits_thr, self.values)
 
 
+def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
+                          centers_std=None, linear_lambda=1.0):
+    """Refit one tree's LEAF VALUES on new data, reusing ``donor``'s splits.
+
+    The split search is what makes growing expensive -- a histogram pass over
+    every feature at every level. Given a structure that is already known to be
+    good, the leaf values follow from a single leaf assignment plus a scatter-add
+    of the gradients, which is O(n * depth) instead of O(n * features * depth).
+
+    Used by the full-data refit (``refit_full="replay"``): the early-stopping
+    winner's structures are replayed round by round against gradients computed
+    on ALL rows, so the held-out validation rows reach the leaf estimates
+    without re-paying for the split search. Returns ``(tree, leaf)``, matching
+    ``build_oblivious_tree``.
+
+    ``Xb`` must be binned by the DONOR's binner -- ``splits_thr`` are bin
+    indices, so a re-fitted binner would silently move every threshold.
+    """
+    sf, st = donor.splits_feat, donor.splits_thr
+    if len(sf) == 0:                       # degenerate donor; caller stops
+        return (ObliviousTree(sf, st, np.zeros(1), np.zeros(0)),
+                np.zeros(Xb.shape[1], dtype=np.int64))
+    leaf = _assign_leaves(Xb, sf, st)
+    n_leaves = 1 << len(sf)
+    values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
+    lin_feats = lin_coef = None
+    # Linear leaves are refit too -- same features the donor split on, new
+    # coefficients from the full-data gradients.
+    if (linear_leaves and centers_std is not None
+            and donor.lin_feats is not None):
+        lin_feats = donor.lin_feats
+        lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
+                                    centers_std, Xb, l2, linear_lambda, lr)
+    # Carry the donor's split gains: the structure IS the donor's, so its gains
+    # are the honest attribution for it. Zeroing them would leave
+    # ``feature_importances_`` summing only the trailing grown trees.
+    tree = ObliviousTree(sf, st, values, donor.gains,
+                         lin_feats=lin_feats, lin_coef=lin_coef,
+                         centers_std=centers_std if lin_coef is not None
+                         else None)
+    return tree, leaf
+
+
 def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
                          min_child_weight=1.0, hist_buffers=None,

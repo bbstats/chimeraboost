@@ -24,7 +24,7 @@ A plain `fit(X, y)` early-stops on an internal holdout — see [Early stopping](
 
 `quality` picks an operating point, from `1` (fastest) to `5` (strongest).
 It is shorthand only: every rung just sets the parameters in the last column,
-and `quality=2` is byte-for-byte the shipped defaults.
+and `quality=3` is byte-for-byte the shipped defaults.
 
 ```python
 reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
@@ -231,6 +231,28 @@ reg = ChimeraBoostRegressor(refit_full=False, random_state=0).fit(X_train, y_tra
 # equivalently
 reg = ChimeraBoostRegressor(quality=2, random_state=0).fit(X_train, y_train)
 ```
+
+### `refit_full="replay"` — most of the gain, a third of the cost
+
+Most of what the refit spends goes on rediscovering split structures the
+early-stopping winner already found: growing trees is 83–85% of a fit.
+`"replay"` reuses those structures and refits only the leaf values against
+gradients computed on all the rows, so the held-out rows still reach the leaf
+estimates but the split search is not paid for twice.
+
+```python
+reg = ChimeraBoostRegressor(refit_full="replay", random_state=0).fit(X_train, y_train)
+```
+
+Measured against `refit_full=True` at 3 seeds: on Grinsztajn accuracy was flat
+(27W–32L over 59 datasets, mean +0.005%) and fit time fell 34.8%, faster on 58
+of 59; on high-cardinality categorical data 3W–6L–5T, mean −0.017%, for 15.2%
+less fit time. It gives up one thing — split choice still
+comes from the training subset — which costs most where feature interactions
+run deep.
+
+Multiclass ignores it: that path grows one vector-leaf tree per round through a
+separate loop and keeps the from-scratch refit.
 
 `feature_importances_` and `shap_values` average across the bag automatically.
 

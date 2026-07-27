@@ -71,7 +71,10 @@ def _quality_overrides(estimator, level):
         # The search, without the full-data refit the default now performs.
         return {"refit_full": False}
     if level == 3:
-        return {"refit_full": True}
+        # The default. "replay" rather than True: it reaches the same accuracy
+        # for about two thirds of the fit (benchmarks/REPLAY_PLAN.md). Pass
+        # refit_full=True explicitly for the from-scratch refit.
+        return {"refit_full": "replay"}
     # Bagging sits on top of the plain defaults, NOT on top of rung 3:
     # refit_full is a deliberate no-op inside members (their OOB rows are
     # already an eval set), so the rungs do not stack -- see REFIT_PLAN.md.
@@ -185,8 +188,9 @@ def _validate_hyperparams(estimator):
         _pos_int("n_ensembles")
     _in_range("max_samples", 0.0, 1.0, lo_incl=False)
     v = p.get("refit_full")
-    if v is not None and not isinstance(v, (bool, np.bool_)):
-        raise ValueError(f"refit_full must be True, False or None; got {v!r}.")
+    if v is not None and v != "replay" and not isinstance(v, (bool, np.bool_)):
+        raise ValueError(
+            f'refit_full must be True, False, "replay" or None; got {v!r}.')
     v = p.get("quality")
     if v is not None:
         if isinstance(v, (bool, np.bool_)) or v not in QUALITY_NAMES:
@@ -1049,7 +1053,7 @@ def _stop_if_behind(k, target_best):
 
 
 def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
-                   loss_kwargs=None):
+                   loss_kwargs=None, replay=False):
     """Retrain ``winner``'s configuration on all rows (benchmarks/
     REFIT_PLAN.md): rounds scaled by the train-size ratio, resolved learning
     rate pinned so the early-stopped budget keeps its meaning, selected
@@ -1073,11 +1077,22 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
         rkw["cat_combinations"] = _auto_cat_combinations(
             cat_features, est.n_features_in_, len(X_full))
     rkw.pop("linear_leaves", None)
+    # Structure-transfer refit: replay the winner's splits against full-data
+    # gradients instead of re-growing them. The scalar booster only -- the
+    # multiclass round grows one vector-leaf tree through a separate loop, so
+    # it keeps the from-scratch refit.
+    multiclass = getattr(est, "_multiclass", False)
+    donor = ((winner.trees_, winner.prep_)
+             if (replay and not multiclass and winner.trees_) else None)
+    if donor is not None:
+        # The donor's preprocessor is reused verbatim, so the cross columns and
+        # the encoder come with it; passing cross_pairs again would rebuild them.
+        rkw["replay_donor"] = donor
     if loss_kwargs is not None:      # scalar regressor path
         b = GradientBoosting(loss=est.loss, loss_kwargs=loss_kwargs,
                              linear_leaves=winner.linear_leaves,
                              cross_pairs=winner.cross_pairs, **rkw)
-    elif getattr(est, "_multiclass", False):
+    elif multiclass:
         b = MulticlassBoosting(linear_leaves=winner.linear_leaves,
                                cross_pairs=winner.cross_pairs, **rkw)
     else:
@@ -1251,7 +1266,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
-    refit_full : bool, default True
+    refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / calibration have used it), retrain the winning
         configuration on 100% of the rows — rounds scaled by the train-size
@@ -1260,9 +1275,22 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         (an explicit ``eval_set`` or ``early_stopping=False`` is unchanged);
         ``loss="Quantile"`` ignores it to keep its conformal holdout honest.
         ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        roughly one extra fit. Default since 0.25.0: it is the strongest
-        single-model setting measured (benchmarks/SELECT_PLAN.md). Set
-        ``False``, or ``quality=2``, for the faster pre-0.25 behaviour.
+        refitting on since 0.25.0: it is the strongest single-model setting
+        measured (benchmarks/SELECT_PLAN.md). Set ``False``, or ``quality=2``,
+        for the faster pre-0.25 behaviour.
+
+        **The default is** ``"replay"``, which gets the same thing for about
+        two thirds of the cost. Growing trees is 83-85% of a fit and is a
+        SEARCH; ``"replay"`` reuses the winner's tree structures and refits
+        only the leaf values against full-data gradients, so the held-out rows
+        still shape every leaf value while the split search is not paid for
+        twice. Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was
+        flat (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on
+        all 59; on high-cardinality categorical data it ran slightly behind
+        (mean −0.256%) for 17% less fit time. Pass ``True`` for the
+        from-scratch refit — marginally stronger on high-card data, and the
+        setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
+        and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1313,7 +1341,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
-                 refit_full=True, quality=None):
+                 refit_full="replay", quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1686,7 +1714,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 and self.model_.trees_):
             self.model_ = _refit_on_full(
                 self, self.model_, X_full, y_full, sw_full, cat_features, kw,
-                loss_kwargs=loss_kwargs)
+                loss_kwargs=loss_kwargs, replay=self.refit_full == "replay")
         return self
 
     def _transform_raw(self, raw):
@@ -1909,7 +1937,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
         each member's early-stopping eval set either way.
-    refit_full : bool, default True
+    refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / temperature scaling have used it), retrain the
         winning configuration on 100% of the rows — rounds scaled by the
@@ -1918,9 +1946,22 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         split (an explicit ``eval_set`` or ``early_stopping=False`` is
         unchanged); the calibrated temperature transfers to the refit model.
         ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        roughly one extra fit. Default since 0.25.0: it is the strongest
-        single-model setting measured (benchmarks/SELECT_PLAN.md). Set
-        ``False``, or ``quality=2``, for the faster pre-0.25 behaviour.
+        refitting on since 0.25.0: it is the strongest single-model setting
+        measured (benchmarks/SELECT_PLAN.md). Set ``False``, or ``quality=2``,
+        for the faster pre-0.25 behaviour.
+
+        **The default is** ``"replay"``, which gets the same thing for about
+        two thirds of the cost. Growing trees is 83-85% of a fit and is a
+        SEARCH; ``"replay"`` reuses the winner's tree structures and refits
+        only the leaf values against full-data gradients, so the held-out rows
+        still shape every leaf value while the split search is not paid for
+        twice. Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was
+        flat (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on
+        all 59; on high-cardinality categorical data it ran slightly behind
+        (mean −0.256%) for 17% less fit time. Pass ``True`` for the
+        from-scratch refit — marginally stronger on high-card data, and the
+        setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
+        and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1965,7 +2006,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None, refit_full=True,
+                 eval_metric=None, refit_full="replay",
                  quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -2316,7 +2357,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             y_refit = (y_full if self._multiclass else
                        (y_full == self.classes_[1]).astype(np.float64))
             self.model_ = _refit_on_full(
-                self, self.model_, X_full, y_refit, sw_full, cat_features, kw)
+                self, self.model_, X_full, y_refit, sw_full, cat_features, kw,
+                replay=self.refit_full == "replay")
         return self
 
     def predict_proba(self, X):
