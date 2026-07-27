@@ -98,35 +98,47 @@ def render(scored, meta, path=OUT_PNG):
     import matplotlib.pyplot as plt
 
     front = make_pareto.pareto_frontier(scored)
-    fig, ax = plt.subplots(figsize=(8, 5.5), dpi=140)
-    for m, s in scored.items():
-        if s["slowdown"] is None:
-            continue
+    fig, ax = plt.subplots(figsize=(8, 5.4), dpi=150)
+
+    pts = {m: s for m, s in scored.items() if s["slowdown"] is not None}
+    xmax = max(s["slowdown"] for s in pts.values()) if pts else 1.0
+    # Linear, not log: the slowdowns span 1x-71x, a range a linear axis reads
+    # cleanly, and a log axis labelled 10^0 / 10^1 hid how far right CatBoost
+    # actually sits. Headroom on the right so the last label is not clipped.
+    ax.set_xlim(-0.03 * xmax, 1.16 * xmax)
+
+    for m, s in pts.items():
         color = make_pareto.MODEL_COLOR.get(m, "#777777")
         yerr = None
         if s["wr_lo"] is not None:
             yerr = [[s["winrate"] - s["wr_lo"]], [s["wr_hi"] - s["winrate"]]]
         ax.errorbar(s["slowdown"], s["winrate"], yerr=yerr, fmt="o",
-                    ms=11 if m in front else 8, color=color,
-                    ecolor=color, elinewidth=1.2, capsize=3, alpha=0.95,
+                    ms=12 if m in front else 9, color=color,
+                    ecolor=color, elinewidth=1.4, capsize=4, alpha=0.95,
                     zorder=3)
+        # Flip the label inboard once a point is far enough right to run off.
+        right = s["slowdown"] > 0.66 * xmax
         ax.annotate(m, (s["slowdown"], s["winrate"]), textcoords="offset points",
-                    xytext=(10, 5), fontsize=9, color=color)
+                    xytext=(-12 if right else 12, 7),
+                    ha="right" if right else "left",
+                    fontsize=12.5, color=color)
 
     fp = sorted((scored[m]["slowdown"], scored[m]["winrate"]) for m in front)
     if len(fp) > 1:
-        ax.plot([p[0] for p in fp], [p[1] for p in fp], "--", lw=1,
+        ax.plot([p[0] for p in fp], [p[1] for p in fp], "--", lw=1.2,
                 color="#999999", zorder=1)
 
-    ax.axhline(50, color="#bbbbbb", lw=0.8, ls=":", zorder=0)
-    ax.set_xscale("log")
-    ax.set_xlabel("fit-time slowdown vs fastest (log scale)")
-    ax.set_ylabel("% of matchups won vs CatBoost + LightGBM")
+    ax.axhline(50, color="#bbbbbb", lw=0.9, ls=":", zorder=0)
+    ax.xaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}x" if v > 0 else ""))
+    ax.set_xlabel("fit-time slowdown vs fastest", fontsize=13)
+    ax.set_ylabel("% of matchups won", fontsize=13)
+    ax.tick_params(labelsize=12)
     title = "ChimeraBoost - strength vs speed"
     if not meta.get("sealed"):
         title += "  [SMOKE TEST - not the sealed suite]"
-    ax.set_title(title)
-    ax.grid(alpha=0.25, which="both")
+    ax.set_title(title, fontsize=15, fontweight="bold")
+    ax.grid(alpha=0.25)
     fig.tight_layout()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
