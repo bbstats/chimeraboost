@@ -321,6 +321,18 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -633,6 +645,16 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -711,15 +733,267 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
     
   
     API reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostClassifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostQuantileRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/custom-objective/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantile_metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/warmup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    warmup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it is benchmarked
   
 
     
@@ -881,22 +1155,20 @@
 
 
 <h1 id="deployment">Deployment<a class="headerlink" href="#deployment" title="Permanent link">&para;</a></h1>
-<p>What to know when a fitted model leaves the notebook: first-call compile
-cost, thread control, prediction latency, big batches, model size, and
-fit-time memory.</p>
+<p>What to know when a fitted model leaves the notebook: first-call compile cost, thread
+control, prediction latency, big batches, model size, and fit-time memory.</p>
 <h2 id="the-first-call-pays-the-numba-compile">The first call pays the numba compile<a class="headerlink" href="#the-first-call-pays-the-numba-compile" title="Permanent link">&para;</a></h2>
-<p>ChimeraBoost's kernels are JIT-compiled by numba on first use. With a cold
-cache the first <code>fit</code> takes seconds; steady-state it is milliseconds.
-Compiled kernels are cached on disk per user, so later processes pay only a
-small cache-load cost.</p>
+<p>ChimeraBoost's kernels are JIT-compiled by numba on first use. With a cold cache the
+first <code>fit</code> takes seconds; in steady state it is milliseconds. Compiled kernels are
+cached on disk per user, so later processes pay only a small cache-load cost.</p>
 <p>Run this once after installing and the wait never lands on a real call:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install -U chimeraboost &amp;&amp; chimeraboost-warmup
 </code></pre></div>
-<p><strong>Re-run it after every upgrade.</strong> Numba stamps each cache entry with its
-source file's modification time and size, so installing a new ChimeraBoost
-version invalidates the cache and the next run compiles from scratch again.
-This surprises people who assumed the cost was once per machine.</p>
-<p>Measured on a 12-core desktop, regenerate with
+<p><strong>Re-run it after every upgrade.</strong> Numba stamps each cache entry with its source file's
+modification time and size, so installing a new ChimeraBoost version invalidates the
+cache and the next run compiles from scratch again. This surprises people who assumed
+the cost was once per machine.</p>
+<p>Measured on a 12-core desktop. Regenerate with
 <code>python benchmarks/cold_start.py --kernels</code>:</p>
 <table>
 <thead>
@@ -912,13 +1184,13 @@ This surprises people who assumed the cost was once per machine.</p>
 <td><code>import chimeraboost</code></td>
 <td>1.35 s</td>
 <td>1.35 s</td>
-<td>—</td>
+<td>n/a</td>
 </tr>
 <tr>
 <td><code>warmup()</code></td>
 <td>13.2 s</td>
 <td>0.97 s</td>
-<td>—</td>
+<td>n/a</td>
 </tr>
 <tr>
 <td><code>fit</code> (3K rows, 2 categorical)</td>
@@ -934,47 +1206,45 @@ This surprises people who assumed the cost was once per machine.</p>
 </tr>
 </tbody>
 </table>
-<p>Two thirds of that cold compile is two kernels: the linear-leaf solver and
-the fused tree-build level. They are parallel kernels, which are expensive to
-compile and several times faster to run — worth the trade, but it is why the
-number is seconds rather than milliseconds.</p>
-<p>The serving shape is the painful one: a process that only unpickles a model
-pays the first-predict cost on its first request. <code>warmup()</code> removes it.</p>
-<p>When you cannot run the command — serverless, per-request processes,
-benchmark harnesses that spawn fresh workers — compile from inside the
-process instead:</p>
+<p>Two thirds of that cold compile is two kernels: the linear-leaf solver and the fused
+tree-build level. Both are parallel kernels, which are expensive to compile and several
+times faster to run. The trade is worth it, and it is why the number is seconds rather
+than milliseconds.</p>
+<p>Serving is the shape that hurts: a process that only unpickles a model pays the
+first-predict cost on its first request, and <code>warmup()</code> removes it.</p>
+<p>When you cannot run the command, as with serverless, per-request processes, and
+benchmark harnesses that spawn fresh workers, compile from inside the process instead:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">chimeraboost</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">chimeraboost</span><span class="o">.</span><span class="n">warmup</span><span class="p">()</span>          <span class="c1"># compile everything now, not on first fit</span>
 </code></pre></div>
-<p>or set the environment variable <code>CHIMERABOOST_WARMUP=1</code> (compile at
-import) / <code>CHIMERABOOST_WARMUP=background</code> (compile on a daemon thread
-while your process boots). Timing a fresh worker without warmup measures
-numba's compiler, not the model.</p>
-<p><code>warmup()</code> skips the SHAP kernels by default, since most callers never use
-them and they add ~3.7 s. If you serve explanations, use <code>warmup(shap=True)</code>
-or <code>chimeraboost-warmup --shap</code>.</p>
-<p>The first fit on a cold cache prints a one-line notice to stderr explaining
-the wait. It appears only when the cache really is cold — roughly once per
-installed version — and <code>CHIMERABOOST_NO_NOTICE=1</code> silences it.</p>
-<p>There is no way to move this compile into <code>pip install</code>. Numba's
-ahead-of-time compiler was retired, and a pre-built cache cannot be shipped
-in a wheel: its key includes the exact CPU model and feature set of the
-machine that built it, plus the installed file's timestamp. One command after
-install is the whole of the fix.</p>
+<p>You can also set <code>CHIMERABOOST_WARMUP=1</code> to compile at import, or
+<code>CHIMERABOOST_WARMUP=background</code> to compile on a daemon thread while your process
+boots. Timing a fresh worker without warmup measures numba's compiler rather than the
+model.</p>
+<p><code>warmup()</code> skips the SHAP kernels by default, since most callers never use them and
+they add about 3.7 s. If you serve explanations, use <code>warmup(shap=True)</code> or
+<code>chimeraboost-warmup --shap</code>.</p>
+<p>The first fit on a cold cache prints a one-line notice to stderr explaining the wait.
+It appears only when the cache really is cold, which is roughly once per installed
+version, and <code>CHIMERABOOST_NO_NOTICE=1</code> silences it.</p>
+<p>There is no way to move this compile into <code>pip install</code>. Numba's ahead-of-time compiler
+was retired, and a pre-built cache cannot ship in a wheel because its key includes the
+exact CPU model and feature set of the machine that built it, plus the installed file's
+timestamp. One command after install is the whole of the fix.</p>
 <h2 id="thread-control">Thread control<a class="headerlink" href="#thread-control" title="Permanent link">&para;</a></h2>
-<p><code>thread_count</code> applies to both <code>fit</code> and <code>predict</code>, and the process-global
-numba thread setting is restored afterwards — fitting one model with
-<code>thread_count=1</code> does not cap other numba work in your process.</p>
-<p>For serving, prefer controlling the <em>ambient</em> thread count — the
+<p><code>thread_count</code> applies to both <code>fit</code> and <code>predict</code>, and the process-global numba thread
+setting is restored afterwards, so fitting one model with <code>thread_count=1</code> does not cap
+other numba work in your process.</p>
+<p>For serving, prefer controlling the <em>ambient</em> thread count, through the
 <code>NUMBA_NUM_THREADS</code> environment variable (before the first numba use) or
-<code>numba.set_num_threads(n)</code> — and leave <code>thread_count=None</code>. A model whose
-<code>thread_count</code> matches the ambient count applies it for free; a count that
-<em>differs</em> is switched and restored on every call, which is usually cheap
-but has measured up to ~1 ms per call in some process states (numba's omp
-layer re-teams on the switch).</p>
+<code>numba.set_num_threads(n)</code>, and leave <code>thread_count=None</code>. A model whose
+<code>thread_count</code> matches the ambient count applies it for free. A count that differs is
+switched and restored on every call, which is usually cheap but has measured up to
+about 1 ms per call in some process states, since numba's OpenMP layer re-teams on the
+switch.</p>
 <h2 id="prediction-latency">Prediction latency<a class="headerlink" href="#prediction-latency" title="Permanent link">&para;</a></h2>
-<p>Small-batch predict is dominated by fixed per-call overhead (input
-validation, dtype conversion, binning), not the forest walk:</p>
+<p>Small-batch predict is dominated by fixed per-call overhead (input validation, dtype
+conversion, binning) rather than by the forest walk:</p>
 <table>
 <thead>
 <tr>
@@ -994,40 +1264,37 @@ validation, dtype conversion, binning), not the forest walk:</p>
 </tbody>
 </table>
 <ul>
-<li>A one-row pandas DataFrame costs ≈ 0.27 ms (conversion overhead); pass an
+<li>A one-row pandas DataFrame costs about 0.27 ms in conversion overhead. Pass an
   ndarray on the hot path.</li>
 <li>If your serving data is already validated, skip the finiteness scan with
-  sklearn's <code>assume_finite</code> (see <a href="../faq/#how-can-i-make-inference-faster">FAQ</a>)
-  — worth ~10% at this scale.</li>
-<li>Models fit with <code>cat_features</code> re-map categorical strings to codes on
-  every call: ≈ 0.2 ms for a one-row ndarray call — about 2× the numeric
-  classifier path, no longer the ~1.7 ms pandas-powered outlier it was
-  before 0.21.0.</li>
+  scikit-learn's <code>assume_finite</code> (see
+  <a href="../faq/#how-can-i-make-inference-faster">FAQ</a>), worth about 10% at this scale.</li>
+<li>Models fit with <code>cat_features</code> re-map categorical strings to codes on every call:
+  about 0.2 ms for a one-row ndarray, roughly twice the numeric classifier path.</li>
 </ul>
 <h2 id="big-batches">Big batches<a class="headerlink" href="#big-batches" title="Permanent link">&para;</a></h2>
-<p><code>predict</code> processes its input in one pass: a float64 copy of <code>X</code> plus a
-binned matrix — roughly 10 bytes per cell of transient memory on top of
-your input. For very large scoring jobs (tens of millions of rows), chunk
-the calls; predictions are row-independent, so the results are identical:</p>
+<p><code>predict</code> processes its input in one pass: a float64 copy of <code>X</code> plus a binned matrix,
+roughly 10 bytes per cell of transient memory on top of your input. For very large
+scoring jobs (tens of millions of rows), chunk the calls. Predictions are
+row-independent, so the results are identical:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1_000_000</span><span class="p">])</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>                        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="mi">1_000_000</span><span class="p">)])</span>
 </code></pre></div>
 <h2 id="model-size-and-persistence">Model size and persistence<a class="headerlink" href="#model-size-and-persistence" title="Permanent link">&para;</a></h2>
 <p>A fitted estimator pickles like any scikit-learn object (see
-<a href="../recipes/#save-and-load-a-model">Recipes</a>); a 500-tree model is roughly
-0.5 MB on disk (≈ 1.7 MB with linear leaves). The packed predict cache is excluded from pickles
-automatically and rebuilds on the first predict after loading. Pickles are
-not guaranteed to load across ChimeraBoost versions — store the version
-alongside the model (see <a href="../faq/#is-the-api-stable">FAQ</a>).</p>
+<a href="../recipes/#save-and-load-a-model">Recipes</a>). A 500-tree model is roughly 0.5 MB on
+disk, or about 1.7 MB with linear leaves. The packed predict cache is excluded from
+pickles automatically and rebuilds on the first predict after loading. Pickles are not
+guaranteed to load across ChimeraBoost versions, so store the version alongside the
+model (see <a href="../faq/#is-the-api-stable">FAQ</a>).</p>
 <h2 id="fit-time-memory">Fit-time memory<a class="headerlink" href="#fit-time-memory" title="Permanent link">&para;</a></h2>
 <p>The split search allocates a histogram buffer of shape
-<code>(n_features, 2^depth, max_bins)</code> — negligible at the default <code>depth=6</code>,
-but exponential in depth: at <code>depth=14</code> on 100 features it is ~1.7 GB, and
-<code>depth=16</code> several times that. Raise depth on wide data with the buffer in
-mind. Categorical columns expand before binning (one encoded column per
-class for multiclass, plus pairwise combination columns when
-<code>cat_combinations</code> is on), and each expanded column gets its own histogram
-slab.</p>
+<code>(n_features, 2^depth, max_bins)</code>. That is negligible at the default <code>depth=6</code> but
+grows exponentially with depth: at <code>depth=14</code> on 100 features it is about 1.7 GB, and
+<code>depth=16</code> several times that. Raise depth on wide data with the buffer in mind.
+Categorical columns expand before binning (one encoded column per class for multiclass,
+plus pairwise combination columns when <code>cat_combinations</code> is on), and each expanded
+column gets its own histogram slab.</p>
 
 
 
@@ -1087,7 +1354,7 @@ slab.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>

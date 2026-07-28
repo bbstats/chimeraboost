@@ -5,10 +5,6 @@
          <lastmod>2026-07-28</lastmod>
     </url>
     <url>
-         <loc>https://bbstats.github.io/chimeraboost/api/</loc>
-         <lastmod>2026-07-28</lastmod>
-    </url>
-    <url>
          <loc>https://bbstats.github.io/chimeraboost/benchmarks/</loc>
          <lastmod>2026-07-28</lastmod>
     </url>
@@ -42,6 +38,34 @@
     </url>
     <url>
          <loc>https://bbstats.github.io/chimeraboost/shap/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/classifier/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/custom-objective/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/quantile-metrics/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/quantile-regressor/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/regressor/</loc>
+         <lastmod>2026-07-28</lastmod>
+    </url>
+    <url>
+         <loc>https://bbstats.github.io/chimeraboost/api/warmup/</loc>
          <lastmod>2026-07-28</lastmod>
     </url>
 </urlset>

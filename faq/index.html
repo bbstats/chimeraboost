@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://bbstats.github.io/chimeraboost/faq/">
       
       
-        <link rel="prev" href="../api/">
+        <link rel="prev" href="../benchmarks/">
       
       
       
@@ -317,6 +317,18 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -518,6 +530,16 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -596,15 +618,267 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
     
   
     API reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostClassifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostQuantileRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/custom-objective/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantile_metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/warmup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    warmup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it is benchmarked
   
 
     
@@ -1014,34 +1288,32 @@
 <h2 id="does-it-use-the-gpu">Does it use the GPU?<a class="headerlink" href="#does-it-use-the-gpu" title="Permanent link">&para;</a></h2>
 <p>No.</p>
 <h2 id="how-does-it-compare-to-catboost-lightgbm-and-xgboost">How does it compare to CatBoost, LightGBM, and XGBoost?<a class="headerlink" href="#how-does-it-compare-to-catboost-lightgbm-and-xgboost" title="Permanent link">&para;</a></h2>
-<p>On defaults: roughly around LightGBM/XGBoost or better, and significantly faster than CatBoost.
-Setting n_ensembles=8 bags the model — on the Grinsztajn benchmark suite this is the
-strongest model on every accuracy column, ahead of CatBoost at well under half its fit
-cost on high-cardinality data. Note that since TabArena uses ensembling, this improvement
-does not show up on those leaderboard results.</p>
+<p>On defaults, it scores around LightGBM and XGBoost or better, and it is much faster
+than CatBoost. Setting <code>n_ensembles=8</code> bags the model, which is the strongest setting
+available and beats CatBoost on accuracy at well under half its fit cost on
+high-cardinality categorical data.</p>
 <h2 id="do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values">Do I need to one-hot encode categoricals or impute missing values?<a class="headerlink" href="#do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values" title="Permanent link">&para;</a></h2>
 <p>No.</p>
-<p>Pass your categorical columns to <code>fit(..., cat_features=[...])</code>, by integer position or by column name.
-NaNs route to a dedicated bin at fit and predict time, so no imputation is needed. pandas nullable
-dtypes (<code>Int64</code>/<code>Float64</code>/<code>boolean</code>) and their <code>pd.NA</code> are accepted and treated as missing.</p>
+<p>Pass your categorical columns to <code>fit(..., cat_features=[...])</code>, by integer position or
+by column name. NaNs route to their own bin at fit and predict time, so no imputation
+is needed. pandas nullable dtypes (<code>Int64</code>, <code>Float64</code>, <code>boolean</code>) and <code>pd.NA</code> are
+accepted and treated as missing.</p>
 <h2 id="how-can-i-make-inference-faster">How can I make inference faster?<a class="headerlink" href="#how-can-i-make-inference-faster" title="Permanent link">&para;</a></h2>
-<p>If you have already validated your serving data and want to skip it,
-use scikit's 'assume_finite'.</p>
+<p>If your serving data is already validated, skip scikit-learn's finiteness check with
+<code>assume_finite</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sklearn</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">with</span> <span class="n">sklearn</span><span class="o">.</span><span class="n">config_context</span><span class="p">(</span><span class="n">assume_finite</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">preds</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>        <span class="c1"># finiteness scan skipped</span>
 </code></pre></div>
 <h2 id="why-is-the-very-first-fit-or-predict-slow">Why is the very first fit or predict slow?<a class="headerlink" href="#why-is-the-very-first-fit-or-predict-slow" title="Permanent link">&para;</a></h2>
-<p>That is numba compiling the kernels (one-time, cached on disk per user). Run
-<code>chimeraboost-warmup</code> once after installing to pay it up front, or call
-<code>chimeraboost.warmup()</code> / set <code>CHIMERABOOST_WARMUP=1</code> to pay it at import
-time. See <a href="../deployment/">Deployment</a> for numbers and short-lived-worker
-patterns.</p>
+<p>That is numba compiling the kernels, once, cached on disk per user. Run
+<code>chimeraboost-warmup</code> after installing to pay it up front, or call
+<code>chimeraboost.warmup()</code> or set <code>CHIMERABOOST_WARMUP=1</code> to pay it at import time. See
+<a href="../deployment/">Deployment</a> for timings and patterns for short-lived workers.</p>
 <h2 id="why-did-it-get-slow-again-after-i-upgraded">Why did it get slow again after I upgraded?<a class="headerlink" href="#why-did-it-get-slow-again-after-i-upgraded" title="Permanent link">&para;</a></h2>
 <p>Numba stamps each cached kernel with its source file's timestamp and size, so
 installing a new ChimeraBoost version invalidates the cache and the next run
-recompiles. Put <code>chimeraboost-warmup</code> in the same script as your
-<code>pip install -U</code>.</p>
+recompiles. Put <code>chimeraboost-warmup</code> in the same script as your <code>pip install -U</code>.</p>
 <h2 id="why-oblivious-symmetric-trees">Why oblivious (symmetric) trees?<a class="headerlink" href="#why-oblivious-symmetric-trees" title="Permanent link">&para;</a></h2>
 <p>They make prediction extremely fast and provide strong built-in regularization, at some
 cost to per-tree sharpness. See <a href="../concepts/#oblivious-trees">How it works</a>.</p>
@@ -1054,20 +1326,20 @@ cost to per-tree sharpness. See <a href="../concepts/#oblivious-trees">How it wo
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;model.joblib&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="what-exactly-does-it-depend-on">What exactly does it depend on?<a class="headerlink" href="#what-exactly-does-it-depend-on" title="Permanent link">&para;</a></h2>
-<p>NumPy, numba, scikit-learn, and SciPy. pandas is not required — DataFrames
-are consumed through their own conversion methods, so passing them works
-whenever you have pandas (or polars) installed yourself.</p>
+<p>NumPy, numba, scikit-learn, and SciPy. pandas is not required. DataFrames are consumed
+through their own conversion methods, so passing them works whenever you have pandas
+(or polars) installed yourself.</p>
 <h2 id="how-do-i-tune-it">How do I tune it?<a class="headerlink" href="#how-do-i-tune-it" title="Permanent link">&para;</a></h2>
-<p>Mostly, you don't: the defaults are benchmark-tuned, and in our experiments broad
+<p>Mostly, you don't. The defaults are benchmark-tuned, and in our experiments broad
 hyperparameter search bought little that generalized. Two settings address specific
-situations rather than general tuning: <code>n_ensembles=8</code> is the benchmarked
-maximum-accuracy mode (at several times the fit cost), and <code>depth=8–10</code> suits large,
-interaction-heavy regression. <a href="../parameters/">Parameters</a> documents every knob.</p>
+situations rather than general tuning: <code>n_ensembles=8</code> is the maximum-accuracy mode, at
+several times the fit cost, and <code>depth=8</code> to <code>10</code> suits large, interaction-heavy
+regression. <a href="../parameters/">Parameters</a> documents every option.</p>
 <h2 id="is-the-api-stable">Is the API stable?<a class="headerlink" href="#is-the-api-stable" title="Permanent link">&para;</a></h2>
-<p>ChimeraBoost is beta (0.x). Breaking API or behavior changes bump the minor version
-and are recorded in the
+<p>ChimeraBoost is beta (0.x). Breaking API or behavior changes bump the minor version and
+are recorded in the
 <a href="https://github.com/bbstats/chimeraboost/blob/main/CHANGELOG.md">CHANGELOG</a>; patch
-releases are fixes only. Pickled models are not guaranteed to load across versions —
+releases are fixes only. Pickled models are not guaranteed to load across versions, so
 store the version next to the model and re-fit after upgrading.</p>
 
 
@@ -1128,7 +1400,7 @@ store the version next to the model and re-fit after upgrading.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>

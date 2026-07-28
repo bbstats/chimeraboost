@@ -10,29 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/">
+        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/api/custom-objective/">
       
       
+        <link rel="prev" href="../quantile-regressor/">
       
-        <link rel="next" href="getting-started/">
+      
+        <link rel="next" href="../quantile-metrics/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>ChimeraBoost</title>
+        <title>CustomObjective - ChimeraBoost</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#chimeraboost" class="md-skip">
+        <a href="#customobjective" class="md-skip">
           Skip to content
         </a>
       
@@ -94,7 +96,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="ChimeraBoost" class="md-header__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
+    <a href="../.." title="ChimeraBoost" class="md-header__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -114,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              CustomObjective
             
           </span>
         </div>
@@ -232,7 +234,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="ChimeraBoost" class="md-nav__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
+    <a href="../.." title="ChimeraBoost" class="md-nav__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -259,37 +261,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -305,103 +280,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#lightning-fast-near-catboost-quality-all-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lightning fast, near-CatBoost quality, all in Python
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quickstart" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quickstart
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-it-is" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What it is
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Documentation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inspirations-citations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Inspirations / Citations
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -413,7 +291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -504,7 +382,7 @@
   
   
     <li class="md-nav__item">
-      <a href="recipes/" class="md-nav__link">
+      <a href="../../recipes/" class="md-nav__link">
         
   
   
@@ -532,7 +410,7 @@
   
   
     <li class="md-nav__item">
-      <a href="quantiles/" class="md-nav__link">
+      <a href="../../quantiles/" class="md-nav__link">
         
   
   
@@ -560,7 +438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -588,7 +466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="shap/" class="md-nav__link">
+      <a href="../../shap/" class="md-nav__link">
         
   
   
@@ -616,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="deployment/" class="md-nav__link">
+      <a href="../../deployment/" class="md-nav__link">
         
   
   
@@ -648,8 +526,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -670,11 +550,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -695,7 +575,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -713,7 +593,7 @@
   
   
     <li class="md-nav__item">
-      <a href="parameters/" class="md-nav__link">
+      <a href="../../parameters/" class="md-nav__link">
         
   
   
@@ -738,6 +618,8 @@
                 
   
   
+    
+  
   
   
     
@@ -765,15 +647,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="api/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -797,7 +679,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -817,7 +699,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/regressor/" class="md-nav__link">
+      <a href="../regressor/" class="md-nav__link">
         
   
   
@@ -845,7 +727,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/classifier/" class="md-nav__link">
+      <a href="../classifier/" class="md-nav__link">
         
   
   
@@ -873,7 +755,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/quantile-regressor/" class="md-nav__link">
+      <a href="../quantile-regressor/" class="md-nav__link">
         
   
   
@@ -898,10 +780,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="api/custom-objective/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -917,6 +808,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -929,7 +821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/quantile-metrics/" class="md-nav__link">
+      <a href="../quantile-metrics/" class="md-nav__link">
         
   
   
@@ -957,7 +849,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api/warmup/" class="md-nav__link">
+      <a href="../warmup/" class="md-nav__link">
         
   
   
@@ -993,7 +885,7 @@
   
   
     <li class="md-nav__item">
-      <a href="benchmarks/" class="md-nav__link">
+      <a href="../../benchmarks/" class="md-nav__link">
         
   
   
@@ -1021,7 +913,7 @@
   
   
     <li class="md-nav__item">
-      <a href="faq/" class="md-nav__link">
+      <a href="../../faq/" class="md-nav__link">
         
   
   
@@ -1069,91 +961,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#lightning-fast-near-catboost-quality-all-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lightning fast, near-CatBoost quality, all in Python
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quickstart" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quickstart
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-it-is" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What it is
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Documentation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inspirations-citations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Inspirations / Citations
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -1172,80 +979,59 @@
   
 
 
-<!-- The documentation homepage is the README verbatim, via a pymdownx.snippets
-     include, so the two can never drift. Edit README.md to change this page. -->
-<h1 id="chimeraboost">chimeraboost<a class="headerlink" href="#chimeraboost" title="Permanent link">&para;</a></h1>
-<h3 id="lightning-fast-near-catboost-quality-all-in-python">Lightning fast, near-CatBoost quality, all in Python<a class="headerlink" href="#lightning-fast-near-catboost-quality-all-in-python" title="Permanent link">&para;</a></h3>
-<p>📖 <strong>Documentation:</strong> <a href="https://bbstats.github.io/chimeraboost/">bbstats.github.io/chimeraboost</a></p>
-<center>
-<img width="500" height="500" alt="chimeraboost logo" src="https://github.com/user-attachments/assets/ee98a4e2-9fa7-4ef1-9e64-e398f398966c" />
-</center>
+<h1 id="customobjective">CustomObjective<a class="headerlink" href="#customobjective" title="Permanent link">&para;</a></h1>
+<p>Base class for writing your own regression loss. Subclass it, then pass an instance as
+the regressor's <code>loss</code>. See the User Guide:
+<a href="../../recipes/#custom-objectives-and-metrics">custom objectives and metrics</a>.</p>
 
-<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost &amp;&amp; chimeraboost-warmup
-</code></pre></div>
-<p><code>chimeraboost-warmup</code> compiles the numba kernels once and caches them, so the first
-<code>fit</code> is not several seconds slower than the rest. Re-run it after every upgrade, which
-resets the cache. See
-<a href="https://bbstats.github.io/chimeraboost/deployment/">Deployment</a>.</p>
-<h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># defaulting to 3.</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-</code></pre></div>
-<h2 id="what-it-is">What it is<a class="headerlink" href="#what-it-is" title="Permanent link">&para;</a></h2>
-<p>An opinionated GBDT library that only depends on common Python libraries
-(NumPy, numba, scikit-learn, SciPy):</p>
-<ul>
-<li>Regression, quantile regression, binary and multiclass classification</li>
-<li>A whole predictive distribution from one booster, with quantiles that cannot cross
-  (<code>ChimeraBoostQuantileRegressor</code>)</li>
-<li>Categorical features handled natively (CatBoost-style ordered target statistics)</li>
-<li>Missing values handled directly, no imputation</li>
-<li>Automatic early stopping, with optional grouped splitting for the validation set</li>
-<li>Bagging as a first-class feature (<code>n_ensembles</code>)</li>
-<li><strong>Exact SHAP</strong> explanations (<code>model.shap_values(X)</code>). The oblivious tree structure
-  makes interventional TreeSHAP cheap enough to compute exactly, with no sampling.</li>
-</ul>
-<p>On the <a href="https://tabarena.ai/">TabArena</a> benchmark, the default model scores above
-XGBoost and LightGBM while training faster than either. CatBoost scores higher and
-takes considerably longer.</p>
-<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="500" alt="TabArena-Lite Elo vs speed Pareto" /></a></p>
 
-<p><sub>TabArena is a benchmark we never tune against. A second read on an independently
-audited 22-dataset suite, including how it is weighted and where it disagrees with us,
-is in <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</sub></p>
-<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="https://bbstats.github.io/chimeraboost/getting-started/">Getting started</a>: install and first models</li>
-<li><a href="https://bbstats.github.io/chimeraboost/recipes/">Recipes</a>: categoricals, quantiles, bagging, custom losses, and more</li>
-<li><a href="https://bbstats.github.io/chimeraboost/parameters/">Parameters</a>: every option, with defaults and guidance</li>
-<li><a href="https://bbstats.github.io/chimeraboost/faq/">FAQ</a>: common questions</li>
-</ul>
-<h2 id="why">Why?<a class="headerlink" href="#why" title="Permanent link">&para;</a></h2>
-<ul>
-<li>I want to be able to modify my GBDT library at will</li>
-<li>I know Python and I don't know C</li>
-</ul>
-<h2 id="inspirations-citations">Inspirations / Citations<a class="headerlink" href="#inspirations-citations" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>CatBoost</strong>, Prokhorenkova et al., <em>NeurIPS</em> 2018. Ordered boosting, ordered target statistics, oblivious trees.</li>
-<li><strong>XGBoost</strong>, Chen &amp; Guestrin, <em>KDD</em> 2016. Regularized objective, Newton leaf estimation, column subsampling.</li>
-<li><strong>LightGBM</strong>, Ke et al., <em>NeurIPS</em> 2017. Histogram-based split finding.</li>
-<li><strong>Linear-leaf trees</strong>, Shi et al., <em>IJCAI</em> 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (<code>linear_leaves</code>).</li>
-<li><strong>TreeSHAP</strong>, Lundberg et al., <em>Nature Machine Intelligence</em> 2020 (orig. SHAP, <em>NeurIPS</em> 2017). Exact additive feature attributions (<code>shap_values</code>).</li>
-<li><strong>OpenFE</strong>, Zhang et al., <em>ICML</em> 2023 (arXiv:2211.12507). Automated pairwise feature generation (<code>cross_features</code>).</li>
-<li><strong>Conformalized quantile regression</strong>, Romano, Patterson &amp; Candès, <em>NeurIPS</em> 2019. Distribution-free interval calibration (<code>conformalize</code>).</li>
-<li><strong>TabArena</strong>, Erickson et al., <em>NeurIPS</em> 2025 (arXiv:2506.16791). The tabular benchmark used for evaluation.</li>
-</ul>
+<div class="doc doc-object doc-class">
+
+
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Base class for user-defined regression objectives.</p>
+<p>Subclass and implement <code>grad_hess(y, raw)</code> -&gt; (gradient, hessian) and
+<code>eval(y, raw, sample_weight=None)</code> -&gt; scalar (lower is better; drives
+early stopping). Optionally override <code>init(y, sample_weight=None)</code> (the
+starting raw score, default 0.0) and <code>transform(raw)</code> (raw scores -&gt;
+predictions, default identity). Pass an <em>instance</em> as the regressor's
+<code>loss</code>. Instances must be stateless across fits and picklable, so define
+the subclass at module level: bagged members fit in worker processes.</p>
+<p>Read more in the <code>User Guide &lt;https://bbstats.github.io/chimeraboost/recipes/&gt;</code>__.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 
 
@@ -1305,10 +1091,10 @@ is in <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

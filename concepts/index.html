@@ -321,6 +321,18 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -521,6 +533,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cross-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#leaf-values-and-linear-leaves" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -644,6 +667,16 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
     
     
       
@@ -722,15 +755,267 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
     
   
     API reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/classifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostClassifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-regressor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ChimeraBoostQuantileRegressor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/custom-objective/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantile-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantile_metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/warmup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    warmup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it is benchmarked
   
 
     
@@ -839,6 +1124,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cross-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#leaf-values-and-linear-leaves" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -906,51 +1202,64 @@
 <h2 id="oblivious-trees">Oblivious trees<a class="headerlink" href="#oblivious-trees" title="Permanent link">&para;</a></h2>
 <p>Every node at a given depth splits on the same <code>(feature, threshold)</code>. A depth-<code>d</code> tree
 is therefore <code>d</code> splits, and a sample's leaf is a <code>d</code>-bit number: bit <code>k</code> is 1 when the
-sample exceeds the threshold at level <code>k</code>. This leads to:</p>
+sample exceeds the threshold at level <code>k</code>. Two things follow:</p>
 <ul>
 <li><strong>Speed.</strong> Prediction is <code>d</code> comparisons and one array lookup. The whole forest is
   evaluated in a single numba pass parallelized over samples, so each sample loads its
   feature values once and walks every tree while they stay in cache.</li>
 <li><strong>Regularization.</strong> A tree has only <code>d</code> splits, shared across its level, which limits
-  how sharply it can carve the input space.</li>
+  how sharply it can carve up the input space.</li>
 </ul>
-<p>The trade-off is sharpness: a leaf-wise tree can isolate a local region in fewer splits
-than an oblivious tree, which matters on clean, high-signal data. Raising <code>depth</code> and
-enabling <a href="#leaf-values-and-linear-leaves">linear leaves</a> recover most of that.</p>
+<p>The trade-off is sharpness. A leaf-wise tree can isolate a local region in fewer
+splits, which matters on clean, high-signal data. Raising <code>depth</code> and enabling
+<a href="#leaf-values-and-linear-leaves">linear leaves</a> recover most of that.</p>
 <h2 id="histogram-binning">Histogram binning<a class="headerlink" href="#histogram-binning" title="Permanent link">&para;</a></h2>
-<p>Numeric features are bucketed into at most <code>max_bins</code> (default 128) bins once, up front.
-Splits are searched over bin edges rather than raw values, which is what makes the
-histogram pass fast. Missing values route to a dedicated bin, so NaNs are handled
-directly at fit and predict time — no imputation.</p>
+<p>Numeric features are bucketed into at most <code>max_bins</code> (default 128) bins once, up
+front. Splits are searched over bin edges rather than raw values, which is what makes
+the histogram pass fast. Missing values route to their own bin, so NaNs are handled
+directly at fit and predict time, with no imputation.</p>
 <h2 id="categorical-features">Categorical features<a class="headerlink" href="#categorical-features" title="Permanent link">&para;</a></h2>
-<p>Categoricals are encoded with <strong>ordered target statistics</strong>, i.e. the CatBoost approach: each
-category is replaced by a running estimate of the target computed under a random ordering
-of the rows, so a row never sees its own label. Several orderings
+<p>Categoricals are encoded with <strong>ordered target statistics</strong>, the CatBoost approach.
+Each category is replaced by a running estimate of the target computed under a random
+ordering of the rows, so a row never sees its own label. Several orderings
 (<code>cat_n_permutations</code>, default 4) are averaged to cut variance, and rare categories are
-shrunk toward the global mean by <code>cat_smoothing</code>. Pass the columns (by integer position or
-column name) to <code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
-<p><code>cat_combinations</code> additionally builds all pairwise category-by-category features; the
-default (<code>None</code>) turns them on automatically when the data is entirely categorical.</p>
+shrunk toward the global mean by <code>cat_smoothing</code>. Pass the columns (by integer position
+or column name) to <code>fit(..., cat_features=[...])</code>; everything else is automatic.</p>
+<p><code>cat_combinations</code> additionally builds all pairwise category-by-category features. The
+default (<code>None</code>) turns them on automatically when every column is categorical.</p>
+<h2 id="cross-features">Cross features<a class="headerlink" href="#cross-features" title="Permanent link">&para;</a></h2>
+<p>An oblivious tree can only split on one column at a time, so a rule like "x₁ is
+greater than x₂" has to be approximated by a staircase of axis-aligned splits, which
+costs depth and generalizes poorly. Adding the column <code>x₁ − x₂</code> turns that rule into a
+single split.</p>
+<p><code>cross_features</code> builds those columns automatically: differences and products for the
+top numeric pairs, plus group-centered columns <code>x − mean(x | category)</code> that express
+"above this row's category baseline". The model then fits with and without them and
+keeps whichever scores better on validation, so the extra columns cannot hurt beyond
+their fit-time cost. The payoff is largest on data with real geometric or arithmetic
+structure, such as coordinates, prices, and physical units.</p>
 <h2 id="leaf-values-and-linear-leaves">Leaf values and linear leaves<a class="headerlink" href="#leaf-values-and-linear-leaves" title="Permanent link">&para;</a></h2>
 <p>By default each leaf predicts a single constant value. With <code>linear_leaves</code>, a leaf
-instead fits a small ridge <strong>linear model</strong> over the numeric features the tree split on,
-adding local slope where a constant underfits smooth structure. Leaves with too few rows
-fall back to constant behavior to reduce overfitting small datasets. Linear leaves are on
-by default for binary classification; the regression default fits both variants and keeps
-whichever reaches the lower validation loss (set <code>True</code>/<code>False</code> to skip the double fit).</p>
+instead fits a small ridge <strong>linear model</strong> over the numeric features the tree split
+on, adding local slope where a constant underfits smooth structure. Leaves with too few
+rows fall back to constant behavior, which limits overfitting on small datasets. Linear
+leaves are on by default for binary classification. The regression default fits both
+variants and keeps whichever reaches the lower validation loss; set <code>True</code> or <code>False</code>
+to skip the double fit.</p>
 <h2 id="probability-calibration">Probability calibration<a class="headerlink" href="#probability-calibration" title="Permanent link">&para;</a></h2>
 <p>After fitting, the classifier scales its raw scores by a single temperature chosen on
-the validation split to minimize log loss. The scaling is monotonic, so AUC and accuracy
-are unchanged while the probabilities (i.e. with <code>predict_proba</code>) become better calibrated.
-The fitted value is exposed as <code>temperature_</code>.</p>
+the validation split to minimize log loss. The scaling is monotonic, so AUC and
+accuracy are unchanged while the probabilities from <code>predict_proba</code> become better
+calibrated. The fitted value is exposed as <code>temperature_</code>.</p>
 <h2 id="bagging-and-subsampling">Bagging and subsampling<a class="headerlink" href="#bagging-and-subsampling" title="Permanent link">&para;</a></h2>
 <p><code>n_ensembles</code> trains independent members on random row subsamples (<code>max_samples</code>,
-default 0.8, drawn without replacement) and averages them — predictions for
-regression, calibrated probabilities for classification — to reduce variance. Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Variance Sampling:
-rows are drawn with probability tied to gradient magnitude and reweighted to stay
-unbiased, concentrating effort on the rows that still carry signal.</p>
+default 0.8, drawn without replacement) and averages them to reduce variance:
+predictions for regression, calibrated probabilities for classification.</p>
+<p>Within a single model, <code>subsample &lt; 1.0</code> uses Minimum Variance Sampling. Rows are drawn
+with probability tied to gradient magnitude and reweighted to stay unbiased, which
+concentrates effort on the rows that still carry signal.</p>
 <h2 id="shap">SHAP<a class="headerlink" href="#shap" title="Permanent link">&para;</a></h2>
-<p>See <a href="../shap/">SHAP</a> for details.</p>
+<p>See <a href="../shap/">SHAP</a>.</p>
 
 
 
@@ -1010,7 +1319,7 @@ unbiased, concentrating effort on the rows that still carry signal.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
