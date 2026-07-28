@@ -398,6 +398,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../quantiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Predictive distributions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../concepts/" class="md-nav__link">
         
   
@@ -669,6 +697,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#quantile-head-chimeraboostquantileregressor-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantile head (ChimeraBoostQuantileRegressor only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validation-metric-both-estimators" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -925,6 +964,17 @@
     <span class="md-ellipsis">
       
         Loss (regressor only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quantile-head-chimeraboostquantileregressor-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantile head (ChimeraBoostQuantileRegressor only)
       
     </span>
   </a>
@@ -1219,6 +1269,48 @@ mix — e.g. <code>cat_features=["city", "brand"]</code> or <code>cat_features=[
 </tbody>
 </table>
 <p>The classifier picks its loss automatically: binary logloss for 2 classes, softmax for 3+.</p>
+<h2 id="quantile-head-chimeraboostquantileregressor-only">Quantile head (<code>ChimeraBoostQuantileRegressor</code> only)<a class="headerlink" href="#quantile-head-chimeraboostquantileregressor-only" title="Permanent link">&para;</a></h2>
+<p>A whole grid of conditional quantiles from one booster — see
+<a href="../quantiles/">Predictive distributions</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>quantiles</code></td>
+<td><code>0.05 ... 0.95</code> step <code>0.05</code></td>
+<td>Ascending, unique levels strictly inside (0, 1). Column <code>k</code> of <code>predict</code> is level <code>k</code>.</td>
+</tr>
+<tr>
+<td><code>conformalize</code></td>
+<td><code>False</code></td>
+<td>Calibrate the intervals on a fold held out before the early-stopping split. Raises if that fold cannot certify the requested levels.</td>
+</tr>
+<tr>
+<td><code>calibration_fraction</code></td>
+<td><code>0.2</code></td>
+<td>Rows reserved for conformalization. Ignored unless <code>conformalize=True</code>.</td>
+</tr>
+<tr>
+<td><code>split_projection</code></td>
+<td><code>"rotate"</code></td>
+<td>How the K gradient columns collapse for the split search: <code>"rotate"</code> (measured best), <code>"sum"</code> (blind to changes in spread), <code>"gram"</code>.</td>
+</tr>
+<tr>
+<td><code>exact_splits</code></td>
+<td><code>False</code></td>
+<td>Score splits on the exact summed-across-level gain instead of a projection: slightly more accurate, at K histogram channels per feature.</td>
+</tr>
+</tbody>
+</table>
+<p><code>depth</code> defaults to 4 here and <code>min_child_weight</code> to a floor implied by the most extreme
+level on the grid. <code>loss</code>, <code>linear_leaves</code>, <code>cross_features</code>, <code>ordered_boosting</code>,
+<code>refit_full</code>, <code>n_ensembles</code> and <code>quality</code> do not apply.</p>
 <h2 id="validation-metric-both-estimators">Validation metric (both estimators)<a class="headerlink" href="#validation-metric-both-estimators" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

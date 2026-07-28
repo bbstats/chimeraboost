@@ -10,25 +10,31 @@
       
       
       
+        <link rel="canonical" href="https://bbstats.github.io/chimeraboost/quantiles/">
       
+      
+        <link rel="prev" href="../recipes/">
+      
+      
+        <link rel="next" href="../concepts/">
       
       
         
       
       
-      <link rel="icon" href="/chimeraboost/assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>ChimeraBoost</title>
+        <title>Predictive distributions - ChimeraBoost</title>
       
     
     
-      <link rel="stylesheet" href="/chimeraboost/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/chimeraboost/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="/chimeraboost/assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("/chimeraboost/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -73,6 +79,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#predictive-distributions" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -85,7 +96,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/chimeraboost/." title="ChimeraBoost" class="md-header__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
+    <a href=".." title="ChimeraBoost" class="md-header__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -105,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Predictive distributions
             
           </span>
         </div>
@@ -223,7 +234,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/chimeraboost/." title="ChimeraBoost" class="md-nav__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
+    <a href=".." title="ChimeraBoost" class="md-nav__button md-logo" aria-label="ChimeraBoost" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -253,7 +264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -280,7 +291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -304,8 +315,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -316,11 +329,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -341,7 +354,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -359,7 +372,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/recipes/" class="md-nav__link">
+      <a href="../recipes/" class="md-nav__link">
         
   
   
@@ -384,10 +397,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/chimeraboost/quantiles/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Predictive distributions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -403,6 +443,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#predictions-never-cross" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predictions never cross
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interval-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interval calibration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tuning
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -415,7 +530,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/concepts/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
@@ -443,7 +558,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/shap/" class="md-nav__link">
+      <a href="../shap/" class="md-nav__link">
         
   
   
@@ -471,7 +586,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/deployment/" class="md-nav__link">
+      <a href="../deployment/" class="md-nav__link">
         
   
   
@@ -558,7 +673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/parameters/" class="md-nav__link">
+      <a href="../parameters/" class="md-nav__link">
         
   
   
@@ -586,7 +701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/api/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
@@ -614,7 +729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/chimeraboost/faq/" class="md-nav__link">
+      <a href="../faq/" class="md-nav__link">
         
   
   
@@ -659,6 +774,71 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#predictions-never-cross" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predictions never cross
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interval-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interval calibration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tuning
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -671,8 +851,123 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="predictive-distributions">Predictive distributions<a class="headerlink" href="#predictive-distributions" title="Permanent link">&para;</a></h1>
+<p><code>ChimeraBoostQuantileRegressor</code> estimates a whole grid of conditional
+quantiles from a single booster. One tree structure per round serves every
+level; each leaf holds a K-vector, one entry per level.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostQuantileRegressor</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">Q</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                            <span class="c1"># (n_samples, 19)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;interval&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">mean</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;mean&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>The default grid is 0.05, 0.10, ... 0.95. Pass your own with
+<code>quantiles=[...]</code> — ascending, unique, strictly inside (0, 1). Column <code>k</code> of
+<code>predict</code> is level <code>k</code>.</p>
+<h2 id="predictions-never-cross">Predictions never cross<a class="headerlink" href="#predictions-never-cross" title="Permanent link">&para;</a></h2>
+<p>The 30% quantile is never returned above the 70%. This is structural, not a
+repair applied afterwards: the model starts from the sorted global quantiles
+and every leaf vector is projected onto a set of increments that cannot
+reorder anything, so <code>np.diff(Q, axis=1) &gt;= 0</code> holds exactly — including at
+every intermediate stage of <code>staged_predict</code>.</p>
+<p>Independently fitted per-level models have no such property. On the benchmark
+in <code>benchmarks/quantile_head.py</code>, 18–21% of adjacent quantile pairs come out
+reversed.</p>
+<p>Intervals can still be <em>narrower</em> than the pooled one where the data is
+quiet — that is not given up to get the guarantee.</p>
+<h2 id="interval-calibration">Interval calibration<a class="headerlink" href="#interval-calibration" title="Permanent link">&para;</a></h2>
+<p>Boosting under-disperses quantiles: each round's step is scaled by the
+learning rate, so the grid never fully contracts and intervals come out too
+wide. <code>conformalize=True</code> fixes it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">(</span><span class="n">conformalize</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+</code></pre></div>
+<p>This holds out <code>calibration_fraction</code> of the rows <strong>before</strong> the
+early-stopping split, so that fold influences neither the fit nor the
+stopping point, then rescales each level about the predicted median by a
+conformal factor (Romano, Patterson &amp; Candès 2019). On exchangeable data this
+gives distribution-free marginal coverage. Measured worst error against
+nominal: 0.7 percentage points at n = 10 000.</p>
+<p>It raises rather than guessing if the calibration fold is too small to certify
+the levels you asked for — a 90% interval needs at least 9 calibration rows,
+and a 99% one needs 99.</p>
+<h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
+<p><code>chimeraboost.quantile_metrics</code> scores a predicted grid.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">function</th>
+<th style="text-align: left;">answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>pinball_loss</code></td>
+<td style="text-align: left;">is each level in the right place? (one value per level)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>crps</code></td>
+<td style="text-align: left;">is the distribution as a whole right?</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval_coverage</code></td>
+<td style="text-align: left;">do the intervals hold what they claim — coverage <em>and</em> width</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>crossing_rate</code></td>
+<td style="text-align: left;">fraction of adjacent pairs out of order</td>
+</tr>
+</tbody>
+</table>
+<p><code>crps</code> is the mean pinball loss over the grid. The textbook CRPS is twice
+that; the factor is constant, so comparisons are unaffected, and this
+convention matches the early-stopping metric.</p>
+<p><code>predict(kind="mean")</code> integrates the quantile function over tau: trapezoid
+across the grid, with the edge levels extended flat to 0 and 1. That flat
+extension assumes nothing about tails the model never estimated.</p>
+<h2 id="what-it-costs">What it costs<a class="headerlink" href="#what-it-costs" title="Permanent link">&para;</a></h2>
+<p>The split search runs once per round instead of once per level, so the saving
+grows with how wide the data is — roughly 3.4× the fit speed of 19
+independent boosters at 5 features, 4.8× at 32, and 7.8× at 128. Accuracy is
+within 3% of per-level models on pinball loss throughout, and better on wide
+data.</p>
+<h2 id="tuning">Tuning<a class="headerlink" href="#tuning" title="Permanent link">&para;</a></h2>
+<p>Defaults are set for the head, not inherited: <code>depth</code> is 4 (deep leaves
+overfit tail quantiles) and <code>min_child_weight</code> follows the most extreme level
+on the grid, so a leaf estimating the 5% quantile keeps at least ~20 rows.</p>
+<p><code>split_projection</code> chooses how the K gradient columns collapse into the single
+vector the tree grower accepts. Leave it alone unless you are exploring:
+<code>"rotate"</code> measured best, <code>"sum"</code> is blind to changes in spread, and <code>"gram"</code>
+measured no better than <code>"rotate"</code>. <code>exact_splits=True</code> scores the exact
+summed-across-level gain — slightly more accurate, at K histogram channels per
+feature.</p>
+<p><code>chimeraboost/benchmarks/QUANTILE_PLAN.md</code> records why each of those defaults
+is what it is.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -719,10 +1014,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/chimeraboost/", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "/chimeraboost/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/chimeraboost/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
