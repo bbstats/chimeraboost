@@ -89,8 +89,8 @@ def warmup(verbose=False, background=False, shap=False):
     Covers binary classification with linear leaves, a categorical feature
     and a validation set; multiclass; regression with ordered boosting and
     non-uniform sample weights (the weighted ordered-TS kernel); and the
-    gdiff cross-feature group-sum kernel — together these touch every fit-
-    and predict-path numba kernel except the SHAP kernels (``shap=True``).
+    gdiff cross-feature group-sum kernel. Together these touch every fit- and
+    predict-path numba kernel except the SHAP kernels (``shap=True``).
 
     Instead of calling this yourself, run ``chimeraboost-warmup`` once after
     installing, or set the environment variable ``CHIMERABOOST_WARMUP=1`` to

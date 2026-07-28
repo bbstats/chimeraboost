@@ -74,7 +74,7 @@ The probabilities are temperature-scaled on the validation split:
 ```
 
 For a faithful, per-prediction explanation, use SHAP. The contributions plus the
-baseline reconstruct each prediction exactly:
+baseline reconstruct each prediction exactly (see [SHAP](shap.md)):
 
 ```pycon
 >>> phi = reg.shap_values(X_test)
@@ -86,7 +86,7 @@ baseline reconstruct each prediction exactly:
 
 ## Next
 
-- [Recipes](recipes.md) — categoricals, quantile regression, bagging, persistence, and more.
-- [How it works](concepts.md) — oblivious trees, categorical encoding, linear leaves, calibration.
-- [Parameters](parameters.md) — what each option does and when to change it.
-- [SHAP](shap.md) — exact feature attributions in depth.
+- [Recipes](recipes.md): categoricals, quantile regression, bagging, persistence, and more.
+- [How it works](concepts.md): oblivious trees, categorical encoding, linear leaves, calibration.
+- [Parameters](parameters.md): what each option does and when to change it.
+- [SHAP](shap.md): exact feature attributions in depth.

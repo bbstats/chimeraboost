@@ -152,16 +152,19 @@ def _cqr_scales(Q, y, taus, mi, mw):
 class ChimeraBoostQuantileRegressor(BaseEstimator):
     """Gradient boosting for a whole predictive distribution at once.
 
-    One booster, one tree structure per round, and a K-vector in every leaf --
-    one entry per level in ``quantiles``. Against fitting one quantile
+    One booster, one tree structure per round, and a K-vector in every leaf,
+    holding one entry per level in ``quantiles``. Against fitting one quantile
     regressor per level this is roughly K times less split-search work, and
     the predictions cannot cross: the 30% quantile is never returned above the
     70%. The guarantee is structural rather than repaired afterwards, so it
     holds at every intermediate stage of ``staged_predict`` too.
 
-    Deliberately NOT a ``RegressorMixin``: ``predict`` returns a matrix, so the
+    Deliberately not a ``RegressorMixin``: ``predict`` returns a matrix, so the
     inherited ``score`` (which assumes one number per row) would be wrong.
-    ``score`` here is negative CRPS -- higher is better, as sklearn requires.
+    ``score`` here is negative CRPS, so higher is better, as sklearn requires.
+
+    Read more in the `User Guide
+    <https://bbstats.github.io/chimeraboost/quantiles/>`__.
 
     Parameters
     ----------
@@ -189,11 +192,6 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         Share of training rows reserved for conformalization. Ignored unless
         ``conformalize=True``.
 
-    Other parameters carry their usual ChimeraBoost meaning. ``depth``
-    defaults to 4 (deep leaves overfit tail quantiles) and
-    ``min_child_weight`` to a floor implied by the most extreme level on the
-    grid.
-
     Attributes
     ----------
     quantiles_ : ndarray of shape (n_quantiles,)
@@ -201,6 +199,13 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     conformal_scale_ : ndarray of shape (n_quantiles,)
         Per-level conformal scale about the predicted median; all ones unless
         ``conformalize=True``.
+
+    Notes
+    -----
+    Every other parameter carries its usual ChimeraBoost meaning. Two defaults
+    are set for this head rather than inherited: ``depth`` is 4, because deep
+    leaves overfit tail quantiles, and ``min_child_weight`` follows a floor
+    implied by the most extreme level on the grid.
     """
 
     def __init__(self, quantiles=None, n_estimators=2000, learning_rate=None,

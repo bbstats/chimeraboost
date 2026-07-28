@@ -303,8 +303,10 @@ class CustomObjective:
     early stopping). Optionally override ``init(y, sample_weight=None)`` (the
     starting raw score, default 0.0) and ``transform(raw)`` (raw scores ->
     predictions, default identity). Pass an *instance* as the regressor's
-    ``loss``. Instances must be stateless across fits and picklable (define
-    the subclass at module level) — bagged members fit in worker processes.
+    ``loss``. Instances must be stateless across fits and picklable, so define
+    the subclass at module level: bagged members fit in worker processes.
+
+    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
     """
 
     name = "Custom"

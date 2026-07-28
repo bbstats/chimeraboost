@@ -1132,6 +1132,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     and quantile losses, native categorical features, sample weights, bagging, and
     exact SHAP attributions.
 
+    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
+
     Parameters
     ----------
     n_estimators : int, default 2000
@@ -1825,6 +1827,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     A scikit-learn compatible classifier. Uses binary logloss for 2 classes and
     softmax for 3 or more, chosen automatically. ``predict_proba`` is temperature
     scaled on the validation split for calibrated probabilities.
+
+    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
 
     Parameters
     ----------
