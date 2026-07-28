@@ -306,7 +306,7 @@ class CustomObjective:
     ``loss``. Instances must be stateless across fits and picklable, so define
     the subclass at module level: bagged members fit in worker processes.
 
-    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
+    Read more in the [User Guide](https://bbstats.github.io/chimeraboost/recipes/).
     """
 
     name = "Custom"
