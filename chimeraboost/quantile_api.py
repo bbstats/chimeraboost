@@ -163,8 +163,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     inherited ``score`` (which assumes one number per row) would be wrong.
     ``score`` here is negative CRPS, so higher is better, as sklearn requires.
 
-    Read more in the `User Guide
-    <https://bbstats.github.io/chimeraboost/quantiles/>`__.
+    Read more in the [User Guide](https://bbstats.github.io/chimeraboost/quantiles/).
 
     Parameters
     ----------

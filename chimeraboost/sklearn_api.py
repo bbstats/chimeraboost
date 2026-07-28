@@ -1132,7 +1132,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     and quantile losses, native categorical features, sample weights, bagging, and
     exact SHAP attributions.
 
-    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
+    Read more in the [User Guide](https://bbstats.github.io/chimeraboost/recipes/).
 
     Parameters
     ----------
@@ -1828,7 +1828,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     softmax for 3 or more, chosen automatically. ``predict_proba`` is temperature
     scaled on the validation split for calibrated probabilities.
 
-    Read more in the `User Guide <https://bbstats.github.io/chimeraboost/recipes/>`__.
+    Read more in the [User Guide](https://bbstats.github.io/chimeraboost/recipes/).
 
     Parameters
     ----------
