@@ -358,6 +358,57 @@ class MultiSoftmax:
         return _softmax(F)
 
 
+class MultiQuantile:
+    """Pinball loss on a shared tau grid: K quantile channels at once.
+
+    Raw scores are an (n, K) matrix, column k holding the estimate of the
+    `taus[k]` conditional quantile. Nothing here couples the channels -- each
+    column is exactly the scalar `Quantile` loss at its own alpha, and a
+    one-element grid reproduces it term for term. The coupling lives in the
+    booster: one shared tree structure per round, and a leaf vector that is
+    sorted before it is committed.
+
+    `taus` must be ascending, unique and strictly inside (0, 1); the estimator
+    validates that before constructing this.
+    """
+
+    name = "MultiQuantile"
+    is_classification = False
+    adjusts_leaves = True
+
+    def __init__(self, taus):
+        self.taus = np.ascontiguousarray(taus, dtype=np.float64)
+        self.K = self.taus.size
+
+    def init(self, y, sample_weight=None):
+        """Global (weighted) quantile at each level -- a (K,) starting vector."""
+        q = np.array([_weighted_quantile(y, sample_weight, a)
+                      for a in self.taus])
+        # Quantiles of one sample are already monotone in alpha, so this sort
+        # is a no-op. It is here so the non-crossing guarantee rests on an
+        # enforced invariant rather than on that argument staying true.
+        q.sort()
+        return q
+
+    def grad_hess(self, y, F):
+        """(n, K) pinball gradient; hessian is 1 everywhere.
+
+        Sign convention matches the scalar `Quantile`: -alpha where the target
+        sits at or above the current estimate, 1-alpha below."""
+        grad = np.where(y[:, None] >= F, -self.taus, 1.0 - self.taus)
+        return grad, np.ones_like(F)
+
+    def eval(self, y, F, sample_weight=None):
+        """Mean pinball loss across the grid -- the CRPS convention used by
+        `chimeraboost.quantile_metrics.crps`, and the early-stopping metric."""
+        r = y[:, None] - F
+        pinball = np.maximum(self.taus * r, (self.taus - 1.0) * r)
+        return float(np.average(pinball.mean(axis=1), weights=sample_weight))
+
+    def transform(self, F):
+        return F
+
+
 LOSSES = {"RMSE": RMSE, "Logloss": Logloss, "MAE": MAE, "Quantile": Quantile,
           "Huber": Huber, "Poisson": Poisson, "Gamma": Gamma,
           "Tweedie": Tweedie}

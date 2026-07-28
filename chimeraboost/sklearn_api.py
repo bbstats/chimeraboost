@@ -137,7 +137,12 @@ def _validate_hyperparams(estimator):
     """
     p = estimator.get_params()
 
+    # Estimators expose different parameter sets (the quantile head has no
+    # loss/alpha family, no bagging, no linear leaves), so every check below
+    # is a no-op for a parameter this estimator does not have.
     def _pos_int(name, lo=1, allow_none=False):
+        if name not in p:
+            return
         v = p[name]
         if v is None and allow_none:
             return
@@ -146,6 +151,8 @@ def _validate_hyperparams(estimator):
             raise ValueError(f"{name} must be an integer >= {lo}; got {v!r}.")
 
     def _in_range(name, lo, hi, *, lo_incl=True, hi_incl=True, allow_none=False):
+        if name not in p:
+            return
         v = p[name]
         if v is None and allow_none:
             return
@@ -167,7 +174,7 @@ def _validate_hyperparams(estimator):
     # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
-    v = p["depth"]
+    v = p.get("depth")
     if v is not None and not (isinstance(v, (int, np.integer))
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")

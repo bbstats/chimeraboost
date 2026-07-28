@@ -57,6 +57,23 @@ mix — e.g. `cat_features=["city", "brand"]` or `cat_features=[0, 3]`.
 
 The classifier picks its loss automatically: binary logloss for 2 classes, softmax for 3+.
 
+## Quantile head (`ChimeraBoostQuantileRegressor` only)
+
+A whole grid of conditional quantiles from one booster — see
+[Predictive distributions](quantiles.md).
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `quantiles` | `0.05 ... 0.95` step `0.05` | Ascending, unique levels strictly inside (0, 1). Column `k` of `predict` is level `k`. |
+| `conformalize` | `False` | Calibrate the intervals on a fold held out before the early-stopping split. Raises if that fold cannot certify the requested levels. |
+| `calibration_fraction` | `0.2` | Rows reserved for conformalization. Ignored unless `conformalize=True`. |
+| `split_projection` | `"rotate"` | How the K gradient columns collapse for the split search: `"rotate"` (measured best), `"sum"` (blind to changes in spread), `"gram"`. |
+| `exact_splits` | `False` | Score splits on the exact summed-across-level gain instead of a projection: slightly more accurate, at K histogram channels per feature. |
+
+`depth` defaults to 4 here and `min_child_weight` to a floor implied by the most extreme
+level on the grid. `loss`, `linear_leaves`, `cross_features`, `ordered_boosting`,
+`refit_full`, `n_ensembles` and `quality` do not apply.
+
 ## Validation metric (both estimators)
 
 | Parameter | Default | Effect |

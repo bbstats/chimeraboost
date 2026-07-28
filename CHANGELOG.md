@@ -4,6 +4,34 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **`ChimeraBoostQuantileRegressor`: a whole predictive distribution from one
+  booster, with predictions that cannot cross.** One tree structure per round
+  serves every level in `quantiles` (default 0.05 ... 0.95), each leaf holding
+  a K-vector whose entries are the exact per-level empirical quantiles of the
+  leaf's residuals. `predict` returns the grid, or a central interval, or the
+  mean by integrating the quantile function.
+
+  The ordering guarantee is structural rather than a repair applied at predict
+  time: the model starts from the sorted global quantiles and every leaf
+  vector is projected onto increments that cannot reorder anything, so
+  `diff(Q, axis=1) >= 0` holds exactly, at every intermediate `staged_predict`
+  stage too. Measured crossing rate 0.0000 against 0.18-0.21 for 19
+  independently fitted LightGBM quantile boosters. Intervals can still be
+  narrower than the pooled one where the data is quiet — a narrowing budget
+  buys that back, which a plain monotone-increment construction cannot express
+  at all.
+
+  The split search runs once per round instead of once per level, so the
+  saving grows with data width: **3.4x the fit speed of 19 independent
+  boosters at 5 features, 4.8x at 32, 7.8x at 128**, with pinball loss within
+  3% throughout and better on wide data. `conformalize=True` calibrates the
+  intervals on a fold held out before the early-stopping split (worst coverage
+  error 0.7 points at n = 10 000). New `chimeraboost.quantile_metrics` scores
+  a predicted grid: per-level pinball, CRPS, and coverage with width.
+  Full record in `benchmarks/QUANTILE_PLAN.md`; defaults elsewhere are
+  untouched.
+
 ### Changed
 - **``refit_full`` now defaults to ``"replay"``: the same full-data refit for
   about two thirds of the fit time.** Refitting the early-stopping winner on
