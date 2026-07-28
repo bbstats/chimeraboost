@@ -10,10 +10,14 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from .losses import LOSSES, MultiSoftmax
+from .losses import LOSSES, MultiSoftmax, MultiQuantile
 from .preprocessing import FeaturePreprocessor, as_model_array
 from .binning import _SERIAL_PREDICT_N
 from .tree import (build_oblivious_tree, replay_oblivious_tree,
+                   build_oblivious_tree_exact, alloc_exact_hist, _SMALL_N,
+                   _leaf_quantiles_vec, _leaf_quantiles_vec_serial,
+                   _leaf_quantiles_vec_w, _leaf_quantiles_vec_w_serial,
+                   _project_pinball, _add_leaf_values,
                    _loo_leaf_step, _leaf_values,
                    _leaf_values_vec, _linear_predict,
                    _predict_forest_rm, _predict_forest_rm_serial,
@@ -1013,3 +1017,459 @@ class MulticlassBoosting(_BaseBooster):
             F[:, k] = kernel(Xb, feats, thrs, depths, vals, voff,
                              self.init_[k])
         return F
+
+
+# Rows sampled to estimate the gradient covariance for the split direction.
+# The top eigenvector is a direction, not a precise quantity, and it does not
+# need every row; capping keeps the Gram a few percent of round cost on large
+# data instead of growing with n.
+_GRAM_MAX_ROWS = 16384
+
+# Which contrast each round uses under ``split_projection="rotate"``, cycled.
+# Two rounds of location per round of spread: location carries most of the
+# available gain, but a pure location diet is blind to spread entirely.
+# Measured across location-only, spread-only, mixed and extreme
+# heteroscedastic regimes at both K=3 and K=19; this beat uniform cycling,
+# location-only, and every schedule that also spent rounds on skew. See
+# benchmarks/QUANTILE_PLAN.md.
+_ROTATE_PATTERN = (0, 0, 1)
+
+
+def _fixed_contrasts(taus, n_basis=2):
+    """Orthonormal split directions for ``split_projection`` of "sum" (the
+    first only) and "rotate" (cycled by `_ROTATE_PATTERN`).
+
+    Why polynomials in tau. Every row's pinball gradient is
+    ``e(r_i) - taus``, where ``r_i`` is the row's PIT rank -- how many of its
+    own K estimates the target falls above -- and ``e(r)`` is the step vector
+    that turns on at r. A row's whole gradient is therefore one number, so
+    projecting on a direction ``c`` is exactly scoring that rank by
+    ``phi(r) = sum(c[r:])``. Taking c polynomial in tau of degree 0 and 1
+    makes phi degree 1 and 2 in the rank:
+
+    * degree 1 (c constant) -- location. Finds regions where the whole
+      predictive distribution sits in the wrong place. This is the plain
+      channel sum, and it is the ONLY direction "sum" ever uses.
+    * degree 2 (c linear) -- spread. Finds regions whose width is wrong, which
+      the location contrast cannot see at all: on a symmetric grid the tau and
+      1-tau pushes are equal and opposite, so a correctly-centred but
+      too-narrow region sums to exactly zero.
+
+    A degree-3 (skew) contrast is available by raising ``n_basis`` but is not
+    used by default: across every regime measured it took rounds away from
+    location and spread without paying them back.
+
+    Gram-Schmidt keeps the directions orthonormal on the actual grid (they are
+    already near-orthogonal on a uniform one), and unit norm keeps the
+    projected curvature at exactly 1 per row.
+    """
+    K = taus.shape[0]
+    s = 2.0 * taus - 1.0                       # tau -> [-1, 1]
+    raw = [np.ones(K), s, 1.5 * s * s - 0.5]   # Legendre P0, P1, P2
+    basis = []
+    for v in raw[:max(1, n_basis)]:
+        v = v.astype(np.float64).copy()
+        for b in basis:
+            v -= (v @ b) * b
+        nrm = float(np.sqrt(v @ v))
+        if nrm > 1e-9:                # degenerate on very short grids
+            basis.append(v / nrm)
+    return basis
+
+
+def _null_whitener(grad, taus):
+    """Cholesky factor of the gradient covariance expected under NO x-signal.
+
+    A row's gradient is ``e(r_i) - taus`` for its PIT rank r, so when the rank
+    carries no information about x the covariance is the Brownian-bridge form
+    ``min(p_j, p_k) - p_j p_k`` -- fixed by the realized marginal rates p
+    alone, no fitting involved. Whitening by it is what stops the split
+    direction being chosen by noise: the raw gradient variance in channel k is
+    ``tau_k(1 - tau_k)``, four times larger at the median than at the 5%
+    tail, so the largest-energy direction is the median one whether or not
+    anything about the median depends on x.
+
+    Estimated from the realized rates rather than from ``taus`` so that a
+    globally miscalibrated model does not leak into the whitener.
+    """
+    p = np.clip(grad.mean(axis=0) + taus, 1e-6, 1.0 - 1e-6)
+    N = np.minimum(p[:, None], p[None, :]) - np.outer(p, p)
+    # Ridge for a strictly positive-definite factorization; scaled to the
+    # matrix so it is negligible relative to the real structure.
+    N += np.eye(p.shape[0]) * (1e-8 * float(np.trace(N)) / p.shape[0] + 1e-300)
+    try:
+        return np.linalg.cholesky(N)
+    except np.linalg.LinAlgError:
+        return None
+
+
+def _gram_direction(grad, taus, basis, rng):
+    """Best signal-to-noise split direction WITHIN the Legendre subspace.
+
+    With unit hessians the exact summed-across-tau split gain is
+    ``‖G_L‖²/(n_L+l2) + ‖G_R‖²/(n_R+l2) - ‖G_P‖²/(n_P+l2)``, which by Parseval
+    equals the sum of projected gains over any orthonormal basis. Projecting
+    onto one direction is therefore the rank-1 truncation of the exact gain
+    rather than a different algorithm, and the question is only which
+    direction to keep.
+
+    Same subspace "rotate" cycles through -- location, spread, skew (see
+    `_fixed_contrasts`) -- but weighted by what this round's gradients
+    actually show instead of taken in turn. Maximizes ``c'Cc / c'Nc`` over the
+    subspace, C being the centered gradient covariance and N the covariance
+    expected with no x-signal at all (`_null_whitener`). That is a 3x3
+    generalized eigenproblem, solved exactly.
+
+    Three corrections separate a useful direction from a useless one, and each
+    was measured rather than assumed:
+
+    * Centering. A gradient component shared by every row contributes exactly
+      zero gain (``n_L + n_R - n = 0``), so the raw second moment can point
+      somewhere no split is able to exploit.
+    * Whitening. Raw energy is dominated by per-row Bernoulli noise, largest
+      at the median; without whitening this collapses onto the location
+      contrast and inherits its blindness to spread.
+    * The subspace. Whitening across all of R^K is ill-conditioned -- the
+      Brownian-bridge null has eigenvalues falling like 1/k², so its inverse
+      amplifies exactly the high-frequency directions that carry only sampling
+      noise. Restricting to the low-order polynomials keeps the ratio
+      well-posed. Measured: unrestricted whitening was four times worse than
+      cycling on location-driven data.
+
+    Returns None on a degenerate covariance, leaving the caller on the
+    location contrast.
+    """
+    n = grad.shape[0]
+    G = grad
+    if n > _GRAM_MAX_ROWS:
+        # With replacement: this estimates a direction only, and it avoids the
+        # permutation cost of sampling without replacement on large n.
+        G = grad[rng.integers(0, n, size=_GRAM_MAX_ROWS)]
+    L = _null_whitener(G, taus)
+    if L is None:
+        return None
+    B = np.stack(basis, axis=1)                  # (K, n_basis), orthonormal
+    Gc = G - G.mean(axis=0)
+    GB = Gc @ B
+    Cb = GB.T @ GB                               # B'CB
+    LB = L.T @ B
+    Nb = LB.T @ LB                               # B'NB
+    Nb += np.eye(Nb.shape[0]) * (1e-12 * float(np.trace(Nb)) + 1e-300)
+    try:
+        M = np.linalg.solve(Nb, Cb)
+        vals, vecs = np.linalg.eig(M)
+    except np.linalg.LinAlgError:
+        return None
+    w = np.real(vecs[:, int(np.argmax(np.real(vals)))])
+    c = B @ w
+    nrm = float(np.sqrt(c @ c))
+    if nrm < 1e-250:
+        return None
+    c = c / nrm                        # unit norm keeps min_child_weight exact
+    # Pin the sign (largest-magnitude component positive) so repeated fits are
+    # reproducible. Gain is even in the direction, so this changes no split.
+    if c[np.argmax(np.abs(c))] < 0.0:
+        c = -c
+    return c
+
+
+class MultiQuantileBoosting(_BaseBooster):
+    """Multi-quantile booster: one VECTOR-LEAF tree per round, K quantiles.
+
+    Each round grows a single oblivious tree whose leaves hold a K-vector, one
+    entry per level in ``quantiles``. Two things make this more than K boosters
+    stapled together:
+
+    * The split search runs on a 1-d projection of the K pinball-gradient
+      columns, so the scalar split kernels (quantized path included) are reused
+      verbatim -- one histogram per round rather than K. `_gram_direction`
+      explains why any single projection is the rank-1 truncation of the exact
+      summed-across-tau gain rather than a different algorithm;
+      `_fixed_contrasts` explains which directions are worth truncating to,
+      and why the plain channel sum is the worst available choice.
+    * Leaf values are the EXACT per-tau empirical quantile of the leaf's
+      residuals (`tree._leaf_quantiles_vec`), not a Newton step -- the vector
+      form of the override the scalar MAE/Quantile path already applies.
+
+    The starting vector is the sorted global quantiles and every committed
+    leaf vector is projected onto the non-crossing set before it is added, so
+    every partial sum is monotone in tau: predictions cannot cross, and there
+    is no predict-time repair anywhere in this class. The projection is NOT a
+    sort -- see `tree._project_leaf_row` for why sorting both diverges and
+    makes narrow intervals inexpressible, and `_fit_impl` for the narrowing
+    budget that keeps the guarantee valid for rows the fit never saw.
+
+    Known limitation, by construction: within one round, gradient signal
+    orthogonal to the chosen direction cannot drive a split. The exact leaf
+    refit still expresses that shape within whatever partition it is handed,
+    so the failure mode is graceful, and the direction is re-measured every
+    round -- once a mode is fit its energy drops and the next mode takes over
+    without any schedule. ``exact_splits=True`` removes the limitation at K
+    times the histogram cost.
+    """
+
+    def __init__(self, quantiles=None, split_projection="rotate",
+                 exact_splits=False, **kw):
+        super().__init__(**kw)
+        taus = (np.arange(0.05, 0.9501, 0.05) if quantiles is None
+                else np.asarray(quantiles, dtype=np.float64))
+        self.quantiles = np.ascontiguousarray(taus, dtype=np.float64)
+        self.split_projection = split_projection
+        self.exact_splits = bool(exact_splits)
+
+    def _split_direction(self, grad, m, rng):
+        """Unit-norm direction to project this round's gradient columns onto.
+
+        Unit norm matters beyond tidiness: the pinball hessian is 1, so the
+        projected curvature is exactly 1 per row, which keeps
+        ``min_child_weight`` and ``l2_leaf_reg`` meaning precisely what they
+        mean on today's scalar Quantile path.
+
+        "rotate" is the default because it measured best of the cheap arms --
+        see benchmarks/QUANTILE_PLAN.md. Cycling guarantees each contrast a
+        fixed share of rounds; picking the strongest one greedily ("gram")
+        sounds better and is not, because on data whose only signal is spread
+        it drifts onto the location contrast and never comes back."""
+        basis = self._contrasts_
+        if self.split_projection == "gram":
+            v = _gram_direction(grad, self.quantiles, basis, rng)
+            return basis[0] if v is None else v
+        if self.split_projection == "rotate":
+            i = _ROTATE_PATTERN[m % len(_ROTATE_PATTERN)]
+            return basis[min(i, len(basis) - 1)]
+        return basis[0]         # "sum": the literal channel sum
+
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+                  sample_weight=None, callbacks=None, prep_cache=None):
+        """Fit one vector-leaf quantile tree per boosting round. Same
+        `cat_features` / `eval_set` / `sample_weight` semantics as the scalar
+        booster. (Called via the base ``fit``, which owns the thread limit.)"""
+        X = as_model_array(X, bool(cat_features))
+        y = np.ascontiguousarray(y, dtype=np.float64)
+        n_samples = X.shape[0]
+        w = self._normalize_weights(sample_weight, n_samples)
+
+        taus = self.quantiles
+        K = taus.shape[0]
+        self.n_quantiles_ = K
+        self.loss_ = MultiQuantile(taus)
+        self.lr_ = self._resolve_lr(n_samples, eval_set)
+        self._contrasts_ = _fixed_contrasts(taus)
+
+        # One TS-encoding target: every quantile shares the same y, unlike
+        # multiclass where each class gets its own one-hot column.
+        Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
+                                      prep_cache, w)
+        n_bins = self.prep_.n_bins_
+        # The exact arm needs its own K-deep buffers and never touches the
+        # scalar ones; allocate exactly one of the two.
+        if self.exact_splits:
+            hist_buffers, qbuf = None, None
+            exact_hist = alloc_exact_hist(Xb.shape[0], self.depth, n_bins, K)
+        else:
+            exact_hist = None
+            hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
+            qbuf = (np.empty(n_samples, dtype=np.int64)
+                    if self.quantize_gradients else None)
+
+        yv = Fv = wv = None
+        if eval_set is not None:
+            yv = np.asarray(eval_set[1], dtype=np.float64)
+            if len(eval_set) > 2:
+                wv = _uniform_to_none(eval_set[2])
+
+        self.init_ = self.loss_.init(y, w)          # (K,), sorted
+        F = np.tile(self.init_, (n_samples, 1))     # (n, K)
+        if yv is not None:
+            Fv = np.tile(self.init_, (yv.shape[0], 1))
+
+        # --- narrowing budget -------------------------------------------
+        # `gap[k]` is a lower bound on Q_k(x) - Q_{k-1}(x) that holds for ANY
+        # input row, not just training rows: a row's gap is the initial gap
+        # plus, for each tree, the increment gap at whichever leaf it lands
+        # in, and each of those is at least the minimum over that tree's
+        # leaves. So bounding every leaf's increment gap below by -budget and
+        # then subtracting the round's realized minimum keeps the bound valid
+        # for rows the fit never saw.
+        #
+        # The floor keeps the bound comfortably above float64 accumulation
+        # error: intervals may narrow to a billionth of the global spread,
+        # which is unlimited in practice, while the guaranteed margin stays
+        # ~7 orders of magnitude above the rounding noise of summing a few
+        # hundred trees.
+        gap = np.diff(self.init_)                   # (K-1,), >= 0
+        floor = 1e-9 * max(float(self.init_[-1] - self.init_[0]), 1e-300)
+        cb = np.zeros(K)                            # cumulative budget
+
+        # Scratch reused every round: the projected gradient, the suffix-sum
+        # table `_project_pinball` indexes by PIT rank (one slot past the end
+        # so a rank of K reads zero), and a row-weight vector that is all ones
+        # when unweighted (exactly 1.0, so that path stays unchanged).
+        g_buf = np.empty(n_samples)
+        csuffix = np.zeros(K + 1)
+        w_row = np.ones(n_samples) if w is None else w
+        # Only two arms ever need the (n, K) gradient itself: "gram" measures
+        # its covariance, and the exact split search scatters all K channels.
+        need_grad = self.exact_splits or self.split_projection == "gram"
+
+        rng = np.random.default_rng(self.random_state)
+        self.trees_ = []
+        self._forest_ = None
+        self.train_history_, self.valid_history_ = [], []
+        stopper = _EarlyStopper(self.early_stopping_rounds)
+        cb_train_loss = _callbacks_need_train_loss(callbacks)
+        # `_SMALL_N` is the scalar path's fork/join break-even, in units of
+        # per-row work. The leaf refit does K quantile selections per leaf, so
+        # the same amount of work is reached at K times fewer rows -- comparing
+        # n alone would leave the parallel kernel unused on every ordinary
+        # dataset. Both branches are bit-identical, so this only moves speed.
+        small = n_samples * K <= _SMALL_N
+        t0 = time.time()
+
+        for m in range(self.n_estimators):
+            # The default arms know their direction up front, so they read the
+            # projection straight off each row's PIT rank and never build the
+            # (n, K) gradient at all -- see `tree._project_pinball`.
+            grad = None
+            if need_grad:
+                grad, _ = self.loss_.grad_hess(y, F)
+                if w is not None:
+                    grad = grad * w[:, None]
+            direction = self._split_direction(grad, m, rng)
+            if grad is not None and self.split_projection == "gram":
+                g_s = grad @ direction
+            else:
+                csuffix[:K] = np.cumsum(direction[::-1])[::-1]
+                _project_pinball(y, F, csuffix, float(direction @ taus),
+                                 w_row, g_buf)
+                g_s = g_buf
+            # Unit-norm direction + unit hessian => projected curvature is
+            # exactly 1 per row.
+            h_s = np.ones(n_samples)
+            # One MVS row selection per round, taken from the projection and
+            # reused for the leaf refit, so leaf values see exactly the rows
+            # the split search saw.
+            mw = self._mvs_row_weights(g_s, rng)
+            if mw is not None:
+                g_s, h_s = g_s * mw, h_s * mw
+            # Row weight seen by BOTH the split search and the leaf refit:
+            # sample weights times any MVS importance weight. None == uniform,
+            # which keeps the unweighted path on the fast kernels.
+            rw = w if mw is None else (mw if w is None else w * mw)
+            fmask = self._feature_mask(Xb.shape[0], rng)
+
+            if self.exact_splits:
+                tree, leaf = build_oblivious_tree_exact(
+                    Xb, grad if mw is None else grad * mw[:, None],
+                    n_bins, self.depth, self.l2_leaf_reg,
+                    feature_mask=fmask,
+                    min_child_weight=self.min_child_weight,
+                    row_weight=rw, hist_buffers=exact_hist)
+            else:
+                qseed = (int(rng.integers(1 << 63))
+                         if self.quantize_gradients else 0)
+                tree, leaf = build_oblivious_tree(
+                    Xb, g_s, h_s, n_bins, self.depth, self.l2_leaf_reg,
+                    self.lr_, feature_mask=fmask,
+                    min_child_weight=self.min_child_weight,
+                    hist_buffers=hist_buffers,
+                    quantize=self.quantize_gradients, qbuf=qbuf, qseed=qseed)
+
+            # No legal split: stop like the other boosters, keeping the best
+            # prefix exactly as the other exits do.
+            if tree.depth == 0:
+                if Fv is not None and stopper.patience:
+                    self.trees_ = self.trees_[: stopper.best_iter + 1]
+                break
+
+            # Replace the projection's scalar leaf values with the exact
+            # per-tau residual quantiles on the shared partition, sorted.
+            n_lv = tree.values.shape[0]
+            # Budget this round: the gap each channel can give away and still
+            # leave every possible row ordered. cb is its running sum, which
+            # is what turns the admissible set into plain monotonicity.
+            np.cumsum(np.maximum(gap - floor, 0.0), out=cb[1:])
+            if rw is None:
+                kern = (_leaf_quantiles_vec_serial if small
+                        else _leaf_quantiles_vec)
+                tree.values = kern(leaf, y, F, taus, cb, n_lv, self.lr_)
+            else:
+                kern = (_leaf_quantiles_vec_w_serial if small
+                        else _leaf_quantiles_vec_w)
+                tree.values = kern(leaf, y, F, rw, taus, cb, n_lv, self.lr_)
+            # Spend what this round actually took. The min runs over ALL
+            # leaves, empty ones included -- a row the fit never saw can land
+            # in a leaf no training row reached, and its increment there is
+            # zero, which the min correctly treats as "no narrowing".
+            gap += np.diff(tree.values, axis=1).min(axis=0)
+
+            _add_leaf_values(F, tree.values, leaf)
+            self.trees_.append(tree)
+            if self.verbose:
+                self.train_history_.append(self.loss_.eval(y, F, w))
+
+            if Fv is not None:
+                Fv += tree.values[tree.apply(Xvb)]
+                val = self._val_score(yv, Fv, wv)   # wv=None -> unweighted
+                self.valid_history_.append(val)
+                if stopper.step(val, m):
+                    if self.verbose:
+                        print(f"Early stop at {m} (best {stopper.best_iter})")
+                    self.trees_ = self.trees_[: stopper.best_iter + 1]
+                    break
+
+            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
+                msg = f"[{m}] train {self.train_history_[-1]:.5f}"
+                if Fv is not None:
+                    msg += f"  val {self.valid_history_[-1]:.5f}"
+                print(msg)
+
+            if callbacks:
+                tl = self.train_history_[-1] if self.train_history_ \
+                    else (self.loss_.eval(y, F, w) if cb_train_loss else None)
+                vl = self.valid_history_[-1] if self.valid_history_ else None
+                if _run_callbacks(callbacks, m, tl, vl, self):
+                    break
+        else:
+            # No break: the tree budget ran out before patience could fire.
+            if Fv is not None and stopper.patience:
+                self.trees_ = self.trees_[: stopper.best_iter + 1]
+
+        # Early stopping can discard trailing trees, and every discarded tree
+        # only ever SPENT budget, so recomputing the bound over the retained
+        # prefix is both correct and never looser than the running value.
+        self.gap_ = np.diff(self.init_) + (
+            sum(np.diff(t.values, axis=1).min(axis=0) for t in self.trees_)
+            if self.trees_ else 0.0)
+        self.gap_floor_ = floor
+        self.fit_time_ = time.time() - t0
+        self.best_iteration_ = len(self.trees_)
+        return self
+
+    def _predict_raw_impl(self, X, cat_ctx=None):
+        """Return the (n_samples, n_quantiles) matrix of quantile estimates,
+        non-decreasing along axis 1 by construction."""
+        X = as_model_array(X, bool(self.prep_.cat_features_))
+        Xb = self.prep_.transform(X, cat_ctx)       # row-major
+        if not self.trees_:
+            return np.tile(self.init_, (Xb.shape[0], 1))
+        if getattr(self, "_forest_", None) is None:
+            self._forest_ = pack_forest_vec(self.trees_, self.depth)
+        feats, thrs, depths, vals, voff, K = self._forest_
+        kernel = (_predict_forest_vec_rm_serial
+                  if Xb.shape[0] <= _SERIAL_PREDICT_N
+                  else _predict_forest_vec_rm)
+        return kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_)
+
+    def staged_predict_raw(self, X):
+        """Yield the (n, K) quantile matrix after each successive tree.
+
+        Trees are accumulated in the same order as `_predict_forest_vec_rm`,
+        so the final stage equals ``predict_raw`` and every intermediate stage
+        is itself non-crossing."""
+        X = as_model_array(X, bool(self.prep_.cat_features_))
+        Xb = np.ascontiguousarray(self.prep_.transform(X).T)   # feature-major
+        F = np.tile(self.init_, (Xb.shape[1], 1))
+        for tree in self.trees_:
+            F += tree.values[tree.apply(Xb)]
+            yield F.copy()

@@ -28,6 +28,7 @@ import time
 import numpy as np
 
 from .sklearn_api import ChimeraBoostClassifier, ChimeraBoostRegressor
+from .quantile_api import ChimeraBoostQuantileRegressor
 
 # Set once the cold-compile notice has been considered, so it prints at most
 # once per process. warmup() arms it up front -- its own fits are the compile.
@@ -151,6 +152,35 @@ def warmup(verbose=False, background=False, shap=False):
     mc.predict_proba(X[:8, :3])
     mc.predict_proba(X[:1, :3])   # vector-leaf serial twin
     _log("multiclass")
+
+    # Multi-quantile head: the leaf-quantile kernels (quickselect + the
+    # non-crossing projection) and the vector forest predictors. A short grid
+    # keeps the compile cheap -- the kernels are generic in K, so the number
+    # of levels does not change what gets compiled.
+    yq = X[:320, 0] + 0.5 * rng.standard_normal(320)
+    qr = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
+                                       n_estimators=2, random_state=0,
+                                       early_stopping=False)
+    qr.fit(X[:320, :3], yq)
+    qr.predict(X[:8, :3])
+    qr.predict(X[:1, :3])      # serial twin
+    # The parallel leaf-quantile kernel only runs above tree._SMALL_N rows,
+    # and the weighted twins only on a weighted or subsampled fit -- both too
+    # big or too narrow to reach through a warmup fit, so compile them
+    # directly with the dtypes the real call uses (same treatment as the gdiff
+    # kernel below).
+    from .tree import (_leaf_quantiles_vec, _leaf_quantiles_vec_w,
+                       _leaf_quantiles_vec_w_serial)
+    _wl = np.arange(8, dtype=np.int64) % 2
+    _wy = rng.standard_normal(8)
+    _wF = np.zeros((8, 3))
+    _wt = np.array([0.1, 0.5, 0.9])
+    _wcb = np.zeros(3)
+    _ww = np.ones(8)
+    _leaf_quantiles_vec(_wl, _wy, _wF, _wt, _wcb, 2, 0.1)
+    _leaf_quantiles_vec_w(_wl, _wy, _wF, _ww, _wt, _wcb, 2, 0.1)
+    _leaf_quantiles_vec_w_serial(_wl, _wy, _wF, _ww, _wt, _wcb, 2, 0.1)
+    _log("multi-quantile")
 
     # Regression, ordered boosting on (the LOO leaf-step kernel), with a
     # categorical column and NON-uniform sample weights: the weighted

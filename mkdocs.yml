@@ -82,6 +82,7 @@ nav:
   - Getting started: getting-started.md
   - User guide:
       - Recipes: recipes.md
+      - Predictive distributions: quantiles.md
       - How it works: concepts.md
       - SHAP explanations: shap.md
       - Deployment: deployment.md

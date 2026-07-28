@@ -785,6 +785,384 @@ def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
     return values
 
 
+# ---------------------------------------------------------------------------
+# Multi-quantile vector leaves (benchmarks/QUANTILE_PLAN.md).
+#
+# The quantile head's leaf value is not a Newton step but the exact empirical
+# quantile of the leaf's residuals, one per tau -- the same override the
+# scalar MAE/Quantile path applies in `booster._correct_leaves`, widened to K
+# channels and with the committed vector projected onto the admissible set so
+# predictions can never cross (see `_project_leaf_row`).
+# ---------------------------------------------------------------------------
+
+
+@njit(cache=True, parallel=True)
+def _project_pinball(y, F, csuffix, cdot, w, out):
+    """Projected pinball gradient ``(grad @ c)`` without ever forming grad.
+
+    Row i's gradient is ``1{y_i < F_ik} - tau_k``, and F_i is non-decreasing,
+    so the set of channels the target falls below is a SUFFIX ``{r_i ... K-1}``
+    where r_i is the row's PIT rank. The projection onto c is then
+
+        g_i = csuffix[r_i] - dot(c, taus)
+
+    with ``csuffix[r] = sum(c[r:])`` precomputed once. One binary search per
+    row instead of a K-element dot product, and no (n, K) temporary: this is
+    the whole reason a K-level head can cost about what a 1-level one costs
+    per round outside the leaf refit.
+
+    ``w`` is a per-row weight array (ones when unweighted -- multiplying by
+    exactly 1.0 is bit-exact, so the unweighted path is unchanged).
+    """
+    n, K = F.shape
+    for i in prange(n):
+        yi = y[i]
+        lo = 0
+        hi = K
+        while lo < hi:                 # first k with F[i, k] > y_i
+            mid = (lo + hi) >> 1
+            if F[i, mid] > yi:
+                hi = mid
+            else:
+                lo = mid + 1
+        out[i] = (csuffix[lo] - cdot) * w[i]
+
+
+@njit(cache=True, parallel=True)
+def _add_leaf_values(F, values, leaf):
+    """``F += values[leaf]`` in place, without materializing the (n, K) gather
+    that fancy indexing would allocate every round."""
+    n, K = F.shape
+    for i in prange(n):
+        l = leaf[i]
+        for k in range(K):
+            F[i, k] += values[l, k]
+
+
+@njit(cache=True)
+def _lerp_np(a, b, t):
+    """NumPy's `_lerp` (numpy/lib/function_base.py), branch included.
+
+    The obvious ``a + (b - a) * t`` disagrees with `np.quantile` on roughly 7%
+    of random inputs; reproducing the ``t >= 0.5`` branch makes the leaf
+    quantile bit-identical to the scalar path's `np.quantile` call, which is
+    what lets tests/test_quantile_head.py assert exact equality."""
+    diff = b - a
+    out = a + diff * t
+    if t >= 0.5:
+        out = b - diff * (1.0 - t)
+    return out
+
+
+@njit(cache=True)
+def _select_kth(buf, lo, hi, k):
+    """Quickselect: reorder ``buf[lo:hi]`` so ``buf[k]`` is its (k-lo)-th
+    smallest element, everything left of k no greater, everything right no
+    smaller. Median-of-three pivot. O(m) expected, versus O(m log m) for a
+    full sort -- and the leaf refit runs this K times per leaf per round, so
+    the difference is the head's dominant per-round cost."""
+    left = lo
+    right = hi - 1
+    while left < right:
+        mid = (left + right) // 2
+        x = buf[left]
+        y = buf[mid]
+        z = buf[right]
+        if x > y:
+            x, y = y, x
+        if y > z:
+            y = z
+        if x > y:
+            y = x
+        pivot = y
+        i = left
+        j = right
+        while i <= j:
+            while buf[i] < pivot:
+                i += 1
+            while buf[j] > pivot:
+                j -= 1
+            if i <= j:
+                buf[i], buf[j] = buf[j], buf[i]
+                i += 1
+                j -= 1
+        if k <= j:
+            right = j
+        elif k >= i:
+            left = i
+        else:
+            return
+
+
+@njit(cache=True)
+def _quantile_slice(buf, lo, hi, alpha):
+    """The ``alpha`` quantile of ``buf[lo:hi]``, matching `np.quantile`'s
+    default ('linear') method bit for bit. Reorders the slice in place."""
+    m = hi - lo
+    if m <= 0:
+        return 0.0
+    if m == 1:
+        return buf[lo]
+    pos = alpha * (m - 1)
+    j = int(np.floor(pos))
+    if j >= m - 1:          # alpha == 1.0: the maximum, nothing to interpolate
+        _select_kth(buf, lo, hi, hi - 1)
+        return buf[hi - 1]
+    frac = pos - j
+    _select_kth(buf, lo, hi, lo + j)
+    a = buf[lo + j]
+    if frac == 0.0:
+        return a
+    # The slice is partitioned around lo+j, so the next order statistic is the
+    # smallest element of the tail -- no second quickselect needed.
+    b = buf[lo + j + 1]
+    for t in range(lo + j + 2, hi):
+        if buf[t] < b:
+            b = buf[t]
+    return _lerp_np(a, b, frac)
+
+
+@njit(cache=True)
+def _sort_pairs(buf, wbuf, lo, hi, wlo):
+    """Sort ``buf[lo:hi]`` ascending, carrying ``wbuf`` along. Insertion sort:
+    only the weighted path uses it, and leaves are small."""
+    for i in range(1, hi - lo):
+        v = buf[lo + i]
+        wv = wbuf[wlo + i]
+        j = i - 1
+        while j >= 0 and buf[lo + j] > v:
+            buf[lo + j + 1] = buf[lo + j]
+            wbuf[wlo + j + 1] = wbuf[wlo + j]
+            j -= 1
+        buf[lo + j + 1] = v
+        wbuf[wlo + j + 1] = wv
+
+
+@njit(cache=True)
+def _weighted_quantile_slice(buf, wbuf, lo, hi, alpha, wlo):
+    """Nearest-rank weighted quantile of ``buf[lo:hi]``, reproducing
+    `losses._weighted_quantile`: sort by value, walk the cumulative weight,
+    take the first element whose running total reaches ``alpha`` of the whole.
+    Reorders both slices in place."""
+    m = hi - lo
+    if m <= 0:
+        return 0.0
+    _sort_pairs(buf, wbuf, lo, hi, wlo)
+    total = 0.0
+    for i in range(m):
+        total += wbuf[wlo + i]
+    target = total * alpha
+    run = 0.0
+    for i in range(m):
+        run += wbuf[wlo + i]
+        if run >= target:       # np.searchsorted(..., side='left')
+            return buf[lo + i]
+    return buf[hi - 1]
+
+
+@njit(cache=True)
+def _project_leaf_row(values, l, K, cb):
+    """Project one leaf's K-vector onto the set of increments that cannot make
+    any prediction cross, in place. This is what makes the non-crossing
+    guarantee structural -- there is no predict-time repair anywhere.
+
+    The naive rule ("commit only non-decreasing increments") is sound but far
+    too strong: a sum of non-decreasing vectors is non-decreasing, so the
+    predicted interval could then never be NARROWER than the global one, and
+    the low-noise half of heteroscedastic data becomes inexpressible. Worse,
+    forcing it by sorting can reverse a narrowing update into a widening one,
+    which is self-reinforcing and diverges.
+
+    So instead each channel carries a narrowing budget ``b_k`` -- the gap the
+    model can still give away at channel k and stay ordered for EVERY possible
+    input row (see `booster.MultiQuantileBoosting` for how the budget is
+    maintained). The admissible set is ``{v : v_k - v_{k-1} >= -b_k}``, and
+    the substitution ``u_k = v_k + sum(b_1..b_k)`` turns it into plain
+    monotonicity, so the projection is ordinary isotonic regression on u.
+    ``cb`` is that cumulative budget, ``cb[0] = 0``.
+
+    Pool-adjacent-violators, not a sort: PAVA is the closest admissible vector
+    in least squares and averages violators, where a sort permutes them and
+    can invert the sign of a contrast. With ``cb == 0`` this reduces exactly
+    to enforcing non-decreasing increments.
+    """
+    bval = np.empty(K)
+    bcnt = np.empty(K, dtype=np.int64)
+    for k in range(K):
+        values[l, k] += cb[k]
+    pos = 0
+    for k in range(K):
+        val = values[l, k]
+        cnt = 1
+        while pos > 0 and bval[pos - 1] > val:
+            pos -= 1
+            tot = bcnt[pos] + cnt
+            val = (bval[pos] * bcnt[pos] + val * cnt) / tot
+            cnt = tot
+        bval[pos] = val
+        bcnt[pos] = cnt
+        pos += 1
+    idx = 0
+    for j in range(pos):
+        for _ in range(bcnt[j]):
+            values[l, idx] = bval[j] - cb[idx]
+            idx += 1
+
+
+@njit(cache=True)
+def _leaf_row_index(leaf, n_leaves):
+    """Group rows by leaf into contiguous, disjoint slices.
+
+    Returns ``(off, rows)`` where leaf l owns ``rows[off[l]:off[l+1]]``, rows
+    listed in ascending order within each leaf (the same grouping
+    `booster._correct_leaves` gets from a stable argsort). Disjointness is what
+    makes the `prange` over leaves race-free: each leaf writes only its own
+    slice of the shared scratch buffer."""
+    n = leaf.shape[0]
+    off = np.zeros(n_leaves + 1, dtype=np.int64)
+    for i in range(n):
+        off[leaf[i] + 1] += 1
+    for l in range(n_leaves):
+        off[l + 1] += off[l]
+    fill = off.copy()
+    rows = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        l = leaf[i]
+        rows[fill[l]] = i
+        fill[l] += 1
+    return off, rows
+
+
+@njit(cache=True, parallel=True)
+def _leaf_quantiles_vec(leaf, y, F, taus, cb, n_leaves, lr):
+    """Per-leaf, per-tau empirical quantile of the residuals ``y - F[:, k]``,
+    scaled by the learning rate and projected onto the non-crossing set.
+
+    The (n_leaves, K) analogue of `booster._correct_leaves`: the tree structure
+    was chosen by the projected gradient, this sets the step. Column k is
+    bit-identical to what the scalar quantile path computes for the same
+    partition at ``alpha = taus[k]`` -- the oracle test in
+    tests/test_quantile_head.py.
+
+    `lr` multiplies from the outside, matching `_correct_leaves`; the
+    projection runs on the scaled value, so the budget it respects is the one
+    actually committed. ``cb`` is the cumulative narrowing budget
+    (`_project_leaf_row`)."""
+    n = leaf.shape[0]
+    K = taus.shape[0]
+    off, rows = _leaf_row_index(leaf, n_leaves)
+    values = np.zeros((n_leaves, K))
+    # One scratch run per (leaf, channel). Costs an (n, K) buffer -- the same
+    # footprint as the score matrix itself -- and buys load balance: a real
+    # oblivious tree's leaves are badly uneven, so a prange over leaves alone
+    # leaves most threads idle waiting on the biggest one. Leaf l owns
+    # buf[off[l]*K : off[l+1]*K], so the runs stay disjoint.
+    buf = np.empty(n * K, dtype=np.float64)
+    for t in prange(n_leaves * K):
+        l = t // K
+        k = t - l * K
+        lo = off[l]
+        m = off[l + 1] - lo
+        if m > 0:
+            # Forward strided scan of one F column, contiguous write. The
+            # leaf's rows are ascending so the prefetcher tracks it. Gathering
+            # channel-major in one pass was measured SLOWER -- it trades these
+            # reads for a transposing write that costs more than it saves.
+            st = lo * K + k * m
+            for j in range(m):
+                i = rows[lo + j]
+                buf[st + j] = y[i] - F[i, k]
+            values[l, k] = lr * _quantile_slice(buf, st, st + m, taus[k])
+    for l in range(n_leaves):
+        _project_leaf_row(values, l, K, cb)
+    return values
+
+
+@njit(cache=True)
+def _leaf_quantiles_vec_serial(leaf, y, F, taus, cb, n_leaves, lr):
+    """Serial twin of `_leaf_quantiles_vec` for small n, where the parallel
+    fork/join costs more than the pass. Every write is to a disjoint slice, so
+    the two are bit-identical; the booster dispatches on `_SMALL_N`."""
+    n = leaf.shape[0]
+    K = taus.shape[0]
+    off, rows = _leaf_row_index(leaf, n_leaves)
+    values = np.zeros((n_leaves, K))
+    buf = np.empty(n, dtype=np.float64)
+    for l in range(n_leaves):
+        lo = off[l]
+        hi = off[l + 1]
+        if hi > lo:
+            # One forward strided scan of F per channel. The leaf's rows are
+            # ascending, so the prefetcher tracks it, and the leaf's slice of F
+            # stays resident across the K passes. Gathering channel-major
+            # instead was measured SLOWER: it trades these reads for a
+            # transposing write, which costs more than it saves.
+            for k in range(K):
+                for j in range(lo, hi):
+                    i = rows[j]
+                    buf[j] = y[i] - F[i, k]
+                values[l, k] = lr * _quantile_slice(buf, lo, hi, taus[k])
+        _project_leaf_row(values, l, K, cb)
+    return values
+
+
+@njit(cache=True, parallel=True)
+def _leaf_quantiles_vec_w(leaf, y, F, w, taus, cb, n_leaves, lr):
+    """Weighted `_leaf_quantiles_vec`. Reproduces `losses._weighted_quantile`
+    (nearest rank on cumulative weight), which is the rule the scalar weighted
+    quantile path already uses. Rows carrying zero weight -- MVS drops, or a
+    user's zero sample weights -- contribute nothing, so the leaf value sees
+    exactly the rows the split search saw."""
+    n = leaf.shape[0]
+    K = taus.shape[0]
+    off, rows = _leaf_row_index(leaf, n_leaves)
+    values = np.zeros((n_leaves, K))
+    # Per-(leaf, channel) runs, as in the unweighted twin. The weights need
+    # their own copy per run because the paired sort reorders them.
+    buf = np.empty(n * K, dtype=np.float64)
+    wbuf = np.empty(n * K, dtype=np.float64)
+    for t in prange(n_leaves * K):
+        l = t // K
+        k = t - l * K
+        lo = off[l]
+        m = off[l + 1] - lo
+        if m > 0:
+            st = lo * K + k * m
+            for j in range(m):
+                i = rows[lo + j]
+                buf[st + j] = y[i] - F[i, k]
+                wbuf[st + j] = w[i]
+            values[l, k] = lr * _weighted_quantile_slice(
+                buf, wbuf, st, st + m, taus[k], st)
+    for l in range(n_leaves):
+        _project_leaf_row(values, l, K, cb)
+    return values
+
+
+@njit(cache=True)
+def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, cb, n_leaves, lr):
+    """Serial twin of `_leaf_quantiles_vec_w` (see `_leaf_quantiles_vec_serial`)."""
+    n = leaf.shape[0]
+    K = taus.shape[0]
+    off, rows = _leaf_row_index(leaf, n_leaves)
+    values = np.zeros((n_leaves, K))
+    buf = np.empty(n, dtype=np.float64)
+    wbuf = np.empty(n, dtype=np.float64)
+    for l in range(n_leaves):
+        lo = off[l]
+        hi = off[l + 1]
+        if hi > lo:
+            for k in range(K):
+                for j in range(lo, hi):
+                    i = rows[j]
+                    buf[j] = y[i] - F[i, k]
+                    wbuf[j] = w[i]
+                values[l, k] = lr * _weighted_quantile_slice(
+                    buf, wbuf, lo, hi, taus[k], lo)
+        _project_leaf_row(values, l, K, cb)
+    return values
+
+
 @njit(cache=True)
 def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
     """Leave-one-out training step for every row, fused into two passes.
@@ -1355,6 +1733,177 @@ def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
                          lin_feats=lin_feats, lin_coef=lin_coef,
                          centers_std=centers_std if lin_coef is not None
                          else None)
+    return tree, leaf
+
+
+@njit(cache=True, parallel=True)
+def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
+                             feat_mask, n_bins_per_feature, l2,
+                             min_child_weight, min_gain):
+    """EXACT multi-channel split search: the K-deep twin of
+    `_build_split_descend`, used only by ``exact_splits=True``.
+
+    Scores the true summed-across-channel gain. Because the multi-quantile
+    hessian is 1 in every channel, every channel shares one weight total per
+    node, and the summed gain collapses to a norm:
+
+        sum_k [Gl_k²/(Hl+l2) + Gr_k²/(Hr+l2) - Gt_k²/(Ht+l2)]
+          = ‖Gl‖²/(Hl+l2) + ‖Gr‖²/(Hr+l2) - ‖Gt‖²/(Ht+l2)
+
+    which is basis-free -- the identity that makes the default path's single
+    projection an honest rank-1 truncation of this quantity rather than a
+    different algorithm. Costs K histogram channels per feature instead of
+    one, which is exactly why it is the reference arm and not the default.
+
+    Simplified relative to the scalar kernel: no occupancy list and no
+    small-n path (level d always scans leaves 0..n_active-1). Both are speed
+    optimizations, and this kernel is not on the fast path.
+    """
+    n_features, n_samples = Xb.shape
+    max_bins = hist.shape[2]
+    K = grad.shape[1]
+    feat_gain = np.full(n_features, -np.inf)
+    feat_thr = np.zeros(n_features, dtype=np.int64)
+
+    for f in prange(n_features):
+        if feat_mask[f] == 0:
+            continue
+        nb = n_bins_per_feature[f]
+        for l in range(n_active):
+            for b in range(nb):
+                histw[f, l, b] = 0.0
+                for k in range(K):
+                    hist[f, l, b, k] = 0.0
+        Xf = Xb[f]
+        for i in range(n_samples):
+            l = leaf[i]
+            b = Xf[i]
+            histw[f, l, b] += rw[i]
+            for k in range(K):
+                hist[f, l, b, k] += grad[i, k]
+
+        gain = np.zeros(max_bins)
+        legal = np.ones(max_bins, dtype=np.uint8)
+        gt = np.empty(K)
+        gl = np.empty(K)
+        for l in range(n_active):
+            ht = 0.0
+            for k in range(K):
+                gt[k] = 0.0
+            for b in range(nb):
+                ht += histw[f, l, b]
+                for k in range(K):
+                    gt[k] += hist[f, l, b, k]
+            if ht <= 0.0:
+                continue
+            sq = 0.0
+            for k in range(K):
+                sq += gt[k] * gt[k]
+            par = sq / (ht + l2)
+            hl = 0.0
+            for k in range(K):
+                gl[k] = 0.0
+            for t in range(nb - 1):
+                hl += histw[f, l, t]
+                for k in range(K):
+                    gl[k] += hist[f, l, t, k]
+                hr = ht - hl
+                if (hl > 0.0 and hl < min_child_weight) or \
+                   (hr > 0.0 and hr < min_child_weight):
+                    legal[t] = 0
+                else:
+                    sl = 0.0
+                    sr = 0.0
+                    for k in range(K):
+                        gr = gt[k] - gl[k]
+                        sl += gl[k] * gl[k]
+                        sr += gr * gr
+                    gain[t] += sl / (hl + l2) + sr / (hr + l2) - par
+
+        best_g = -np.inf
+        best_t = -1
+        for t in range(nb - 1):
+            if legal[t] and gain[t] > best_g:
+                best_g = gain[t]
+                best_t = t
+        feat_gain[f] = best_g
+        feat_thr[f] = best_t
+
+    best_f = 0
+    best_gain = -np.inf
+    for f in range(n_features):
+        if feat_gain[f] > best_gain:
+            best_gain = feat_gain[f]
+            best_f = f
+    best_t = feat_thr[best_f]
+
+    if best_t >= 0 and best_gain > min_gain:
+        Xf = Xb[best_f]
+        for i in prange(n_samples):
+            leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+    return best_f, best_t, best_gain
+
+
+def alloc_exact_hist(n_features, max_depth, n_bins_per_feature, K):
+    """Buffers for `build_oblivious_tree_exact`, allocated once per fit.
+
+    Sized (n_features, 2**max_depth, max_bins, K) plus a shared weight
+    histogram. This is K times the default path's footprint -- at depth 6, 50
+    features, 128 bins and K=19 it is roughly 62 MB -- which is the honest
+    price of the exact gain and another reason it is not the default."""
+    max_bins = n_features and int(n_bins_per_feature.max())
+    max_leaves = 1 << max_depth
+    return (np.zeros((n_features, max_leaves, max_bins, K)),
+            np.zeros((n_features, max_leaves, max_bins)))
+
+
+def build_oblivious_tree_exact(Xb, grad, n_bins_per_feature, max_depth, l2,
+                               min_gain=1e-8, feature_mask=None,
+                               min_child_weight=1.0, row_weight=None,
+                               hist_buffers=None):
+    """Grow one oblivious tree on the EXACT summed-across-channel gain.
+
+    The reference arm for the multi-quantile head's split search (see
+    `_build_split_descend_vec`). Returns ``(tree, train_leaf)`` like
+    `build_oblivious_tree`, but leaf values are left as zeros: the quantile
+    booster overwrites them with the exact per-tau residual quantiles either
+    way, so computing a Newton step here would be wasted work.
+
+    ``row_weight`` is the per-row weight (sample weights times any MVS
+    importance weight); None means uniform. It plays the hessian's role, one
+    total shared by every channel.
+    """
+    n_features, n_samples = Xb.shape
+    if feature_mask is None:
+        feature_mask = np.ones(n_features, dtype=np.int64)
+    K = grad.shape[1]
+    if hist_buffers is None:
+        hist, histw = alloc_exact_hist(n_features, max_depth,
+                                       n_bins_per_feature, K)
+    else:
+        hist, histw = hist_buffers
+    rw = np.ones(n_samples) if row_weight is None else row_weight
+    splits_feat = []
+    splits_thr = []
+    splits_gain = []
+    leaf = np.zeros(n_samples, dtype=np.int64)
+    n_active = 1
+    for d in range(max_depth):
+        f, t, gain = _build_split_descend_vec(
+            Xb, grad, rw, leaf, n_active, hist, histw, feature_mask,
+            n_bins_per_feature, l2, min_child_weight, min_gain)
+        if gain <= min_gain or t < 0:
+            break
+        splits_feat.append(f)
+        splits_thr.append(t)
+        splits_gain.append(gain)
+        n_active <<= 1
+
+    sf = np.array(splits_feat, dtype=np.int64)
+    st = np.array(splits_thr, dtype=np.int64)
+    values = np.zeros(1 << len(splits_feat))
+    tree = ObliviousTree(sf, st, values,
+                         np.array(splits_gain, dtype=np.float64))
     return tree, leaf
 
 

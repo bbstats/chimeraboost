@@ -40,11 +40,22 @@ NOT_WARMED = {
     # warmup(shap=True), ~3.7 s of compile most callers never need.
     "chimeraboost.tree._shap_forest_linear",
     "chimeraboost.tree._predict_forest_linear",
-    # Called only from inside _linear_leaf_fit, never from Python, so its own
-    # dispatcher records a signature when that kernel is *compiled* but not
-    # when it is loaded from a warm cache. Warming it is not possible and
-    # asserting on it would make this test depend on cache state.
+    # Exact multi-quantile split search: opt-in via exact_splits=True, a
+    # reference arm costing K histogram channels per feature. Same reasoning
+    # as SHAP -- most callers never pay for it.
+    "chimeraboost.tree._build_split_descend_vec",
+    # Called only from inside another njit kernel, never from Python, so the
+    # dispatcher records a signature when that caller is *compiled* but not
+    # when it is loaded from a warm cache. Warming these is not possible and
+    # asserting on them would make this test depend on cache state.
     "chimeraboost.tree._solve_small",
+    "chimeraboost.tree._leaf_row_index",
+    "chimeraboost.tree._lerp_np",
+    "chimeraboost.tree._project_leaf_row",
+    "chimeraboost.tree._quantile_slice",
+    "chimeraboost.tree._select_kth",
+    "chimeraboost.tree._sort_pairs",
+    "chimeraboost.tree._weighted_quantile_slice",
 }
 
 # warmup(shap=True) additionally covers these.
