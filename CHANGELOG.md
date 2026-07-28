@@ -58,6 +58,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   does nothing with an explicit ``eval_set``, ``early_stopping=False``, or
   ``loss="Quantile"``. Evidence: ``benchmarks/REPLAY_PLAN.md``.
 
+### Docs
+- **README and user docs rewritten for readability.** README restructured into
+  Install / Quickstart / What it is / Documentation / Why / Citations, with the
+  TabArena chart captioned in words. Across the docs, benchmark-report content
+  (win-loss records, suite names, seed counts) and version-history asides give
+  way to direct guidance, since that history lives here. ``parameters.md`` cells
+  are shortened and carry scikit-learn style "See the User Guide" links into
+  ``recipes.md``; the estimator docstrings gained the matching "Read more in the
+  User Guide" line.
+- **API reference split into one page per public name** (an ``api/index.md``
+  overview plus a page each for the three estimators, ``CustomObjective``,
+  ``quantile_metrics`` and ``warmup``), replacing a single page that had grown
+  to 197 KB. The overview keeps the old ``/api/`` URL. ``navigation.indexes`` is
+  on so the section header links to it.
+- **``docs/benchmarks.md`` is now in the site nav**, under Reference. It was
+  reachable only through a GitHub link from the README.
+- New "Cross features" section in ``concepts.md`` explaining why an oblivious
+  tree needs an ``x1 - x2`` column to express a comparison between two features.
+  That rationale previously existed only inside a parameters table cell.
+
+### Fixed
+- **``mkdocs build --strict`` failed on two pre-existing warnings.** The
+  ``ChimeraBoostQuantileRegressor`` docstring closed its ``Parameters`` section
+  with a free prose paragraph, which griffe parsed as three malformed parameters
+  (``Other``, ``defaults``, ``grid``) and rendered as garbage; it is a ``Notes``
+  section now. And ``docs/benchmarks.md`` pointed at ``../images/public_pareto.png``,
+  outside the docs tree, so the chart did not render on the published page.
+
 ## [0.25.0] - 2026-07-26
 ### Added
 - **``quality=1..5``: named operating points on the speed/accuracy curve.**

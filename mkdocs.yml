@@ -28,6 +28,7 @@ theme:
   features:
     - navigation.tracking
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - content.code.copy
     - content.code.annotate
@@ -88,5 +89,13 @@ nav:
       - Deployment: deployment.md
   - Reference:
       - Parameters: parameters.md
-      - API reference: api.md
+      - API reference:
+          - api/index.md
+          - ChimeraBoostRegressor: api/regressor.md
+          - ChimeraBoostClassifier: api/classifier.md
+          - ChimeraBoostQuantileRegressor: api/quantile-regressor.md
+          - CustomObjective: api/custom-objective.md
+          - quantile_metrics: api/quantile-metrics.md
+          - warmup: api/warmup.md
+      - How it is benchmarked: benchmarks.md
       - FAQ: faq.md

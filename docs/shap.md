@@ -9,19 +9,20 @@ phi = reg.shap_values(X_test)        # (n_samples, n_features)
 base = reg.expected_value_           # baseline, set by the call above
 ```
 
-## Exact, not sampled
+## Why it can be exact
 
 Most SHAP tooling approximates by sampling feature coalitions, because exact
 computation is expensive on trees of arbitrary shape. ChimeraBoost computes it exactly.
 Oblivious trees split on the same feature at every node of a level, so a depth-`D` tree
 involves at most `D` distinct features. The coalition game therefore has at most `D`
-players, and all `2**D` or fewer coalitions are enumerated directly in a numba kernel
+players, and all `2**D` coalitions or fewer are enumerated directly in a numba kernel
 (64 evaluations per tree at depth 6). This is the interventional formulation of
 TreeSHAP, integrated over a background distribution.
 
 ## Efficiency
 
-Contributions plus the baseline reconstruct the prediction, to floating-point tolerance:
+Contributions plus the baseline reconstruct the prediction, to floating-point
+tolerance:
 
 ```python
 i = 0
@@ -30,9 +31,10 @@ assert abs(recon - reg.predict(X_test)[i]) < 1e-6   # holds to ~1e-14
 ```
 
 This is the Shapley efficiency property, and it is what lets `shap_values` stand in as
-the model's own accounting of a prediction. Gain importance (`feature_importances_`)
-has no such guarantee: it measures which features were split on, ignores the per-leaf
-linear models, and does not decompose any individual prediction.
+the model's own accounting of a prediction. Gain importance
+(`feature_importances_`) has no such guarantee: it measures which features were split
+on, ignores the per-leaf linear models, and does not decompose any individual
+prediction.
 
 ## What the numbers mean
 
@@ -41,12 +43,12 @@ against `expected_value_` (the mean raw score over the background):
 
 - Regressor: contributions to the predicted target.
 - Binary classifier: contributions to the pre-temperature log-odds of the positive
-  class. Probabilities are a nonlinear squash of the margin, so the attribution is in
-  margin space, as in the wider SHAP ecosystem.
+  class. Probabilities are a nonlinear squash of the margin, so the attribution lives
+  in margin space, as it does in the wider SHAP ecosystem.
 
 Per-leaf linear models are included exactly. A leaf that predicts
-`intercept + slope·(x − center)` folds its slope into the attribution, so `shap_values`
-explains the fitted model rather than only its split structure.
+`intercept + slope·(x − center)` folds its slope into the attribution, so
+`shap_values` explains the fitted model rather than only its split structure.
 
 ## Global importance
 
@@ -81,8 +83,8 @@ phi = clf.shap_values(X_test, X_background=X_reference)
 ```
 
 `expected_value_` is the mean prediction over whichever background is used. Cost scales
-linearly with background size; the default sample keeps it around 3 ms per row at depth
-6 with 200 background rows.
+linearly with background size; the default sample keeps it around 3 ms per row at
+depth 6 with 200 background rows.
 
 ## Bagged models
 
@@ -92,11 +94,11 @@ For classification it is an additive surrogate for the soft-voted probability.
 
 ## Limits
 
-- Binary and regression only. Multiclass raises `NotImplementedError`.
-- Attributions are in raw-score / log-odds space, not probability space.
-- They explain this model's behavior; they are not causal effects.
+- Binary classification and regression only. Multiclass raises `NotImplementedError`.
+- Attributions live in raw-score / log-odds space, rather than probability space.
+- They explain this model's behavior. They are not causal effects.
 
-## Versus `feature_importances_`
+## Compared with `feature_importances_`
 
 | | `feature_importances_` | `shap_values` |
 |---|---|---|
@@ -106,4 +108,5 @@ For classification it is an additive surrogate for the soft-voted probability.
 | Reconstructs the output | no | yes |
 | Cost | free (tracked at fit) | milliseconds per row |
 
-Use gain for a free global glance; use SHAP for a faithful or per-prediction explanation.
+Use gain for a free global glance, and SHAP for a faithful or per-prediction
+explanation.

@@ -18,13 +18,14 @@ labels = clf.predict(X_test)            # original label values
 proba = clf.predict_proba(X_test)       # columns follow clf.classes_
 ```
 
-A plain `fit(X, y)` early-stops on an internal holdout — see [Early stopping](#early-stopping).
+A plain `fit(X, y)` early-stops on an internal holdout. See [Early
+stopping](#early-stopping).
 
-## Speed/accuracy ladder
+## Speed and accuracy: the `quality` ladder
 
-`quality` picks an operating point, from `1` (fastest) to `5` (strongest).
-It is shorthand only: every rung just sets the parameters in the last column,
-and `quality=3` is byte-for-byte the shipped defaults.
+`quality` picks a setting between `1` (fastest) and `5` (strongest). It is shorthand:
+each rung just sets the parameters in the last column of the table, and `quality=3` is
+exactly the shipped defaults.
 
 ```python
 reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
@@ -34,45 +35,40 @@ reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 |---|---|--:|---|
 | `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
 | `2` | balanced | 5.3x | `refit_full=False` |
-| `3` | accurate *(= default)* | 6.9x | — |
+| `3` | accurate *(= default)* | 6.9x | nothing (these are the defaults) |
 | `4` | ensemble | 18.1x | `n_ensembles=5` |
 | `5` | max | 26.0x | `n_ensembles=8` |
 
-Fit time is the mean multiple of the fastest model on each Grinsztajn dataset,
-3 seeds. All five rungs sit on the accuracy/speed Pareto frontier — each one
-buys real accuracy for its extra time, and none is dominated by another.
+Fit times are multiples of the fastest gradient boosting library measured on the same
+data, averaged over a benchmark suite. Every rung buys accuracy for its extra time, so
+none of them is a bad deal; pick the one that fits your time budget.
 
-The default is rung 3, the strongest setting that does not build an ensemble.
-`quality=2` is the pre-0.25.0 default: the same model without the full-data
-refit. It saves less than it used to, because the default now does that refit
-by replaying the tree structures rather than re-growing them (see
-[full-data refit](#full-data-refit)) — 6.9x against 5.3x, where before it was
-9.2x against 5.2x.
+The default is rung 3, the strongest setting that does not build an ensemble. Rung 2 is
+the same model without the [full-data refit](#full-data-refit). It saves less time than
+the gap suggests, because the default now does that refit by replaying tree structures
+instead of re-growing them.
 
-**What rung 1 gives up.** By default ChimeraBoost auditions its own
-configuration — constant against linear leaves, plain against cross features —
-which costs two to four boosting fits. `quality=1` pins both decisions instead
-of racing them, so it fits once. On the Grinsztajn suite it still beats
-LightGBM (38 wins to 21) at roughly 1.7x LightGBM's fit time. On
-high-cardinality categorical data the trade is thinner: the saving drops to
-about 1.5x, because categorical preprocessing is a fixed cost the audition
-skip cannot touch, and it loses to the default (1 win, 6 losses, 7 ties). Pin
-it for numeric-heavy data and large sweeps; prefer `2` when categoricals
-dominate.
+**What rung 1 gives up.** By default ChimeraBoost auditions its own configuration:
+constant leaves against linear leaves, plain features against cross features. That
+costs two to four boosting fits. `quality=1` pins both decisions and fits once.
+Reach for it on numeric-heavy data and large parameter sweeps. Prefer `quality=2`
+when categorical columns dominate, where the saving is smaller (categorical
+preprocessing is a fixed cost that skipping auditions cannot touch) and the accuracy
+loss is larger.
 
-**Rungs 4 and 5 do not stack on rung 3.** `refit_full` is a no-op inside
-bagged members — their out-of-bag rows already act as an eval set — so the
-ensemble rungs build on the plain defaults, not on `accurate`.
+**Rungs 4 and 5 do not build on rung 3.** `refit_full` does nothing inside bagged
+members, since their out-of-bag rows already act as an eval set, so the ensemble
+rungs start from the plain defaults.
 
-If you set `quality` alongside a parameter it controls, `quality` wins and
-warns. Drop it to set those parameters yourself.
+If you set `quality` alongside a parameter it controls, `quality` wins and warns.
+Drop it to set those parameters yourself.
 
 ## Categorical features
 
-Pass your categoricals as `cat_features`, by integer position or — for a DataFrame — by
+Pass your categoricals as `cat_features`, by integer position or, for a DataFrame, by
 column name (or a mix of both). They are encoded with ordered target statistics
-(CatBoost-style), so there is no one-hot or `LabelEncoder` step. Categorical columns can be
-strings or objects; the rest of the matrix stays numeric.
+(CatBoost-style), so there is no one-hot or `LabelEncoder` step. Categorical columns
+can hold strings or objects while the rest of the matrix stays numeric.
 
 ```python
 # columns 0 and 3 are categorical (e.g. "city", "device_type")
@@ -84,15 +80,15 @@ clf.fit(df, y, cat_features=["city", "device_type"])
 ```
 
 `cat_combinations` adds all pairwise category-by-category features. They help when the
-target depends on categorical interactions but can crowd out numerics on mixed data, so
-the default (`None`) turns them on automatically only when the data is entirely
-categorical. Force them with `cat_combinations=True` (e.g. on mixed data where you know
-the interactions matter) or disable with `False`.
+target depends on categorical interactions, but they can crowd out numeric splits on
+mixed data, so the default (`None`) turns them on only when every column is
+categorical. Set `True` to force them on (for example on mixed data where you know the
+interactions matter) or `False` to turn them off.
 
 ## Missing values
 
-NaNs route to a dedicated histogram bin — no imputation needed. This works for both
-numeric and categorical columns, at fit and at predict time.
+NaNs route to their own histogram bin, so no imputation is needed. This works for
+numeric and categorical columns alike, at fit and at predict time.
 
 ```python
 X[mask] = np.nan
@@ -101,8 +97,11 @@ reg = ChimeraBoostRegressor(random_state=0).fit(X, y)   # handled directly
 
 ## Quantile regression
 
-Set `loss="Quantile"` and the level `alpha`. For a prediction interval, fit one model
-per quantile:
+For a whole grid of quantiles at once, use
+[`ChimeraBoostQuantileRegressor`](quantiles.md), which fits one booster for every level
+and guarantees the levels never cross. To estimate a single level, set `loss="Quantile"`
+and the level `alpha` on the ordinary regressor. For a prediction interval that way,
+fit one model per quantile:
 
 ```python
 lo = ChimeraBoostRegressor(loss="Quantile", alpha=0.05, random_state=0).fit(X_train, y_train)
@@ -112,16 +111,16 @@ hi = ChimeraBoostRegressor(loss="Quantile", alpha=0.95, random_state=0).fit(X_tr
 lower, median, upper = lo.predict(X_test), md.predict(X_test), hi.predict(X_test)
 ```
 
-`loss="MAE"` gives median regression; `loss="RMSE"` (default) is squared error.
+`loss="MAE"` gives median regression; `loss="RMSE"` (the default) is squared error.
 
-Quantile models default to a shallower tree (`depth=4`) than the squared-error
-default (`depth=6`): an extreme conditional quantile is estimated from the points in
-each leaf, so deep, sparse leaves overfit the tails and the predicted quantiles
-collapse toward the median on held-out data. Predictions also include a
-split-conformal correction (`quantile_offset_`) fitted on the early-stopping
-validation split, which restores near-nominal marginal coverage at the tails.
-With `early_stopping=False` and no `eval_set` there is no split to calibrate on,
-and the raw (typically under-dispersed) quantiles are returned.
+Quantile models default to `depth=4` rather than the squared-error default of `6`.
+An extreme conditional quantile is estimated from the points inside each leaf, so
+deep, sparse leaves overfit the tails and the predicted quantiles collapse toward the
+median on held-out data. Predictions also carry a split-conformal correction
+(`quantile_offset_`) fitted on the early-stopping validation split, which brings
+coverage at the tails back near its nominal level. With `early_stopping=False` and no
+`eval_set` there is no split to calibrate on, and the raw quantiles are returned;
+these are usually too narrow.
 
 ## Counts, positive targets, zero-inflated targets
 
@@ -134,14 +133,14 @@ claims = ChimeraBoostRegressor(loss="Tweedie",
                                tweedie_variance_power=1.5).fit(X, y)   # y >= 0, exact zeros
 ```
 
-`loss="Huber"` (transition `delta`, in y units) is squared error that tolerates
-outliers.
+`loss="Huber"` is squared error that tolerates outliers, switching to absolute error
+beyond `delta` (measured in units of y).
 
 ## Custom objectives and metrics
 
-Subclass `CustomObjective` with the gradient/hessian of your loss on the raw
-score; pass an instance as `loss`. `eval_metric` swaps the early-stopping
-metric on either estimator:
+Subclass `CustomObjective` with the gradient and hessian of your loss on the raw
+score, then pass an instance as `loss`. `eval_metric` swaps the early-stopping metric
+on either estimator:
 
 ```python
 from chimeraboost import ChimeraBoostRegressor, CustomObjective
@@ -162,14 +161,14 @@ def mae(y_true, y_pred):                 # early-stop on MAE instead of RMSE
 model = ChimeraBoostRegressor(eval_metric=mae).fit(X_train, y_train)
 ```
 
-A metric where larger is better declares it: `mae.greater_is_better = True`-style
-attribute (then `validation_history_` records negated values). Define custom
-objectives at module level — bagged members fit in worker processes and must
-pickle the loss.
+If larger values of your metric are better, set `mae.greater_is_better = True` on the
+callable; `validation_history_` then records negated values. Define custom objectives
+at module level, because bagged members fit in worker processes and the loss has to
+pickle.
 
 ## Multiclass classification
 
-No configuration needed — the classifier switches to softmax when it sees 3 or more
+Nothing to configure. The classifier switches to softmax when it sees 3 or more
 classes, and `classes_` preserves your original labels.
 
 ```python
@@ -177,8 +176,8 @@ clf = ChimeraBoostClassifier(random_state=0).fit(X, y)   # 3+ classes
 proba = clf.predict_proba(X_test)        # shape (n_samples, n_classes)
 ```
 
-`linear_leaves` and `shap_values` are binary/regression only; multiclass uses constant
-leaves and raises `NotImplementedError` from `shap_values`.
+`linear_leaves` and `shap_values` cover binary classification and regression only.
+Multiclass uses constant leaves, and `shap_values` raises `NotImplementedError`.
 
 ## Sample weights
 
@@ -188,82 +187,76 @@ clf = ChimeraBoostClassifier(random_state=0)
 clf.fit(X_train, y_train, sample_weight=w)
 ```
 
-Weights are normalized to mean 1 internally and apply to training only; the
+Weights are normalized to mean 1 internally and apply to training only. The
 early-stopping metric stays unweighted.
 
 ## Bagging
 
-`n_ensembles` trains that many models on random row samples and averages them —
-regressors average predictions, classifiers soft-vote calibrated probabilities.
-Each member trains on `max_samples` (default 0.8) of the rows drawn without
-replacement — measurably stronger and faster than the classic bootstrap —
-and early-stops on its own unsampled rows.
+`n_ensembles` trains that many models on random row samples and averages them.
+Regressors average predictions; classifiers soft-vote calibrated probabilities. Each
+member trains on `max_samples` (default 0.8) of the rows drawn without replacement,
+which beats the classic bootstrap on both accuracy and fit time, and early-stops on
+its own unsampled rows.
 
 ```python
 reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)
 ```
 
-Recommended size is `n_ensembles=8` (benchmarked stronger than 5 at similar
-cost). Avoid `n_ensembles=2`: two members measure worse than one model.
+Use `n_ensembles=8`: it is stronger than 5 at similar cost. Avoid `n_ensembles=2`,
+which scores worse than a single model.
 
-Inside a bag, parameters left on auto resolve to tuned member defaults —
-currently `learning_rate=0.15` and `colsample=0.85` — because averaging
-tolerates coarser, cheaper members. The fit warns once when this happens
-(a filterable `UserWarning`), `member_params_` records what was applied,
-and passing explicit values disables it.
+Inside a bag, parameters left on auto resolve to member defaults tuned for averaging,
+currently `learning_rate=0.15` and `colsample=0.85`, because averaging tolerates
+coarser and cheaper members. The fit warns once when this happens (a filterable
+`UserWarning`), `member_params_` records what was applied, and passing explicit values
+disables it.
 
-Members fit in parallel worker processes by default, splitting the thread
-budget so a bagged fit uses the same cores a single fit would; pass
-`ensemble_n_jobs=1` to fit them sequentially instead.
+Members fit in parallel worker processes by default, splitting the thread budget so a
+bagged fit uses the same cores a single fit would. Pass `ensemble_n_jobs=1` to fit
+them sequentially.
+
+`feature_importances_` and `shap_values` average across the bag automatically.
 
 ## Full-data refit
 
-`refit_full` is **on by default** (since 0.25.0). After early stopping has
-chosen the tree budget on the automatic validation split, the winning
-configuration is retrained on 100% of the rows at that budget, so the final
-model does not pay the 20% holdout data tax. It roughly doubles fit time for a
-broad accuracy gain — largest on small or high-signal data — and it is the
-strongest single-model setting measured. It is a no-op inside bagged members
-(their held-out rows already serve as an external eval set), so `n_ensembles`
-builds on the non-refit model rather than stacking with this.
+Once early stopping has chosen the tree budget on the automatic validation split, the
+winning configuration is retrained on all of the rows at that budget, so the final
+model is not left trained on only 80% of your data. This is the strongest
+single-model setting available, with the largest gains on small or high-signal data.
+It does nothing inside bagged members, whose held-out rows already serve as an eval
+set, so `n_ensembles` builds on the non-refit model instead of stacking with this.
 
-Turn it off when fit time matters more than the last increment of accuracy:
+`refit_full` takes three values:
+
+| Value | What it does |
+|---|---|
+| `"replay"` *(default)* | Reuse the winner's tree structures and refit only the leaf values. |
+| `True` | Grow the whole model again from scratch. |
+| `False` | Skip the refit. Same as `quality=2`. |
+
+Growing trees is most of a fit, and it is a search. A from-scratch refit spends that
+search rediscovering structures the early-stopping winner already found. `"replay"`
+walks the winner's splits round by round against gradients computed on all the rows and
+refits only the leaf values, so every leaf value still sees the held-out rows while the
+split search is paid for once. That costs about a third of what `True` costs, for the
+same accuracy, which is why it is the default.
+
+What `"replay"` gives up is that the splits themselves still come from the training
+subset. That matters most where feature interactions run deep, so reach for `True`
+there. Multiclass ignores `"replay"` and always refits from scratch.
 
 ```python
+# skip the refit entirely when fit time matters more than the last bit of accuracy
 reg = ChimeraBoostRegressor(refit_full=False, random_state=0).fit(X_train, y_train)
 # equivalently
 reg = ChimeraBoostRegressor(quality=2, random_state=0).fit(X_train, y_train)
 ```
 
-### `refit_full="replay"` — most of the gain, a third of the cost
-
-Most of what the refit spends goes on rediscovering split structures the
-early-stopping winner already found: growing trees is 83–85% of a fit.
-`"replay"` reuses those structures and refits only the leaf values against
-gradients computed on all the rows, so the held-out rows still reach the leaf
-estimates but the split search is not paid for twice.
-
-```python
-reg = ChimeraBoostRegressor(refit_full="replay", random_state=0).fit(X_train, y_train)
-```
-
-Measured against `refit_full=True` at 3 seeds: on Grinsztajn accuracy was flat
-(27W–32L over 59 datasets, mean +0.005%) and fit time fell 34.8%, faster on 58
-of 59; on high-cardinality categorical data 3W–6L–5T, mean −0.017%, for 15.2%
-less fit time. It gives up one thing — split choice still
-comes from the training subset — which costs most where feature interactions
-run deep.
-
-Multiclass ignores it: that path grows one vector-leaf tree per round through a
-separate loop and keeps the from-scratch refit.
-
-`feature_importances_` and `shap_values` average across the bag automatically.
-
 ## Early stopping
 
 Early stopping is on by default. With no `eval_set`, the estimator holds out a
-validation split (`validation_fraction=0.2`, stratified for classifiers), stops after a
-plateau, and keeps the best round.
+validation split (`validation_fraction=0.2`, stratified for classifiers), stops after
+a plateau, and keeps the best round.
 
 ```python
 # default: automatic internal holdout
@@ -283,14 +276,14 @@ m.fit(X_train, y_train)
 ```
 
 After fitting, `validation_history_` holds the per-round validation loss, and the
-regressor's `staged_predict(X)` yields the prediction after each successive tree
-(not defined for a bagged ensemble).
+regressor's `staged_predict(X)` yields the prediction after each successive tree. It
+is not defined for a bagged ensemble.
 
 ## Calibrated probabilities
 
-`predict_proba` is temperature-scaled on the validation split to minimize log loss. The
-scaling is monotonic, so `predict()`, AUC, and accuracy are unchanged while the
-probabilities themselves are better calibrated.
+`predict_proba` is temperature-scaled on the validation split to minimize log loss.
+The scaling is monotonic, so `predict()`, AUC, and accuracy are unchanged while the
+probabilities themselves become better calibrated.
 
 ```python
 clf = ChimeraBoostClassifier(random_state=0).fit(X_train, y_train)
@@ -309,9 +302,9 @@ for j in np.argsort(m.feature_importances_)[::-1][:5]:
     print(f"feature {j}: {m.feature_importances_[j]:.3f}")
 ```
 
-Gain reflects what the trees split on, not how much each feature moves a given
-prediction, and it ignores the per-leaf linear models. For a faithful decomposition of
-the output, use [SHAP](shap.md).
+Gain tells you what the trees split on. It says nothing about how much a feature moves
+any given prediction, and it ignores the per-leaf linear models. For a faithful
+decomposition of the output, use [SHAP](shap.md).
 
 ## Cross-validation and hyperparameter search
 
@@ -334,9 +327,9 @@ search.fit(X, y)
 print(search.best_params_)
 ```
 
-To pass `cat_features` through a search, set it on the constructor —
-`ChimeraBoostClassifier(cat_features=["city", "brand"])` — so the meta-estimator
-carries it (a fit-only kwarg can't be).
+To pass `cat_features` through a search, set it on the constructor,
+`ChimeraBoostClassifier(cat_features=["city", "brand"])`, so the meta-estimator
+carries it. A fit-only keyword argument cannot survive the clone.
 
 ## Save and load a model
 
@@ -351,16 +344,16 @@ reg = joblib.load("model.joblib")
 
 ## Interaction-heavy regression
 
-The default `depth=6` is conservative to protect small data. On large, interaction-heavy
-problems, raise `depth` to give each tree more interaction capacity:
+The default `depth=6` is conservative to protect small data. On large,
+interaction-heavy problems, raise `depth` to give each tree more room:
 
 ```python
 reg = ChimeraBoostRegressor(depth=10, random_state=0).fit(X_train, y_train)
 ```
 
-Per-leaf linear models add local slope inside each leaf (on by default for binary
-classification; the regression default picks the better of linear and constant on the
-validation split — force one variant to skip the double fit):
+Per-leaf linear models add local slope inside each leaf. They are on by default for
+binary classification; for regression the default fits both variants and keeps the one
+with the lower validation loss. Set the parameter explicitly to skip that double fit:
 
 ```python
 reg = ChimeraBoostRegressor(linear_leaves=True, random_state=0).fit(X_train, y_train)
