@@ -10,7 +10,9 @@ from chimeraboost import ChimeraBoostQuantileRegressor, ChimeraBoostRegressor
 from chimeraboost import quantile_metrics as qm
 from chimeraboost.booster import MultiQuantileBoosting, _fixed_contrasts
 from chimeraboost.losses import MultiQuantile, _weighted_quantile
-from chimeraboost.quantile_api import _cqr_scales, _median_index
+from chimeraboost.quantile_api import (DEFAULT_QUANTILES,
+                                       _auto_min_child_weight, _cqr_scales,
+                                       _median_index)
 from chimeraboost.tree import (_leaf_quantiles_vec, _leaf_quantiles_vec_serial,
                                _leaf_quantiles_vec_w,
                                _leaf_quantiles_vec_w_serial,
@@ -514,6 +516,33 @@ def test_report_and_score():
     assert rep["crossing_rate"] == 0.0
     assert m.score(X, y) == pytest.approx(-rep["crps"])
     assert isinstance(qm.format_report(rep, "t"), str)
+
+
+@pytest.mark.parametrize("grid, want", [
+    ([0.1, 0.5, 0.9], 10),          # 1.0 - 0.9 is a few ulps under 0.1
+    ([0.2, 0.8], 5),                # so is 1.0 - 0.8
+    ([0.05, 0.5, 0.95], 20),
+    (list(DEFAULT_QUANTILES), 20),  # matches LightGBM's min_data_in_leaf
+    ([0.25, 0.75], 4),
+    ([0.01, 0.99], 100),
+    ([0.001, 0.999], 1000),
+    ([0.3, 0.7], 4),                # 1/0.3 is GENUINELY 3.33 -- must round up
+    ([0.15, 0.85], 7),              # likewise 6.67
+])
+def test_auto_min_child_weight_is_exact_on_symmetric_grids(grid, want):
+    """The floor is 1/edge rounded up. Computing `edge` as `1.0 - taus[-1]`
+    loses a couple of ulps, which used to push the reciprocal just past a whole
+    number and cost an extra row of leaf floor -- 11 instead of 10 for the
+    (0.1, 0.5, 0.9) grid. Fractional edges must still round up."""
+    assert _auto_min_child_weight(np.asarray(grid)) == want
+
+
+def test_auto_min_child_weight_unrounded_grid_matches_rounded():
+    """A user building the default grid by arithmetic rather than by
+    `np.round` lands on 0.9500000000000001, which must not change the floor."""
+    unrounded = np.array([0.05 + 0.05 * i for i in range(19)])
+    assert (_auto_min_child_weight(unrounded)
+            == _auto_min_child_weight(DEFAULT_QUANTILES) == 20)
 
 
 def test_metric_shape_errors():
