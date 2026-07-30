@@ -17,7 +17,6 @@ from sklearn.model_selection import train_test_split
 
 import chimeraboost
 import chimeraboost.booster as bmod
-import chimeraboost.tree as tmod
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 from chimeraboost.warmup import warmup
 import run_benchmarks as rb

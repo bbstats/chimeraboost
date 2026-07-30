@@ -22,7 +22,7 @@ GOLDEN_PATH = os.path.join(os.path.dirname(__file__), "golden_synthgen.json")
 
 
 @pytest.fixture(autouse=True)
-def _flat_memory():
+def _clear_dataset_cache():
     yield
     synthgen.build_dataset.cache_clear()
 

@@ -701,6 +701,41 @@ def _make_eval_split(X, y, validation_fraction, random_state,
     return train_idx, val_idx
 
 
+def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
+    """Resolve ``early_stopping=True`` into an explicit ``eval_set`` by holding
+    out ``validation_fraction`` of the rows. Shared by the regressor
+    (``stratify=None``) and the classifier (``stratify=y``); the classifier's
+    lost-class check runs at its call site. Returns
+    ``(es_active, auto_split, X, y, sample_weight, eval_set)``; the caller
+    keeps the pre-split arrays for the optional full-data refit."""
+    es_active = bool(est.early_stopping)
+    auto_split = False
+    if es_active and eval_set is None:
+        split = _make_eval_split(
+            X, y, est.validation_fraction, est.random_state,
+            groups=groups, stratify=stratify,
+        )
+        if split is None:
+            es_active = False  # data too small to hold out a val set
+        else:
+            auto_split = True
+            train_idx, val_idx = split
+            if est.verbose and not getattr(est, "_is_bag_member", False):
+                print(f"early_stopping=True: holding out {len(val_idx)} "
+                      f"of {len(X)} rows as a validation set (pass "
+                      "eval_set to choose it, or early_stopping=False "
+                      "to train on all rows)")
+            # Carry the val rows' weights so zero-weight rows split off into
+            # the auto holdout don't score the early-stopping metric (H3).
+            sw_val = (sample_weight[val_idx]
+                      if sample_weight is not None else None)
+            eval_set = (X[val_idx], y[val_idx], sw_val)
+            X, y = X[train_idx], y[train_idx]
+            if sample_weight is not None:
+                sample_weight = sample_weight[train_idx]
+    return es_active, auto_split, X, y, sample_weight, eval_set
+
+
 def _extract_feature_names(X):
     """Return X's column names as a 1-D object array, or None.
 
@@ -1598,34 +1633,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     f"loss={self.loss!r} and will have no effect.",
                     UserWarning, stacklevel=2)
 
-        es_active = bool(self.early_stopping)
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
-        auto_split = False
-        if es_active and eval_set is None:
-            split = _make_eval_split(
-                X, y, self.validation_fraction, self.random_state,
-                groups=groups, stratify=None,
-            )
-            if split is None:
-                es_active = False  # data too small to hold out a val set
-            else:
-                auto_split = True
-                train_idx, val_idx = split
-                if self.verbose and not getattr(self, "_is_bag_member", False):
-                    print(f"early_stopping=True: holding out {len(val_idx)} "
-                          f"of {len(X)} rows as a validation set (pass "
-                          "eval_set to choose it, or early_stopping=False "
-                          "to train on all rows)")
-                # Carry the val rows' weights so zero-weight rows split off into
-                # the auto holdout don't score the early-stopping metric (H3).
-                sw_val = (sample_weight[val_idx]
-                          if sample_weight is not None else None)
-                eval_set = (X[val_idx], y[val_idx], sw_val)
-                X, y = X[train_idx], y[train_idx]
-                if sample_weight is not None:
-                    sample_weight = sample_weight[train_idx]
+        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
+            self, X, y, sample_weight, eval_set, groups, stratify=None)
 
         # Mirror the classifier's inert-setting warnings: an explicit
         # linear_leaves=True shadows ordered boosting / leaf refinement once
@@ -1646,8 +1658,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 UserWarning, stacklevel=2)
 
         # If early stopping is active but patience not explicitly set, use 50.
-        # 50 beats 10 on 25/34 benchmark datasets (lr=0.1 keeps improving past a
-        # 10-round plateau); see benchmarks/investigate_early_stopping.py.
+        # 50 beat 10 on 25/34 benchmark datasets when measured (lr=0.1 keeps
+        # improving past a 10-round plateau).
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
             es_rounds = 50
@@ -2295,48 +2307,27 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
 
-        es_active = bool(self.early_stopping)
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
-        auto_split = False
-        if es_active and eval_set is None:
-            split = _make_eval_split(
-                X, y, self.validation_fraction, self.random_state,
-                groups=groups, stratify=y,  # always stratify for classification
-            )
-            if split is None:
-                es_active = False  # data too small to hold out a val set
-            else:
-                auto_split = True
-                train_idx, val_idx = split
-                if self.verbose and not getattr(self, "_is_bag_member", False):
-                    print(f"early_stopping=True: holding out {len(val_idx)} "
-                          f"of {len(X)} rows as a validation set (pass "
-                          "eval_set to choose it, or early_stopping=False "
-                          "to train on all rows)")
-                # Carry val-row weights so zero-weight holdout rows don't score
-                # the early-stopping metric (H3).
-                sw_val = (sample_weight[val_idx]
-                          if sample_weight is not None else None)
-                eval_set = (X[val_idx], y[val_idx], sw_val)
-                X, y = X[train_idx], y[train_idx]
-                if sample_weight is not None:
-                    sample_weight = sample_weight[train_idx]
-                self.classes_ = np.unique(y)
-                self.n_classes_ = self.classes_.size
-                lost = np.setdiff1d(all_classes, self.classes_)
-                if lost.size and not getattr(self, "_is_bag_member", False):
-                    # Without this, the model silently trains without the lost
-                    # class and never predicts it (its eval rows are even
-                    # remapped onto neighboring classes).
-                    raise ValueError(
-                        f"The automatic early-stopping split left class(es) "
-                        f"{lost.tolist()} entirely in the validation set, "
-                        "usually because the class is rare or (with `groups`) "
-                        "confined to a single group. Pass an explicit "
-                        "eval_set, lower validation_fraction, or set "
-                        "early_stopping=False.")
+        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
+            self, X, y, sample_weight, eval_set, groups,
+            stratify=y)  # always stratify for classification
+        if auto_split:
+            self.classes_ = np.unique(y)
+            self.n_classes_ = self.classes_.size
+            lost = np.setdiff1d(all_classes, self.classes_)
+            if lost.size and not getattr(self, "_is_bag_member", False):
+                # Without this, the model silently trains without the lost
+                # class and never predicts it (its eval rows are even
+                # remapped onto neighboring classes).
+                raise ValueError(
+                    f"The automatic early-stopping split left class(es) "
+                    f"{lost.tolist()} entirely in the validation set, "
+                    "usually because the class is rare or (with `groups`) "
+                    "confined to a single group. Pass an explicit "
+                    "eval_set, lower validation_fraction, or set "
+                    "early_stopping=False.")
 
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:

@@ -27,7 +27,6 @@ Usage:
 import argparse
 import os
 import sys
-import traceback
 
 import numpy as np
 
@@ -99,11 +98,6 @@ def base_mixed(task, n=N, seed=0):
         "n1": num[:, 1],
     })
     return X, y, ["lo", "hi"]
-
-
-def _classifier_ok(y):
-    """A classifier needs >=2 classes; squash a 1-class probe target if needed."""
-    return y
 
 
 # ---------------------------------------------------------------------------

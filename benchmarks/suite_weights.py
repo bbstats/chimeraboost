@@ -268,37 +268,3 @@ def bootstrap_competitor_relative_rank_ci(scores, ours, competitors,
     return out
 
 
-def bootstrap_average_rank_ci(scores, field, weights=None, n_boot=10000, seed=0):
-    """95% CI for average_rank, resampling DATASETS (not seeds) with replacement.
-
-    Weights ride along with the resampled datasets, so the interval reflects both
-    dataset-sampling noise and the concentration the weighting introduces.
-    """
-    import numpy as np
-    ds_list = sorted(d for d, s in scores.items() if all(m in s for m in field))
-    if not ds_list:
-        return {m: (None, None) for m in field}
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(ds_list), size=(n_boot, len(ds_list)))
-    draws = {m: [] for m in field}
-    for row in idx:
-        sub = {}
-        subw = {}
-        for c, i in enumerate(row):
-            d = ds_list[i]
-            key = f"{d}#{c}"          # keep duplicates distinct
-            sub[key] = scores[d]
-            subw[key] = 1.0 if weights is None else weights.get(d, 0.0)
-        r = average_rank(sub, field, subw)
-        for m in field:
-            if m in r and not math.isnan(r[m]):
-                draws[m].append(r[m])
-    out = {}
-    for m in field:
-        if draws[m]:
-            arr = np.array(draws[m])
-            out[m] = (float(np.percentile(arr, 2.5)),
-                      float(np.percentile(arr, 97.5)))
-        else:
-            out[m] = (None, None)
-    return out

@@ -338,7 +338,6 @@ def test_h3_early_stopping_metric_ignores_zero_weight_rows():
     assert m_zero.best_iteration_ > 20
     rng = np.random.default_rng(99)
     Xte = rng.normal(size=(2000, 6))
-    yte = Xte[:, 0] * 2.0 + Xte[:, 1] - 0.5 * Xte[:, 2]
     rmse = lambda a, b: float(np.sqrt(np.mean((a - b) ** 2)))
     # Predictions track the rows-removed model closely (not off by an order
     # of magnitude, as the corrupted-metric fit was).

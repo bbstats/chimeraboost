@@ -7,7 +7,6 @@ these tests: any diff here is a correctness bug, not a tolerance question.
 """
 
 import numpy as np
-import pytest
 
 from chimeraboost.tree import (
     _best_split,

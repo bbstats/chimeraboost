@@ -122,7 +122,7 @@ def _thread_limit(thread_count):
         numba.set_num_threads(prev)
 
 
-def _auto_learning_rate(n_samples, n_estimators, early_stopping):
+def _auto_learning_rate(n_estimators, early_stopping):
     """Default learning rate when the user did not specify one.
 
     With early stopping, 0.1 (the field-standard default) lets early stopping
@@ -289,6 +289,42 @@ class _BaseBooster:
         return -val if getattr(self.eval_metric, "greater_is_better", False) \
             else val
 
+    def _round_epilogue(self, m, F, y, w, Fv, yv, wv, stopper, callbacks,
+                        cb_train_loss, advance_fv):
+        """Per-round tail shared by the three boosters: train-history append,
+        eval-set scoring with early stopping, the progress print, and the
+        callback hook. ``advance_fv`` adds the new tree's contribution to
+        ``Fv`` in place; it runs only when there is an eval set, so callers
+        must not precompute it. Returns True when training should stop -- the
+        caller breaks, which keeps the ``for/else`` no-break truncation
+        exactly as before."""
+        if self.verbose:
+            self.train_history_.append(self.loss_.eval(y, F, w))
+
+        if Fv is not None:
+            advance_fv()
+            val = self._val_score(yv, Fv, wv)   # wv=None -> unweighted
+            self.valid_history_.append(val)
+            if stopper.step(val, m):
+                if self.verbose:
+                    print(f"Early stop at {m} (best {stopper.best_iter})")
+                self.trees_ = self.trees_[: stopper.best_iter + 1]
+                return True
+
+        if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
+            msg = f"[{m}] train {self.train_history_[-1]:.5f}"
+            if Fv is not None:
+                msg += f"  val {self.valid_history_[-1]:.5f}"
+            print(msg)
+
+        if callbacks:
+            tl = self.train_history_[-1] if self.train_history_ \
+                else (self.loss_.eval(y, F, w) if cb_train_loss else None)
+            vl = self.valid_history_[-1] if self.valid_history_ else None
+            if _run_callbacks(callbacks, m, tl, vl, self):
+                return True
+        return False
+
     def predict_raw(self, X, cat_ctx=None):
         """Predict under this model's thread limit (restored on exit).
         ``cat_ctx`` (internal) shares categorical factorizations across the
@@ -380,11 +416,11 @@ class _BaseBooster:
         w = np.asarray(sample_weight, dtype=np.float64)
         return _uniform_to_none(w * (n_samples / w.sum()))
 
-    def _resolve_lr(self, n_samples, eval_set):
+    def _resolve_lr(self, eval_set):
         if self.learning_rate is not None:
             return float(self.learning_rate)
         es = self.early_stopping_rounds is not None and eval_set is not None
-        return _auto_learning_rate(n_samples, self.n_estimators, es)
+        return _auto_learning_rate(self.n_estimators, es)
 
     def _loo_update(self, tree, leaf, g, h):
         """Leave-one-out leaf step: each row's training update uses its leaf's
@@ -532,7 +568,7 @@ class GradientBoosting(_BaseBooster):
         # losses.py protocol (see losses.CustomObjective); used as-is.
         self.loss_ = (LOSSES[self.loss_name](**self.loss_kwargs)
                       if isinstance(self.loss_name, str) else self.loss_name)
-        self.lr_ = self._resolve_lr(n_samples, eval_set)
+        self.lr_ = self._resolve_lr(eval_set)
 
         donor_trees = None
         if self.replay_donor is not None:
@@ -679,31 +715,10 @@ class GradientBoosting(_BaseBooster):
                 if not adjusts_leaves:
                     self._refine_leaf_values(tree, leaf, F, y, w)
                 F += tree.values[leaf]
-            if self.verbose:
-                self.train_history_.append(self.loss_.eval(y, F, w))
-
-            if Fv is not None:
-                Fv += tree.predict(Xvb)
-                val = self._val_score(yv, Fv, wv)   # wv=None -> unweighted
-                self.valid_history_.append(val)
-                if stopper.step(val, m):
-                    if self.verbose:
-                        print(f"Early stop at {m} (best {stopper.best_iter})")
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
-                    break
-
-            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
-                msg = f"[{m}] train {self.train_history_[-1]:.5f}"
-                if Fv is not None:
-                    msg += f"  val {self.valid_history_[-1]:.5f}"
-                print(msg)
-
-            if callbacks:
-                tl = self.train_history_[-1] if self.train_history_ \
-                    else (self.loss_.eval(y, F, w) if cb_train_loss else None)
-                vl = self.valid_history_[-1] if self.valid_history_ else None
-                if _run_callbacks(callbacks, m, tl, vl, self):
-                    break
+            if self._round_epilogue(
+                    m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
+                    lambda: np.add(Fv, tree.predict(Xvb), out=Fv)):
+                break
         else:
             # No break: the tree budget ran out before patience could fire.
             # Keep the best prefix exactly as the mid-training stop would
@@ -855,7 +870,7 @@ class MulticlassBoosting(_BaseBooster):
         w = self._normalize_weights(sample_weight, n_samples)
 
         self.loss_ = MultiSoftmax(K)
-        self.lr_ = self._resolve_lr(n_samples, eval_set)
+        self.lr_ = self._resolve_lr(eval_set)
 
         # One ordered-TS target per class (CatBoost-style per-class statistics).
         Xb, Xvb = self._prep_matrices(X, [Y[:, k] for k in range(K)],
@@ -951,31 +966,10 @@ class MulticlassBoosting(_BaseBooster):
             else:
                 F += tree.values[leaf]
             self.trees_.append(tree)
-            if self.verbose:
-                self.train_history_.append(self.loss_.eval(Y, F, w))
-
-            if Fv is not None:
-                Fv += tree.values[tree.apply(Xvb)]
-                val = self._val_score(Yv, Fv, wv)   # wv=None -> unweighted
-                self.valid_history_.append(val)
-                if stopper.step(val, m):
-                    if self.verbose:
-                        print(f"Early stop at {m} (best {stopper.best_iter})")
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
-                    break
-
-            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
-                msg = f"[{m}] train {self.train_history_[-1]:.5f}"
-                if Fv is not None:
-                    msg += f"  val {self.valid_history_[-1]:.5f}"
-                print(msg)
-
-            if callbacks:
-                tl = self.train_history_[-1] if self.train_history_ \
-                    else (self.loss_.eval(Y, F, w) if cb_train_loss else None)
-                vl = self.valid_history_[-1] if self.valid_history_ else None
-                if _run_callbacks(callbacks, m, tl, vl, self):
-                    break
+            if self._round_epilogue(
+                    m, F, Y, w, Fv, Yv, wv, stopper, callbacks, cb_train_loss,
+                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                break
         else:
             # No break: the tree budget ran out before patience could fire.
             # Keep the best prefix exactly as the mid-training stop would
@@ -1260,9 +1254,8 @@ class MultiQuantileBoosting(_BaseBooster):
 
         taus = self.quantiles
         K = taus.shape[0]
-        self.n_quantiles_ = K
         self.loss_ = MultiQuantile(taus)
-        self.lr_ = self._resolve_lr(n_samples, eval_set)
+        self.lr_ = self._resolve_lr(eval_set)
         self._contrasts_ = _fixed_contrasts(taus)
 
         # One TS-encoding target: every quantile shares the same y, unlike
@@ -1419,31 +1412,10 @@ class MultiQuantileBoosting(_BaseBooster):
 
             _add_leaf_values(F, tree.values, leaf)
             self.trees_.append(tree)
-            if self.verbose:
-                self.train_history_.append(self.loss_.eval(y, F, w))
-
-            if Fv is not None:
-                Fv += tree.values[tree.apply(Xvb)]
-                val = self._val_score(yv, Fv, wv)   # wv=None -> unweighted
-                self.valid_history_.append(val)
-                if stopper.step(val, m):
-                    if self.verbose:
-                        print(f"Early stop at {m} (best {stopper.best_iter})")
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
-                    break
-
-            if self.verbose and (m % max(1, self.n_estimators // 10) == 0):
-                msg = f"[{m}] train {self.train_history_[-1]:.5f}"
-                if Fv is not None:
-                    msg += f"  val {self.valid_history_[-1]:.5f}"
-                print(msg)
-
-            if callbacks:
-                tl = self.train_history_[-1] if self.train_history_ \
-                    else (self.loss_.eval(y, F, w) if cb_train_loss else None)
-                vl = self.valid_history_[-1] if self.valid_history_ else None
-                if _run_callbacks(callbacks, m, tl, vl, self):
-                    break
+            if self._round_epilogue(
+                    m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
+                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                break
         else:
             # No break: the tree budget ran out before patience could fire.
             if Fv is not None and stopper.patience:
@@ -1455,7 +1427,6 @@ class MultiQuantileBoosting(_BaseBooster):
         self.gap_ = np.diff(self.init_) + (
             sum(np.diff(t.values, axis=1).min(axis=0) for t in self.trees_)
             if self.trees_ else 0.0)
-        self.gap_floor_ = floor
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
