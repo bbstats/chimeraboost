@@ -106,6 +106,25 @@ def test_scalar_correct_leaves_matches_reference(loss, weighted, n):
     np.testing.assert_array_equal(tree.values, ref)
 
 
+def test_apply_parallel_arm_matches_serial():
+    # The parallel descend only fires above _ASSIGN_PAR_N rows -- too big for
+    # the identity snapshot's eval sets -- so pin the equivalence directly.
+    from chimeraboost.tree import ObliviousTree, _ASSIGN_PAR_N, _assign_leaves
+    rng = np.random.default_rng(7)
+    n = _ASSIGN_PAR_N + 5
+    Xb = np.ascontiguousarray(rng.integers(0, 64, size=(5, n)),
+                              dtype=np.uint16)
+    sf = np.array([0, 3, 1, 4], dtype=np.int64)
+    st = np.array([10, 30, 5, 50], dtype=np.int64)
+    vals = rng.normal(size=16)
+    tree = ObliviousTree(sf, st, vals)
+    ref = _assign_leaves(Xb, sf, st)
+    np.testing.assert_array_equal(tree.apply(Xb), ref)
+    np.testing.assert_array_equal(tree.predict(Xb), vals[ref])
+    # Below the gate both routes are the same serial kernel already.
+    np.testing.assert_array_equal(tree.apply(Xb[:, :100]), ref[:100])
+
+
 def test_custom_adjusts_leaves_loss_keeps_generic_path():
     # A user loss subclassing Quantile with its own leaf_value must NOT be
     # captured by the exact-type kernel dispatch.

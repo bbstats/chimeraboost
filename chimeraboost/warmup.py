@@ -215,6 +215,22 @@ def warmup(verbose=False, background=False, shap=False):
     _grouped_kahan_sum(np.zeros(4, dtype=np.int64), np.ones(4), 2)
     _log("gdiff group-sum kernel")
 
+    # The parallel descend only runs above tree._ASSIGN_PAR_N rows (large
+    # eval sets, replay refits) -- too big for a warmup fit, so compile it
+    # directly with the dtypes `ObliviousTree.apply` passes (int64 leaves,
+    # a uint16 binned feature row, an int64 threshold).
+    from .binning import BIN_DTYPE
+    from .tree import _descend_leaves, _predict_tree
+    _descend_leaves(np.zeros(4, dtype=np.int64),
+                    np.zeros(4, dtype=BIN_DTYPE), np.int64(1))
+    # The fused walk+gather no longer runs during a warmup fit (eval-set
+    # scoring goes leaf-assign + fused add now), but staged_predict and
+    # linear-leaf eval still call it -- keep it warm directly.
+    _predict_tree(np.zeros((2, 4), dtype=BIN_DTYPE),
+                  np.zeros(2, dtype=np.int64), np.zeros(2, dtype=np.int64),
+                  np.zeros(4))
+    _log("parallel descend + tree-walk kernels")
+
     # The greedy-border sweep only fires when a column's quantile borders
     # collapse (one value holding more than an even bin's share of mass) --
     # none of the warmup fits' columns do, so compile it directly with the

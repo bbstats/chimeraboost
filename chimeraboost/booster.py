@@ -122,6 +122,19 @@ def _thread_limit(thread_count):
         numba.set_num_threads(prev)
 
 
+def _eval_advance(Fv, tree, Xvb):
+    """Add one tree's eval-set contribution to ``Fv`` in place (scalar path).
+    Constant-leaf trees fuse the value gather into `_add_leaf_values` via the
+    parallel leaf assignment; linear-leaf trees keep ``tree.predict`` -- their
+    step lives in ``lin_coef``, not ``values``. Both arms are the same
+    elementwise adds `Fv += tree.predict(Xvb)` performed."""
+    if tree.lin_coef is None:
+        _add_leaf_values(Fv.reshape(-1, 1), tree.values.reshape(-1, 1),
+                         tree.apply(Xvb))
+    else:
+        np.add(Fv, tree.predict(Xvb), out=Fv)
+
+
 def _auto_learning_rate(n_estimators, early_stopping):
     """Default learning rate when the user did not specify one.
 
@@ -721,7 +734,7 @@ class GradientBoosting(_BaseBooster):
                                  leaf)
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.predict(Xvb), out=Fv)):
+                    lambda: _eval_advance(Fv, tree, Xvb)):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.

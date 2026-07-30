@@ -25,6 +25,14 @@ from numba import njit, prange
 # regimes (1.7x fused win at 2k, parity at 200k).
 _SMALL_N = 32768
 
+# Above this many rows, ObliviousTree.apply descends level by level with the
+# parallel `_descend_leaves` instead of the serial fused `_assign_leaves`:
+# the per-level fork/join only amortizes once the serial O(n x depth) walk
+# clearly dominates it. Both sides are bit-identical, so the threshold only
+# moves speed. Matters per boosting round: eval-set scoring and replay
+# refits assign leaves once per retained tree.
+_ASSIGN_PAR_N = 32768
+
 # Placeholder passed as the fused level kernel's occupancy buffer on the
 # large-n path, where it is never touched (shared and read-only, so safe
 # across concurrent fits).
@@ -74,9 +82,9 @@ def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
 def _descend_leaves(leaf, Xf, t):
     """Push every sample one level deeper, in place: leaf = (leaf<<1) + (Xf > t).
 
-    REFERENCE KERNEL: the fit path now descends inside `_build_split_descend`;
-    kept (with the serial twin) as the descend oracle for
-    tests/test_tree_kernels.py.
+    The fit path descends inside `_build_split_descend`; this kernel is the
+    large-n arm of `ObliviousTree.apply` (per-round eval scoring, replay
+    refits) and the descend oracle for tests/test_tree_kernels.py.
 
     Replaces the per-level numpy expression
     ``leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)`` which allocated several
@@ -1688,15 +1696,26 @@ class ObliviousTree:
         """Return the leaf index of each sample."""
         if self.depth == 0:
             return np.zeros(Xb.shape[1], dtype=np.int64)
+        n = Xb.shape[1]
+        if n > _ASSIGN_PAR_N:
+            # Level-by-level parallel descend; each Xb[f] is a contiguous
+            # feature row. Bit-identical to the serial fused walk.
+            leaf = np.zeros(n, dtype=np.int64)
+            for d in range(self.depth):
+                _descend_leaves(leaf, Xb[self.splits_feat[d]],
+                                self.splits_thr[d])
+            return leaf
         return _assign_leaves(Xb, self.splits_feat, self.splits_thr)
 
     def predict(self, Xb):
         if self.depth == 0:
             return np.zeros(Xb.shape[1], dtype=np.float64)
         if self.lin_coef is not None:
-            leaf = _assign_leaves(Xb, self.splits_feat, self.splits_thr)
+            leaf = self.apply(Xb)
             return _linear_predict(leaf, self.lin_feats, self.lin_coef,
                                    self.centers_std, Xb)
+        if Xb.shape[1] > _ASSIGN_PAR_N:
+            return self.values[self.apply(Xb)]
         return _predict_tree(Xb, self.splits_feat, self.splits_thr, self.values)
 
 

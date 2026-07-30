@@ -464,6 +464,9 @@ def test_depth0_stop_keeps_best_validation_prefix(monkeypatch):
         def predict(self, Xb):
             return np.full(Xb.shape[1], self.values[0])
 
+        def apply(self, Xb):
+            return np.zeros(Xb.shape[1], dtype=np.int64)
+
     steps = iter([0.5, -0.5, -0.5])
 
     def fake_build(Xb, g, h, *args, **kw):
