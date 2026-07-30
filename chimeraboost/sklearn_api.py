@@ -522,8 +522,14 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             missing = [c for c in classes if c != present]
             counts = {c: int(np.sum(y == c)) for c in missing}
             donor_class = max(missing, key=lambda c: counts[c])
-            donors = np.where(y == donor_class)[0]
-            idx[patch_rng.integers(0, idx.size)] = patch_rng.choice(donors)
+            donor = patch_rng.choice(np.where(y == donor_class)[0])
+            if idx.size > 1:
+                idx[patch_rng.integers(0, idx.size)] = donor
+            else:
+                # A one-row draw (tiny n, small max_samples) has no row to
+                # spare: overwriting it just swaps which single class the
+                # member sees, and it crashes again. Grow to two rows instead.
+                idx = np.append(idx, donor)
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
         # Use OOB rows as the early-stopping eval set when no explicit eval_set

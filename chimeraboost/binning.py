@@ -81,10 +81,25 @@ def _bin_matrix_serial(X, borders_flat, offsets, out):
 
 
 # Predict batches at or below this many rows take the serial kernels: the
-# measured fork/join cost (~20us on 12 threads) exceeds the whole serial pass
-# there, and the parallel walk overtakes serial by n~5 on a mid-size forest.
+# fork/join cost exceeds the whole serial pass there.
+#
+# Re-measured 2026-07-30 by forcing each kernel on the same packed forest.
+# The old value of 4 assumed the parallel walk overtakes serial by n~5; it
+# actually overtakes between 32 and 64, so every 5-to-32-row predict was
+# paying fork/join for nothing -- up to 1.26x on a 100-tree forest:
+#
+#   rows   serial   parallel        (100 trees, depth 6, 25 features)
+#      4   38.4us     48.9us   serial 1.27x
+#      8   39.5us     49.6us   serial 1.26x
+#     16   41.7us     49.1us   serial 1.18x
+#     32   47.7us     50.1us   serial 1.05x
+#     64   56.1us     51.5us   parallel 1.09x
+#
+# 300- and 500-tree forests cross over in the same place. 32 is the last row
+# count serial still wins; the penalty for being wrong at the boundary on a
+# wider machine is the 1.05x there, against the 1.26x recovered below it.
 # Both sides of the dispatch are bit-identical, so this only affects speed.
-_SERIAL_PREDICT_N = 4
+_SERIAL_PREDICT_N = 32
 
 
 def _weighted_quantiles(values, weights, qs):
@@ -138,7 +153,11 @@ def _greedy_borders(uniq, mass, max_bins):
     # budget into the light region instead measurably over-resolves sparse
     # tails (decision-tier A/B 2026-07-30: Grinsztajn 21W-32L, median -0.03%).
     light_total = total - float(mass[heavy].sum())
-    light_bins = max(max_bins // 16,
+    # Floor of 1: below max_bins=16 the `max_bins // 16` floor is itself 0, and
+    # a column dominated hard enough to round the proportional term to 0 too
+    # divided by zero here. For max_bins >= 16 the // 16 term already dominates,
+    # so every budget that worked before keeps its exact allocation.
+    light_bins = max(1, max_bins // 16,
                      int(round((max_bins - n_heavy) * (light_total / total))))
     target = light_total / light_bins
     budget = max_bins - 1
