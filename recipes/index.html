@@ -1598,7 +1598,8 @@ early-stopping metric stays unweighted.</p>
 Regressors average predictions; classifiers soft-vote calibrated probabilities. Each
 member trains on <code>max_samples</code> (default 0.8) of the rows drawn without replacement,
 which beats the classic bootstrap on both accuracy and fit time, and early-stops on
-its own unsampled rows.</p>
+its own unsampled rows. With <code>groups</code>, each member draws whole groups instead of
+rows and early-stops on the groups it never saw.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Use <code>n_ensembles=8</code>: it is stronger than 5 at similar cost. Avoid <code>n_ensembles=2</code>,
