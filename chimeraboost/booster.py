@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 import numpy as np
 
-from .losses import LOSSES, MultiSoftmax, MultiQuantile
+from .losses import LOSSES, MAE, MultiSoftmax, MultiQuantile, Quantile
 from .preprocessing import FeaturePreprocessor, as_model_array
 from .binning import _SERIAL_PREDICT_N
 from .tree import (build_oblivious_tree, replay_oblivious_tree,
@@ -120,6 +120,19 @@ def _thread_limit(thread_count):
         yield n
     finally:
         numba.set_num_threads(prev)
+
+
+def _eval_advance(Fv, tree, Xvb):
+    """Add one tree's eval-set contribution to ``Fv`` in place (scalar path).
+    Constant-leaf trees fuse the value gather into `_add_leaf_values` via the
+    parallel leaf assignment; linear-leaf trees keep ``tree.predict`` -- their
+    step lives in ``lin_coef``, not ``values``. Both arms are the same
+    elementwise adds `Fv += tree.predict(Xvb)` performed."""
+    if tree.lin_coef is None:
+        _add_leaf_values(Fv.reshape(-1, 1), tree.values.reshape(-1, 1),
+                         tree.apply(Xvb))
+    else:
+        np.add(Fv, tree.predict(Xvb), out=Fv)
 
 
 def _auto_learning_rate(n_estimators, early_stopping):
@@ -531,13 +544,21 @@ class _BaseBooster:
         stopping (built past the best iteration, then truncated) contribute
         nothing. The old running accumulator counted them -- with patience 50,
         up to 50 dead trees' gains skewed the ranking."""
-        imp = np.zeros(self.prep_.n_input_features_)
-        fmap = self.prep_.feature_map_
+        feats, gains = [], []
         for item in self.trees_:
             # scalar booster stores trees; multiclass stores rounds of K trees
             for tree in (item if isinstance(item, list) else (item,)):
-                for f, g in zip(tree.splits_feat, tree.gains):
-                    imp[fmap[f]] += g
+                feats.append(tree.splits_feat)
+                gains.append(tree.gains)
+        if not feats:
+            return np.zeros(self.prep_.n_input_features_)
+        # One bincount over every split in iteration order: its sequential C
+        # accumulation reproduces the old per-split Python loop's addition
+        # order exactly, at none of its interpreter cost.
+        fmap = self.prep_.feature_map_
+        imp = np.bincount(fmap[np.concatenate(feats)],
+                          weights=np.concatenate(gains),
+                          minlength=self.prep_.n_input_features_)
         s = imp.sum()
         return imp / s if s > 0 else imp
 
@@ -690,7 +711,7 @@ class GradientBoosting(_BaseBooster):
                     self.trees_ = self.trees_[: stopper.best_iter + 1]
                 break
             if adjusts_leaves:
-                self._correct_leaves(tree, leaf, y - F, w)
+                self._correct_leaves(tree, leaf, y, F, w)
             self.trees_.append(tree)
             # Ordered boosting and leaf adjustment are mutually exclusive: the
             # former rewrites the training step, the latter the leaf value.
@@ -714,10 +735,14 @@ class GradientBoosting(_BaseBooster):
                 # warning for those losses is honest only with this guard.
                 if not adjusts_leaves:
                     self._refine_leaf_values(tree, leaf, F, y, w)
-                F += tree.values[leaf]
+                # Fused in-place add: F += tree.values[leaf] without the
+                # n-length gather temporary. The (n, 1) views are C-contiguous,
+                # so this reuses the vector boosters' compiled signature.
+                _add_leaf_values(F.reshape(-1, 1), tree.values.reshape(-1, 1),
+                                 leaf)
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.predict(Xvb), out=Fv)):
+                    lambda: _eval_advance(Fv, tree, Xvb)):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
@@ -731,17 +756,42 @@ class GradientBoosting(_BaseBooster):
         self.best_iteration_ = len(self.trees_)
         return self
 
-    def _correct_leaves(self, tree, leaf, residuals, sample_weight=None):
+    def _correct_leaves(self, tree, leaf, y, F, sample_weight=None):
         """Override Newton leaf values with the loss-appropriate residual
         statistic (median for MAE, alpha-quantile for Quantile). The tree
         structure was chosen by the gradient; this fixes the step size.
         `leaf` is the training assignment from build_oblivious_tree.
 
-        Groups samples with ONE stable argsort instead of an n_leaves-pass
-        boolean scan (`leaf == l` allocated a mask + fancy-index copy per
-        leaf). Each leaf sees the identical residual subsequence in the
-        identical order, so the computed values are exactly unchanged."""
+        The library losses dispatch to the multi-quantile head's compiled
+        leaf kernels with K=1: one parallel quickselect pass replaces a
+        per-round stable argsort plus a Python-level np.quantile per leaf.
+        The values are exactly unchanged -- `_quantile_slice` matches
+        np.quantile bit for bit, `_weighted_quantile_slice` reproduces
+        `losses._weighted_quantile`, `_leaf_row_index` groups rows in the
+        same ascending order the argsort did (all three pinned by
+        tests/test_quantile_head.py and the scalar oracle in
+        tests/test_bitident_refactors.py), and at K=1 the non-crossing
+        projection is the identity. Custom adjusts-leaves losses keep the
+        generic path below."""
         n_leaves = tree.values.shape[0]
+        if type(self.loss_) in (MAE, Quantile):
+            alpha = 0.5 if type(self.loss_) is MAE else self.loss_.alpha
+            taus = np.array([alpha])
+            cb = np.zeros(1)
+            F2 = F[:, None]        # (n, 1) view of contiguous F: C-contiguous
+            small = leaf.shape[0] <= _SMALL_N
+            if sample_weight is None:
+                kern = (_leaf_quantiles_vec_serial if small
+                        else _leaf_quantiles_vec)
+                vals = kern(leaf, y, F2, taus, cb, n_leaves, self.lr_)
+            else:
+                kern = (_leaf_quantiles_vec_w_serial if small
+                        else _leaf_quantiles_vec_w)
+                vals = kern(leaf, y, F2, sample_weight, taus, cb, n_leaves,
+                            self.lr_)
+            tree.values = vals[:, 0]
+            return
+        residuals = y - F
         order = np.argsort(leaf, kind="stable")
         counts = np.bincount(leaf, minlength=n_leaves)
         stop = np.cumsum(counts)
@@ -964,11 +1014,11 @@ class MulticlassBoosting(_BaseBooster):
                         np.ascontiguousarray(hess[:, k]) * coupling,
                         tree.values.shape[0], self.l2_leaf_reg, self.lr_)
             else:
-                F += tree.values[leaf]
+                _add_leaf_values(F, tree.values, leaf)
             self.trees_.append(tree)
             if self._round_epilogue(
                     m, F, Y, w, Fv, Yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                    lambda: _add_leaf_values(Fv, tree.values, tree.apply(Xvb))):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
@@ -1351,8 +1401,10 @@ class MultiQuantileBoosting(_BaseBooster):
             # here would score weighted gradient sums against row counts, so
             # the structure would optimize a different objective than the
             # leaf values are fit to (and min_child_weight would count rows
-            # instead of weight mass).
-            h_s = np.ones(n_samples) if w is None else w.copy()
+            # instead of weight mass). w_row already holds exactly these
+            # values, and the build path never writes to its hessian, so the
+            # hoisted buffer is safe to share across rounds.
+            h_s = w_row
             # One MVS row selection per round, taken from the projection and
             # reused for the leaf refit, so leaf values see exactly the rows
             # the split search saw.
@@ -1414,7 +1466,7 @@ class MultiQuantileBoosting(_BaseBooster):
             self.trees_.append(tree)
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                    lambda: _add_leaf_values(Fv, tree.values, tree.apply(Xvb))):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
