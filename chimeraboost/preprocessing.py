@@ -129,16 +129,15 @@ def _factorize_int(vals):
     """First-appearance factorize of an int64 array (combo pair keys).
     Returns (codes, keys): same contract as ``factorize`` but keys stay a
     plain list -- wrapping tuples derived from them in ``np.asarray`` would
-    build a 2-D array."""
-    codes = np.empty(vals.shape[0], dtype=np.int64)
-    mapping = {}
-    keys = []
-    for i, v in enumerate(vals.tolist()):
-        code = mapping.get(v)
-        if code is None:
-            code = mapping[v] = len(keys)
-            keys.append(v)
-        codes[i] = code
+    build a 2-D array. Vectorized: np.unique's sorted ids are remapped onto
+    first-appearance ranks (return_index gives each value's FIRST position),
+    which is exactly the insertion order the old dict loop produced."""
+    su, first, inv = np.unique(vals, return_index=True, return_inverse=True)
+    order = np.argsort(first, kind="stable")
+    rank = np.empty(order.size, dtype=np.int64)
+    rank[order] = np.arange(order.size, dtype=np.int64)
+    codes = np.ascontiguousarray(rank[inv], dtype=np.int64)
+    keys = [int(v) for v in su[order]]
     return codes, keys
 
 
