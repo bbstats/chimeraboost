@@ -97,11 +97,58 @@ reg = ChimeraBoostRegressor(random_state=0).fit(X, y)   # handled directly
 
 ## Quantile regression
 
-For a whole grid of quantiles at once, use
-[`ChimeraBoostQuantileRegressor`](quantiles.md), which fits one booster for every level
-and guarantees the levels never cross. To estimate a single level, set `loss="Quantile"`
-and the level `alpha` on the ordinary regressor. For a prediction interval that way,
-fit one model per quantile:
+### A whole grid at once
+
+[`ChimeraBoostQuantileRegressor`](quantiles.md) fits every level from one booster and
+guarantees the levels never cross. This is the recommended way to get prediction
+intervals.
+
+```python
+from chimeraboost import ChimeraBoostQuantileRegressor
+from chimeraboost import quantile_metrics as qm
+
+model = ChimeraBoostQuantileRegressor(random_state=0).fit(X_train, y_train)
+
+Q = model.predict(X_test)                # (n_samples, 19), column k is model.quantiles_[k]
+median = Q[:, 9]                         # the 0.50 column of the default grid
+assert np.all(np.diff(Q, axis=1) >= 0)   # holds by construction
+
+lo, hi = model.predict(X_test, kind="interval", alpha=0.1).T   # central 90%
+point = model.predict(X_test, kind="mean")                     # tau-integrated mean
+
+print(qm.format_report(model.report(X_test, y_test)))  # CRPS, pinball, coverage, width
+```
+
+The default grid is `0.05, 0.10, ... 0.95`. `kind="interval"` reads the two levels off
+that grid and raises if `alpha` asks for levels it was not fitted for, so pass your own
+grid when you want a specific interval:
+
+```python
+model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
+                                      random_state=0).fit(X_train, y_train)
+lo, med, hi = model.predict(X_test).T
+```
+
+Raw intervals come out too wide, because boosting shrinks every round's step and the
+grid never fully contracts. `conformalize=True` calibrates them:
+
+```python
+model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9], conformalize=True,
+                                      random_state=0).fit(X_train, y_train)
+lo, med, hi = model.predict(X_test).T
+print(model.conformal_scale_)                              # < 1 means the fit was too wide
+print(np.mean((y_test >= lo) & (y_test <= hi)))            # ~0.80, the nominal level
+```
+
+The calibration fold is carved out before the early-stopping split, so it influences
+neither the fit nor the stopping point. See [Interval
+calibration](quantiles.md#interval-calibration) for what it guarantees.
+
+### One level at a time
+
+Set `loss="Quantile"` and the level `alpha` on the ordinary regressor. For a prediction
+interval that way, fit one model per quantile — note that nothing stops these three from
+crossing each other:
 
 ```python
 lo = ChimeraBoostRegressor(loss="Quantile", alpha=0.05, random_state=0).fit(X_train, y_train)

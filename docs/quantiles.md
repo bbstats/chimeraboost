@@ -5,17 +5,33 @@ single booster. One tree structure per round serves every level, and each leaf h
 K-vector with one entry per level.
 
 ```python
+import numpy as np
 from chimeraboost import ChimeraBoostQuantileRegressor
+from chimeraboost import quantile_metrics as qm
 
-model = ChimeraBoostQuantileRegressor().fit(X_train, y_train)
+model = ChimeraBoostQuantileRegressor(random_state=0).fit(X_train, y_train)
 
 Q = model.predict(X_test)                            # (n_samples, 19)
-lo, hi = model.predict(X_test, kind="interval", alpha=0.1).T
-mean = model.predict(X_test, kind="mean")
+model.quantiles_                                     # the level for each column
+lo, hi = model.predict(X_test, kind="interval", alpha=0.1).T   # central 90%
+mean = model.predict(X_test, kind="mean")            # tau-integrated point prediction
+
+print(qm.format_report(model.report(X_test, y_test)))
+print(np.mean((y_test >= lo) & (y_test <= hi)))      # realized 90% coverage
 ```
 
 The default grid is 0.05, 0.10, ... 0.95. Pass your own with `quantiles=[...]`,
 ascending, unique, and strictly inside (0, 1). Column `k` of `predict` is level `k`.
+`kind="interval"` reads its two levels straight off the grid and raises if they are not
+on it, so fit the levels you intend to use:
+
+```python
+model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
+                                      random_state=0).fit(X_train, y_train)
+lo, med, hi = model.predict(X_test).T
+```
+
+More worked snippets are in [Recipes](recipes.md#quantile-regression).
 
 ## Predictions never cross
 
@@ -39,6 +55,7 @@ fixes it:
 
 ```python
 model = ChimeraBoostQuantileRegressor(conformalize=True).fit(X, y)
+print(model.conformal_scale_)      # one factor per level; below 1 means the fit was too wide
 ```
 
 This holds out `calibration_fraction` of the rows **before** the early-stopping split,
