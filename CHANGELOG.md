@@ -25,7 +25,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   The split search runs once per round instead of once per level, so the
   saving grows with data width: **3.4x the fit speed of 19 independent
   boosters at 5 features, 4.8x at 32, 7.8x at 128**, with pinball loss within
-  3% throughout and better on wide data. `conformalize=True` calibrates the
+  3% averaged over the grid (a single level can trade more against a dedicated
+  fit — see the quantiles guide) and better on wide data. `conformalize=True` calibrates the
   intervals on a fold held out before the early-stopping split (worst coverage
   error 0.7 points at n = 10 000). New `chimeraboost.quantile_metrics` scores
   a predicted grid: per-level pinball, CRPS, and coverage with width.

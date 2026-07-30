@@ -100,6 +100,13 @@ how wide the data is: roughly 3.4x the fit speed of 19 independent boosters at 5
 features, 4.8x at 32, and 7.8x at 128. Accuracy stays within 3% of per-level models on
 pinball loss throughout, and comes out better on wide data.
 
+That 3% is an average over the whole grid; a single level can trade more, because every
+level shares one tree structure per round. On data whose signal takes many rounds to
+resolve, the median column of the default 19-level grid has measured up to 18% worse
+than a dedicated `quantiles=[0.5]` fit, with a 3-level grid recovering most of the gap
+— so fit only the levels you need when per-level accuracy matters more than the full
+distribution.
+
 ## Tuning
 
 Two defaults are set for this head rather than inherited. `depth` is 4, because deep

@@ -1,8 +1,22 @@
 # ChimeraBoost — Project Status & Briefing
 
-*Last updated 2026-06-02. Self-contained handoff doc: what the model is, what we've
+*Written 2026-06-02 as a self-contained handoff doc: what the model is, what we've
 shipped, what we've tried and rejected, where we stand, and the benchmarking loop we
-develop against.*
+develop against. Kept as a historical briefing; see the addendum for what has
+changed since.*
+
+> **Addendum 2026-07-30.** The pipeline in §3/§8 has been superseded: the OpenML
+> one-shot gate was **retired 2026-07-27** (eight of its 29 datasets were exact-name
+> Grinsztajn members), decisions now run on synthetic → Grinsztajn + high-card with
+> per-stratum sign tests (`run_benchmarks.py --decide`), the 22-dataset public suite
+> is post-hoc validation only, and **TabArena is the one sealed holdout** (official
+> leaderboard Elo 1278, rank 31/68, 2026-07-23). Headline strength axis is
+> head-to-head win rate (since 2026-07-18). Major features shipped since this
+> briefing: quantized histograms (default-on), the SELECT `quality` ladder with
+> `refit_full` and the REPLAY structure-transfer refit (default-on), A1 vector-leaf
+> multiclass, the custom objective hook, and `ChimeraBoostQuantileRegressor` (0.26.0)
+> — one booster, K-vector leaves, structurally non-crossing quantiles. Current
+> standings live in `benchmarks/`, not here.
 
 ---
 
