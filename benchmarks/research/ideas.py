@@ -132,7 +132,3 @@ def get(name):
     if name not in IDEAS:
         raise KeyError(f"unknown idea {name!r}; known: {sorted(IDEAS)}")
     return IDEAS[name]
-
-
-def implemented_ideas():
-    return [n for n, spec in IDEAS.items() if spec["implemented"]]

@@ -70,10 +70,6 @@ BINARY = [
 ALL = GAP + CONTROL + BINARY
 
 
-def _numeric_matrix(X, cols):
-    return np.column_stack([X[:, i].astype(np.float64) for i in cols])
-
-
 def _augment(Xtr, Xte, pairs, kind):
     """Append cross columns for the given (i, j) index pairs. kind in
     {diff, prod, both}. Appended at the END so cat indices stay valid."""

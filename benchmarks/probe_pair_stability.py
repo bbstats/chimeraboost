@@ -14,7 +14,6 @@ Run:
     python benchmarks/probe_pair_stability.py [--k 100] [--seeds 3]
 """
 import argparse
-import collections
 
 import numpy as np
 from sklearn.model_selection import train_test_split
