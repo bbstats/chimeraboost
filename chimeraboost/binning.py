@@ -101,13 +101,75 @@ def _weighted_quantiles(values, weights, qs):
     return np.interp(qs, pos, v)
 
 
+def _greedy_borders(uniq, mass, max_bins):
+    """Borders over distinct values when even-mass quantiles have collapsed.
+
+    A value holding at least an even bin's share of mass gets isolated between
+    the midpoints to its neighbors, and the budget it does not consume is
+    re-spread over the remaining values by mass. Pure even-mass splitting
+    cannot do this: every quantile level lands on the heavy value, the borders
+    dedup to one edge equal to that value, and (with the "border <= v goes
+    right" convention) that edge separates nothing -- the feature silently
+    dies. Borders always sit strictly between distinct values, like the
+    few-uniques branch."""
+    total = float(mass.sum())
+    # Mark heavy values iteratively: removing one from the pool lowers the
+    # even share of what remains, which can expose the next. Capped so the
+    # border budget below cannot overflow even on pathological mass profiles.
+    heavy = np.zeros(uniq.size, dtype=np.bool_)
+    max_heavy = (max_bins - 1) // 2
+    while int(heavy.sum()) < max_heavy:
+        rest = total - float(mass[heavy].sum())
+        thr = rest / (max_bins - int(heavy.sum()))
+        new = (~heavy) & (mass >= thr)
+        if not new.any():
+            break
+        if int(heavy.sum()) + int(new.sum()) > max_heavy:
+            cand = np.where(new)[0]
+            room = max_heavy - int(heavy.sum())
+            heavy[cand[np.argsort(mass[cand])[::-1][:room]]] = True
+            break
+        heavy |= new
+    n_heavy = int(heavy.sum())
+    # Each heavy value costs up to two borders (before and after); the light
+    # mass splits evenly over the budget that remains.
+    light_total = total - float(mass[heavy].sum())
+    target = light_total / max(1, max_bins - 1 - 2 * n_heavy)
+    budget = max_bins - 1
+    borders = []
+    acc = 0.0
+    for i in range(uniq.size):
+        if len(borders) >= budget:
+            break
+        if heavy[i]:
+            if acc > 0.0:
+                # Close the light run before the heavy value so it gets a
+                # bin of its own.
+                borders.append((uniq[i - 1] + uniq[i]) / 2.0)
+                acc = 0.0
+            if i < uniq.size - 1 and len(borders) < budget:
+                borders.append((uniq[i] + uniq[i + 1]) / 2.0)
+        else:
+            acc += mass[i]
+            if acc >= target and i < uniq.size - 1:
+                borders.append((uniq[i] + uniq[i + 1]) / 2.0)
+                acc = 0.0
+    return np.asarray(borders, dtype=np.float64)
+
+
 def _feature_borders(col, max_bins, weights=None):
     """Quantile borders for one numeric column, ignoring NaNs.
 
     ``weights`` (per row, aligned with ``col``) makes the borders sample-weight
     aware: zero-weight rows are dropped outright and fractional weights steer the
     quantiles, so a row the caller zeroed out cannot place a bin edge. ``None``
-    is the unweighted fast path, unchanged from before this argument existed."""
+    is the unweighted fast path, unchanged from before this argument existed.
+
+    Columns whose quantile levels all land on distinct borders keep the plain
+    even-mass quantile borders, bit-identical to before. Colliding levels mean
+    a value holds more than an even bin's share of mass; those columns switch
+    to `_greedy_borders`, which isolates such values instead of letting the
+    collapsed edge kill the column."""
     finite_mask = np.isfinite(col)
     finite = col[finite_mask]
     if weights is None:
@@ -118,8 +180,12 @@ def _feature_borders(col, max_bins, weights=None):
             # Few distinct values: put a border between each pair.
             return ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
         qs = np.linspace(0.0, 1.0, max_bins + 1)[1:-1]
-        borders = np.quantile(finite, qs)
-        return np.unique(borders).astype(np.float64)
+        borders = np.unique(np.quantile(finite, qs))
+        if borders.size == qs.size:
+            return borders.astype(np.float64)
+        counts = np.zeros(uniq.size)
+        np.add.at(counts, np.searchsorted(uniq, finite), 1.0)
+        return _greedy_borders(uniq, counts, max_bins)
     # Weighted path: a zero-weight row does not exist for border purposes.
     fw = weights[finite_mask]
     pos = fw > 0.0
@@ -130,8 +196,12 @@ def _feature_borders(col, max_bins, weights=None):
     if uniq.size <= max_bins:
         return ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
     qs = np.linspace(0.0, 1.0, max_bins + 1)[1:-1]
-    borders = _weighted_quantiles(finite, fw, qs)
-    return np.unique(borders).astype(np.float64)
+    borders = np.unique(_weighted_quantiles(finite, fw, qs))
+    if borders.size == qs.size:
+        return borders.astype(np.float64)
+    wmass = np.zeros(uniq.size)
+    np.add.at(wmass, np.searchsorted(uniq, finite), fw)
+    return _greedy_borders(uniq, wmass, max_bins)
 
 
 class Binner:

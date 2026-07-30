@@ -5,6 +5,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Fixed
+- **A column dominated by its minimum value no longer loses its bins.** When
+  one value holds more than an even bin's share of the mass (sparse count
+  features: mostly zeros), the quantile borders collapsed onto that value and
+  the whole column silently binned as constant. Colliding quantile levels now
+  trigger a greedy border pass that isolates heavy values in bins of their own
+  and spreads the remaining budget over the rest by mass. Columns without
+  collisions keep bit-identical borders.
 - **`eval_set` targets are validated like training targets.** A NaN/inf in the
   validation `y` (or a value outside the loss's domain, e.g. a zero with
   `loss="Gamma"`, or a custom `eval_metric` returning NaN) made every

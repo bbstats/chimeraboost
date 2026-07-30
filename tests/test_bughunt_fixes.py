@@ -383,6 +383,78 @@ def test_bagged_fit_with_groups_smoke():
     assert np.isfinite(m.predict(X)).all()
 
 
+# ------------------------------------------------- binner heavy-hitter fix
+
+
+def test_binner_dominant_minimum_does_not_collapse():
+    """99%+ mass on the minimum used to collapse the borders to [min], which
+    (border <= v goes right) binned every row identically -- a perfectly
+    predictive sparse feature silently died."""
+    from chimeraboost.binning import _feature_borders
+
+    rng = np.random.default_rng(14)
+    col = np.zeros(20_000)
+    nz = rng.choice(20_000, size=400, replace=False)
+    col[nz] = rng.uniform(1, 100, size=400)
+    borders = _feature_borders(col, 128)
+    assert borders.size > 50
+    assert borders[0] > 0.0                 # zeros isolated in their own bin
+    assert borders[0] < 1.0                 # below the smallest nonzero
+
+
+def test_binner_dominant_minimum_feature_stays_predictive():
+    rng = np.random.default_rng(15)
+    n = 20_000
+    col = np.zeros(n)
+    nz = rng.choice(n, size=400, replace=False)
+    col[nz] = rng.uniform(1, 100, size=400)
+    y = np.where(col > 0, 100.0, 0.0) + 0.1 * rng.normal(size=n)
+    m = ChimeraBoostRegressor(n_estimators=30, random_state=0).fit(
+        col.reshape(-1, 1), y)
+    lo = m.predict(np.array([[0.0]]))[0]
+    hi = m.predict(np.array([[50.0]]))[0]
+    assert hi - lo > 90.0
+
+
+def test_binner_non_colliding_borders_bit_identical():
+    """Columns whose quantile levels land on distinct borders must keep the
+    plain quantile borders exactly -- the fallback only fires on collision."""
+    from chimeraboost.binning import _feature_borders
+
+    rng = np.random.default_rng(16)
+    col = rng.normal(size=5000)             # continuous: no collisions
+    got = _feature_borders(col, 128)
+    qs = np.linspace(0.0, 1.0, 129)[1:-1]
+    np.testing.assert_array_equal(got, np.unique(np.quantile(col, qs)))
+
+
+def test_binner_weighted_dominant_minimum():
+    from chimeraboost.binning import _feature_borders
+
+    rng = np.random.default_rng(17)
+    n = 20_000
+    col = np.zeros(n)
+    nz = rng.choice(n, size=400, replace=False)
+    col[nz] = rng.uniform(1, 100, size=400)
+    w = np.ones(n)
+    borders = _feature_borders(col, 128, weights=w)
+    assert borders.size > 50
+    assert 0.0 < borders[0] < 1.0
+
+
+def test_binner_dominant_maximum_still_fine():
+    from chimeraboost.binning import _feature_borders
+
+    rng = np.random.default_rng(18)
+    n = 20_000
+    col = np.full(n, 100.0)
+    nz = rng.choice(n, size=400, replace=False)
+    col[nz] = rng.uniform(0, 99, size=400)
+    borders = _feature_borders(col, 128)
+    assert borders.size > 50
+    assert borders[-1] > 99.0               # the tied max isolated above
+
+
 def test_clean_eval_set_still_fits():
     X, y = _toy_regression(800)
     Xv, yv = _toy_regression(200, seed=1)
