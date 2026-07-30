@@ -63,6 +63,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   bit-identical, so predictions are unchanged. `warmup()` now derives its
   parallel-batch row count from the threshold rather than hardcoding it, so a
   future change cannot silently leave the parallel kernel uncompiled.
+- **Binning is up to ~4x faster on zero-inflated columns and ~3x faster on
+  dense ones.** The greedy border pass walked every distinct value in a Python
+  loop; it is now a numba kernel, its per-value mass is read off the sort's run
+  lengths instead of a `searchsorted` + `np.add.at` pass, and the quantile
+  probe partitions the already-sorted copy in place. Borders are bit-identical
+  throughout (pinned against transcriptions of the old code). 200k x 30
+  zero-inflated: 1.34 s -> 0.33 s; dense: 0.29 s -> 0.10 s.
+- **Bagged members draw whole groups when `groups` is passed.** The
+  group-disjoint out-of-bag eval set introduced above was correct but dead in
+  practice: a typical 80% row draw touches essentially every group, so it came
+  back empty and every grouped member fell back to its auto-split. Drawing
+  `max_samples` of the *groups* (a cluster bootstrap at 1.0) always holds at
+  least one group out, so members early-stop on groups they never saw and no
+  longer carve a validation slice out of their own sample. Held-out-group
+  strength is unchanged on a 24-config synthetic panel (11W-13L, median
+  +0.05%) with ~20% faster bagged fits. `groups=None` draws are byte-identical
+  to before.
 
 ### Added
 - **`ChimeraBoostQuantileRegressor`: a whole predictive distribution from one
