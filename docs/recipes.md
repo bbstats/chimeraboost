@@ -196,7 +196,8 @@ early-stopping metric stays unweighted.
 Regressors average predictions; classifiers soft-vote calibrated probabilities. Each
 member trains on `max_samples` (default 0.8) of the rows drawn without replacement,
 which beats the classic bootstrap on both accuracy and fit time, and early-stops on
-its own unsampled rows.
+its own unsampled rows. With `groups`, each member draws whole groups instead of
+rows and early-stops on the groups it never saw.
 
 ```python
 reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)

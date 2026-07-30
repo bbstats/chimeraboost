@@ -116,6 +116,41 @@ def _weighted_quantiles(values, weights, qs):
     return np.interp(qs, pos, v)
 
 
+@njit(cache=True)
+def _greedy_border_fill(uniq, mass, heavy, target, budget):
+    """Compiled twin of the border-building sweep in `_greedy_borders`.
+
+    A straight transcription of the former Python loop: same statement order,
+    same float64 arithmetic, so the borders are bit-identical. Only the sweep
+    lives here -- the mass sums and heavy-value marking stay in numpy above,
+    because numba's reductions do not match numpy's pairwise summation
+    bit-for-bit and `target` must not move."""
+    n = uniq.size
+    borders = np.empty(budget, dtype=np.float64)
+    nb = 0
+    acc = 0.0
+    for i in range(n):
+        if nb >= budget:
+            break
+        if heavy[i]:
+            if acc > 0.0:
+                # Close the light run before the heavy value so it gets a
+                # bin of its own.
+                borders[nb] = (uniq[i - 1] + uniq[i]) / 2.0
+                nb += 1
+                acc = 0.0
+            if i < n - 1 and nb < budget:
+                borders[nb] = (uniq[i] + uniq[i + 1]) / 2.0
+                nb += 1
+        else:
+            acc += mass[i]
+            if acc >= target and i < n - 1:
+                borders[nb] = (uniq[i] + uniq[i + 1]) / 2.0
+                nb += 1
+                acc = 0.0
+    return borders[:nb].copy()
+
+
 def _greedy_borders(uniq, mass, max_bins):
     """Borders over distinct values when even-mass quantiles have collapsed.
 
@@ -160,26 +195,13 @@ def _greedy_borders(uniq, mass, max_bins):
     light_bins = max(1, max_bins // 16,
                      int(round((max_bins - n_heavy) * (light_total / total))))
     target = light_total / light_bins
-    budget = max_bins - 1
-    borders = []
-    acc = 0.0
-    for i in range(uniq.size):
-        if len(borders) >= budget:
-            break
-        if heavy[i]:
-            if acc > 0.0:
-                # Close the light run before the heavy value so it gets a
-                # bin of its own.
-                borders.append((uniq[i - 1] + uniq[i]) / 2.0)
-                acc = 0.0
-            if i < uniq.size - 1 and len(borders) < budget:
-                borders.append((uniq[i] + uniq[i + 1]) / 2.0)
-        else:
-            acc += mass[i]
-            if acc >= target and i < uniq.size - 1:
-                borders.append((uniq[i] + uniq[i + 1]) / 2.0)
-                acc = 0.0
-    return np.asarray(borders, dtype=np.float64)
+    # The O(n_distinct) sweep is compiled: in pure Python it made Binner.fit
+    # ~4x slower on zero-inflated columns (1.34 s vs 0.29 s dense at 200k
+    # rows x 30 features).
+    return _greedy_border_fill(
+        np.ascontiguousarray(uniq, dtype=np.float64),
+        np.ascontiguousarray(mass, dtype=np.float64),
+        heavy, float(target), int(max_bins - 1))
 
 
 def _feature_borders(col, max_bins, weights=None):
@@ -200,16 +222,32 @@ def _feature_borders(col, max_bins, weights=None):
     if weights is None:
         if finite.size == 0:
             return np.array([], dtype=np.float64)
-        uniq = np.unique(finite)
+        # Open-coded np.unique (one sort + a run-start mask) so the greedy
+        # path below can read its per-value mass off the run lengths for
+        # free. np.unique's counts would cost every dense column a little,
+        # and the old searchsorted + np.add.at pass cost the greedy columns
+        # more than the greedy sweep itself. Counts are exact integers any
+        # way they are computed, so borders are bit-identical.
+        sv = np.sort(finite)
+        run_start = np.empty(sv.size, dtype=np.bool_)
+        run_start[0] = True
+        np.not_equal(sv[1:], sv[:-1], out=run_start[1:])
+        uniq = sv[run_start]
         if uniq.size <= max_bins:
             # Few distinct values: put a border between each pair.
             return ((uniq[:-1] + uniq[1:]) / 2.0).astype(np.float64)
         qs = np.linspace(0.0, 1.0, max_bins + 1)[1:-1]
-        borders = np.unique(np.quantile(finite, qs))
+        # Quantiles of the sorted copy, partitioned in place: identical values
+        # (quantile is order-agnostic), but skips np.quantile's internal copy
+        # and partitions near-instantly. Only sv.size is read below this line,
+        # so scrambling sv is fine.
+        borders = np.unique(np.quantile(sv, qs, overwrite_input=True))
         if borders.size == qs.size:
             return borders.astype(np.float64)
-        counts = np.zeros(uniq.size)
-        np.add.at(counts, np.searchsorted(uniq, finite), 1.0)
+        starts = np.nonzero(run_start)[0]
+        counts = np.empty(starts.size, dtype=np.float64)
+        counts[:-1] = np.diff(starts)
+        counts[-1] = sv.size - starts[-1]
         return _greedy_borders(uniq, counts, max_bins)
     # Weighted path: a zero-weight row does not exist for border purposes.
     fw = weights[finite_mask]

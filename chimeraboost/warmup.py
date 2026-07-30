@@ -215,6 +215,15 @@ def warmup(verbose=False, background=False, shap=False):
     _grouped_kahan_sum(np.zeros(4, dtype=np.int64), np.ones(4), 2)
     _log("gdiff group-sum kernel")
 
+    # The greedy-border sweep only fires when a column's quantile borders
+    # collapse (one value holding more than an even bin's share of mass) --
+    # none of the warmup fits' columns do, so compile it directly with the
+    # dtypes `_greedy_borders` passes (same treatment as the gdiff kernel).
+    from .binning import _greedy_border_fill
+    _greedy_border_fill(np.arange(4, dtype=np.float64), np.ones(4),
+                        np.zeros(4, dtype=np.bool_), 2.0, 3)
+    _log("greedy-border sweep kernel")
+
     # The fused level kernel (`_build_split_descend_q`) has one signature for
     # both its small-n and large-n branches, so the small fits above compile
     # everything on the tree-build path — no direct kernel calls needed.

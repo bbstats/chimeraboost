@@ -409,14 +409,60 @@ def _member_oob_eval_indices(idx, n, groups):
     ``groups`` it is further restricted to rows whose group never appears in
     the sample -- otherwise the member's stopping signal comes from rows
     correlated with its training rows, exactly the leakage the ``groups``
-    argument promises to prevent. May return an empty array (e.g. every group
-    straddles the sample); the caller then falls back to the member's own
-    auto-split, which is group-aware."""
+    argument promises to prevent. Because grouped members draw whole groups
+    (``_member_sample_indices``), the excluded-for-straddling set is normally
+    just the rare-class donor's group; before group draws existed, a typical
+    80% row draw touched essentially every group and this returned zero rows
+    on real data, silently disabling OOB early stopping. May still return an
+    empty array (e.g. a cluster bootstrap that drew every group); the caller
+    then falls back to the member's own auto-split, which is group-aware."""
     oob_mask = np.ones(n, dtype=np.bool_)
     oob_mask[idx] = False
     if groups is not None:
         oob_mask &= ~np.isin(groups, np.unique(groups[idx]))
     return np.where(oob_mask)[0]
+
+
+def _member_sample_indices(n, ms, seed, groups):
+    """Row indices for one bag member's training sample.
+
+    Without ``groups``: ``ms`` of the ``n`` rows drawn without replacement
+    ("subagging"), or a classic full-size with-replacement bootstrap at
+    ``ms >= 1.0`` -- byte-identical to the draws made before this helper
+    existed (same rng construction, same single call).
+
+    With ``groups``: the same recipe applied to whole groups -- ``ms`` of the
+    groups without replacement (each contributing all of its rows), or a
+    full-size cluster bootstrap of groups at ``ms >= 1.0``. Drawing rows
+    would leave essentially every group straddling the sample, which both
+    leaks group structure into the member AND empties the group-disjoint OOB
+    set `_member_oob_eval_indices` builds. At least one group is always held
+    out (the draw is capped at ``n_groups - 1``), so the OOB eval set is
+    non-empty by construction. ``ms`` counts groups, not rows, so a member's
+    row count varies with the sizes of the groups it drew. A single all-rows
+    group falls back to the row draw: there is nothing to hold out."""
+    rng = np.random.default_rng(seed)
+    if groups is not None:
+        ug = np.unique(groups)
+        if ug.size >= 2:
+            if ms >= 1.0:
+                # Cluster bootstrap: n_groups draws with replacement; a group
+                # drawn twice appears twice (duplicates are integer weights,
+                # exactly like the row bootstrap).
+                drawn = rng.integers(0, ug.size, size=ug.size)
+                order = np.argsort(groups, kind="stable")
+                sg = groups[order]
+                starts = np.searchsorted(sg, ug, side="left")
+                ends = np.searchsorted(sg, ug, side="right")
+                return np.concatenate(
+                    [order[starts[g]:ends[g]] for g in drawn])
+            m = max(1, min(ug.size - 1, int(round(ms * ug.size))))
+            drawn = rng.choice(ug.size, size=m, replace=False)
+            return np.where(np.isin(groups, ug[drawn]))[0]
+    if ms >= 1.0:
+        return rng.integers(0, n, size=n)
+    m = max(1, int(round(ms * n)))
+    return rng.choice(n, size=m, replace=False)
 
 
 def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
@@ -426,7 +472,10 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     (``n_ensembles=None``) and its own seed, fit on its own random row sample:
     ``max_samples`` (default 0.8) of the rows drawn WITHOUT replacement
     ("subagging"; ``max_samples=1.0`` restores the classic full-size
-    with-replacement bootstrap). Because a member is the same estimator class,
+    with-replacement bootstrap). With ``groups`` the same recipe draws whole
+    groups instead of rows, so the held-out groups form each member's
+    group-disjoint OOB eval set (see ``_member_sample_indices``). Because a
+    member is the same estimator class,
     all per-model machinery â€” binary/multiclass dispatch, ``cat_features``,
     the early-stopping auto-split, temperature scaling â€” is reused unchanged,
     and ``cat_features``/``sample_weight``/``groups`` forward naturally (which
@@ -502,13 +551,12 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         # 0.8n compute is more effective data AND less work — measured
         # stronger and faster on both decision suites (gr 54W-5L +0.94%,
         # Brier 23W-0L, fit 0.87x; hc Brier 8W-0L, fit 0.73x).
-        # max_samples=1.0 restores the classic full-size bootstrap.
+        # max_samples=1.0 restores the classic full-size bootstrap. With
+        # ``groups`` the draw is over whole groups instead of rows, so the
+        # held-out groups give the member a non-empty group-disjoint OOB
+        # eval set (see _member_sample_indices).
         ms = float(estimator.max_samples)
-        if ms >= 1.0:
-            idx = np.random.default_rng(seed).integers(0, n, size=n)
-        else:
-            m = max(1, int(round(ms * n)))
-            idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
+        idx = _member_sample_indices(n, ms, seed, groups)
         # A rare class can be missed by the draw entirely, and a member cannot
         # fit on a single class ("Need at least 2 classes" would crash the
         # whole bag on data whose y plainly has two). Inject one row of the
@@ -1336,7 +1384,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         bootstrap on strength and fit time (a full-size bootstrap holds
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
-        each member's early-stopping eval set either way.
+        each member's early-stopping eval set either way. When ``groups``
+        is passed to ``fit``, the draw is over whole groups instead of
+        rows (a cluster bootstrap at 1.0), so each member's eval set is
+        made of groups it never trained on.
     refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / calibration have used it), retrain the winning
@@ -2041,7 +2092,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         bootstrap on strength and fit time (a full-size bootstrap holds
         only ~0.63n unique rows at n rows of compute). 1.0 restores the
         classic full-size with-replacement bootstrap. Unsampled rows are
-        each member's early-stopping eval set either way.
+        each member's early-stopping eval set either way. When ``groups``
+        is passed to ``fit``, the draw is over whole groups instead of
+        rows (a cluster bootstrap at 1.0), so each member's eval set is
+        made of groups it never trained on.
     refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / temperature scaling have used it), retrain the
