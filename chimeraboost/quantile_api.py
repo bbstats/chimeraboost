@@ -53,7 +53,17 @@ def _auto_min_child_weight(taus):
     ``min_data_in_leaf`` -- convenient when comparing the two.
     """
     edge = min(float(taus[0]), 1.0 - float(taus[-1]))
-    return float(np.ceil(1.0 / max(edge, 1e-9)))
+    inv = 1.0 / max(edge, 1e-9)
+    # `1.0 - taus[-1]` is not exact in binary: for a symmetric grid such as
+    # (0.1, 0.5, 0.9) it lands a couple of ulps BELOW 0.1, so the reciprocal
+    # creeps just past 10 and `ceil` rounds the floor up to 11. Snap to a whole
+    # number when we are within rounding noise of one -- genuine fractions like
+    # the 3.33 of a (0.3, 0.7) grid are far outside the tolerance and still
+    # round up, which is the intended behaviour.
+    nearest = round(inv)
+    if abs(inv - nearest) <= 1e-9 * max(1.0, abs(inv)):
+        inv = float(nearest)
+    return float(np.ceil(inv))
 
 
 def _median_index(taus):
