@@ -544,13 +544,21 @@ class _BaseBooster:
         stopping (built past the best iteration, then truncated) contribute
         nothing. The old running accumulator counted them -- with patience 50,
         up to 50 dead trees' gains skewed the ranking."""
-        imp = np.zeros(self.prep_.n_input_features_)
-        fmap = self.prep_.feature_map_
+        feats, gains = [], []
         for item in self.trees_:
             # scalar booster stores trees; multiclass stores rounds of K trees
             for tree in (item if isinstance(item, list) else (item,)):
-                for f, g in zip(tree.splits_feat, tree.gains):
-                    imp[fmap[f]] += g
+                feats.append(tree.splits_feat)
+                gains.append(tree.gains)
+        if not feats:
+            return np.zeros(self.prep_.n_input_features_)
+        # One bincount over every split in iteration order: its sequential C
+        # accumulation reproduces the old per-split Python loop's addition
+        # order exactly, at none of its interpreter cost.
+        fmap = self.prep_.feature_map_
+        imp = np.bincount(fmap[np.concatenate(feats)],
+                          weights=np.concatenate(gains),
+                          minlength=self.prep_.n_input_features_)
         s = imp.sum()
         return imp / s if s > 0 else imp
 
