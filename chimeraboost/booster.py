@@ -714,7 +714,11 @@ class GradientBoosting(_BaseBooster):
                 # warning for those losses is honest only with this guard.
                 if not adjusts_leaves:
                     self._refine_leaf_values(tree, leaf, F, y, w)
-                F += tree.values[leaf]
+                # Fused in-place add: F += tree.values[leaf] without the
+                # n-length gather temporary. The (n, 1) views are C-contiguous,
+                # so this reuses the vector boosters' compiled signature.
+                _add_leaf_values(F.reshape(-1, 1), tree.values.reshape(-1, 1),
+                                 leaf)
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
                     lambda: np.add(Fv, tree.predict(Xvb), out=Fv)):
@@ -964,11 +968,11 @@ class MulticlassBoosting(_BaseBooster):
                         np.ascontiguousarray(hess[:, k]) * coupling,
                         tree.values.shape[0], self.l2_leaf_reg, self.lr_)
             else:
-                F += tree.values[leaf]
+                _add_leaf_values(F, tree.values, leaf)
             self.trees_.append(tree)
             if self._round_epilogue(
                     m, F, Y, w, Fv, Yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                    lambda: _add_leaf_values(Fv, tree.values, tree.apply(Xvb))):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
@@ -1351,8 +1355,10 @@ class MultiQuantileBoosting(_BaseBooster):
             # here would score weighted gradient sums against row counts, so
             # the structure would optimize a different objective than the
             # leaf values are fit to (and min_child_weight would count rows
-            # instead of weight mass).
-            h_s = np.ones(n_samples) if w is None else w.copy()
+            # instead of weight mass). w_row already holds exactly these
+            # values, and the build path never writes to its hessian, so the
+            # hoisted buffer is safe to share across rounds.
+            h_s = w_row
             # One MVS row selection per round, taken from the projection and
             # reused for the leaf refit, so leaf values see exactly the rows
             # the split search saw.
@@ -1414,7 +1420,7 @@ class MultiQuantileBoosting(_BaseBooster):
             self.trees_.append(tree)
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
-                    lambda: np.add(Fv, tree.values[tree.apply(Xvb)], out=Fv)):
+                    lambda: _add_leaf_values(Fv, tree.values, tree.apply(Xvb))):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
