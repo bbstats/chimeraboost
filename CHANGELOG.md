@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Fixed
+- **`max_bins` below 16 no longer crashes on a dominated column.** The greedy
+  border pass floored the light region's bin budget at `max_bins // 16`, which
+  is zero under 16; a column whose mass sits overwhelmingly on one value then
+  divided by zero. `max_bins` of 3, 4 and 6 all failed outright on a 90%-zeros
+  column. Budgets of 16 and up keep their exact allocation.
+- **A bagged classifier survives a one-row member draw.** The rare-class guard
+  added below overwrote a random drawn row with a donor of the missing class;
+  when the draw held exactly one row that replaced the only row, so the member
+  still saw a single class and raised "Need at least 2 classes" anyway. Tiny-`n`
+  bags with a small `max_samples` now grow the draw to two rows instead.
 - **A column dominated by its minimum value no longer loses its bins.** When
   one value holds more than an even bin's share of the mass (sparse count
   features: mostly zeros), the quantile borders collapsed onto that value and
@@ -43,6 +53,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   rows now exclude every group present in its training sample (falling back
   to the member's group-aware auto-split when none remain). Previously the
   group boundary was silently ignored for `n_ensembles > 1`.
+
+### Changed
+- **Small-batch `predict` is up to ~1.4x faster.** The serial/parallel kernel
+  dispatch threshold assumed the parallel forest walk overtakes serial at about
+  5 rows; re-measuring both kernels on the same packed forest puts the crossover
+  between 32 and 64, so every 5-to-32-row predict was paying thread fork/join
+  for nothing. The threshold moves from 4 to 32. The two kernels are
+  bit-identical, so predictions are unchanged. `warmup()` now derives its
+  parallel-batch row count from the threshold rather than hardcoding it, so a
+  future change cannot silently leave the parallel kernel uncompiled.
 
 ### Added
 - **`ChimeraBoostQuantileRegressor`: a whole predictive distribution from one

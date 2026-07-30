@@ -127,6 +127,14 @@ def warmup(verbose=False, background=False, shap=False):
     t0 = time.perf_counter()
     rng = np.random.default_rng(0)
 
+    # Row count that reaches the PARALLEL predict kernels. Derived from the
+    # dispatch threshold rather than hardcoded: a raised threshold once
+    # silently pulled every warmup predict onto the serial twins, leaving the
+    # parallel forest walk to compile on the user's first real batch -- the
+    # exact stall warmup exists to prevent.
+    from .binning import _SERIAL_PREDICT_N
+    npar = _SERIAL_PREDICT_N + 1
+
     def _log(msg):
         if verbose:
             print(f"chimeraboost.warmup: {msg} ({time.perf_counter() - t0:.2f}s)")
@@ -140,16 +148,16 @@ def warmup(verbose=False, background=False, shap=False):
     y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
     clf = ChimeraBoostClassifier(n_estimators=2, random_state=0)
     clf.fit(X[128:], y[128:], cat_features=[3], eval_set=(X[:128], y[:128]))
-    clf.predict_proba(X[:8])
+    clf.predict_proba(X[:npar])
     clf.predict_proba(X[:1])   # tiny-batch serial predict kernels
     _log("binary + linear leaves + categoricals")
 
     # Multiclass (vector-leaf tree build + vector forest predictors; the
-    # 8-row call warms the parallel kernel, the 1-row call the serial twin).
+    # npar-row call warms the parallel kernel, the 1-row call the serial twin).
     ym = np.digitize(X[:320, 0], [-0.5, 0.5])
     mc = ChimeraBoostClassifier(n_estimators=2, random_state=0)
     mc.fit(X[:320, :3], ym)
-    mc.predict_proba(X[:8, :3])
+    mc.predict_proba(X[:npar, :3])
     mc.predict_proba(X[:1, :3])   # vector-leaf serial twin
     _log("multiclass")
 
@@ -162,7 +170,7 @@ def warmup(verbose=False, background=False, shap=False):
                                        n_estimators=2, random_state=0,
                                        early_stopping=False)
     qr.fit(X[:320, :3], yq)
-    qr.predict(X[:8, :3])
+    qr.predict(X[:npar, :3])
     qr.predict(X[:1, :3])      # serial twin
     # The parallel leaf-quantile kernel only runs above tree._SMALL_N rows,
     # and the weighted twins only on a weighted or subsampled fit -- both too
@@ -192,10 +200,10 @@ def warmup(verbose=False, background=False, shap=False):
     reg = ChimeraBoostRegressor(n_estimators=2, random_state=0,
                                 ordered_boosting=True)
     reg.fit(X[:320], yr, cat_features=[3], sample_weight=sw)
-    reg.predict(X[:8])
+    reg.predict(X[:npar])
     # 320 rows is below LINEAR_LEAVES_MIN_SAMPLES, so this model has constant
-    # leaves: a <= 4-row call here is the only thing that compiles the plain
-    # serial predict twin. Without it a warmed serving process still stalls
+    # leaves: a sub-threshold call here is the only thing that compiles the
+    # plain serial predict twin. Without it a warmed serving process still stalls
     # ~0.3 s on its first single-row request.
     reg.predict(X[:1])
     _log("regression + ordered boosting + weighted categoricals")
