@@ -4,6 +4,39 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Fixed
+- **`eval_set` targets are validated like training targets.** A NaN/inf in the
+  validation `y` (or a value outside the loss's domain, e.g. a zero with
+  `loss="Gamma"`, or a custom `eval_metric` returning NaN) made every
+  validation score NaN, and early stopping silently kept a one-tree model.
+  Both are errors now, raised with the cause named.
+- **A reordered or renamed `eval_set` DataFrame raises at fit**, matching the
+  predict-time guard. It was consumed positionally and silently corrupted
+  early stopping, temperature scaling, and the conformal offset. The
+  `shap_values` background matrix gets the same check.
+- **Zero-weight rows can no longer steer the post-fit calibrations.** The
+  classifier's temperature and the quantile regressor's conformal offset now
+  honor validation-row weights, as the `sample_weight` contract promises.
+- **`conformalize=True` on asymmetric quantile grids no longer breaks the
+  non-crossing guarantee.** Unpaired levels kept scale 1.0 while their
+  neighbors shrank and could be jumped; they now interpolate their factor from
+  the paired levels. A grid with no symmetric pair at all raises instead of
+  silently skipping calibration.
+- **A bagged binary fit survives a bootstrap member missing the rare class**
+  (one row of the missing class is injected) instead of crashing with "Need
+  at least 2 classes".
+- **`ordered_boosting=True` with `l2_leaf_reg=0` no longer crashes** on
+  singleton leaves (ZeroDivisionError in the leave-one-out step).
+- **Refitting on a plain array clears the previous fit's feature names**, so
+  the column-order guard no longer misfires against stale names.
+- **The multi-quantile split search weights the hessian by `sample_weight`**,
+  matching the scalar path; weighted fits previously optimized a different
+  objective in the structure than in the leaves.
+- **`groups` is honored under bagging:** a member's out-of-bag early-stopping
+  rows now exclude every group present in its training sample (falling back
+  to the member's group-aware auto-split when none remain). Previously the
+  group boundary was silently ignored for `n_ensembles > 1`.
+
 ### Added
 - **`ChimeraBoostQuantileRegressor`: a whole predictive distribution from one
   booster, with predictions that cannot cross.** One tree structure per round
