@@ -11,8 +11,10 @@ Bin layout per feature:
 The histogram width for a feature is therefore (n_borders + 2).
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
-from numba import njit, prange
+from numba import get_num_threads, njit, prange
 
 BIN_DTYPE = np.uint16
 # uint16 max is 65535; we reserve one slot for NaN, so the cap is 65534.
@@ -267,6 +269,27 @@ def _feature_borders(col, max_bins, weights=None):
     return _greedy_borders(uniq, wmass, max_bins)
 
 
+# Matrices with fewer cells than this fit their borders serially: below the
+# crossover the thread-pool spawn/join costs more than the whole pass.
+#
+# Measured 2026-07-30 (12 threads, 128 bins, dense unweighted, best of 5):
+#
+#      shape      cells    serial   parallel
+#    5000x10      50000    1.79ms     3.09ms   serial 1.7x
+#    5000x30     150000    5.31ms     7.92ms   serial 1.5x
+#   20000x10     200000    3.64ms     3.39ms   parallel 1.08x
+#   50000x10     500000    7.43ms     3.84ms   parallel 1.9x
+#  100000x30    3000000   40.24ms    12.23ms   parallel 3.3x
+#  200000x30    6000000   96.0 ms    22.3 ms   parallel 4.3x
+#
+# Zero-inflated columns gain 3.2x at 200k x 30 and the weighted path 5.5x
+# (its argsort/cumsum/interp all release the GIL). 200k cells is the first
+# size parallel wins; the penalty for being wrong near the boundary is a few
+# ms either way. Both dispatch arms run identical per-column code, so the
+# constant only affects speed, never borders.
+_PARALLEL_FIT_MIN_CELLS = 200_000
+
+
 class Binner:
     """Learns per-feature borders and maps a float matrix to bins."""
 
@@ -333,10 +356,25 @@ class Binner:
         n_features = X.shape[1]
         w = None if sample_weight is None else np.asarray(
             sample_weight, dtype=np.float64)
-        self.borders_ = [
-            _feature_borders(X[:, f], self._max_bins_for(f), w)
-            for f in range(n_features)
-        ]
+        # Every column's borders are independent (the invariant
+        # from_base_with_cross splices on), so wide-enough fits farm the
+        # columns out to a thread pool running the *same* per-column code --
+        # numpy's sort/partition/argsort release the GIL, and nothing here
+        # accumulates across features, so the borders are bit-identical to
+        # the serial loop regardless of scheduling. Pool width follows
+        # numba's thread count: fit already runs inside _thread_limit, so
+        # thread_count=1 and bagged-worker budget shares are honored.
+        n_threads = min(get_num_threads(), n_features)
+        if n_threads > 1 and X.size >= _PARALLEL_FIT_MIN_CELLS:
+            with ThreadPoolExecutor(max_workers=n_threads) as ex:
+                self.borders_ = list(ex.map(
+                    lambda f: _feature_borders(X[:, f], self._max_bins_for(f), w),
+                    range(n_features)))
+        else:
+            self.borders_ = [
+                _feature_borders(X[:, f], self._max_bins_for(f), w)
+                for f in range(n_features)
+            ]
         # +1 for the searchsorted upper bucket, +1 for the NaN bucket.
         self.n_bins_ = np.array(
             [len(b) + 2 for b in self.borders_], dtype=np.int64
