@@ -1184,7 +1184,14 @@ def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
         denom = H[l] - hess[i]
         if denom < 0.0:
             denom = 0.0
-        out[i] = -lr * (G[l] - grad[i]) / (denom + l2)
+        if denom + l2 <= 0.0:
+            # Singleton leaf (or all co-leaf rows subsampled away) with
+            # l2_leaf_reg=0: no curvature left once the row's own
+            # contribution is removed, so there is no leave-one-out step to
+            # take. Mirrors the H[l] > 0 guard in _leaf_values.
+            out[i] = 0.0
+        else:
+            out[i] = -lr * (G[l] - grad[i]) / (denom + l2)
     return out
 
 

@@ -11,14 +11,21 @@ from .preprocessing import CatTransformCache, as_model_array
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
-def _fit_temperature(raw, y, multiclass):
+def _fit_temperature(raw, y, multiclass, sample_weight=None):
     """Learn the scalar T > 0 minimizing validation log loss of sigmoid(raw/T)
     (binary) or softmax(raw/T) (multiclass). Dividing logits by T is monotonic,
     so predictions are unchanged â€” only their probabilities are recalibrated.
-    `y` is the 0/1 label (binary) or the class index (multiclass)."""
+    `y` is the 0/1 label (binary) or the class index (multiclass).
+    `sample_weight` weights the validation log loss, so a zero-weight holdout
+    row cannot steer the temperature (the sample_weight contract)."""
     from scipy.optimize import minimize_scalar
 
     raw = np.asarray(raw, dtype=np.float64)
+    w = None
+    if sample_weight is not None:
+        w = np.asarray(sample_weight, dtype=np.float64)
+        if not np.any(w > 0):
+            return 1.0
     if multiclass:
         rows = np.arange(raw.shape[0])
 
@@ -26,13 +33,13 @@ def _fit_temperature(raw, y, multiclass):
             logits = raw / T
             mx = logits.max(axis=1, keepdims=True)
             log_z = mx[:, 0] + np.log(np.exp(logits - mx).sum(axis=1))
-            return float(np.mean(log_z - logits[rows, y]))
+            return float(np.average(log_z - logits[rows, y], weights=w))
     else:
         def loss(T):
             z = raw / T
             # Stable binary cross-entropy: softplus(z) - y*z.
-            return float(np.mean(np.log1p(np.exp(-np.abs(z)))
-                                 + np.maximum(z, 0.0) - y * z))
+            return float(np.average(np.log1p(np.exp(-np.abs(z)))
+                                    + np.maximum(z, 0.0) - y * z, weights=w))
 
     res = minimize_scalar(loss, bounds=(0.05, 50.0), method="bounded",
                           options={"xatol": 1e-4})
@@ -293,7 +300,7 @@ def _resolve_cat_feature_names(cat_features, X):
     return resolved
 
 
-def _check_eval_set(eval_set, n_features):
+def _check_eval_set(eval_set, n_features, classification=False):
     """Validate a user-passed ``eval_set`` up front with a named error instead of
     a cryptic IndexError/broadcast failure deep in the booster."""
     # 2-tuple is the documented form; a 3rd element is optional per-row
@@ -321,6 +328,18 @@ def _check_eval_set(eval_set, n_features):
         raise ValueError(
             f"eval_set sample_weight has length {len(eval_set[2])}, but "
             f"eval_set X has {shape[0]} rows; they must match.")
+    if not classification:
+        # Training y is rejected on NaN/inf, but a non-finite eval y used to
+        # sail through and turn every validation score into NaN -- early
+        # stopping then silently kept round 0 and the model shipped with one
+        # tree. Classifier labels are validated by _check_eval_labels instead
+        # (string labels do not cast to float).
+        yv_arr = np.asarray(yv)
+        if yv_arr.dtype.kind in "fc" and not np.isfinite(
+                yv_arr.astype(np.float64, copy=False)).all():
+            raise ValueError(
+                "eval_set y contains NaN or infinity; validation targets "
+                "must be finite.")
 
 
 def _check_eval_labels(eval_set, y):
@@ -381,6 +400,23 @@ def _describe_nonnumeric_columns(X):
     return [f"'{c}' (index {i})"
             for i, (c, dt) in enumerate(zip(col_list, dtype_list))
             if not _is_numeric_dtype(dt)]
+
+
+def _member_oob_eval_indices(idx, n, groups):
+    """Out-of-bag row indices usable as a bag member's early-stopping eval set.
+
+    Without ``groups`` that is every row outside the member's sample. With
+    ``groups`` it is further restricted to rows whose group never appears in
+    the sample -- otherwise the member's stopping signal comes from rows
+    correlated with its training rows, exactly the leakage the ``groups``
+    argument promises to prevent. May return an empty array (e.g. every group
+    straddles the sample); the caller then falls back to the member's own
+    auto-split, which is group-aware."""
+    oob_mask = np.ones(n, dtype=np.bool_)
+    oob_mask[idx] = False
+    if groups is not None:
+        oob_mask &= ~np.isin(groups, np.unique(groups[idx]))
+    return np.where(oob_mask)[0]
 
 
 def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
@@ -473,6 +509,21 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         else:
             m = max(1, int(round(ms * n)))
             idx = np.random.default_rng(seed).choice(n, size=m, replace=False)
+        # A rare class can be missed by the draw entirely, and a member cannot
+        # fit on a single class ("Need at least 2 classes" would crash the
+        # whole bag on data whose y plainly has two). Inject one row of the
+        # most frequent missing class in that case; draws that already hold
+        # two classes -- every non-crashing fit before this guard -- are
+        # byte-identical.
+        classes = getattr(estimator, "classes_", None)
+        if classes is not None and np.unique(y[idx]).size < 2:
+            patch_rng = np.random.default_rng([int(seed), 1])
+            present = y[idx[0]]
+            missing = [c for c in classes if c != present]
+            counts = {c: int(np.sum(y == c)) for c in missing}
+            donor_class = max(missing, key=lambda c: counts[c])
+            donors = np.where(y == donor_class)[0]
+            idx[patch_rng.integers(0, idx.size)] = patch_rng.choice(donors)
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
         # Use OOB rows as the early-stopping eval set when no explicit eval_set
@@ -482,9 +533,7 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         # late, and each member builds ~38% more trees than it should.
         # OOB rows are guaranteed unseen by the member, giving a clean signal.
         if eval_set is None:
-            oob_mask = np.ones(n, dtype=np.bool_)
-            oob_mask[idx] = False
-            oob_idx = np.where(oob_mask)[0]
+            oob_idx = _member_oob_eval_indices(idx, n, groups)
             # Degenerate case: every row drawn (possible for tiny n). Fall back
             # to letting the member auto-split rather than training with no eval.
             # Carry OOB-row weights so zero-weight rows don't score the member's
@@ -781,6 +830,13 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
     estimator.n_features_in_ = nf
     if feature_names is not None:
         estimator.feature_names_in_ = feature_names
+    elif hasattr(estimator, "feature_names_in_"):
+        # Refitting on name-less input must not keep a previous fit's names:
+        # the stale set makes the column-order guard raise on the new fit's
+        # valid input -- and pass on stale-matching input, the exact silent
+        # wrong-prediction case it exists to stop. Mirrors sklearn's
+        # _check_feature_names, which deletes the attribute on such refits.
+        del estimator.feature_names_in_
     return y
 
 
@@ -1429,6 +1485,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                 classification=False)
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
+            # A reordered/renamed eval DataFrame is consumed positionally and
+            # silently wrecks early stopping (and everything calibrated on the
+            # holdout). Bag members skip this: their eval sets are built
+            # internally from already-validated parent input.
+            if not getattr(self, "_is_bag_member", False):
+                _check_feature_names_match(self, eval_set[0])
         with _quality_applied(self):
             if self.n_ensembles and self.n_ensembles > 1:
                 if callbacks is not None:
@@ -1703,13 +1765,34 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # exchangeable data (Romano, Patterson & Candes 2019).
         self.quantile_offset_ = 0.0
         if self.loss == "Quantile" and eval_set is not None:
-            resid = np.sort(
-                np.asarray(eval_set[1], dtype=np.float64)
-                - self.model_.predict_raw(eval_set[0]))
-            k = min(int(np.ceil((resid.shape[0] + 1) * self.alpha)),
-                    resid.shape[0])
-            if k >= 1:
-                self.quantile_offset_ = float(resid[k - 1])
+            resid = (np.asarray(eval_set[1], dtype=np.float64)
+                     - self.model_.predict_raw(eval_set[0]))
+            w_val = (np.asarray(eval_set[2], dtype=np.float64)
+                     if len(eval_set) > 2 and eval_set[2] is not None
+                     else None)
+            if w_val is None:
+                resid = np.sort(resid)
+                k = min(int(np.ceil((resid.shape[0] + 1) * self.alpha)),
+                        resid.shape[0])
+                if k >= 1:
+                    self.quantile_offset_ = float(resid[k - 1])
+            else:
+                # Weighted conformal rank: each row contributes its weight of
+                # mass, so a zero-weight holdout row cannot set the offset
+                # (the sample_weight contract). With uniform weights the
+                # threshold is alpha*(n+1) over unit masses -- exactly the
+                # unweighted k-th order statistic above.
+                keep = w_val > 0
+                resid, w_val = resid[keep], w_val[keep]
+                if resid.shape[0] >= 1:
+                    order = np.argsort(resid)
+                    resid, w_val = resid[order], w_val[order]
+                    total = float(w_val.sum())
+                    n_eff = resid.shape[0]
+                    thr = self.alpha * total * (n_eff + 1) / n_eff
+                    j = int(np.searchsorted(np.cumsum(w_val), thr,
+                                            side="left"))
+                    self.quantile_offset_ = float(resid[min(j, n_eff - 1)])
 
         # Full-data refit (benchmarks/REFIT_PLAN.md): the auto-split holdout
         # is a pure data tax once early stopping, selection and calibration
@@ -1806,6 +1889,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         margin-space convention."""
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+        if X_background is not None:
+            # The background matrix is consumed positionally too; a reordered
+            # DataFrame would silently skew every baseline.
+            bg = _check_predict_input(self, X_background)
+            X_background = X_background if bg is None else bg
         if self.estimators_ is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in self.estimators_]
@@ -2091,7 +2179,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=True)
         if eval_set is not None:
-            _check_eval_set(eval_set, self.n_features_in_)
+            _check_eval_set(eval_set, self.n_features_in_,
+                            classification=True)
+            if not getattr(self, "_is_bag_member", False):
+                _check_feature_names_match(self, eval_set[0])
             # Bag members are exempt: their OOB eval set may legitimately hold
             # a rare label their row sample missed, and the parent aligns
             # member probability columns to the global class set.
@@ -2258,7 +2349,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # cross_features: None (auto default) and True run the same
         # validation-selected race everywhere, multiclass included (M1);
         # explicit False disables.
-        cal_Xv = cal_y = None   # validation set used to calibrate temperature
+        cal_Xv = cal_y = cal_w = None  # validation set used to calibrate temperature
         # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
         # selection_rounds is set and the cross refit will run (pair
         # candidates exist iff >= 2 numeric columns), the base fit is only
@@ -2281,6 +2372,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             y_fit = y
             if eval_set is not None:
                 cal_Xv = eval_set[0]
+                cal_w = eval_set[2] if len(eval_set) > 2 else None
         else:
             def _make(**extra):
                 return GradientBoosting(loss="Logloss", **extra, **kw)
@@ -2290,6 +2382,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_y = (np.asarray(eval_set[1]) == self.classes_[1]).astype(np.float64)
                 # Preserve any val-row weights through the 0/1 relabeling.
                 sw_v = eval_set[2] if len(eval_set) > 2 else None
+                cal_w = sw_v
                 eval_set = (cal_Xv, cal_y, sw_v)
         self.model_ = _make()
         self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
@@ -2358,7 +2451,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.temperature_ = 1.0
         if cal_Xv is not None:
             raw = self.model_.predict_raw(cal_Xv)
-            self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass)
+            self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass,
+                                                 sample_weight=cal_w)
 
         # Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split
         # data tax after early stopping, selection and temperature scaling
@@ -2439,6 +2533,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         supported yet. ``X_background`` overrides the reference distribution."""
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+        if X_background is not None:
+            bg = _check_predict_input(self, X_background)
+            X_background = X_background if bg is None else bg
         members = self.estimators_ if self.estimators_ is not None else None
         if (members is not None and getattr(members[0], "_multiclass", False)) \
                 or (members is None and self._multiclass):

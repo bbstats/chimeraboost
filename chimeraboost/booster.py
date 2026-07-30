@@ -146,6 +146,15 @@ class _EarlyStopper:
 
     def step(self, score, m):
         """Record the round-*m* score; return True if training should stop."""
+        if not np.isfinite(score):
+            # A NaN/inf score never compares below best, so without this guard
+            # best_iter would silently freeze at 0 and the fitted model would
+            # be truncated to a single tree.
+            raise ValueError(
+                f"Validation score at round {m} is {score!r} and cannot drive "
+                "early stopping. Check eval_set y for NaN/inf or values "
+                "outside the loss's domain (e.g. zeros with loss='Gamma'), "
+                "and any custom eval_metric's return value.")
         if score < self.best_score - 1e-9:
             self.best_score, self.best_iter = score, m
             return False
@@ -1344,8 +1353,13 @@ class MultiQuantileBoosting(_BaseBooster):
                                  w_row, g_buf)
                 g_s = g_buf
             # Unit-norm direction + unit hessian => projected curvature is
-            # exactly 1 per row.
-            h_s = np.ones(n_samples)
+            # exactly 1 per row -- times the row's sample weight, exactly as
+            # the projected gradient above is weighted. An unweighted hessian
+            # here would score weighted gradient sums against row counts, so
+            # the structure would optimize a different objective than the
+            # leaf values are fit to (and min_child_weight would count rows
+            # instead of weight mass).
+            h_s = np.ones(n_samples) if w is None else w.copy()
             # One MVS row selection per round, taken from the projection and
             # reused for the leaf refit, so leaf values see exactly the rows
             # the split search saw.

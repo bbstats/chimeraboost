@@ -14,9 +14,10 @@ from . import quantile_metrics
 from .booster import MultiQuantileBoosting
 from .preprocessing import as_model_array
 from .sklearn_api import (_auto_cat_combinations, _check_eval_set,
-                          _check_predict_input, _make_eval_split,
-                          _resolve_cat_features, _resolve_cat_feature_names,
-                          _validate_fit_input, _validate_hyperparams)
+                          _check_feature_names_match, _check_predict_input,
+                          _make_eval_split, _resolve_cat_features,
+                          _resolve_cat_feature_names, _validate_fit_input,
+                          _validate_hyperparams)
 
 
 # 0.05 ... 0.95 in steps of 0.05: nineteen levels, symmetric about the median,
@@ -122,6 +123,12 @@ def _cqr_scales(Q, y, taus, mi, mw):
     * The rank must exist: ``ceil((n+1)(1-alpha)) <= n`` needs
       ``n >= (1-alpha)/alpha``. Below that the interval is vacuous, and this
       raises rather than quietly returning an uncalibrated model.
+
+    Only symmetric pairs (t and 1-t both on the grid) can be calibrated
+    directly; a grid with none raises. Unpaired levels on asymmetric grids
+    get a factor interpolated by distance from the median across the paired
+    factors -- uncertified, but it keeps the factor profile monotone outward,
+    which preserves the non-crossing guarantee.
     """
     K = taus.shape[0]
     s = np.ones(K)
@@ -148,6 +155,12 @@ def _cqr_scales(Q, y, taus, mi, mw):
                        (y - c) / np.maximum(Q[:, j] - c, eps))
         rank = int(np.ceil((n + 1) * (1.0 - alpha)))
         pairs.append([k, j, max(0.0, float(np.sort(E)[min(rank, n) - 1]))])
+    if not pairs:
+        raise ValueError(
+            "conformalize=True needs at least one symmetric pair of quantile "
+            "levels (t and 1-t both on the grid) to calibrate against; got "
+            f"{list(np.round(taus, 6))}. Add symmetric levels or set "
+            "conformalize=False.")
     # Outer factor >= inner factor. The deviations from the median already
     # grow outward, so a non-increasing factor toward the centre keeps their
     # product monotone -- and calibration naturally lands this way, since an
@@ -156,6 +169,19 @@ def _cqr_scales(Q, y, taus, mi, mw):
         pairs[i][2] = max(pairs[i][2], pairs[i + 1][2])
     for k, j, sp in pairs:
         s[k] = s[j] = sp
+    # Unpaired levels (custom asymmetric grids) get a factor interpolated by
+    # their distance from the median across the paired levels' factors,
+    # clamped at the ends. Leaving them at 1.0 breaks the non-crossing
+    # guarantee: a shrunk outer pair jumps across an unshrunk inner level.
+    # Interpolation keeps the factor profile monotone outward from the
+    # centre, which is exactly the condition that preserves ordering.
+    paired = {k for k, _, _ in pairs} | {j for _, j, _ in pairs}
+    if len(paired) < K:
+        dp = np.array([0.5 - taus[k] for k, _, _ in pairs])[::-1]
+        sp = np.array([p[2] for p in pairs])[::-1]
+        for k in range(K):
+            if k not in paired:
+                s[k] = float(np.interp(abs(taus[k] - 0.5), dp, sp))
     return s
 
 
@@ -279,6 +305,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                                 classification=False)
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
+            _check_feature_names_match(self, eval_set[0])
         taus = _resolve_quantiles(self.quantiles)
         self.quantiles_ = taus
         self._median_idx_ = _median_index(taus)
