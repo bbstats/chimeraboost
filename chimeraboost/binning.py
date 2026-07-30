@@ -131,10 +131,16 @@ def _greedy_borders(uniq, mass, max_bins):
             break
         heavy |= new
     n_heavy = int(heavy.sum())
-    # Each heavy value costs up to two borders (before and after); the light
-    # mass splits evenly over the budget that remains.
+    # The light mass keeps its MASS-PROPORTIONAL share of the bin budget --
+    # the allocation plain quantile borders produce, and the one the library
+    # defaults are tuned around -- with a floor so a dominated column can
+    # never collapse to nothing. Redistributing the heavy values' whole freed
+    # budget into the light region instead measurably over-resolves sparse
+    # tails (decision-tier A/B 2026-07-30: Grinsztajn 21W-32L, median -0.03%).
     light_total = total - float(mass[heavy].sum())
-    target = light_total / max(1, max_bins - 1 - 2 * n_heavy)
+    light_bins = max(max_bins // 16,
+                     int(round((max_bins - n_heavy) * (light_total / total))))
+    target = light_total / light_bins
     budget = max_bins - 1
     borders = []
     acc = 0.0

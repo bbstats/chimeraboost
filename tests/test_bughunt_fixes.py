@@ -397,7 +397,9 @@ def test_binner_dominant_minimum_does_not_collapse():
     nz = rng.choice(20_000, size=400, replace=False)
     col[nz] = rng.uniform(1, 100, size=400)
     borders = _feature_borders(col, 128)
-    assert borders.size > 50
+    # The floor guarantees real resolution among the nonzeros (mass-
+    # proportional alone would round to ~1 border).
+    assert borders.size >= 5
     assert borders[0] > 0.0                 # zeros isolated in their own bin
     assert borders[0] < 1.0                 # below the smallest nonzero
 
@@ -438,7 +440,7 @@ def test_binner_weighted_dominant_minimum():
     col[nz] = rng.uniform(1, 100, size=400)
     w = np.ones(n)
     borders = _feature_borders(col, 128, weights=w)
-    assert borders.size > 50
+    assert borders.size >= 5
     assert 0.0 < borders[0] < 1.0
 
 
@@ -451,7 +453,7 @@ def test_binner_dominant_maximum_still_fine():
     nz = rng.choice(n, size=400, replace=False)
     col[nz] = rng.uniform(0, 99, size=400)
     borders = _feature_borders(col, 128)
-    assert borders.size > 50
+    assert borders.size >= 5
     assert borders[-1] > 99.0               # the tied max isolated above
 
 
