@@ -35,4 +35,4 @@ __all__ = [
     "quantile_metrics",
     "warmup",
 ]
-__version__ = "0.26.0"
+__version__ = "0.27.0"

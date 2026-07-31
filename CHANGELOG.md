@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.27.0] - 2026-07-31
 ### Changed
 - **A pass of seven output-identical speedups: MAE and quantile fits about
   twice as fast, categorical prediction about 25% faster, categorical fits
