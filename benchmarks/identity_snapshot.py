@@ -89,6 +89,11 @@ def _configs():
         weighted=True)
     add("multiclass", C, {}, dict(seed=12, kind="multi"))
     add("multiclass_cats", C, {}, dict(seed=13, kind="multi", cats=True))
+    # The only config that routes MVS subsampling through the classifier's
+    # vector-leaf round (booster._mvs_row_weights via the sketched gradient).
+    # The other subsampled configs reach _mvs_row_weights only through the
+    # quantile head, or use the scalar _maybe_subsample path.
+    add("multiclass_sub", C, {"subsample": 0.7}, dict(seed=12, kind="multi"))
     add("mq3", Q, {"quantiles": [0.1, 0.5, 0.9]}, dict(seed=14))
     add("mq3_w_sub", Q, {"quantiles": [0.1, 0.5, 0.9], "subsample": 0.7},
         dict(seed=14), weighted=True)

@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **`subsample < 1` is 22-31% cheaper to fit.** MVS row sampling picks a
+  threshold from the gradient magnitudes once per boosting round, and it was
+  single-threaded NumPy allocating about ten full-length temporaries each
+  round while the tree build beside it ran on every core — at 200k rows it
+  cost 61% of the fit. The threshold search and the importance-weight pass are
+  now numba kernels; the sort and its sum deliberately stay in NumPy, because
+  those are the only two pairwise-summed steps and porting them would move the
+  threshold by an ulp and change which rows get sampled. Bit-identical — every
+  model, every prediction exactly unchanged (89/89 identity-snapshot arrays,
+  which now include a subsampled multiclass config). Measured on 12 threads:
+  regression at 200k x 20 1.38-1.44x, at 2M x 20 1.34x, binary 1.32x,
+  multiclass 1.08x. Defaults are untouched: `subsample` defaults to 1.0, which
+  never enters this path.
 - **Numeric binning fits its borders in parallel across features.** Every
   column's borders were already computed independently; wide-enough fits
   (200k+ cells) now farm the columns out to a thread pool running the same
