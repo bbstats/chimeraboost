@@ -40,6 +40,15 @@ NOT_WARMED = {
     # warmup(shap=True), ~3.7 s of compile most callers never need.
     "chimeraboost.tree._shap_forest_linear",
     "chimeraboost.tree._predict_forest_linear",
+    # MVS gradient row sampling: only reached when subsample < 1, and the
+    # default is 1.0. Warming them would put their compile on the critical
+    # path of every startup for a knob most callers never set -- the same
+    # reasoning as the SHAP and exact-split kernels above. Measured 0.74 s
+    # cold / 0.26 s warm-cache, paid inside the first subsampled fit, which
+    # saves about 0.9 s at 200k rows -- so it repays within that same fit.
+    "chimeraboost.tree._mvs_lambda_scan",
+    "chimeraboost.tree._mvs_weights",
+    "chimeraboost.tree._mvs_weights_serial",
     # Exact multi-quantile split search: opt-in via exact_splits=True, a
     # reference arm costing K histogram channels per feature. Same reasoning
     # as SHAP -- most callers never pay for it.

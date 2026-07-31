@@ -31,6 +31,125 @@ _SMALL_N = 32768
 _EMPTY_I64 = np.empty(0, dtype=np.int64)
 
 
+# --- MVS gradient row sampling -------------------------------------------
+# These run once per boosting round, before any tree work. They are here
+# rather than in booster.py because booster.py holds no kernels: it imports
+# every one of them from this module.
+#
+# The tree build is numba-parallel across every core while this step was
+# single-threaded numpy allocating ~10 full-length temporaries per round, so
+# at 200k rows subsampling cost more than the trees it fed: measured at 61%
+# of a subsample=0.7 fit. Whole-fit effect of the port, 12 threads, best of 2
+# (2026-07-30):
+#
+#                             case   subsample     base      new
+#     regression 200k x 20, 200 trees      0.3    2.94 s   2.13 s   1.38x
+#                                          0.7    3.09 s   2.16 s   1.43x
+#     regression   2M x 20,  50 trees      0.7    7.58 s   5.67 s   1.34x
+#     binary     200k x 20, 200 trees      0.7    3.96 s   3.00 s   1.32x
+#     multiclass 200k x 20, 100 trees      0.7    5.02 s   4.63 s   1.08x
+#
+# Multiclass gains least: its vector-leaf round does K channels of work
+# around one shared row draw, so sampling is a smaller slice to begin with.
+# What is left is dominated by the np.sort, which stays in numpy on purpose
+# (see _mvs_lambda_scan) and which numpy 2.x vectorizes better than we could.
+
+
+@njit(cache=True)
+def _mvs_lambda_scan(sorted_g, total, target):
+    """MVS threshold: the first k where sorted_g[k] <= suffix[k]/remaining[k].
+
+    `sorted_g` is |grad| sorted DESCENDING and `total` is its sum; both are
+    computed by the caller in numpy and must stay there -- they are the only
+    two operations in the MVS path that use numpy's pairwise summation, so
+    reproducing them here is what would move lambda in the last ulp, and a
+    moved lambda changes which rows the mask keeps and therefore the model.
+
+    Everything else is exact, which is why this loop is bit-identical to the
+    vectorized form it replaces:
+
+      * `prefix` reproduces `np.cumsum(sorted_g[:-1])` exactly -- cumsum is
+        `add.accumulate`, sequential by definition, so there is no summation
+        order to disagree about.
+      * `remaining` equals `target - np.arange(n)[k]` exactly for n < 2**53.
+      * the comparison and the final divide are single IEEE-754 double
+        operations on the same operands as the vectorized form. No fastmath
+        anywhere in this module, and no `a*b + c` shape here, so nothing can
+        be contracted into an FMA.
+
+    Fusing also buys an early exit and drops six full-length temporaries
+    (prefix, suffix, remaining, the product, the boolean cond, its argmax).
+    Once `remaining` hits zero every later k fails the test too, so bailing
+    there matches `cond.any() == False` -> lambda 0, the "all rows forced"
+    signal the caller reads as "use the uniform fallback".
+    """
+    n = sorted_g.shape[0]
+    prefix = 0.0
+    for k in range(n):
+        remaining = target - np.float64(k)
+        if remaining <= 0.0:
+            return 0.0
+        suffix = total - prefix
+        if sorted_g[k] * remaining <= suffix:
+            return suffix / remaining
+        prefix += sorted_g[k]
+    return 0.0
+
+
+@njit(cache=True, parallel=True)
+def _mvs_weights(grad, u, lam, max_w):
+    """Per-row MVS importance weights: 1/p where the row survives, else 0.
+
+    Replaces seven numpy passes and their temporaries (`np.abs`, the divide,
+    `np.minimum`, the mask compare, `np.maximum`, the cap `np.minimum`, and
+    `np.where`) with one fused pass. Every one of those is elementwise, so
+    evaluating them per row reproduces the vectorized result exactly --
+    including the NaN corners, where `p > 1.0` is False so `p` stays NaN,
+    `u < NaN` is False, and the row lands on the zero branch just as
+    `np.where(mask, ..., 0.0)` puts it.
+
+    `u` is the caller's `rng.random(n)` draw, passed in rather than generated
+    here: that draw is one call on the booster's numpy Generator and the
+    stream position is golden-frozen.
+
+    The cap `max_w = 1/subsample` bounds the reweighting of near-zero-gradient
+    rows, whose effective contribution g_i/p_i is lambda regardless.
+    """
+    n = grad.shape[0]
+    w = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        p = abs(grad[i]) / lam
+        if p > 1.0:
+            p = 1.0
+        if u[i] < p:
+            q = p if p > 1e-10 else 1e-10
+            v = 1.0 / q
+            w[i] = v if v <= max_w else max_w
+        else:
+            w[i] = 0.0
+    return w
+
+
+@njit(cache=True)
+def _mvs_weights_serial(grad, u, lam, max_w):
+    """Serial twin of `_mvs_weights` for small n, where the parallel fork/join
+    costs more than the pass. Every write is independent, so the two are
+    bit-identical; the booster dispatches on `_SMALL_N`."""
+    n = grad.shape[0]
+    w = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        p = abs(grad[i]) / lam
+        if p > 1.0:
+            p = 1.0
+        if u[i] < p:
+            q = p if p > 1e-10 else 1e-10
+            v = 1.0 / q
+            w[i] = v if v <= max_w else max_w
+        else:
+            w[i] = 0.0
+    return w
+
+
 @njit(cache=True, parallel=True)
 def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
     """Fill per-feature gradient/hessian histograms into a pre-allocated buffer.

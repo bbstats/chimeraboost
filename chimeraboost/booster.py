@@ -25,7 +25,8 @@ from .tree import (build_oblivious_tree, replay_oblivious_tree,
                    _predict_forest_vec_rm, _predict_forest_vec_rm_serial,
                    _predict_forest_linear,
                    _predict_forest_linear_rm, _predict_forest_linear_rm_serial,
-                   pack_forest_linear, _shap_forest_linear)
+                   pack_forest_linear, _shap_forest_linear,
+                   _mvs_lambda_scan, _mvs_weights, _mvs_weights_serial)
 
 
 def _uniform_to_none(w):
@@ -413,9 +414,13 @@ class _BaseBooster:
     def _mvs_threshold(self, abs_g, target):
         """MVS: find threshold λ s.t. sum(min(|g_i|/λ, 1)) = target.
 
-        Vectorized: sort once, then find the cutoff k (first row with p<1) via
-        a single boolean scan. O(n log n) sort + O(n) NumPy, no Python loop.
+        Sort once, then hand the cutoff search to `_mvs_lambda_scan`, which
+        fuses the prefix/suffix/argmax pass into one early-exiting loop.
         Returns λ=0 to signal "use uniform fallback" (degenerate cases).
+
+        The sort and its sum stay here in numpy deliberately: they are the two
+        pairwise-summed operations in this path, and porting them would move λ
+        in the last ulp -- see `_mvs_lambda_scan`'s docstring.
         """
         n = len(abs_g)
         if target >= n:
@@ -424,19 +429,18 @@ class _BaseBooster:
         total = sorted_g.sum()
         if total < 1e-12:
             return 0.0
-        # prefix[k] = sum(sorted_g[:k]); suffix[k] = sum(sorted_g[k:])
-        prefix = np.empty(n)
-        prefix[0] = 0.0
-        prefix[1:] = np.cumsum(sorted_g[:-1])
-        suffix = total - prefix
-        remaining = target - np.arange(n, dtype=np.float64)
-        # Stop at first k where sorted_g[k] * remaining[k] <= suffix[k]
-        # (equivalent to sorted_g[k] <= λ_k = suffix[k]/remaining[k])
-        cond = (remaining > 0) & (sorted_g * remaining <= suffix)
-        if not cond.any():
-            return 0.0  # all rows forced
-        k = int(np.argmax(cond))
-        return suffix[k] / remaining[k]
+        return _mvs_lambda_scan(sorted_g, total, target)
+
+    def _mvs_weights_for(self, grad, prob_src, lam):
+        """The shared 1/p weight vector both MVS callers build: importance
+        weight where the row survives its draw, 0 where it does not.
+
+        `prob_src` is the booster's `rng.random(n)` draw. It is made by the
+        caller so the Generator stream keeps its golden-frozen position."""
+        max_w = 1.0 / max(self.subsample, 1e-3)
+        kernel = (_mvs_weights_serial if grad.shape[0] < _SMALL_N
+                  else _mvs_weights)
+        return kernel(grad, prob_src, lam, max_w)
 
     def _maybe_subsample(self, grad, hess, rng):
         """MVS (Minimum Variance Sampling): gradient-weighted row subsampling.
@@ -456,12 +460,9 @@ class _BaseBooster:
             # degenerate or all rows selected: uniform fallback
             mask = rng.random(n) < self.subsample
             return np.where(mask, grad, 0.0), np.where(mask, hess, 0.0)
-        prob = np.minimum(abs_g / lam, 1.0)
-        mask = rng.random(n) < prob
         # importance weight = 1/p; capped at 1/subsample to avoid blowup on
         # near-zero-gradient rows (whose effective contribution g_i/p_i = λ)
-        max_w = 1.0 / max(self.subsample, 1e-3)
-        w = np.where(mask, np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
+        w = self._mvs_weights_for(grad, rng.random(n), lam)
         return grad * w, hess * w
 
     def _mvs_row_weights(self, grad, rng):
@@ -469,9 +470,9 @@ class _BaseBooster:
         when subsample >= 1. The vector-leaf multiclass round derives ONE
         row selection from its sketched gradient and applies it to the
         sketch AND the per-class grad/hess (leaf values must see the same
-        rows the split search saw). Same threshold/probability/cap logic as
-        `_maybe_subsample`, which stays untouched for the scalar path (its
-        np.where(mask, grad, 0) form is golden-frozen)."""
+        rows the split search saw). Shares the threshold and the 1/p weight
+        vector with `_maybe_subsample`; the scalar path differs only in
+        applying that vector to grad/hess itself."""
         if self.subsample >= 1.0:
             return None
         n = grad.shape[0]
@@ -481,11 +482,7 @@ class _BaseBooster:
         if lam == 0.0:
             # degenerate or all rows selected: uniform fallback
             return (rng.random(n) < self.subsample).astype(np.float64)
-        prob = np.minimum(abs_g / lam, 1.0)
-        mask = rng.random(n) < prob
-        max_w = 1.0 / max(self.subsample, 1e-3)
-        return np.where(mask,
-                        np.minimum(1.0 / np.maximum(prob, 1e-10), max_w), 0.0)
+        return self._mvs_weights_for(grad, rng.random(n), lam)
 
     @property
     def feature_importances_(self):
