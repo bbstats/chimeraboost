@@ -1,6 +1,6 @@
 # chimeraboost
 
-### Lightning fast, near-CatBoost quality, all in Python
+### Lightning-fast, near-CatBoost quality, all in Python
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
@@ -11,7 +11,8 @@
 ## Install
 
 ```
-pip install chimeraboost && chimeraboost-warmup
+pip install chimeraboost
+chimeraboost-warmup
 ```
 
 `chimeraboost-warmup` compiles the numba kernels once and caches them, so the first
@@ -41,18 +42,15 @@ An opinionated GBDT library that only depends on common Python libraries
 (NumPy, numba, scikit-learn, SciPy):
 
 * Regression, quantile regression, binary and multiclass classification
-* A whole predictive distribution from one booster, with quantiles that cannot cross
-  (`ChimeraBoostQuantileRegressor`)
-* Categorical features handled natively (CatBoost-style ordered target statistics)
-* Missing values handled directly, no imputation
-* Automatic early stopping, with optional grouped splitting for the validation set
+
+## What makes it different?
 * Bagging as a first-class feature (`n_ensembles`)
+* Automatic early stopping
+* Fast multi-quantile fitting
+  (`ChimeraBoostQuantileRegressor`)
+* Automatic linear-leaf auditioning
 * **Exact SHAP** explanations (`model.shap_values(X)`). The oblivious tree structure
   makes interventional TreeSHAP cheap enough to compute exactly, with no sampling.
-
-On an independently audited 22-dataset public suite — chosen on data properties
-alone and never tuned against — the default sits within noise of CatBoost's
-accuracy at under a third of its median fit time:
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
