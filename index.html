@@ -322,10 +322,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#lightning-fast-near-catboost-quality-all-in-python" class="md-nav__link">
+  <a href="#lightning-fast-gradient-boosting-near-catboost-quality-all-in-python" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lightning fast, near-CatBoost quality, all in Python
+        Lightning-fast Gradient Boosting, near-CatBoost quality, all in Python
       
     </span>
   </a>
@@ -359,6 +359,17 @@
     <span class="md-ellipsis">
       
         What it is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-makes-it-different" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What makes it different?
       
     </span>
   </a>
@@ -1076,10 +1087,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#lightning-fast-near-catboost-quality-all-in-python" class="md-nav__link">
+  <a href="#lightning-fast-gradient-boosting-near-catboost-quality-all-in-python" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Lightning fast, near-CatBoost quality, all in Python
+        Lightning-fast Gradient Boosting, near-CatBoost quality, all in Python
       
     </span>
   </a>
@@ -1113,6 +1124,17 @@
     <span class="md-ellipsis">
       
         What it is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-makes-it-different" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What makes it different?
       
     </span>
   </a>
@@ -1175,54 +1197,56 @@
 <!-- The documentation homepage is the README verbatim, via a pymdownx.snippets
      include, so the two can never drift. Edit README.md to change this page. -->
 <h1 id="chimeraboost">chimeraboost<a class="headerlink" href="#chimeraboost" title="Permanent link">&para;</a></h1>
-<h3 id="lightning-fast-near-catboost-quality-all-in-python">Lightning fast, near-CatBoost quality, all in Python<a class="headerlink" href="#lightning-fast-near-catboost-quality-all-in-python" title="Permanent link">&para;</a></h3>
+<h3 id="lightning-fast-gradient-boosting-near-catboost-quality-all-in-python">Lightning-fast Gradient Boosting, near-CatBoost quality, all in Python<a class="headerlink" href="#lightning-fast-gradient-boosting-near-catboost-quality-all-in-python" title="Permanent link">&para;</a></h3>
 <p>📖 <strong>Documentation:</strong> <a href="https://bbstats.github.io/chimeraboost/">bbstats.github.io/chimeraboost</a></p>
 <center>
 <img width="500" height="500" alt="chimeraboost logo" src="https://github.com/user-attachments/assets/ee98a4e2-9fa7-4ef1-9e64-e398f398966c" />
 </center>
 
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost &amp;&amp; chimeraboost-warmup
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost
 </code></pre></div>
 <p><code>chimeraboost-warmup</code> compiles the numba kernels once and caches them, so the first
 <code>fit</code> is not several seconds slower than the rest. Re-run it after every upgrade, which
 resets the cache. See
 <a href="https://bbstats.github.io/chimeraboost/deployment/">Deployment</a>.</p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># defaulting to 3.</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># defaulting to 3.</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">loss</span><span class="o">=</span><span class="s2">&quot;Quantile&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="what-it-is">What it is<a class="headerlink" href="#what-it-is" title="Permanent link">&para;</a></h2>
 <p>An opinionated GBDT library that only depends on common Python libraries
 (NumPy, numba, scikit-learn, SciPy):</p>
 <ul>
 <li>Regression, quantile regression, binary and multiclass classification</li>
-<li>A whole predictive distribution from one booster, with quantiles that cannot cross
-  (<code>ChimeraBoostQuantileRegressor</code>)</li>
-<li>Categorical features handled natively (CatBoost-style ordered target statistics)</li>
-<li>Missing values handled directly, no imputation</li>
-<li>Automatic early stopping, with optional grouped splitting for the validation set</li>
+</ul>
+<h2 id="what-makes-it-different">What makes it different?<a class="headerlink" href="#what-makes-it-different" title="Permanent link">&para;</a></h2>
+<ul>
 <li>Bagging as a first-class feature (<code>n_ensembles</code>)</li>
+<li>Automatic early stopping</li>
+<li>Fast multi-quantile fitting
+  (<code>ChimeraBoostQuantileRegressor</code>)</li>
+<li>Automatic linear-leaf auditioning</li>
 <li><strong>Exact SHAP</strong> explanations (<code>model.shap_values(X)</code>). The oblivious tree structure
   makes interventional TreeSHAP cheap enough to compute exactly, with no sampling.</li>
 </ul>
-<p>On the <a href="https://tabarena.ai/">TabArena</a> benchmark, the default model scores above
-XGBoost and LightGBM while training faster than either. CatBoost scores higher and
-takes considerably longer.</p>
-<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="500" alt="TabArena-Lite Elo vs speed Pareto" /></a></p>
+<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
-<p><sub>TabArena is a benchmark we never tune against. A second read on an independently
-audited 22-dataset suite, including how it is weighted and where it disagrees with us,
-is in <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</sub></p>
+<p><sub>Scored against CatBoost and LightGBM only; how the suite is built and weighted is in
+<a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.
+On the sealed <a href="https://tabarena.ai/">TabArena</a> leaderboard the default scores above
+XGBoost and LightGBM while training faster than either; CatBoost scores higher and takes
+considerably longer
+(<a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png">chart</a>).</sub></p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="https://bbstats.github.io/chimeraboost/getting-started/">Getting started</a>: install and first models</li>

@@ -1405,9 +1405,9 @@ covers everything. Read the two together.</p>
     <div class="doc doc-contents ">
 
         <p>Fraction of adjacent quantile pairs that come out in the wrong order.</p>
-<p>Zero by construction for <code>ChimeraBoostQuantileRegressor</code> -- that is the
-point of the vector leaf, and this function exists to prove it rather than
-to fix anything. Independently fitted per-level models are not zero.</p>
+<p>Zero for <code>ChimeraBoostQuantileRegressor</code>, whose delivered rows are sorted;
+this function exists to prove that rather than to fix anything.
+Independently fitted per-level models are not zero.</p>
 
 
             <details class="mkdocstrings-source">
@@ -1425,9 +1425,9 @@ to fix anything. Independently fitted per-level models are not zero.</p>
 <span class="normal"><a href="#__codelineno-0-102">102</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="k">def</span><span class="w"> </span><span class="nf">crossing_rate</span><span class="p">(</span><span class="n">Q</span><span class="p">):</span>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Fraction of adjacent quantile pairs that come out in the wrong order.</span>
 <a id="__codelineno-0-94" name="__codelineno-0-94"></a>
-<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">    Zero by construction for `ChimeraBoostQuantileRegressor` -- that is the</span>
-<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">    point of the vector leaf, and this function exists to prove it rather than</span>
-<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">    to fix anything. Independently fitted per-level models are not zero.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">    Zero for `ChimeraBoostQuantileRegressor`, whose delivered rows are sorted;</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">    this function exists to prove that rather than to fix anything.</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">    Independently fitted per-level models are not zero.&quot;&quot;&quot;</span>
 <a id="__codelineno-0-98" name="__codelineno-0-98"></a>    <span class="n">Q</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
 <a id="__codelineno-0-99" name="__codelineno-0-99"></a>    <span class="k">if</span> <span class="n">Q</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
 <a id="__codelineno-0-100" name="__codelineno-0-100"></a>        <span class="k">return</span> <span class="mf">0.0</span>
