@@ -20,9 +20,10 @@ from chimeraboost.warmup import _cache_is_cold, _warmup_from_env, main
 warmup_module = importlib.import_module("chimeraboost.warmup")
 
 # Kernels warmup() deliberately leaves uncompiled, each with the reason.
-# The coverage test asserts this set EXACTLY: a new kernel that nobody warms
-# fails it, and so does an entry here that quietly became covered (meaning the
-# reason below is stale). The previous hand-written list missed two real holes.
+# The coverage test asserts this set EXACTLY (after dropping CACHE_DEPENDENT,
+# below): a new kernel that nobody warms fails it, and so does an entry here
+# that quietly became covered (meaning the reason below is stale). The
+# previous hand-written list missed two real holes.
 NOT_WARMED = {
     # Non-quantized tree build: quantize_gradients has been default-on since
     # 0.18.0, so the default path uses the _q twin.
@@ -44,10 +45,17 @@ NOT_WARMED = {
     # reference arm costing K histogram channels per feature. Same reasoning
     # as SHAP -- most callers never pay for it.
     "chimeraboost.tree._build_split_descend_vec",
-    # Called only from inside another njit kernel, never from Python, so the
-    # dispatcher records a signature when that caller is *compiled* but not
-    # when it is loaded from a warm cache. Warming these is not possible and
-    # asserting on them would make this test depend on cache state.
+}
+
+# Kernels called only from inside another njit kernel, never from Python.
+# Whether they carry a signature after warmup() depends on cache state: a
+# caller that actually *compiles* registers its inner callees, but a caller
+# loaded from a warm cache does not. Listing them in NOT_WARMED (as an older
+# version of this file did) made the coverage test fail on the first run
+# after any edit to tree.py and pass on the second -- so they are excluded
+# from the comparison entirely. A new inner-only kernel still surfaces: on a
+# warm cache it appears as uncovered and fails the test until documented here.
+CACHE_DEPENDENT = {
     "chimeraboost.tree._solve_small",
     "chimeraboost.tree._leaf_row_index",
     "chimeraboost.tree._lerp_np",
@@ -120,12 +128,12 @@ def _probe(tmp_path, shap):
 def test_warmup_covers_every_kernel_except_the_documented_exclusions(tmp_path):
     result = _probe(tmp_path, shap=False)
     assert result["total"] >= 32, "kernel enumeration found suspiciously few"
-    assert set(result["uncovered"]) == NOT_WARMED
+    assert set(result["uncovered"]) - CACHE_DEPENDENT == NOT_WARMED
 
 
 def test_warmup_shap_covers_the_shap_kernels(tmp_path):
     result = _probe(tmp_path, shap=True)
-    assert set(result["uncovered"]) == NOT_WARMED - WARMED_BY_SHAP
+    assert set(result["uncovered"]) - CACHE_DEPENDENT == NOT_WARMED - WARMED_BY_SHAP
 
 
 def test_serial_predict_twin_is_warmed():
