@@ -12,6 +12,10 @@
 
 ```
 pip install chimeraboost
+```
+
+[OPTIONAL]:
+```
 chimeraboost-warmup
 ```
 
