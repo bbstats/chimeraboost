@@ -1192,6 +1192,17 @@ def _run_chimera_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
                         selection_rounds=25)
 
 
+def _run_chimera_norefit_sel25(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung 2 with quarter-length auditions: Sel25 without the default's refit.
+
+    Pairs with ChimeraBoostNoRefit to ask whether a short audition is harmful
+    on its own or only once the refit replays the audition's structure on
+    every row.
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        selection_rounds=25, refit_full="off")
+
+
 def _run_chimera_refit(task, Xtr, ytr, Xte, yte, cat, threads):
     """Defaults + refit_full: retrain the ES winner on 100% of the rows.
 
@@ -1350,6 +1361,7 @@ RUNNERS = {
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
     "ChimeraBoostNoRefit": _run_chimera_norefit,
+    "ChimeraBoostNoRefitSel25": _run_chimera_norefit_sel25,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -1364,7 +1376,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8", "ChimeraBoostEns10",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
-                   "ChimeraBoostNoRefit")
+                   "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 

@@ -246,13 +246,134 @@ bit-identical to the benchmarked `OneLin` arm on both estimators — so the
 numbers above are the parameter's own, not a lookalike's. Docs:
 `docs/recipes.md`, `docs/parameters.md`.
 
+## `Sel25` — KILLED 2026-07-31, do not retry below k=100 without a new mechanism
+
+Ran the full /experiment gate on flipping the `selection_rounds` default
+from 100 to 25. **It fails.** Both arms ran inside ONE benchmark each
+(`compare_runs RUN RUN --model ChimeraBoost --model-new ChimeraBoostSel25`),
+so the pairing is on identical machine conditions, and every number below is
+post-PR-#60 code.
+
+### Tier 1 synth (`results/20260731-163807.json`) — PASS, flat everywhere
+
+136 datasets, 3 seeds. 29W-26L-**81T**, mean −0.066%, median exactly
++0.000%; on Brier 15W-15L-58T, mean −0.050%. `synth_report` finds **no**
+slice carrying concentrated harm — worst is func=tree at −0.698%, which is
+18 sets with 10 ties and p=0.73, and every factor-OLS |t| < 1. Fit time
+−17% (not decision-grade, per CLAUDE.md).
+
+Structural note: 47 of the 48 sets under 2000 rows are **bit-identical**.
+Below the row floors (`LINEAR_LEAVES_MIN_SAMPLES=1000`,
+`CROSS_MIN_SAMPLES=2000`) no audition runs at all, so the budget is inert.
+
+### Tier 2 decide (`results/20260731-164034.json`) — FAIL on Grinsztajn regression
+
+103 datasets, 7 strata, 3 seeds. Judged on the decision metric (RMSE
+regression / Brier classification), per stratum, never pooled:
+
+| stratum | task | W-L-T | p (exact binomial) | median |
+|---|---|--:|--:|--:|
+| **Grinsztajn** | **regression** | **6-20-10** | **0.009** | **−0.011%** |
+| Grinsztajn | classification | 8-10-5 | 0.815 | +0.000% |
+| HC | regression | 1-2-3 | 1.000 | +0.000% |
+| HC | classification | 4-2-2 | 0.688 | +0.037% |
+| gr@sus25 | both | 3-3-6 | 1.000 | +0.000% |
+| gr@sus50 | both | 2-4-0 | 0.625 | −0.117% |
+| hc@sus25 / hc@sus50 | both | 0-0-7 | 1.000 | +0.000% |
+| hc@time | both | 3-1-3 | 1.000 | +0.000% |
+
+The pre-registered bar was non-inferiority on every stratum. Grinsztajn
+regression regresses at p=0.009 — the primary decision suite, on its own
+decision metric. Kill clause fires.
+
+The loss is **broad, not one dataset**: 20 separate regression sets move
+against it, most by ≤0.1%, with four real ones — `Brazilian_houses`
+(−4.43% cat / −5.03% num) and `nyc-taxi-green-dec-2016` (−1.70% cat /
+−4.18% num). Many small same-signed deltas is what drives p that low.
+
+### Why this is not the 2026-07-25 reading
+
+Phase 0 recorded 20W-23L-16T on Grinsztajn `primary` at a rung-2 default;
+the same comparison today reads 15W-28L-16T, and the regression-only cut is
+6W-20L. Two things changed: the default is now rung 3, and 0.27.0 made
+growth cheaper.
+
+**The mechanism was already characterized in `PARETO_PLAN.md:196-201`**:
+the const-vs-linear race "genuinely crosses late on ~1/3 of regression
+selections", with no margin rule at k=100 able to separate them, and
+`k_ll=500` fixing fidelity only by collapsing the speedup. `k=100` shipped
+in July with that mispick tail knowingly waived (its own Grinsztajn sign
+test was already 8W-22L-29T). **Going to k=25 auditions even earlier and
+widens exactly that tail.** This is not a new failure mode; it is the known
+one, further in.
+
+### The refit AMPLIFIES the mispick (`results/20260731-164927.json`)
+
+Unregistered follow-up, added because Phase 0's rung-2 reading was so much
+milder. Same suite, same seeds, one run, new arm `ChimeraBoostNoRefitSel25`
+(rung 2 + k=25) against `ChimeraBoostNoRefit` (rung 2):
+
+| default the arms sit on | gr regression W-L-T | p | mean |
+|---|--:|--:|--:|
+| rung 3 (`refit_full="replay"`, today's default) | 6-20-10 | **0.009** | −0.478% |
+| rung 2 (`refit_full=False`) | 10-16-10 | 0.327 | **+0.409%** |
+
+**The same knob change is decisively harmful with the refit and not
+detectably harmful without it**, and the mean even flips positive. The
+mechanism is that rung 3 *replays the audition winner's tree structure over
+every training row* — so when a short audition picks the wrong
+configuration, the refit propagates that structure instead of diluting it.
+The audition decision became higher-stakes the day the default moved to
+rung 3.
+
+Read this as directional, not settled: 10W-16L at n=36 with 10 ties is
+underpowered, so the honest claim is "the loss does not reproduce without
+the refit", not "rung 2 is provably flat". The contrast against p=0.009 is
+what carries the weight.
+
+Consequence for the record: **`Sel25` was never really re-tested against the
+config it was measured on.** The 07-25 parity finding was a rung-2 result
+and is broadly consistent with the rung-2 numbers here. It was invalidated
+by the default flip, not by being wrong.
+
+### The speed case was weaker than advertised anyway
+
+| stratum | total fit ratio | median per-dataset ratio |
+|---|--:|--:|
+| Grinsztajn | 0.911 | 0.793 |
+| HC | 0.823 | 0.869 |
+| all 103 (speed only) | **0.887** | 0.794 |
+
+Grinsztajn buys **8.9%**, not the 26% Phase 0 quoted — the rung-3 replay
+refit is a fixed leg the audition budget cannot touch, and the biggest
+datasets (which dominate the sum) save least. For contrast, the original
+`None`→100 cut bought **1.50x** on the same suite. The audition saving is
+essentially exhausted at 100; 25 buys 9% more while pushing further into a
+documented accuracy failure mode. Even at parity that would have failed the
+registered ≥10% speed bar.
+
+### Recorded negative
+
+No source change. `selection_rounds` stays 100. Live sub-questions for
+anyone revisiting:
+
+- A **per-leg** budget. The mispick is specifically the const-vs-linear
+  race, which `PARETO_PLAN` says wants k_ll≈500; the cross race may be fine
+  short. A single global k below 100 is closed.
+- **Selection fidelity is worth more under rung 3 than it was under rung 2**
+  (see the amplification section). Any future audition-cheapening idea has
+  to be judged against the *refit* default, and any idea that makes the
+  audition more faithful is worth more than its 07-25 valuation.
+- Whether the `@sus50` median of −0.117% is real or noise at n=6.
+- Cheapest repro: `gr:*/nyc-taxi-green-dec-2016` loses in all four of its
+  appearances (−1.70% / −4.18% / −1.92% @sus25 / −2.94% @sus50).
+
+Harness: `ChimeraBoostSel25` and the new `ChimeraBoostNoRefitSel25` arms are
+both registered in `run_benchmarks.py`, off by default, so any re-test is
+one `--models` flag.
+
 ## Still open
 
-- **`Sel25`** — auditions at 25 rounds instead of 100 were parity on
-  Grinsztajn (20W-23L-16T, mean −0.044%, median exactly +0.000%) for 26%
-  less fit time. A default change, so it needs its own /experiment with
-  the full gate. The 16 exact ties are the tell: three-quarters of the
-  audition budget usually changes nothing.
 - **A "use cross features without auditioning" mode.** Rung 1 currently
   drops cross features entirely because `cross_features=True` still races
   (`sklearn_api.py:1443`). A forced-on mode could give a stronger rung 1
@@ -265,3 +386,10 @@ numbers above are the parameter's own, not a lookalike's. Docs:
   finding recorded for a separate /experiment.
 - 2026-07-25: Phase 1 PASS, high-card caveat measured, ladder co-run
   charted, `quality=1..5` shipped. Program closed.
+- 2026-07-31: `Sel25` run through the full gate and **KILLED**. Synth PASS
+  (flat, no slice harmed); decide tier FAIL — Grinsztajn regression
+  6W-20L-10T at p=0.009. Speed case also weaker than recorded (8.9% on
+  Grinsztajn, not 26%). No source change. Follow-up found the **refit
+  amplifies it**: the same knob reads 10W-16L-10T, p=0.327, mean +0.409% at
+  rung 2, so the 07-25 parity finding was a valid rung-2 result invalidated
+  by the default flip rather than a bad measurement.
