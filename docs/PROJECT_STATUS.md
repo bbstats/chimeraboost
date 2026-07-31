@@ -89,25 +89,26 @@ The harmonic mean collapses toward the **weaker leg**, so the blended diagnostic
 still answers "which task is weak". Ship decisions are unchanged (per-dataset sign
 tests; the win-rate axis is the same winner/loser evidence, aggregated).
 
-**Current standing** (`results/20260725-213827.json`, 3 seeds). The field is
-the `quality` ladder (benchmarks/SELECT_PLAN.md) plus the external models, all
-co-run so the columns share one field:
+**Current standing** (`results/20260731-142609.json`, 3 seeds — the post-0.27.0
+re-run; the 0.27.0 perf pass was bit-identical, so only the speed axis moved).
+The field is the `quality` ladder (benchmarks/SELECT_PLAN.md) plus the external
+models, all co-run so the columns share one field:
 
 | Model | `quality` | Win rate | 95% CI | Slowdown | Frontier |
 |---|---|--:|--:|--:|---|
-| ChimeraBoostEns8 | 5 | 94.0% | [91.7, 96.0] | 25.7× | yes |
-| ChimeraBoostEns5 | 4 | 83.7% | [80.7, 86.5] | 17.7× | yes |
-| **ChimeraBoost** *(default)* | **3** | **69.9%** | [64.7, 74.9] | **9.4×** | **yes** |
-| ChimeraBoostNoRefit | 2 | 45.6% | [41.1, 50.0] | 5.4× | yes |
-| CatBoost | — | 40.9% | [34.8, 47.1] | 14.1× | — |
-| ChimeraBoostOneLin | 1 | 31.1% | [26.3, 35.8] | 2.0× | yes |
-| LightGBM | — | 21.6% | [17.3, 26.1] | 1.1× | yes |
-| sklearn_HGB | — | 13.3% | [8.5, 18.5] | 4.8× | — |
+| ChimeraBoostEns8 | 5 | 95.7% | [94.0, 97.5] | 26.8× | yes |
+| ChimeraBoostEns5 | 4 | 82.0% | [78.7, 85.0] | 18.7× | yes |
+| **ChimeraBoost** *(default)* | **3** | **71.7%** | [68.2, 75.2] | **7.1×** | **yes** |
+| ChimeraBoostNoRefit | 2 | 45.7% | [41.9, 49.6] | 5.4× | yes |
+| CatBoost | — | 41.6% | [35.3, 48.1] | 15.3× | — |
+| ChimeraBoostOneLin | 1 | 28.9% | [24.2, 33.7] | 2.1× | yes |
+| LightGBM | — | 20.8% | [16.8, 25.1] | 1.1× | yes |
+| sklearn_HGB | — | 13.5% | [8.5, 19.0] | 4.7× | — |
 
-**Every ChimeraBoost rung is on the frontier**, which now runs from 2.0× to
-25.7×; LightGBM holds only the extreme-left corner. The default beats CatBoost
-on 49 of 59 datasets while fitting 1.9× faster than it, leaving CatBoost
-dominated on both axes.
+**Every ChimeraBoost rung is on the frontier**, which now runs from 2.1× to
+26.8×; LightGBM holds only the extreme-left corner. The default beats CatBoost
+on 46 of 57 scored datasets while fitting ~2.6× faster than it, leaving
+CatBoost dominated on both axes.
 
 Win rate is **field-relative** — it is the share of (dataset × opponent)
 matchups won, so adding or removing arms moves every row. These numbers are

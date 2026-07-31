@@ -44,10 +44,10 @@ Notes:
   at minimum) — mixing runs from different machines/fields breaks the %, win-rate, and speed columns.
 - `images/pareto.png` + `images/winrate_matrix.png` are committed — commit the refresh after a
   shipped change. (README headline is the TabArena chart, deliberate since fcdc874.)
-- Reference points (2026-07-25, run 20260725-213827 — the `quality` ladder co-run): Ens8 94.0% @ 25.7×,
-  Ens5 83.7% @ 17.7×, ChimeraBoost (the default, quality=3) 69.9% @ 9.4×, NoRefit 45.6% @ 5.4×,
-  OneLin 31.1% @ 2.0× — all five on the frontier; CatBoost 40.9% @ 14.1× (dominated on both axes),
-  LightGBM 21.6% @ 1.1× (frontier), HGB 13.3% @ 4.8×.
+- Reference points (2026-07-31, run 20260731-142609 — the post-0.27.0 `quality` ladder re-run):
+  Ens8 95.7% @ 26.8×, Ens5 82.0% @ 18.7×, ChimeraBoost (the default, quality=3) 71.7% @ 7.1×,
+  NoRefit 45.7% @ 5.4×, OneLin 28.9% @ 2.1× — all five on the frontier; CatBoost 41.6% @ 15.3×
+  (dominated on both axes), LightGBM 20.8% @ 1.1× (frontier), HGB 13.5% @ 4.7×.
 - Win rate is FIELD-RELATIVE (% of dataset×opponent matchups won), so adding or removing arms moves
   every row. Compare only within one run: the older five-arm field read the default at 55.7% @ 5.1×.
 - Contracts are pinned in `tests/test_strength_viz.py`.
