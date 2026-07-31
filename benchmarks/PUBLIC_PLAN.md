@@ -396,9 +396,9 @@ That explains every outlier: the worst CatBoost-vs-LightGBM ratios are `fars`
 
 ## What remains
 
-1. **Point the README headline** at `images/public_pareto.png` — Nathan's call,
-   given the numbers above differ substantially from the current TabArena-based
-   headline.
+1. ~~**Point the README headline** at `images/public_pareto.png`~~ — DONE
+   2026-07-31 (Nathan's call). The TabArena figure stays linked from the
+   caption as the sealed second read.
 2. The `@sus` and `@time` variant families, as a second figure, when wanted.
 
 **No dependency on OpenML's metadata API remains**, by design — see "Loaded from

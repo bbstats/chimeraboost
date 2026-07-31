@@ -50,15 +50,18 @@ An opinionated GBDT library that only depends on common Python libraries
 * **Exact SHAP** explanations (`model.shap_values(X)`). The oblivious tree structure
   makes interventional TreeSHAP cheap enough to compute exactly, with no sampling.
 
-On the [TabArena](https://tabarena.ai/) benchmark, the default model scores above
-XGBoost and LightGBM while training faster than either. CatBoost scores higher and
-takes considerably longer.
+On an independently audited 22-dataset public suite — chosen on data properties
+alone and never tuned against — the default sits within noise of CatBoost's
+accuracy at under a third of its median fit time:
 
-<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/tabarena_pareto.png" width="500" alt="TabArena-Lite Elo vs speed Pareto" /></a></p>
+<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
-<sub>TabArena is a benchmark we never tune against. A second read on an independently
-audited 22-dataset suite, including how it is weighted and where it disagrees with us,
-is in <a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</sub>
+<sub>Scored against CatBoost and LightGBM only; how the suite is built and weighted is in
+<a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.
+On the sealed <a href="https://tabarena.ai/">TabArena</a> leaderboard the default scores above
+XGBoost and LightGBM while training faster than either; CatBoost scores higher and takes
+considerably longer
+(<a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png">chart</a>).</sub>
 
 ## Documentation
 
