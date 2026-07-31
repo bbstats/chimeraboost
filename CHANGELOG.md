@@ -3,6 +3,18 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **Numeric binning fits its borders in parallel across features.** Every
+  column's borders were already computed independently; wide-enough fits
+  (200k+ cells) now farm the columns out to a thread pool running the same
+  per-column code, sized by the numba thread count so `thread_count` and
+  bagged-worker budgets are honored. Bit-identical — every border, bin
+  center and downstream model is exactly unchanged (84/84 identity-snapshot
+  arrays). Measured at 200k rows x 30 features on 12 threads: dense borders
+  4.3x faster, zero-inflated 3.2x, sample-weighted 5.5x; a 50k x 200 matrix
+  2.7x. Small fits keep the serial loop.
+
 ## [0.26.0] - 2026-07-30
 ### Added
 - **`ChimeraBoostQuantileRegressor`: a whole predictive distribution from one
