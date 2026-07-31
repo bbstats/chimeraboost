@@ -387,9 +387,10 @@ class MultiQuantile(_UnitHessian):
     Raw scores are an (n, K) matrix, column k holding the estimate of the
     `taus[k]` conditional quantile. Nothing here couples the channels -- each
     column is exactly the scalar `Quantile` loss at its own alpha, and a
-    one-element grid reproduces it term for term. The coupling lives in the
-    booster: one shared tree structure per round, and a leaf vector that is
-    sorted before it is committed.
+    one-element grid reproduces it term for term. Columns of ``F`` may
+    therefore cross during a fit and none of the maths below cares; the
+    coupling lives in the booster, which shares one tree structure per round
+    and rearranges each row before returning it.
 
     `taus` must be ascending, unique and strictly inside (0, 1); the estimator
     validates that before constructing this.
@@ -408,8 +409,8 @@ class MultiQuantile(_UnitHessian):
         q = np.array([_weighted_quantile(y, sample_weight, a)
                       for a in self.taus])
         # Quantiles of one sample are already monotone in alpha, so this sort
-        # is a no-op. It is here so the non-crossing guarantee rests on an
-        # enforced invariant rather than on that argument staying true.
+        # is a no-op. Kept because a starting vector that is ordered costs
+        # nothing and makes the zero-tree prediction trivially well formed.
         q.sort()
         return q
 

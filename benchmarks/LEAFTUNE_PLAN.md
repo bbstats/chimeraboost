@@ -202,6 +202,156 @@ binary and the reciprocal rounds past the integer. The 19-level default grid
 (20), [0.25, 0.75] (4) and [0.01, 0.99] (100) are all correct. Fix is to round
 the reciprocal before `ceil`.
 
+## P14 — the fix, pre-registered 2026-07-31 (branch `fix-quantile-interval-width`)
+
+Written **before** the fix was measured; the base numbers below are from the
+shipped code, re-measured today with `benchmarks/probe_quantile_band.py --tag
+base` (which rebuilds P10-P13's dead harness) and they reproduce P12/P13.
+
+**Change.** Delete the training-time narrowing budget entirely and enforce
+non-crossing **per row at delivery** by monotone rearrangement — sort each
+predicted K-vector. Chernozhukov, Fernández-Val & Galichon (2010): rearranging a
+crossing quantile curve never increases pinball loss at any level, for any row.
+The guarantee moves from a worst-case bound over all leaves and rounds to an
+exact per-row operation, which is what P12 said it should be.
+
+Why this is safe here, verified in code rather than assumed:
+
+- Pinball gradients are per-channel independent (`losses.MultiQuantile.grad_hess`
+  reads only `F[:, k]` against `y`), so quantiles crossing *during training*
+  corrupt no learning signal. Only delivered predictions need ordering.
+- Training `F`/`Fv` are accumulated in place and never read back from a predict
+  path, so a delivery-time sort cannot feed back into the fit. **This is the
+  distinction that matters:** PR #48 recorded that sorting *leaf vectors during
+  training* diverged to pinball 2.9e7 against an oracle of 0.35. That failure was
+  a feedback loop — sorted values re-entered `F` and self-reinforced. Sorting
+  delivered output has no such path, and `F` must never be sorted in place.
+
+**Base measurements to beat** (K=3 grid, central interval 0.10-0.90, nominal
+coverage 0.80, 3 seeds, `results/quantile-band-base.md`):
+
+| dataset | head pinball | head coverage | head width | offset pinball | offset width |
+|---|--:|--:|--:|--:|--:|
+| Brazilian_houses | 0.02992 | 0.9976 | 0.65019 | 0.00452 | 0.02747 |
+| cpu_act | 0.74380 | 0.9821 | 12.38850 | 0.55148 | 4.74665 |
+| elevators | 0.00067 | 0.9494 | 0.00971 | 0.00048 | 0.00467 |
+
+Head loses to the rigid offset on 0 of 3 at K=3 and 0 of 3 at K=19. The freeze is
+visible directly: cpu_act width 12.912 at rounds 1000, 2000 and 3000 alike, with
+coverage climbing 0.861 → 0.987 as the centre sharpens under a fixed band.
+
+**Bars.** All five, or the change does not ship:
+
+1. **Coverage** without `conformalize` inside [0.75, 0.88] at nominal 0.80 on
+   3 of 3 (base: 0.949-0.998).
+2. **Pinball beats the shipped head** on 3 of 3.
+3. **Pinball beats or matches the rigid offset** on 3 of 3 — the ship/kill line,
+   and the comparison the shipped head fails 0 of 3. "Matches" means within 2%.
+4. **Crossing rate exactly 0.0** in every arm, every path, every staged stage.
+5. **The freeze is dead**: central-interval width at round 3000 differs from
+   round 50 by more than 1%, and coverage does not rise monotonically with
+   rounds.
+
+Plus the unchanged obligations: the bit-identity snapshot must show every array
+identical except the two `mq3` families (the shared scalar MAE/Quantile leaf
+kernels route through the same code at K=1, where the projection was the
+identity — so any scalar diff is a bug, not a consequence), and PR #48's own
+ledger in `QUANTILE_PLAN.md` must still pass (within 3% of per-level LightGBM,
+CQR worst coverage error ≤ 2 pp).
+
+**Kill clause.** If bar 3 fails, the approach is falsified and reverted; record
+the negative here. The decision suites do not score quantiles and this touches
+`MultiQuantileBoosting` only, so no `--decide` run is owed unless the identity
+snapshot moves a scalar array.
+
+### Result: the mechanism is confirmed and fixed, but bar 3 FAILS — not shipped
+
+Same probe, `--tag fix`, same seeds and splits (`results/quantile-band-fix.md`).
+The band is no longer frozen and every absolute measure improves by a lot. The
+head still does not beat the trivial baseline, so the kill clause fires.
+
+| bar | verdict | evidence |
+|---|---|---|
+| 1 coverage in [0.75, 0.88] | **FAIL** (1 of 3) | 0.758 / 0.719 / 0.725 — now *under*-covers |
+| 2 pinball beats the shipped head | **PASS** (3 of 3) | 80%, 24%, 24% better |
+| 3 pinball beats/matches the offset | **FAIL** (0 of 3) | −34.3% / −3.0% / −5.9% |
+| 4 crossing rate exactly 0 | **PASS** | every arm, every staged stage |
+| 5 freeze is dead | **PASS** | see below |
+
+K=3, nominal 0.80, 3 seeds:
+
+| dataset | pinball base → fix | offset | coverage base → fix | width base → fix |
+|---|--:|--:|--:|--:|
+| Brazilian_houses | 0.02992 → 0.00607 | 0.00452 | 0.998 → 0.758 | 0.650 → 0.049 |
+| cpu_act | 0.74380 → 0.56782 | 0.55148 | 0.982 → 0.719 | 12.389 → 4.894 |
+| elevators | 0.00067 → 0.00051 | 0.00048 | 0.949 → 0.725 | 0.0097 → 0.0044 |
+
+**The freeze is gone and its signature reversed.** cpu_act width now runs
+13.08 → 8.73 → 6.01 → 5.03 → 4.54 → 4.27 across rounds 50 → 3000, where the base
+was flat at 12.91 from round 1000 onward. Coverage now *falls* with training
+(0.815 → 0.705) instead of climbing away from nominal (0.861 → 0.987). P12's
+diagnosis is confirmed by construction: remove the worst-case-leaf charge and
+the width moves again.
+
+**Against the external reference the change is a clear win.** The PR #48 ledger
+(`benchmarks/quantile_head.py`, 3 seeds, `results/quantile-head.md`) improves
+from parity to a win at every width — pinball ratio against 19 independent
+LightGBM quantile boosters is 0.989 / 0.984 / 0.981 / 0.981 / 0.968 / 0.969 at 5
+to 128 features, so the head is now *better* than the per-level baseline it was
+only supposed to match, at 3.0x-6.2x their fit time, with crossing 0.0000
+against their 0.18-0.21.
+
+#### Why bar 3 still fails: the error flipped sign
+
+The band no longer freezes too wide; it now over-narrows. Leaf values are the
+**in-sample** residual quantiles of the rows in that leaf, which are
+optimistically tight, and with the budget gone nothing damps that. The freeze
+table shows coverage decaying monotonically with rounds on all three datasets
+and still falling at round 3000. Early stopping halts it at the *pinball*
+optimum, which on these datasets sits below nominal coverage — hence bar 1
+failing on the low side.
+
+That also trips the ledger's conformal bar: worst conformalized coverage error
+is **2.65 pp against a 2 pp target**. The sign is informative — CQR now has to
+*widen* rather than shrink, and the "outer factor at least the inner factor"
+monotonization pushes the middle intervals up, so the largest errors sit at the
+0.20-0.80 and 0.25-0.75 pairs rather than in the tails.
+
+So the head's remaining deficit is variance, not bias: it estimates a
+conditional band per leaf where the offset estimates one marginal band from the
+whole calibration fold, and on these three datasets that extra freedom does not
+pay for itself. Consistent with P7/P8, which found the rigid arm wins wherever
+the conditional spread is close to constant.
+
+#### Status: recorded, not shipped
+
+Branch `fix-quantile-interval-width`, committed and left unmerged. The kill
+clause as written says revert, and it is not overridden here — but note the
+asymmetry before acting on it: this branch is better than `main` on every
+measured axis (pinball on 3 of 3, coverage nearer nominal, LightGBM ratio,
+freeze), so reverting restores a strictly worse model. The bar it misses is
+"beat a one-line baseline", which `main` misses by 10x more.
+
+The live follow-up is a **new mechanism and needs its own pre-registration**:
+shrink each leaf's quantile step toward the pooled band, or fit leaf residual
+quantiles out-of-sample, so the band stops over-narrowing. Both address the
+in-sample bias directly rather than re-capping the width.
+
+Reusable facts from this pass:
+
+- `tree._project_pinball` read the projected pinball gradient out of a suffix
+  table by **binary-searching the row's PIT rank**, which is valid only while
+  every row of `F` is sorted. That precondition was supplied by the very budget
+  being removed. It is now an explicit per-channel scan, and
+  `test_projected_gradient_makes_no_ordering_assumption` pins it against the
+  dense definition on a deliberately crossing `F`. Any future change that
+  relaxes an ordering invariant should grep for readers of it first.
+- Bit-identity held exactly where predicted: 81 of 89 arrays unchanged, the 8
+  that moved being the two `mq3` families in full (`pred`, `n_trees`,
+  `valid_hist`, `imp` — the tree structures change, not just the output).
+  `mae`, `mae_w_sub`, `quantile` and `quantile_w` share the same leaf kernels at
+  K=1 and are untouched, which is what licenses skipping a `--decide` run.
+
 ## Where to go instead
 
 The two untested axes are **re-purposing, not tuning**, and neither is a search

@@ -92,9 +92,9 @@ def interval_coverage(y, Q, taus, sample_weight=None):
 def crossing_rate(Q):
     """Fraction of adjacent quantile pairs that come out in the wrong order.
 
-    Zero by construction for `ChimeraBoostQuantileRegressor` -- that is the
-    point of the vector leaf, and this function exists to prove it rather than
-    to fix anything. Independently fitted per-level models are not zero."""
+    Zero for `ChimeraBoostQuantileRegressor`, whose delivered rows are sorted;
+    this function exists to prove that rather than to fix anything.
+    Independently fitted per-level models are not zero."""
     Q = np.asarray(Q, dtype=np.float64)
     if Q.shape[1] < 2:
         return 0.0

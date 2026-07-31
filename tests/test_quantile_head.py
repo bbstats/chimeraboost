@@ -15,8 +15,7 @@ from chimeraboost.quantile_api import (DEFAULT_QUANTILES,
                                        _median_index)
 from chimeraboost.tree import (_leaf_quantiles_vec, _leaf_quantiles_vec_serial,
                                _leaf_quantiles_vec_w,
-                               _leaf_quantiles_vec_w_serial,
-                               _project_leaf_row)
+                               _leaf_quantiles_vec_w_serial)
 
 TAUS = np.round(np.arange(0.05, 0.951, 0.05), 10)
 
@@ -44,21 +43,16 @@ def _pinball(y, Q, taus=TAUS):
 
 @pytest.mark.parametrize("n,n_leaves", [(1000, 16), (37, 8), (9, 4)])
 def test_leaf_quantiles_match_numpy_exactly(n, n_leaves):
-    """The registered bit-exact equivalence: with the projection inactive,
-    column k of the leaf kernel IS `np.quantile` at taus[k] on that leaf's
-    residuals. Not a tolerance question -- any diff is a correctness bug.
-
-    F is constant across channels here, which makes the per-leaf residual
-    quantiles monotone in tau on their own, so the projection is the identity
-    and the raw quantile arithmetic is what gets compared."""
+    """The registered bit-exact equivalence: column k of the leaf kernel IS
+    `np.quantile` at taus[k] on that leaf's residuals. Not a tolerance
+    question -- any diff is a correctness bug."""
     rng = np.random.default_rng(n)
     y = rng.standard_normal(n) * 3.0
     F = np.repeat(rng.standard_normal((n, 1)), TAUS.size, axis=1)
     leaf = rng.integers(0, n_leaves, size=n)
-    cb = np.zeros(TAUS.size)
     lr = 0.1
 
-    got = _leaf_quantiles_vec(leaf, y, F, TAUS, cb, n_leaves, lr)
+    got = _leaf_quantiles_vec(leaf, y, F, TAUS, n_leaves, lr)
     ref = np.zeros((n_leaves, TAUS.size))
     for l in range(n_leaves):
         m = leaf == l
@@ -79,10 +73,9 @@ def test_leaf_quantiles_weighted_match_reference(n, n_leaves):
     F = np.repeat(rng.standard_normal((n, 1)), TAUS.size, axis=1)
     leaf = rng.integers(0, n_leaves, size=n)
     w = rng.uniform(0.2, 2.0, size=n)
-    cb = np.zeros(TAUS.size)
     lr = 0.1
 
-    got = _leaf_quantiles_vec_w(leaf, y, F, w, TAUS, cb, n_leaves, lr)
+    got = _leaf_quantiles_vec_w(leaf, y, F, w, TAUS, n_leaves, lr)
     ref = np.zeros((n_leaves, TAUS.size))
     for l in range(n_leaves):
         m = leaf == l
@@ -102,60 +95,33 @@ def test_leaf_quantile_serial_twin_is_bit_identical():
     F = np.sort(rng.standard_normal((n, TAUS.size)), axis=1)
     leaf = rng.integers(0, n_leaves, size=n)
     w = rng.uniform(0.5, 1.5, size=n)
-    cb = np.cumsum(np.r_[0.0, rng.uniform(0, 0.1, TAUS.size - 1)])
 
     np.testing.assert_array_equal(
-        _leaf_quantiles_vec(leaf, y, F, TAUS, cb, n_leaves, 0.1),
-        _leaf_quantiles_vec_serial(leaf, y, F, TAUS, cb, n_leaves, 0.1))
+        _leaf_quantiles_vec(leaf, y, F, TAUS, n_leaves, 0.1),
+        _leaf_quantiles_vec_serial(leaf, y, F, TAUS, n_leaves, 0.1))
     np.testing.assert_array_equal(
-        _leaf_quantiles_vec_w(leaf, y, F, w, TAUS, cb, n_leaves, 0.1),
-        _leaf_quantiles_vec_w_serial(leaf, y, F, w, TAUS, cb, n_leaves, 0.1))
+        _leaf_quantiles_vec_w(leaf, y, F, w, TAUS, n_leaves, 0.1),
+        _leaf_quantiles_vec_w_serial(leaf, y, F, w, TAUS, n_leaves, 0.1))
 
 
-def _pava_reference(u):
-    """Plain-Python pool-adjacent-violators, the readable oracle for
-    `_project_leaf_row`'s in-place version."""
-    blocks = []                       # (mean, count)
-    for v in u:
-        val, cnt = float(v), 1
-        while blocks and blocks[-1][0] > val:
-            bv, bc = blocks.pop()
-            tot = bc + cnt
-            val = (bv * bc + val * cnt) / tot
-            cnt = tot
-        blocks.append((val, cnt))
-    out = []
-    for val, cnt in blocks:
-        out.extend([val] * cnt)
-    return np.array(out)
-
-
-def test_projection_matches_pava_and_respects_the_budget():
-    """The projection is isotonic regression in shifted coordinates: it must
-    match PAVA, and its output must satisfy the narrowing constraint
-    ``v[k] - v[k-1] >= -b[k]`` that keeps predictions from crossing."""
-    rng = np.random.default_rng(11)
-    K = TAUS.size
-    for _ in range(200):
-        b = np.r_[0.0, rng.uniform(0.0, 0.5, K - 1)]
-        cb = np.cumsum(b)
-        v = rng.standard_normal(K) * 0.3
-        buf = np.ascontiguousarray(v[None, :].copy())
-        _project_leaf_row(buf, 0, K, cb)
-        got = buf[0]
-        np.testing.assert_allclose(got, _pava_reference(v + cb) - cb,
-                                   rtol=0, atol=1e-12)
-        assert np.all(np.diff(got) >= -b[1:] - 1e-12)
-
-
-def test_projection_with_zero_budget_forces_monotone_increments():
-    """With no budget the admissible set collapses to non-decreasing vectors,
-    which is the degenerate case the guarantee rests on."""
-    rng = np.random.default_rng(12)
-    K = TAUS.size
-    buf = np.ascontiguousarray(rng.standard_normal((1, K)))
-    _project_leaf_row(buf, 0, K, np.zeros(K))
-    assert np.all(np.diff(buf[0]) >= 0.0)
+def test_projected_gradient_makes_no_ordering_assumption():
+    """`_project_pinball` collapses the K gradient columns onto one direction
+    without building them. It once did that by binary-searching the row's PIT
+    rank, which silently returns the wrong channel set once a row of F crosses
+    -- and rows of F are free to cross now. Score a deliberately crossing F
+    against the dense definition."""
+    from chimeraboost.tree import _project_pinball
+    rng = np.random.default_rng(21)
+    n, K = 500, TAUS.size
+    y = rng.standard_normal(n)
+    F = rng.standard_normal((n, K))          # unsorted on purpose
+    assert (np.diff(F, axis=1) < 0).any(), "F must actually cross"
+    c = rng.standard_normal(K)
+    w = rng.uniform(0.5, 1.5, n)
+    out = np.empty(n)
+    _project_pinball(y, F, c, float(c @ TAUS), w, out)
+    grad = np.where(y[:, None] >= F, -TAUS, 1.0 - TAUS)
+    np.testing.assert_allclose(out, (grad @ c) * w, rtol=0, atol=1e-12)
 
 
 # --------------------------------------------------------------------------
@@ -163,9 +129,7 @@ def test_projection_with_zero_budget_forces_monotone_increments():
 # --------------------------------------------------------------------------
 
 def test_predictions_never_cross():
-    """Zero crossings, asserted exactly. Init is sorted, every committed
-    increment is admissible, and IEEE addition is monotone, so this is
-    structural rather than a tolerance."""
+    """Zero crossings, asserted exactly: every delivered row is rearranged."""
     X, y = _heteroscedastic(seed=1)
     m = ChimeraBoostQuantileRegressor(random_state=0, n_estimators=200).fit(X, y)
     Q = m.predict(X)
@@ -193,10 +157,15 @@ def test_no_crossing_on_every_path():
 
 
 def test_narrow_regions_are_actually_narrower():
-    """The head must be able to make an interval TIGHTER than the pooled one.
-    A construction that only ever adds non-decreasing increments cannot (the
-    sum of non-decreasing vectors is non-decreasing), so this pins the
-    behaviour the narrowing budget exists to allow."""
+    """The band must track the LOCAL spread, not just beat the pooled one.
+
+    The data has a 0.1 spread on one side and 2.1 on the other, so the honest
+    width ratio is about 0.05. The predecessor to today's construction spent a
+    global narrowing budget at its worst-case leaf, froze within tens of rounds
+    and delivered bands 2x to 10x too wide on real data
+    (benchmarks/LEAFTUNE_PLAN.md, P12) -- while still clearing a loose
+    "narrower than pooled" bar. Hence the ratio, which is what actually
+    failed."""
     X, y = _heteroscedastic(n=6000, seed=3, narrow=True)
     m = ChimeraBoostQuantileRegressor(random_state=0, n_estimators=400).fit(X, y)
     Q = m.predict(X)
@@ -206,7 +175,57 @@ def test_narrow_regions_are_actually_narrower():
     assert width[tight].mean() < 0.5 * pooled, (
         f"tight-region width {width[tight].mean():.3f} should be far below the "
         f"pooled width {pooled:.3f}")
-    assert width[tight].mean() < width[wide].mean()
+    ratio = width[tight].mean() / width[wide].mean()
+    assert ratio < 0.35, (
+        f"tight/wide width ratio {ratio:.3f} should approach the true spread "
+        f"ratio of ~0.05; a frozen global band sits near 1.0")
+
+
+def test_coverage_does_not_ratchet_up_with_training():
+    """The saturation signature, pinned as a regression test.
+
+    When the width is frozen but the centre keeps sharpening, empirical
+    coverage climbs AWAY from nominal as rounds accumulate -- P12 measured
+    0.817 at round 1 and 0.995 from round 50. A healthy fit does the opposite:
+    coverage settles toward nominal and the width keeps moving."""
+    X, y = _heteroscedastic(n=6000, seed=5, narrow=True)
+    Xt, yt, Xv, yv = X[:4000], y[:4000], X[4000:], y[4000:]
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=400, early_stopping=False).fit(Xt, yt)
+    lo, hi = 0, TAUS.size - 1               # the 0.05-0.95 band, nominal 0.90
+    seen = {}
+    for i, Q in enumerate(m.staged_predict(Xv), start=1):
+        if i in (50, 400):
+            seen[i] = (float(np.mean((yv >= Q[:, lo]) & (yv <= Q[:, hi]))),
+                       float(np.mean(Q[:, hi] - Q[:, lo])))
+    (cov50, wid50), (cov400, wid400) = seen[50], seen[400]
+
+    assert abs(wid400 - wid50) / wid50 > 0.01, (
+        f"width froze: {wid50:.5f} at round 50 vs {wid400:.5f} at 400")
+    assert cov400 <= cov50 + 0.02, (
+        f"coverage ratcheted up with training ({cov50:.3f} -> {cov400:.3f}), "
+        f"which is the frozen-band signature")
+    assert 0.84 <= cov400 <= 0.95, (
+        f"final coverage {cov400:.3f} should sit near the nominal 0.90")
+
+
+def test_rearrangement_never_increases_pinball():
+    """Sorting a crossing quantile curve cannot raise the pinball loss at any
+    level (Chernozhukov, Fernandez-Val & Galichon 2010). That is the whole
+    licence for repairing order at delivery, so check it against the model's
+    own raw accumulated scores."""
+    X, y = _heteroscedastic(n=3000, seed=6)
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=150, early_stopping=False).fit(X, y)
+
+    Xb = np.ascontiguousarray(m.model_.prep_.transform(X).T)
+    raw = np.tile(m.model_.init_, (X.shape[0], 1))
+    for tree in m.model_.trees_:
+        raw += tree.values[tree.apply(Xb)]
+    sorted_out = m.predict(X)
+
+    np.testing.assert_array_equal(sorted_out, np.sort(raw, axis=1))
+    assert _pinball(y, sorted_out) <= _pinball(y, raw) + 1e-12
 
 
 def test_staged_final_equals_predict():
@@ -466,14 +485,18 @@ def test_loss_reduces_to_the_scalar_quantile_gradient():
                                rtol=0, atol=1e-12)
 
 
-def test_booster_gap_bound_stays_positive():
-    """The narrowing budget is a lower bound on the gap for ANY row; if it
-    ever went negative the guarantee would be void."""
+def test_booster_keeps_no_narrowing_budget():
+    """The budget is gone and must stay gone: `gap_` was its public trace, and
+    a half-reverted state that recreates the attribute without the machinery
+    (or vice versa) would be worse than either. The raw accumulated scores are
+    free to cross -- that is the point -- while every delivered row is
+    ordered."""
     X, y = _heteroscedastic(n=3000, seed=22)
     b = MultiQuantileBoosting(quantiles=TAUS, n_estimators=200, depth=4,
                               random_state=0, min_child_weight=20.0)
     b.fit(X, y)
-    assert np.all(b.gap_ >= 0.0)
+    assert not hasattr(b, "gap_")
+    assert np.all(np.diff(b.predict_raw(X), axis=1) >= 0.0)
 
 
 # --------------------------------------------------------------------------

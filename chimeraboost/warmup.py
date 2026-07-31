@@ -161,10 +161,10 @@ def warmup(verbose=False, background=False, shap=False):
     mc.predict_proba(X[:1, :3])   # vector-leaf serial twin
     _log("multiclass")
 
-    # Multi-quantile head: the leaf-quantile kernels (quickselect + the
-    # non-crossing projection) and the vector forest predictors. A short grid
-    # keeps the compile cheap -- the kernels are generic in K, so the number
-    # of levels does not change what gets compiled.
+    # Multi-quantile head: the leaf-quantile kernels (quickselect) and the
+    # vector forest predictors. A short grid keeps the compile cheap -- the
+    # kernels are generic in K, so the number of levels does not change what
+    # gets compiled.
     yq = X[:320, 0] + 0.5 * rng.standard_normal(320)
     qr = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
                                        n_estimators=2, random_state=0,
@@ -183,11 +183,10 @@ def warmup(verbose=False, background=False, shap=False):
     _wy = rng.standard_normal(8)
     _wF = np.zeros((8, 3))
     _wt = np.array([0.1, 0.5, 0.9])
-    _wcb = np.zeros(3)
     _ww = np.ones(8)
-    _leaf_quantiles_vec(_wl, _wy, _wF, _wt, _wcb, 2, 0.1)
-    _leaf_quantiles_vec_w(_wl, _wy, _wF, _ww, _wt, _wcb, 2, 0.1)
-    _leaf_quantiles_vec_w_serial(_wl, _wy, _wF, _ww, _wt, _wcb, 2, 0.1)
+    _leaf_quantiles_vec(_wl, _wy, _wF, _wt, 2, 0.1)
+    _leaf_quantiles_vec_w(_wl, _wy, _wF, _ww, _wt, 2, 0.1)
+    _leaf_quantiles_vec_w_serial(_wl, _wy, _wF, _ww, _wt, 2, 0.1)
     _log("multi-quantile")
 
     # Regression, ordered boosting on (the LOO leaf-step kernel), with a

@@ -69,7 +69,6 @@ CACHE_DEPENDENT = {
     "chimeraboost.tree._solve_small",
     "chimeraboost.tree._leaf_row_index",
     "chimeraboost.tree._lerp_np",
-    "chimeraboost.tree._project_leaf_row",
     "chimeraboost.tree._quantile_slice",
     "chimeraboost.tree._select_kth",
     "chimeraboost.tree._sort_pairs",

@@ -767,24 +767,22 @@ class GradientBoosting(_BaseBooster):
         `losses._weighted_quantile`, `_leaf_row_index` groups rows in the
         same ascending order the argsort did (all three pinned by
         tests/test_quantile_head.py and the scalar oracle in
-        tests/test_bitident_refactors.py), and at K=1 the non-crossing
-        projection is the identity. Custom adjusts-leaves losses keep the
-        generic path below."""
+        tests/test_bitident_refactors.py). Custom adjusts-leaves losses keep
+        the generic path below."""
         n_leaves = tree.values.shape[0]
         if type(self.loss_) in (MAE, Quantile):
             alpha = 0.5 if type(self.loss_) is MAE else self.loss_.alpha
             taus = np.array([alpha])
-            cb = np.zeros(1)
             F2 = F[:, None]        # (n, 1) view of contiguous F: C-contiguous
             small = leaf.shape[0] <= _SMALL_N
             if sample_weight is None:
                 kern = (_leaf_quantiles_vec_serial if small
                         else _leaf_quantiles_vec)
-                vals = kern(leaf, y, F2, taus, cb, n_leaves, self.lr_)
+                vals = kern(leaf, y, F2, taus, n_leaves, self.lr_)
             else:
                 kern = (_leaf_quantiles_vec_w_serial if small
                         else _leaf_quantiles_vec_w)
-                vals = kern(leaf, y, F2, sample_weight, taus, cb, n_leaves,
+                vals = kern(leaf, y, F2, sample_weight, taus, n_leaves,
                             self.lr_)
             tree.values = vals[:, 0]
             return
@@ -1241,13 +1239,34 @@ class MultiQuantileBoosting(_BaseBooster):
       residuals (`tree._leaf_quantiles_vec`), not a Newton step -- the vector
       form of the override the scalar MAE/Quantile path already applies.
 
-    The starting vector is the sorted global quantiles and every committed
-    leaf vector is projected onto the non-crossing set before it is added, so
-    every partial sum is monotone in tau: predictions cannot cross, and there
-    is no predict-time repair anywhere in this class. The projection is NOT a
-    sort -- see `tree._project_leaf_row` for why sorting both diverges and
-    makes narrow intervals inexpressible, and `_fit_impl` for the narrowing
-    budget that keeps the guarantee valid for rows the fit never saw.
+    Leaf channels are independent steps and nothing constrains them against one
+    another during the fit. Ordering is imposed on DELIVERED predictions, per
+    row, by monotone rearrangement: `_predict_raw_impl` and
+    `staged_predict_raw` sort each row's K-vector before returning it, so
+    predictions cannot cross at any stage. Rearrangement is free of charge in
+    accuracy terms -- Chernozhukov, Fernandez-Val & Galichon (2010) show that
+    sorting a crossing quantile curve never increases pinball loss at any
+    level, for any row -- and it is exact per row rather than a bound that has
+    to hold for every row at once.
+
+    Two rules this class depends on, both learned the expensive way:
+
+    * **Never sort ``F`` in place, or anything that feeds back into it.** An
+      earlier design sorted each leaf vector as it was committed. Sorted values
+      then re-entered the accumulated scores and self-reinforced, and the fit
+      diverged to a measured pinball of 2.9e7 against an oracle of 0.35.
+      Sorting delivered output has no such path back into training.
+    * Nothing may assume a row of ``F`` is ordered. The pinball gradient is
+      per-channel independent (`losses.MultiQuantile.grad_hess` compares only
+      ``F[:, k]`` against ``y``), so crossing scores cost the fit nothing, but
+      code that reads a row as if it were sorted is silently wrong -- see the
+      scan in `tree._project_pinball`, which used to binary-search a PIT rank.
+
+    The predecessor to all this was a training-time "narrowing budget" charged
+    at the worst-case leaf each round. It was a valid bound and a bad one: one
+    aggressively-narrowing leaf spent budget on behalf of every row, so it
+    saturated within tens of rounds and froze the interval width, leaving bands
+    2x to 10x wider than calibrated (benchmarks/LEAFTUNE_PLAN.md, P12).
 
     Known limitation, by construction: within one round, gradient signal
     orthogonal to the chosen direction cannot drive a split. The exact leaf
@@ -1332,30 +1351,10 @@ class MultiQuantileBoosting(_BaseBooster):
         if yv is not None:
             Fv = np.tile(self.init_, (yv.shape[0], 1))
 
-        # --- narrowing budget -------------------------------------------
-        # `gap[k]` is a lower bound on Q_k(x) - Q_{k-1}(x) that holds for ANY
-        # input row, not just training rows: a row's gap is the initial gap
-        # plus, for each tree, the increment gap at whichever leaf it lands
-        # in, and each of those is at least the minimum over that tree's
-        # leaves. So bounding every leaf's increment gap below by -budget and
-        # then subtracting the round's realized minimum keeps the bound valid
-        # for rows the fit never saw.
-        #
-        # The floor keeps the bound comfortably above float64 accumulation
-        # error: intervals may narrow to a billionth of the global spread,
-        # which is unlimited in practice, while the guaranteed margin stays
-        # ~7 orders of magnitude above the rounding noise of summing a few
-        # hundred trees.
-        gap = np.diff(self.init_)                   # (K-1,), >= 0
-        floor = 1e-9 * max(float(self.init_[-1] - self.init_[0]), 1e-300)
-        cb = np.zeros(K)                            # cumulative budget
-
-        # Scratch reused every round: the projected gradient, the suffix-sum
-        # table `_project_pinball` indexes by PIT rank (one slot past the end
-        # so a rank of K reads zero), and a row-weight vector that is all ones
-        # when unweighted (exactly 1.0, so that path stays unchanged).
+        # Scratch reused every round: the projected gradient, and a row-weight
+        # vector that is all ones when unweighted (exactly 1.0, so that path
+        # stays unchanged).
         g_buf = np.empty(n_samples)
-        csuffix = np.zeros(K + 1)
         w_row = np.ones(n_samples) if w is None else w
         # Only two arms ever need the (n, K) gradient itself: "gram" measures
         # its covariance, and the exact split search scatters all K channels.
@@ -1388,8 +1387,7 @@ class MultiQuantileBoosting(_BaseBooster):
             if grad is not None and self.split_projection == "gram":
                 g_s = grad @ direction
             else:
-                csuffix[:K] = np.cumsum(direction[::-1])[::-1]
-                _project_pinball(y, F, csuffix, float(direction @ taus),
+                _project_pinball(y, F, direction, float(direction @ taus),
                                  w_row, g_buf)
                 g_s = g_buf
             # Unit-norm direction + unit hessian => projected curvature is
@@ -1439,25 +1437,19 @@ class MultiQuantileBoosting(_BaseBooster):
                 break
 
             # Replace the projection's scalar leaf values with the exact
-            # per-tau residual quantiles on the shared partition, sorted.
+            # per-tau residual quantiles on the shared partition. Each channel
+            # is its own quantile of the same residuals; they are not
+            # constrained against one another, which is what lets a leaf
+            # narrow its interval as far as its rows warrant.
             n_lv = tree.values.shape[0]
-            # Budget this round: the gap each channel can give away and still
-            # leave every possible row ordered. cb is its running sum, which
-            # is what turns the admissible set into plain monotonicity.
-            np.cumsum(np.maximum(gap - floor, 0.0), out=cb[1:])
             if rw is None:
                 kern = (_leaf_quantiles_vec_serial if small
                         else _leaf_quantiles_vec)
-                tree.values = kern(leaf, y, F, taus, cb, n_lv, self.lr_)
+                tree.values = kern(leaf, y, F, taus, n_lv, self.lr_)
             else:
                 kern = (_leaf_quantiles_vec_w_serial if small
                         else _leaf_quantiles_vec_w)
-                tree.values = kern(leaf, y, F, rw, taus, cb, n_lv, self.lr_)
-            # Spend what this round actually took. The min runs over ALL
-            # leaves, empty ones included -- a row the fit never saw can land
-            # in a leaf no training row reached, and its increment there is
-            # zero, which the min correctly treats as "no narrowing".
-            gap += np.diff(tree.values, axis=1).min(axis=0)
+                tree.values = kern(leaf, y, F, rw, taus, n_lv, self.lr_)
 
             _add_leaf_values(F, tree.values, leaf)
             self.trees_.append(tree)
@@ -1470,19 +1462,22 @@ class MultiQuantileBoosting(_BaseBooster):
             if Fv is not None and stopper.patience:
                 self.trees_ = self.trees_[: stopper.best_iter + 1]
 
-        # Early stopping can discard trailing trees, and every discarded tree
-        # only ever SPENT budget, so recomputing the bound over the retained
-        # prefix is both correct and never looser than the running value.
-        self.gap_ = np.diff(self.init_) + (
-            sum(np.diff(t.values, axis=1).min(axis=0) for t in self.trees_)
-            if self.trees_ else 0.0)
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
 
+    def _val_score(self, yv, Fv, wv):
+        """Score the eval set on REARRANGED scores, which is what a user
+        receives. Sorting can only lower the pinball loss, so stopping on the
+        raw accumulator would pick the best round for a prediction this class
+        never returns. ``np.sort`` copies -- ``Fv`` itself must stay untouched,
+        since the fit keeps adding to it."""
+        return super()._val_score(yv, np.sort(Fv, axis=1), wv)
+
     def _predict_raw_impl(self, X, cat_ctx=None):
         """Return the (n_samples, n_quantiles) matrix of quantile estimates,
-        non-decreasing along axis 1 by construction."""
+        each row sorted (see the class docstring: monotone rearrangement is
+        where the non-crossing guarantee is enforced)."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = self.prep_.transform(X, cat_ctx)       # row-major
         if not self.trees_:
@@ -1493,17 +1488,24 @@ class MultiQuantileBoosting(_BaseBooster):
         kernel = (_predict_forest_vec_rm_serial
                   if Xb.shape[0] <= _SERIAL_PREDICT_N
                   else _predict_forest_vec_rm)
-        return kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_)
+        return np.sort(
+            kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_), axis=1)
 
     def staged_predict_raw(self, X):
         """Yield the (n, K) quantile matrix after each successive tree.
 
         Trees are accumulated in the same order as `_predict_forest_vec_rm`,
-        so the final stage equals ``predict_raw`` and every intermediate stage
-        is itself non-crossing."""
+        so the final stage equals ``predict_raw``. Each stage is rearranged on
+        the way out and every one of them is non-crossing.
+
+        ``np.sort`` returns a copy, which is load-bearing twice over: it is the
+        per-stage copy the caller needs, and it keeps the running ``F`` in raw
+        accumulated form. Sorting ``F`` in place would feed rearranged scores
+        back into the next stage and reproduce the divergence recorded in the
+        class docstring."""
         X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = np.ascontiguousarray(self.prep_.transform(X).T)   # feature-major
         F = np.tile(self.init_, (Xb.shape[1], 1))
         for tree in self.trees_:
             F += tree.values[tree.apply(Xb)]
-            yield F.copy()
+            yield np.sort(F, axis=1)

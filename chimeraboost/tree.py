@@ -918,25 +918,32 @@ def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
 # The quantile head's leaf value is not a Newton step but the exact empirical
 # quantile of the leaf's residuals, one per tau -- the same override the
 # scalar MAE/Quantile path applies in `booster._correct_leaves`, widened to K
-# channels and with the committed vector projected onto the admissible set so
-# predictions can never cross (see `_project_leaf_row`).
+# channels. The channels are not constrained against one another here; ordering
+# is imposed per row on delivered predictions (`booster.MultiQuantileBoosting`).
 # ---------------------------------------------------------------------------
 
 
 @njit(cache=True, parallel=True)
-def _project_pinball(y, F, csuffix, cdot, w, out):
+def _project_pinball(y, F, c, cdot, w, out):
     """Projected pinball gradient ``(grad @ c)`` without ever forming grad.
 
-    Row i's gradient is ``1{y_i < F_ik} - tau_k``, and F_i is non-decreasing,
-    so the set of channels the target falls below is a SUFFIX ``{r_i ... K-1}``
-    where r_i is the row's PIT rank. The projection onto c is then
+    Row i's channel-k gradient is ``1{y_i < F_ik} - tau_k``, so the projection
+    onto the direction ``c`` is
 
-        g_i = csuffix[r_i] - dot(c, taus)
+        g_i = sum over {k : F_ik > y_i} of c_k, minus dot(c, taus)
 
-    with ``csuffix[r] = sum(c[r:])`` precomputed once. One binary search per
-    row instead of a K-element dot product, and no (n, K) temporary: this is
-    the whole reason a K-level head can cost about what a 1-level one costs
-    per round outside the leaf refit.
+    which is one accumulating pass over the row instead of a K-element dot
+    product against a materialized (n, K) gradient. Not building that matrix is
+    the whole reason a K-level head can cost about what a 1-level one costs per
+    round outside the leaf refit.
+
+    An earlier version read the sum straight out of a precomputed suffix table
+    by binary-searching the row's PIT rank, which is valid only while ``F_i`` is
+    non-decreasing. Leaf vectors are no longer constrained against one another
+    (ordering is imposed per row on delivered predictions instead), so a row's
+    channels may cross during training and ``{k : F_ik > y_i}`` need not be a
+    suffix. The scan below makes no ordering assumption at all; it costs K
+    comparisons rather than log K over the same cache lines.
 
     ``w`` is a per-row weight array (ones when unweighted -- multiplying by
     exactly 1.0 is bit-exact, so the unweighted path is unchanged).
@@ -944,15 +951,11 @@ def _project_pinball(y, F, csuffix, cdot, w, out):
     n, K = F.shape
     for i in prange(n):
         yi = y[i]
-        lo = 0
-        hi = K
-        while lo < hi:                 # first k with F[i, k] > y_i
-            mid = (lo + hi) >> 1
-            if F[i, mid] > yi:
-                hi = mid
-            else:
-                lo = mid + 1
-        out[i] = (csuffix[lo] - cdot) * w[i]
+        s = 0.0
+        for k in range(K):
+            if F[i, k] > yi:
+                s += c[k]
+        out[i] = (s - cdot) * w[i]
 
 
 @njit(cache=True, parallel=True)
@@ -1088,55 +1091,6 @@ def _weighted_quantile_slice(buf, wbuf, lo, hi, alpha, wlo):
 
 
 @njit(cache=True)
-def _project_leaf_row(values, l, K, cb):
-    """Project one leaf's K-vector onto the set of increments that cannot make
-    any prediction cross, in place. This is what makes the non-crossing
-    guarantee structural -- there is no predict-time repair anywhere.
-
-    The naive rule ("commit only non-decreasing increments") is sound but far
-    too strong: a sum of non-decreasing vectors is non-decreasing, so the
-    predicted interval could then never be NARROWER than the global one, and
-    the low-noise half of heteroscedastic data becomes inexpressible. Worse,
-    forcing it by sorting can reverse a narrowing update into a widening one,
-    which is self-reinforcing and diverges.
-
-    So instead each channel carries a narrowing budget ``b_k`` -- the gap the
-    model can still give away at channel k and stay ordered for EVERY possible
-    input row (see `booster.MultiQuantileBoosting` for how the budget is
-    maintained). The admissible set is ``{v : v_k - v_{k-1} >= -b_k}``, and
-    the substitution ``u_k = v_k + sum(b_1..b_k)`` turns it into plain
-    monotonicity, so the projection is ordinary isotonic regression on u.
-    ``cb`` is that cumulative budget, ``cb[0] = 0``.
-
-    Pool-adjacent-violators, not a sort: PAVA is the closest admissible vector
-    in least squares and averages violators, where a sort permutes them and
-    can invert the sign of a contrast. With ``cb == 0`` this reduces exactly
-    to enforcing non-decreasing increments.
-    """
-    bval = np.empty(K)
-    bcnt = np.empty(K, dtype=np.int64)
-    for k in range(K):
-        values[l, k] += cb[k]
-    pos = 0
-    for k in range(K):
-        val = values[l, k]
-        cnt = 1
-        while pos > 0 and bval[pos - 1] > val:
-            pos -= 1
-            tot = bcnt[pos] + cnt
-            val = (bval[pos] * bcnt[pos] + val * cnt) / tot
-            cnt = tot
-        bval[pos] = val
-        bcnt[pos] = cnt
-        pos += 1
-    idx = 0
-    for j in range(pos):
-        for _ in range(bcnt[j]):
-            values[l, idx] = bval[j] - cb[idx]
-            idx += 1
-
-
-@njit(cache=True)
 def _leaf_row_index(leaf, n_leaves):
     """Group rows by leaf into contiguous, disjoint slices.
 
@@ -1161,9 +1115,9 @@ def _leaf_row_index(leaf, n_leaves):
 
 
 @njit(cache=True, parallel=True)
-def _leaf_quantiles_vec(leaf, y, F, taus, cb, n_leaves, lr):
+def _leaf_quantiles_vec(leaf, y, F, taus, n_leaves, lr):
     """Per-leaf, per-tau empirical quantile of the residuals ``y - F[:, k]``,
-    scaled by the learning rate and projected onto the non-crossing set.
+    scaled by the learning rate.
 
     The (n_leaves, K) analogue of `booster._correct_leaves`: the tree structure
     was chosen by the projected gradient, this sets the step. Column k is
@@ -1171,10 +1125,10 @@ def _leaf_quantiles_vec(leaf, y, F, taus, cb, n_leaves, lr):
     partition at ``alpha = taus[k]`` -- the oracle test in
     tests/test_quantile_head.py.
 
-    `lr` multiplies from the outside, matching `_correct_leaves`; the
-    projection runs on the scaled value, so the budget it respects is the one
-    actually committed. ``cb`` is the cumulative narrowing budget
-    (`_project_leaf_row`)."""
+    Each channel is an independent step and nothing constrains them against one
+    another here; ordering is imposed on delivered predictions instead, per row
+    (see `booster.MultiQuantileBoosting`). `lr` multiplies from the outside,
+    matching `_correct_leaves`."""
     n = leaf.shape[0]
     K = taus.shape[0]
     off, rows = _leaf_row_index(leaf, n_leaves)
@@ -1200,13 +1154,11 @@ def _leaf_quantiles_vec(leaf, y, F, taus, cb, n_leaves, lr):
                 i = rows[lo + j]
                 buf[st + j] = y[i] - F[i, k]
             values[l, k] = lr * _quantile_slice(buf, st, st + m, taus[k])
-    for l in range(n_leaves):
-        _project_leaf_row(values, l, K, cb)
     return values
 
 
 @njit(cache=True)
-def _leaf_quantiles_vec_serial(leaf, y, F, taus, cb, n_leaves, lr):
+def _leaf_quantiles_vec_serial(leaf, y, F, taus, n_leaves, lr):
     """Serial twin of `_leaf_quantiles_vec` for small n, where the parallel
     fork/join costs more than the pass. Every write is to a disjoint slice, so
     the two are bit-identical; the booster dispatches on `_SMALL_N`."""
@@ -1229,12 +1181,11 @@ def _leaf_quantiles_vec_serial(leaf, y, F, taus, cb, n_leaves, lr):
                     i = rows[j]
                     buf[j] = y[i] - F[i, k]
                 values[l, k] = lr * _quantile_slice(buf, lo, hi, taus[k])
-        _project_leaf_row(values, l, K, cb)
     return values
 
 
 @njit(cache=True, parallel=True)
-def _leaf_quantiles_vec_w(leaf, y, F, w, taus, cb, n_leaves, lr):
+def _leaf_quantiles_vec_w(leaf, y, F, w, taus, n_leaves, lr):
     """Weighted `_leaf_quantiles_vec`. Reproduces `losses._weighted_quantile`
     (nearest rank on cumulative weight), which is the rule the scalar weighted
     quantile path already uses. Rows carrying zero weight -- MVS drops, or a
@@ -1261,13 +1212,11 @@ def _leaf_quantiles_vec_w(leaf, y, F, w, taus, cb, n_leaves, lr):
                 wbuf[st + j] = w[i]
             values[l, k] = lr * _weighted_quantile_slice(
                 buf, wbuf, st, st + m, taus[k], st)
-    for l in range(n_leaves):
-        _project_leaf_row(values, l, K, cb)
     return values
 
 
 @njit(cache=True)
-def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, cb, n_leaves, lr):
+def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, n_leaves, lr):
     """Serial twin of `_leaf_quantiles_vec_w` (see `_leaf_quantiles_vec_serial`)."""
     n = leaf.shape[0]
     K = taus.shape[0]
@@ -1286,7 +1235,6 @@ def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, cb, n_leaves, lr):
                     wbuf[j] = w[i]
                 values[l, k] = lr * _weighted_quantile_slice(
                     buf, wbuf, lo, hi, taus[k], lo)
-        _project_leaf_row(values, l, K, cb)
     return values
 
 
