@@ -5,6 +5,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **A pass of seven output-identical speedups: MAE and quantile fits about
+  twice as fast, categorical prediction about 25% faster, categorical fits
+  about 11%.** Each one removed work that was provably redundant rather than
+  changing any arithmetic:
+  - `MAE` and `Quantile` re-sorted every leaf's residuals and called
+    `np.quantile` from Python once per leaf per boosting round. Both now
+    dispatch to the multi-quantile head's compiled kernels with `K = 1` —
+    kernels that were already pinned bit-identical to exactly those NumPy
+    calls, and were sitting unused on the scalar path.
+  - Categorical factorization ran a per-row Python loop on every fit and
+    every predict batch, which was the dominant cost of predicting with a
+    categorical model. All-numeric columns now take a vectorized path whose
+    equivalence is *audited* per column rather than assumed: numeric strings,
+    the string `"nan"`, integers past 2^53 and `Decimal` drift all fail the
+    audit and fall back to the original loop, which is kept verbatim as both
+    the fallback and the test oracle.
+  - `RMSE`, `MAE`, `Quantile`, `Huber` and `MultiQuantile` allocated a fresh
+    vector of ones for their constant hessian every round; they now share one
+    cached buffer, which pickles drop.
+  - `feature_importances_` became a single `bincount` instead of a nested
+    Python loop over trees, levels and splits — it is re-read once per
+    audition on the selection path and once per bagged member.
+  - Early-stopping evaluation walked the validation set single-threaded every
+    round; above 32 768 rows it now descends in parallel.
+  - Leaf-value updates gather into a fused kernel instead of building a
+    full-length temporary each round.
+
+  Bit-identical — every model, every prediction exactly unchanged (89/89
+  identity-snapshot arrays, including the weighted, subsampled, categorical
+  and multi-quantile configurations).
 - **`subsample < 1` is 22-31% cheaper to fit.** MVS row sampling picks a
   threshold from the gradient magnitudes once per boosting round, and it was
   single-threaded NumPy allocating about ten full-length temporaries each

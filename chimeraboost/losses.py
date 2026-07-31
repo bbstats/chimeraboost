@@ -43,7 +43,32 @@ def _sigmoid(z):
     return out
 
 
-class RMSE:
+class _UnitHessian:
+    """Constant-hessian mixin: ``grad_hess`` returns a cached all-ones buffer
+    instead of allocating ``np.ones_like`` every boosting round.
+
+    The buffer is SHARED across rounds, so nothing on the fit path may write
+    into a returned hessian -- today nothing does: the weighted paths multiply
+    into fresh arrays (``hess * w``), MVS returns fresh arrays, and every tree
+    kernel only reads it. Keep it that way: in particular, never "optimize"
+    ``hess = hess * w`` into ``np.multiply(hess, w, out=hess)``. The cache is
+    dropped on pickle (``loss_`` is pickled inside fitted boosters, and n
+    floats of ones have no business in the payload)."""
+
+    def _unit_hess(self, like):
+        h = getattr(self, "_hess_cache", None)
+        if h is None or h.shape != like.shape:
+            h = np.ones_like(like)
+            self._hess_cache = h
+        return h
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("_hess_cache", None)
+        return state
+
+
+class RMSE(_UnitHessian):
     """Squared-error regression. grad = pred - y, hess = 1."""
 
     name = "RMSE"
@@ -55,8 +80,7 @@ class RMSE:
 
     def grad_hess(self, y, raw):
         grad = raw - y
-        hess = np.ones_like(raw)
-        return grad, hess
+        return grad, self._unit_hess(raw)
 
     def eval(self, y, raw, sample_weight=None):
         return float(np.sqrt(np.average((raw - y) ** 2, weights=sample_weight)))
@@ -91,7 +115,7 @@ class Logloss:
         return _sigmoid(raw)
 
 
-class MAE:
+class MAE(_UnitHessian):
     """Mean absolute error. The sign gradient only picks the tree structure;
     leaf values are set to the (weighted) median of the residuals, which is the
     minimizer of absolute error."""
@@ -108,8 +132,7 @@ class MAE:
 
     def grad_hess(self, y, raw):
         grad = np.sign(raw - y)
-        hess = np.ones_like(raw)
-        return grad, hess
+        return grad, self._unit_hess(raw)
 
     def eval(self, y, raw, sample_weight=None):
         return float(np.average(np.abs(raw - y), weights=sample_weight))
@@ -118,7 +141,7 @@ class MAE:
         return raw
 
 
-class Quantile:
+class Quantile(_UnitHessian):
     """Pinball loss for quantile regression at level `alpha` in (0, 1)."""
 
     name = "Quantile"
@@ -137,8 +160,7 @@ class Quantile:
     def grad_hess(self, y, raw):
         a = self.alpha
         grad = np.where(y >= raw, -a, 1.0 - a)
-        hess = np.ones_like(raw)
-        return grad, hess
+        return grad, self._unit_hess(raw)
 
     def eval(self, y, raw, sample_weight=None):
         r = y - raw
@@ -159,7 +181,7 @@ def _exp(z):
     return np.exp(np.clip(z, -_EXP_CLIP, _EXP_CLIP))
 
 
-class Huber:
+class Huber(_UnitHessian):
     """Huber regression: quadratic within `delta` of the target, linear
     beyond. `delta` is in y units (fixed, not quantile-adaptive), so scale it
     to the data. hess = 1 in both regions (the standard GBDT treatment)."""
@@ -177,8 +199,7 @@ class Huber:
     def grad_hess(self, y, raw):
         r = raw - y
         grad = np.clip(r, -self.delta, self.delta)
-        hess = np.ones_like(raw)
-        return grad, hess
+        return grad, self._unit_hess(raw)
 
     def eval(self, y, raw, sample_weight=None):
         r = np.abs(raw - y)
@@ -360,7 +381,7 @@ class MultiSoftmax:
         return _softmax(F)
 
 
-class MultiQuantile:
+class MultiQuantile(_UnitHessian):
     """Pinball loss on a shared tau grid: K quantile channels at once.
 
     Raw scores are an (n, K) matrix, column k holding the estimate of the
@@ -398,7 +419,7 @@ class MultiQuantile:
         Sign convention matches the scalar `Quantile`: -alpha where the target
         sits at or above the current estimate, 1-alpha below."""
         grad = np.where(y[:, None] >= F, -self.taus, 1.0 - self.taus)
-        return grad, np.ones_like(F)
+        return grad, self._unit_hess(F)
 
     def eval(self, y, F, sample_weight=None):
         """Mean pinball loss across the grid -- the CRPS convention used by
