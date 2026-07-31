@@ -34,7 +34,8 @@ NOT_WARMED = {
     "chimeraboost.tree._best_split",
     "chimeraboost.tree._build_and_split",
     # Column-major predict twins; the row-major kernels are the default path.
-    "chimeraboost.tree._descend_leaves",
+    # (`_descend_leaves` itself is warmed: it is the large-n arm of
+    # ObliviousTree.apply. Its serial twin stays test-only.)
     "chimeraboost.tree._descend_leaves_serial",
     "chimeraboost.tree._predict_forest",
     # SHAP, and the column-major predictor its path uses: opt-in via

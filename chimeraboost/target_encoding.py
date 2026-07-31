@@ -141,6 +141,69 @@ class OrderedTargetEncoder:
         return out
 
 
+def _factorize_numeric(col):
+    """Vectorized `factorize` for a column whose entries are all real numbers,
+    None, or NaN; returns None when anything else is present, and the caller
+    falls back to the general loop.
+
+    Runs on every fit AND every predict batch per categorical column (see
+    ``CatTransformCache.column``), where the per-row dict loop dominated
+    predict latency. Equivalence with the dict path is *audited*, not
+    assumed: every non-NaN float image must still compare equal to its
+    original object -- which catches numeric STRINGS ("1.5" parses under
+    astype but "1.5" != 1.5), integers past 2**53 (rounded image), and
+    Decimal drift -- and every NaN image must come from a genuinely missing
+    entry (None / fails self-comparison), which catches the string "nan".
+    Within an audited column, Python's cross-type numeric equality is
+    transitive, so grouping by float64 equality is grouping by the dict's
+    ==/hash classes; the float representatives hash equal to the originals,
+    so downstream category maps behave identically."""
+    try:
+        colf = col.astype(np.float64)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    nan_mask = np.isnan(colf)
+    valid = np.flatnonzero(~nan_mask)
+    if valid.size:
+        eq = np.asarray(colf[valid].astype(object) == col[valid])
+        if not eq.all():
+            return None
+    has_nan = bool(nan_mask.any())
+    if has_nan:
+        for v in col[nan_mask].tolist():
+            if v is None:
+                continue
+            try:
+                if v != v:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            return None
+    codes = np.empty(col.shape[0], dtype=np.int64)
+    if valid.size:
+        su, first, inv = np.unique(colf[valid], return_index=True,
+                                   return_inverse=True)
+        first_pos = valid[first]
+    else:
+        su = np.empty(0)
+        first_pos = np.empty(0, dtype=np.int64)
+    if has_nan:
+        first_pos = np.append(first_pos, np.argmax(nan_mask))
+    # Sorted-unique ids -> first-appearance ranks: the dict's insertion order.
+    order = np.argsort(first_pos, kind="stable")
+    rank = np.empty(order.size, dtype=np.int64)
+    rank[order] = np.arange(order.size, dtype=np.int64)
+    if valid.size:
+        codes[valid] = rank[inv]
+    if has_nan:
+        codes[nan_mask] = rank[-1]
+    cat_ids = np.empty(order.size, dtype=object)
+    cat_ids[:su.size] = su
+    if has_nan:
+        cat_ids[su.size] = "__nan__"
+    return codes, cat_ids[order]
+
+
 def factorize(column):
     """Map an arbitrary 1D column to integer codes in [0, K), in first-appearance
     order. NaN / None map to a dedicated "__nan__" category. Returns
@@ -150,8 +213,15 @@ def factorize(column):
     particular values. Missing values are anything None, NaN-like (compares
     unequal to itself), or refusing self-comparison (pandas' NA scalar raises on
     ``bool``) -- the same set ``pd.isna`` recognizes, without needing pandas.
+
+    All-numeric columns take a vectorized path (`_factorize_numeric`); the
+    loop below is the general case, the fallback, and the fast path's oracle
+    in tests/test_bitident_refactors.py.
     """
     col = np.asarray(column, dtype=object)
+    fast = _factorize_numeric(col)
+    if fast is not None:
+        return fast
     codes = np.empty(col.shape[0], dtype=np.int64)
     mapping = {}
     cats = []
