@@ -105,16 +105,14 @@ def _cqr_scales(Q, y, taus, mi, mw):
     coverage on exchangeable data. Prediction then returns
     ``c + s * (q - c)``.
 
-    Why scaling rather than the usual additive widening. An additive
-    correction that SHRINKS an interval is a non-monotone offset vector, and
-    the only way to apply one safely is out of the fit's narrowing budget --
-    which the fit has already spent. Scaling about the median has no such
-    problem: multiplying a monotone, sign-correct deviation by a non-negative
-    factor cannot reorder anything, for any row, spent budget or not. Since a
-    shrunk-fit quantile model is systematically OVER-dispersed -- every round's
-    step is shrunk by the learning rate, so the grid never fully contracts --
-    shrinking is the correction that is actually needed, and the additive form
-    cannot deliver it.
+    Why scaling rather than the usual additive widening. The scores this is
+    applied to are already rearranged, so every deviation from the median is
+    sign-correct and ordered outward; multiplying it by a non-negative factor
+    cannot reorder anything, for any row. An additive correction has no such
+    property -- one that SHRINKS an interval is a non-monotone offset vector
+    and can reorder the grid on its own. Scaling also happens to be the
+    correction with the right degree of freedom, since a shrunk fit can be
+    over- or under-dispersed and a factor moves in both directions.
 
     Two constraints are enforced:
 
@@ -192,8 +190,11 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     holding one entry per level in ``quantiles``. Against fitting one quantile
     regressor per level this is roughly K times less split-search work, and
     the predictions cannot cross: the 30% quantile is never returned above the
-    70%. The guarantee is structural rather than repaired afterwards, so it
-    holds at every intermediate stage of ``staged_predict`` too.
+    70%. Ordering is enforced per row by monotone rearrangement of the
+    delivered scores, which is exact for every row and holds at every
+    intermediate stage of ``staged_predict`` too. Rearrangement cannot cost
+    accuracy -- sorting a crossing quantile curve never increases pinball loss
+    at any level (Chernozhukov, Fernandez-Val & Galichon 2010).
 
     Deliberately not a ``RegressorMixin``: ``predict`` returns a matrix, so the
     inherited ``score`` (which assumes one number per row) would be wrong.
