@@ -3,6 +3,53 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Fixed
+- **`ChimeraBoostQuantileRegressor` returned prediction intervals 2x to 10x
+  wider than they should have been, and they got worse the longer you
+  trained.** The non-crossing guarantee was enforced during the fit by a global
+  "narrowing budget" charged at the worst-case leaf each round, so a single
+  aggressively narrowing leaf spent budget on behalf of every row. It ran out
+  within tens of rounds and froze the interval width from then on: on `cpu_act`
+  the width was identical at rounds 1000, 2000 and 3000, while coverage climbed
+  from 0.86 to 0.99 against a nominal 0.80 as the centre kept sharpening under
+  a band that could no longer follow.
+
+  Ordering is now imposed per row on the delivered predictions by monotone
+  rearrangement. That is exact for each row rather than a bound that has to
+  hold for every possible row at once, and it costs no accuracy — sorting a
+  crossing quantile curve never increases pinball loss at any level
+  (Chernozhukov, Fernández-Val & Galichon 2010). Predictions still cannot
+  cross, at every stage of `staged_predict`, and `crossing_rate` is still
+  exactly zero.
+
+  Measured on three Grinsztajn regression sets, 3 seeds: pinball loss improves
+  by 80%, 24% and 24%, and the band now tracks local spread instead of freezing.
+  Against 19 independent LightGBM quantile boosters the head moves from roughly
+  matching them to beating them at every width tested (pinball ratio 0.968 to
+  0.989 from 5 to 128 features), at 3.0x to 6.2x their fit speed.
+
+  One caveat worth knowing: the raw grid now errs slightly *narrow* rather than
+  very wide — a nominal 80% interval delivers about 72 to 76% coverage, because
+  leaf values are in-sample residual quantiles. Use `conformalize=True` when you
+  need the interval to carry a coverage guarantee; it lands within 2.7
+  percentage points of nominal. See `docs/quantiles.md`.
+
+### Removed
+- The `gap_` attribute on `MultiQuantileBoosting`, which reported the narrowing
+  budget's remaining margin. The budget no longer exists, and an attribute
+  whose documented guarantee is no longer true is worse than no attribute.
+  Nothing on `ChimeraBoostQuantileRegressor` exposed it.
+
+### Notes
+- Models pickled with 0.27.0 or earlier load and predict identically: their
+  stored leaf values already satisfied the old constraint, so rearranging them
+  changes nothing.
+- The scalar `MAE` and `Quantile` losses share these leaf kernels at `K = 1` and
+  are bit-identical across this change, confirmed by the identity snapshot
+  (81 of 89 arrays unchanged; the 8 that moved are the two multi-quantile
+  configurations in full).
+
 ## [0.27.0] - 2026-07-31
 ### Changed
 - **A pass of seven output-identical speedups: MAE and quantile fits about

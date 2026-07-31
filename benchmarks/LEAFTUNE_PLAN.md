@@ -264,7 +264,7 @@ the negative here. The decision suites do not score quantiles and this touches
 `MultiQuantileBoosting` only, so no `--decide` run is owed unless the identity
 snapshot moves a scalar array.
 
-### Result: the mechanism is confirmed and fixed, but bar 3 FAILS — not shipped
+### Result: mechanism confirmed and fixed; bars 1 and 3 FAIL; shipped anyway (see Status)
 
 Same probe, `--tag fix`, same seeds and splits (`results/quantile-band-fix.md`).
 The band is no longer frozen and every absolute measure improves by a lot. The
@@ -323,14 +323,36 @@ whole calibration fold, and on these three datasets that extra freedom does not
 pay for itself. Consistent with P7/P8, which found the rigid arm wins wherever
 the conditional spread is close to constant.
 
-#### Status: recorded, not shipped
+#### Status: SHIPPED (Nathan, 2026-07-31) — bar 3 reclassified as a research target
 
-Branch `fix-quantile-interval-width`, committed and left unmerged. The kill
-clause as written says revert, and it is not overridden here — but note the
-asymmetry before acting on it: this branch is better than `main` on every
-measured axis (pinball on 3 of 3, coverage nearer nominal, LightGBM ratio,
-freeze), so reverting restores a strictly worse model. The bar it misses is
-"beat a one-line baseline", which `main` misses by 10x more.
+> "if we are winning we shouldn't kill it"
+
+The kill clause is deliberately overridden, and the reasoning is recorded here
+because overriding a pre-registered bar is exactly the move that needs an audit
+trail.
+
+Bar 3 asked the head to beat a rigid location shift. That is the right question
+for *"is a conditional quantile model worth building at all"* — the question
+P9-P13 were asking — but it is the wrong question for *"should this change
+replace what users currently have."* On the shipping question the change wins
+every comparison there is: against the shipped head (pinball better on 3 of 3,
+by 80% / 24% / 24%), against the external per-level reference (LightGBM, now
+beaten at all six widths where it previously only matched), and on the defect
+itself (the freeze is gone). The baseline it still loses to, `main` loses to by
+roughly 10x more, so honouring the kill clause would have restored a strictly
+worse model in the name of a bar neither version clears.
+
+The bar is therefore reclassified: **beating the rigid offset stays an open
+research target for the head, not a gate on individual improvements to it.**
+Bars 1 and 3 remain FAILED and are not to be quietly restated as passes.
+
+Shipped with the raw-grid under-coverage documented rather than hidden
+(`docs/quantiles.md`, CHANGELOG): a nominal 80% interval delivers about 72-76%,
+and `conformalize=True` is the supported route to a coverage guarantee. Note
+this is a *change in the direction* of the miscalibration, not its removal —
+users reading a raw interval as a guarantee were previously safe-but-useless and
+are now optimistic, which is the more dangerous failure and the reason it is
+called out in both places.
 
 The live follow-up is a **new mechanism and needs its own pre-registration**:
 shrink each leaf's quantile step toward the pooled band, or fit leaf residual

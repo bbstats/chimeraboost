@@ -35,34 +35,43 @@ More worked snippets are in [Recipes](recipes.md#quantile-regression).
 
 ## Predictions never cross
 
-The 30% quantile is never returned above the 70%. This is built into the model rather
-than repaired afterwards: it starts from the sorted global quantiles, and every leaf
-vector is projected onto a set of increments that cannot reorder anything. So
+The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so
 `np.diff(Q, axis=1) >= 0` holds exactly, including at every intermediate stage of
-`staged_predict`.
+`staged_predict`. Sorting is not a compromise: rearranging a crossing quantile curve
+never increases pinball loss at any level, for any row (Chernozhukov, Fernández-Val &
+Galichon 2010), so the guarantee is free.
 
 Independently fitted per-level models have no such property. On the benchmark in
 `benchmarks/quantile_head.py`, 18 to 21% of adjacent quantile pairs come out reversed.
 
-Intervals can still be *narrower* than the pooled one where the data is quiet, so that
-is not given up to get the guarantee.
+The band is free to be much *narrower* than the pooled one where the data is quiet — it
+tracks the local spread rather than a global floor.
 
 ## Interval calibration
 
-Boosting under-disperses quantiles. Each round's step is scaled by the learning rate, so
-the grid never fully contracts and intervals come out too wide. `conformalize=True`
-fixes it:
+Read the intervals with this in mind: **the raw grid runs slightly narrow.** Leaf values
+are the residual quantiles of the rows in that leaf, measured on those same rows, which
+is optimistic. On the datasets in `benchmarks/probe_quantile_band.py` a nominal 80%
+interval delivers about 72 to 76% coverage. Pinball loss is what the model optimizes and
+it is good — better than one dedicated LightGBM booster per level — but a raw interval
+is not a coverage guarantee.
+
+`conformalize=True` turns it into one:
 
 ```python
 model = ChimeraBoostQuantileRegressor(conformalize=True).fit(X, y)
-print(model.conformal_scale_)      # one factor per level; below 1 means the fit was too wide
+print(model.conformal_scale_)      # one factor per level; above 1 widened the fit
 ```
 
 This holds out `calibration_fraction` of the rows **before** the early-stopping split,
 so that fold influences neither the fit nor the stopping point, then rescales each level
 about the predicted median by a conformal factor (Romano, Patterson & Candès 2019). On
-exchangeable data this gives distribution-free marginal coverage. The worst measured
-error against nominal is 0.7 percentage points at n = 10,000.
+exchangeable data this gives distribution-free marginal coverage. Measured coverage lands
+within 2.7 percentage points of nominal at n = 10,000, erring on the wide side — conformal
+prediction is conservative by construction, so over-coverage is the expected direction.
+
+Use it whenever you need the interval to mean what it says. It costs one extra held-out
+fold and no extra fitting.
 
 It raises rather than guessing when the calibration fold is too small to certify the
 levels you asked for. A 90% interval needs at least 9 calibration rows, and a 99% one
@@ -96,11 +105,12 @@ assumes nothing about tails the model never estimated.
 ## What it costs
 
 The split search runs once per round instead of once per level, so the saving grows with
-how wide the data is: roughly 3.4x the fit speed of 19 independent boosters at 5
-features, 4.8x at 32, and 7.8x at 128. Accuracy stays within 3% of per-level models on
-pinball loss throughout, and comes out better on wide data.
+how wide the data is: roughly 3.0x the fit speed of 19 independent LightGBM quantile
+boosters at 5 features, 3.6x at 32, and 6.2x at 128. Accuracy is not traded for it —
+pinball loss comes out 1 to 3% *better* than those per-level models at every width
+measured, with the margin widening on wide data.
 
-That 3% is an average over the whole grid; a single level can trade more, because every
+That is an average over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
 resolve, the median column of the default 19-level grid has measured up to 18% worse
 than a dedicated `quantiles=[0.5]` fit, with a 3-level grid recovering most of the gap

@@ -70,31 +70,35 @@ skew was worse. `_ROTATE_PATTERN = (0, 0, 1)`.
 
 ## Why predictions cannot cross
 
-Init is the sorted global quantiles, every committed leaf vector is projected
-onto an admissible set, IEEE addition is monotone, and the packed predictor
-accumulates trees in identical order for every channel. So
-`diff(pred, axis=1) >= 0` holds exactly. Measured crossing rate: **0.0000**
-everywhere, against 0.18-0.21 for K independent LightGBM boosters.
+**Superseded 2026-07-31 — see `LEAFTUNE_PLAN.md` P12 and P14.** The mechanism
+described in this section shipped in 0.27.0 and has since been removed; the
+history is kept because two of its dead ends are still live traps.
 
-**The obvious construction does not work.** "Commit only non-decreasing
-increments" is sound but far too strong: a sum of non-decreasing vectors is
-non-decreasing, so the predicted interval could never be NARROWER than the
-pooled one, and the low-noise half of heteroscedastic data becomes
-inexpressible. Forcing it by sorting is worse still -- it reverses a narrowing
-update into a widening one, which is self-reinforcing. Measured: pinball
-2.9e7 against an oracle of 0.35, i.e. divergence.
+Today: every delivered row is sorted on the way out of the booster, so
+`diff(pred, axis=1) >= 0` holds exactly, at every `staged_predict` stage.
+Measured crossing rate **0.0000** everywhere, against 0.18-0.21 for K
+independent LightGBM boosters. Rearrangement is free in accuracy terms
+(Chernozhukov, Fernández-Val & Galichon 2010), and being per-row it is exact
+where any training-time construction has to be a bound over all rows at once.
 
-What works is a **narrowing budget**. `gap[k]` is a lower bound on
-`Q_k(x) - Q_{k-1}(x)` valid for ANY input row, not just training rows: a row's
-gap is the initial gap plus, per tree, the increment gap at whichever leaf it
-lands in, and each of those is at least the minimum over that tree's leaves.
-Each round may give away at most the currently guaranteed gap, and the
-realized minimum is subtracted afterwards. The admissible set
-`{v : v_k - v_{k-1} >= -b_k}` becomes plain monotonicity under
-`u_k = v_k + sum(b_1..b_k)`, so the projection is isotonic regression
-(pool-adjacent-violators, which averages violators -- a sort permutes them and
-can flip a contrast's sign). A floor at 1e-9 of the initial spread keeps the
-guaranteed margin far above float64 accumulation error.
+**Trap 1, still live.** "Commit only non-decreasing increments" is sound but far
+too strong: a sum of non-decreasing vectors is non-decreasing, so the predicted
+interval could never be NARROWER than the pooled one. Forcing it by sorting the
+leaf vector is worse still -- sorted values re-enter the accumulated scores and
+self-reinforce. Measured: pinball 2.9e7 against an oracle of 0.35, i.e.
+divergence. **This is why sorting is safe only at delivery**, where nothing
+feeds back into the fit.
+
+**Trap 2, the one that shipped.** The fix for trap 1 was a **narrowing budget**:
+`gap[k]` a lower bound on `Q_k(x) - Q_{k-1}(x)` valid for any input row, spent
+down each round by the realized minimum over all leaves, with the admissible set
+`{v : v_k - v_{k-1} >= -b_k}` projected by PAVA in shifted coordinates. Sound as
+a bound and ruinous in practice: charging at the worst-case leaf let one leaf
+spend on behalf of every row, so it saturated in tens of rounds and froze the
+interval width, leaving bands 2x to 10x too wide. Passing this section's own
+acceptance ledger while doing so is the cautionary part -- the ledger compared
+against per-level LightGBM and against nominal coverage, and never against a
+trivial fixed-width baseline, which would have caught it immediately.
 
 ## Conformalization
 
@@ -102,14 +106,14 @@ guaranteed margin far above float64 accumulation error.
 split, so it sees no training, no stopping decision and no model selection.
 
 The correction is a per-level **scale about the predicted median**, not the
-usual additive widening. An additive correction that shrinks an interval is a
-non-monotone offset vector, and the only way to apply one safely is out of the
-narrowing budget -- which the fit has already spent, so it projects away to
-nothing (measured: offsets of exactly 0). Scaling has no such problem, and
-shrinking is what is actually needed: a shrunk-fit quantile model is
-systematically over-dispersed, because every round's step is scaled by the
-learning rate so the grid never fully contracts. Measured raw coverage at
-nominal 0.70 was 0.844.
+usual additive widening. The scores it is applied to are already rearranged, so
+every deviation from the median is sign-correct and a non-negative factor cannot
+reorder anything; an additive correction that shrinks an interval is a
+non-monotone offset vector and has no such property. Scaling also moves in both
+directions, which matters more now than it did: the head used to be
+systematically over-dispersed (raw coverage 0.844 at nominal 0.70) and the
+factors shrank, whereas since the budget was removed the raw grid runs slightly
+narrow and they widen.
 
 Fails loudly when the fold cannot support the requested levels
 (`ceil((n+1)(1-alpha)) <= n` needs `n >= (1-alpha)/alpha`).
@@ -126,6 +130,24 @@ boosters sharing one Dataset, 300 rounds, depth 4, lr 0.1, n = 20 000,
 | fit wall clock | >= K/2 = 9.5x faster | 3.4x (5 features) rising to 7.8x (128) | **MISS** |
 | crossing rate, no predict-time patch | exactly 0 | 0.0000 at every width; LightGBM 0.18-0.21 | **PASS** |
 | CQR coverage at n=10k | within 2 points of nominal | worst 0.73 points | **PASS** |
+
+Re-measured 2026-07-31 after the budget was removed (same protocol, 3 seeds):
+
+| criterion | measured | verdict |
+|:--|:--|:--|
+| pinball vs K LightGBM boosters | ratio 0.989 (5 features) to 0.969 (128) — now a **win** at every width | **PASS** |
+| fit wall clock | 3.0x (5 features) rising to 6.2x (128) | **MISS**, unchanged in kind |
+| crossing rate | 0.0000 at every width | **PASS** |
+| CQR coverage at n=10k | worst 2.65 points, erring wide | **FAIL** |
+
+The crossing row's original wording ("no predict-time patch") no longer
+describes the implementation and is kept only as the historical target. What the
+guarantee is worth to a user is unchanged: zero crossings, at every stage.
+
+The CQR row is a real regression against its 2-point target and is recorded as
+such. Cause and follow-up in `LEAFTUNE_PLAN.md` P14 — the raw grid now runs
+narrow, so the factors widen, and the outer-at-least-inner monotonization pushes
+the middle intervals furthest.
 
 **On the speed miss.** The saving is concentrated in the split search, which
 runs once per round instead of K times, so the speedup grows with how wide the
