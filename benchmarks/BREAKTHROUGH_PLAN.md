@@ -197,10 +197,67 @@ Chasing the 11 remaining CatBoost losses has a hard ceiling of about +8
 win-rate points against one opponent. A whole stratum is a bigger prize, and
 we cannot aim at it while blind.
 
-**Running: the decision tier with the external field on every stratum**
-(`--decide --seeds 3 --models ChimeraBoost CatBoost LightGBM sklearn_HGB
---save`) — 103 datasets in 7 strata. This is the measurement that decides where
-to aim.
+### Result (`results/20260801-013306.json`, 103 datasets, 3 seeds) — THE FINDING
+
+**Our win rate against CatBoost collapses as training data shrinks.** Head-to-head
+on the primary metric, per stratum:
+
+| stratum | n | vs CatBoost | vs LightGBM | vs sklearn_HGB |
+|---|--:|---|---|---|
+| gr:base | 57 | **81%** | 98% | 96% |
+| gr:sus25 | 12 | **50%** | 83% | 92% |
+| gr:sus50 | 6 | **33%** | 100% | 100% |
+| hc:base | 13 | **31%** | 92% | 83% |
+| hc:sus25 | 3 | **0%** | 100% | 100% |
+| hc:sus50 | 1 | **0%** | 100% | — |
+| hc:time | 7 | **43%** | 71% | 100% |
+
+Against LightGBM and HGB we stay dominant everywhere (71-100%). The collapse is
+**specific to CatBoost, and specific to small data** — which is exactly the
+regime CatBoost's ordered boosting was designed for, and exactly the regime
+tabular foundation models win.
+
+Aggregate over all 7 strata: **83.0% win rate on 283 matchups**, against 91.8%
+on the base stratum alone. One flip is now worth 0.35 points; 38 matchups sit
+inside the 0.25% near-tie band, 15 of them losses.
+
+The headline table also exposes the one column we do not lead:
+
+| | Reg RMSE% | Bin Brier% | **Multi Brier%** | Slowdown |
+|---|---|---|---|---|
+| ChimeraBoost | **99.3** | **99.7** | **91.1** | **4.8x** |
+| CatBoost | 97.5 | 96.7 | **98.8** | 44.6x |
+| LightGBM | 94.7 | 96.3 | 97.5 | 1.1x |
+| sklearn_HGB | 94.6 | 95.0 | 68.2 | 5.3x |
+
+We beat the field on regression and binary while fitting **9x faster than
+CatBoost** — and lose multiclass Brier by 7.7 points.
+
+### The mechanism, from the worst case
+
+`hc:eucalyptus@time` is our worst matchup anywhere (+56% vs CatBoost, +68% vs
+LightGBM) and alone drags the hc:time *mean* gap to +4.877% while its *median*
+is −1.215%. The per-seed numbers name the failure:
+
+| seed (temporal cut) | ChimeraBoost | CatBoost | LightGBM | sklearn_HGB |
+|---|---|---|---|---|
+| 0 | 0.530 | 0.543 | 0.545 | 0.648 |
+| 1 | 0.770 | 0.484 | 0.430 | 0.880 |
+| 2 | **1.030** (log loss 2.99) | 0.464 | 0.409 | **1.104** |
+
+We degrade monotonically across the cuts and end at Brier > 1.0 with log loss
+near 3 — **confidently wrong**, not merely weak. sklearn_HGB fails the same way
+on the same cuts; CatBoost and LightGBM stay flat. On the base variant of the
+same dataset (552 rows, no shift) the gap is only +3.17%, so it is small data
+*plus* shift that breaks us, and the failure mode is overconfidence.
+
+Caveat kept honest: eucalyptus has 736 total rows, so each temporal test window
+is small and these three numbers carry real variance. It is a pointer, not a
+sign test.
+
+⇒ **The program's target is now one regime, not a loss list: small data, and
+small data under distribution shift.** Base-stratum Grinsztajn is close to
+saturated at 91.8%; the headroom is in the strata nobody had measured.
 
 ---
 
@@ -267,6 +324,26 @@ worth building; if it is flat on `@sus*` too, the thread closes for good.
 Cheap first step, **no library change**: the harness already exposes
 `--chimera-depth 4`, and the run above provides a perfectly paired depth-6
 baseline on identical splits and seeds. One decide run answers it.
+
+### Deprioritized by cheap analysis: per-leaf capacity (semi-oblivious trees)
+
+The panel's highest-novelty structural idea was to break the oblivious
+constraint at the last level, on the theory that one shared split per level
+underfits against LightGBM's ~30 conditions per tree. The supporting anecdote
+was electricity, where we beat CatBoost by 5.8% yet lose to both leafwise
+libraries.
+
+Measuring it directly: **the best oblivious model still loses to a leafwise
+one on 2 of 57 datasets** — electricity (+1.07%) and road-safety (+0.32%) —
+and those two sets have **zero overlap** with the 11 where CatBoost beats us.
+Since ChimeraBoost and CatBoost are both oblivious, that pattern is the only
+clean signature of the architectural tax, and it is worth ~1.4% on two
+datasets total.
+
+So the oblivious constraint is not what is costing us; it is most of why we
+beat CatBoost while fitting in half the time. The panel's most expensive build
+(judged feasibility 3.0, the lowest of 15) would chase the smallest target.
+Not pursued. Script: `scratchpad/oblivious_tax.py`.
 
 ### C3 — the regressor has no effective min-leaf constraint (unprobed)
 
