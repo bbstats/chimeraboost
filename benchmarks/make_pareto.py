@@ -27,8 +27,8 @@ weak" — it just no longer carries the headline axis. Ship-gating is unchanged
 (sign tests on the decision suites; see /experiment).
 
 The other axis is Slowdown: mean fit-time multiple vs the fastest model on
-each dataset (1.0x = fastest), straight from summarize's Speed column. Lower =
-better, so the frontier we want is up-and-to-the-left (strong AND fast).
+each dataset (1.0x = fastest), straight from summarize's Slowdown column. Lower
+= better, so the frontier we want is up-and-to-the-left (strong AND fast).
 
 Run:
     python benchmarks/make_pareto.py                      # newest results json
@@ -105,12 +105,13 @@ def blended_strength(cols):
 
     cols is summarize.aggregate(data)[0]: column-name -> {model: value}, where
     Reg RMSE% / Bin F1% / Bin Brier% are all "% vs best" (higher better) and
-    Speed is the slowdown multiple (lower better).
+    Slowdown is the fit-time multiple vs the fastest model (lower better) --
+    the same quantity this chart plots on its cost axis.
     """
     rmse = cols["Reg RMSE%"]
     f1 = cols["Bin F1%"]
     brier = cols["Bin Brier%"]
-    speed = cols["Speed"]
+    speed = cols["Slowdown"]
     models = set(rmse) | set(f1) | set(brier) | set(speed)
 
     out = {}

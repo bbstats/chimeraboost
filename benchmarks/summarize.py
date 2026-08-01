@@ -4,12 +4,14 @@ Importable helpers shared by the status reporter (`bench_status.py`) and ad-hoc
 analysis. Reads the sidecar `.json` produced by `run_benchmarks.py --save` and
 collapses it to the five headline columns we track:
 
-    Reg RMSE%   Bin F1%   Bin Brier%   Bin Calib   Speed
+    Reg RMSE%   Bin F1%   Bin Brier%   Bin Calib   Slowdown
 
 All "%" columns are "% vs best on that task" (100 = best model on that dataset,
 averaged across datasets). Calib is mean miscalibration (MCB) in units of
-10^-3 (lower better). Speed is the mean fit-time multiple vs the fastest model
-on each dataset (1.0 = fastest).
+10^-3 (lower better). Slowdown is the mean fit-time multiple vs the fastest
+model on each dataset, so LOWER is better and 1.0 = fastest. It is the same
+quantity the Pareto chart plots on its cost axis; it was called "Speed" until
+2026-07-31, which inverted the direction the name implies.
 
 CLI:
     python benchmarks/summarize.py <results.json>              # one table
@@ -27,11 +29,11 @@ import numpy as np
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 MODEL_ORDER = ["ChimeraBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                "ChimeraBoostEns10", "CatBoost", "LightGBM", "sklearn_HGB", "XGBoost"]
-COLS = ["Reg RMSE%", "Bin F1%", "Bin Brier%", "Bin Calib", "Speed"]
+COLS = ["Reg RMSE%", "Bin F1%", "Bin Brier%", "Bin Calib", "Slowdown"]
 # Multiclass columns, rendered ONLY when the results contain multiclass datasets
 # (the HC suite adds them; Grinsztajn has none). They are report-only: the
 # blended north star (make_pareto) is unchanged and ignores these. Inserted
-# before Speed by _display_cols so Speed stays the last column.
+# before Slowdown by _display_cols so Slowdown stays the last column.
 MULTI_COLS = ["Multi F1%", "Multi Brier%"]
 COL_W = 13
 
@@ -70,9 +72,9 @@ def timing_mode(data):
     older ones.
 
     Runs saved before the _finish fix charged prediction and metric computation
-    (two predict passes plus a per-class isotonic fit) to fit_time. Their Speed
-    columns read LOWER for slow-fitting models than they should, so the two
-    generations must never be mixed on any speed comparison.
+    (two predict passes plus a per-class isotonic fit) to fit_time. Their
+    Slowdown columns read LOWER for slow-fitting models than they should, so the
+    two generations must never be mixed on any speed comparison.
     """
     return (data.get("config") or {}).get("timing", "fit+predict")
 
@@ -84,7 +86,7 @@ def timing_warning(*datas):
         return ""
     return ("WARNING: mixing runs with different timing conventions "
             f"({', '.join(sorted(modes))}). Older runs charged predict + metric "
-            "time to fit_time, so Speed/slowdown columns are NOT comparable "
+            "time to fit_time, so the Slowdown column is NOT comparable "
             "across them. Strength columns are unaffected.")
 
 
@@ -408,7 +410,7 @@ def aggregate(data):
         # same near-solved Brier guard (skip_below) applies per column.
         "Multi F1%": _pct_vs_best(f1, mul_ds, lower=False),
         "Multi Brier%": _pct_vs_best(brier, mul_ds, lower=True, skip_below=1e-3),
-        "Speed": _mult_vs_best(speed, all_ds),
+        "Slowdown": _mult_vs_best(speed, all_ds),
     }
     cfg = data.get("config", {})
     meta = {"n_reg": len(reg_ds), "n_bin": len(bin_ds), "n_mul": len(mul_ds),
@@ -494,10 +496,10 @@ def _suite_label(ds_names):
 
 def _display_cols(meta):
     """Column order for the table: the base five, with the two multiclass columns
-    inserted before Speed only when the run actually has multiclass datasets."""
+    inserted before Slowdown only when the run has multiclass datasets."""
     cols = list(COLS)
     if meta.get("n_mul", 0) > 0:
-        cols[cols.index("Speed"):cols.index("Speed")] = MULTI_COLS
+        cols[cols.index("Slowdown"):cols.index("Slowdown")] = MULTI_COLS
     return cols
 
 
@@ -506,7 +508,7 @@ def _fmt(v, col):
         return f"{'--':>{COL_W}}"
     if col == "Bin Calib":
         return f"{v * 1000:>{COL_W - 1}.2f}m"
-    if col == "Speed":
+    if col == "Slowdown":
         return f"{v:>{COL_W - 1}.1f}x"
     return f"{v:>{COL_W - 1}.1f}%"
 
@@ -537,7 +539,8 @@ def format_table(data, label=None):
     cap = (f"{meta['suite']} — {meta['n_total']} datasets "
            f"({meta['n_reg']} reg, {meta['n_bin']} binary, "
            f"{meta['n_mul']} multiclass){seeds} | "
-           f"100% = best | Calib MCB x10^-3 lower=better | Speed vs fastest")
+           f"100% = best | Calib MCB x10^-3 lower=better | "
+           f"Slowdown = fit-time multiple vs fastest, lower=better")
     lines.append(cap)
     if meta.get("n_reg_excl"):
         n = meta["n_reg_excl"]
@@ -592,7 +595,7 @@ def format_compare(base_data, new_data, base_label="BEFORE", new_label="AFTER",
             d = (bv - nv) * 1000
             out.append(f"  {c:<12} {bv*1000:.2f}m -> {nv*1000:.2f}m  "
                        f"({d:+.2f}m {'better' if d > 0 else 'worse'})")
-        elif c == "Speed":
+        elif c == "Slowdown":
             d = bv - nv
             out.append(f"  {c:<12} {bv:.1f}x -> {nv:.1f}x  "
                        f"({d:+.1f}x {'faster' if d > 0 else 'slower'})")
