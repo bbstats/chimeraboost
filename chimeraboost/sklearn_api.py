@@ -1323,8 +1323,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         Maximum number of boosting rounds (trees). With ``early_stopping`` on,
         this is an upper bound and the best round is selected automatically.
     learning_rate : float or None, default None
-        Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
-        stopping is active.
+        Shrinkage applied to each tree. When early stopping is active, ``None``
+        resolves to 0.1 on data of about 15,000 training rows or more and fades
+        to 0.07 at 5,000 or fewer; see ``adaptive_learning_rate``.
     depth : int or None, default None
         Depth of each oblivious tree; a depth-d tree makes d splits. ``None``
         resolves to 6 for squared-error/absolute-error losses, and to 4 for
@@ -1504,6 +1505,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         accuracy while fitting about 20% faster. Ignored unless the fit is
         bagged (``n_ensembles >= 2``), and ignored for multiclass, where a
         member would need a full refit rather than a cheap structure replay.
+    adaptive_learning_rate : bool, default True
+        Let the auto ``learning_rate`` depend on how much data it has, instead
+        of being size-blind: a linear fade from 0.07 at 5,000 training rows or
+        fewer up to the historical flat 0.1 at 15,000 or more. Small data is
+        where a lower rate pays, and it is also where the extra trees it needs
+        are cheap. Default-on since 0.30.0; above the upper threshold it is a
+        no-op and the model is byte-identical to earlier versions, so only
+        small-data fits move. Set ``False`` for the flat 0.1 everywhere.
+
+        Measured on the decision suites, the mean is positive in six of seven
+        strata, with sign-test passes at a quarter of the rows on both
+        Grinsztajn (9W-3L) and high-card (3W-0L) and no losses at all on
+        high-card at full size (6W-0L). Gains are individually small (medians
+        of +0.13% to +0.31%) and cost 1.09x to 1.31x fit time on the sizes it
+        touches. Only consulted when ``learning_rate`` is ``None`` and early
+        stopping is on -- without early stopping the rate already scales with
+        the round budget. Bagged fits (``n_ensembles >= 2``) are unaffected too,
+        since their members already carry an explicit member learning rate.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -1555,7 +1574,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
                  refit_full="replay", refit_members=False, quality=None,
-                 adaptive_learning_rate=False):
+                 adaptive_learning_rate=True):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1592,8 +1611,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.refit_full = refit_full
         self.refit_members = refit_members
         self.quality = quality
-        # Opt-in size fade for the auto learning rate; only consulted when
-        # learning_rate is None. False == the historical flat 0.1.
+        # Size fade for the auto learning rate, default-on since 0.30.0; only
+        # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
@@ -2060,8 +2079,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Maximum number of boosting rounds (trees). With ``early_stopping`` on,
         this is an upper bound and the best round is selected automatically.
     learning_rate : float or None, default None
-        Shrinkage applied to each tree. ``None`` resolves to 0.1 when early
-        stopping is active.
+        Shrinkage applied to each tree. When early stopping is active, ``None``
+        resolves to 0.1 on data of about 15,000 training rows or more and fades
+        to 0.07 at 5,000 or fewer; see ``adaptive_learning_rate``.
     depth : int, default 6
         Depth of each oblivious tree; a depth-d tree makes d splits.
     l2_leaf_reg : float, default 1.0
@@ -2218,6 +2238,24 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         accuracy while fitting about 20% faster. Ignored unless the fit is
         bagged (``n_ensembles >= 2``), and ignored for multiclass, where a
         member would need a full refit rather than a cheap structure replay.
+    adaptive_learning_rate : bool, default True
+        Let the auto ``learning_rate`` depend on how much data it has, instead
+        of being size-blind: a linear fade from 0.07 at 5,000 training rows or
+        fewer up to the historical flat 0.1 at 15,000 or more. Small data is
+        where a lower rate pays, and it is also where the extra trees it needs
+        are cheap. Default-on since 0.30.0; above the upper threshold it is a
+        no-op and the model is byte-identical to earlier versions, so only
+        small-data fits move. Set ``False`` for the flat 0.1 everywhere.
+
+        Measured on the decision suites, the mean is positive in six of seven
+        strata, with sign-test passes at a quarter of the rows on both
+        Grinsztajn (9W-3L) and high-card (3W-0L) and no losses at all on
+        high-card at full size (6W-0L). Gains are individually small (medians
+        of +0.13% to +0.31%) and cost 1.09x to 1.31x fit time on the sizes it
+        touches. Only consulted when ``learning_rate`` is ``None`` and early
+        stopping is on -- without early stopping the rate already scales with
+        the round budget. Bagged fits (``n_ensembles >= 2``) are unaffected too,
+        since their members already carry an explicit member learning rate.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -2263,7 +2301,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, refit_full="replay", refit_members=False,
-                 quality=None, adaptive_learning_rate=False):
+                 quality=None, adaptive_learning_rate=True):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -2296,8 +2334,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.refit_full = refit_full
         self.refit_members = refit_members
         self.quality = quality
-        # Opt-in size fade for the auto learning rate; only consulted when
-        # learning_rate is None. False == the historical flat 0.1.
+        # Size fade for the auto learning rate, default-on since 0.30.0; only
+        # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,

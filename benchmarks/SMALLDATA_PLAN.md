@@ -430,7 +430,9 @@ away.
   off (920 tests, numerical-identity goldens included), it passes tier-1 on both
   judges, and it passes tier-2 on the two strata it was built for while moving
   the program's target metric by 17 and 34 points.
-- **The default flip is Nathan's call and I do not recommend it today.** Not
+- **The default flip is Nathan's call and I do not recommend it today.**
+  (RESOLVED 2026-08-01: withdrawn by C5 below, and the flip shipped in PR #76.)
+  Not
   because the small-data evidence is weak — it is the strongest result this
   program has produced — but because a default applies to every user including
   those with drifting data, and hc:time says this hurts exactly there. An
@@ -592,6 +594,48 @@ Nathan's call. **I now recommend it.** The remaining implementation step is a
 one-line default change plus a golden refresh, deliberately NOT in this PR —
 flipping a default rewrites the numerical-identity goldens, and that deserves
 its own reviewable change rather than being buried in an investigation.
+
+### SHIPPED 2026-08-01 — default flipped to on (PR #76)
+
+Nathan took the recommendation. `adaptive_learning_rate=True` is the default in
+`ChimeraBoostRegressor`, `ChimeraBoostClassifier` and the underlying
+`GradientBoosting`. Three notes on what the flip actually touched, since two of
+them were not what the recommendation predicted:
+
+- **The committed goldens did not move.** `tests/golden_metrics.json` measures
+  with `early_stopping: false`, and the fade lives entirely on the
+  early-stopping branch, so the golden panel is a no-op under the flip. The
+  "golden refresh" the recommendation anticipated turned out to be unnecessary.
+- **`ChimeraBoostQuantileRegressor` is pinned to the flat rate**, explicitly,
+  in `quantile_api.py`. It builds a `MultiQuantileBoosting` with early stopping
+  on and would otherwise have inherited the new booster default — shipping an
+  unmeasured default change, since every number in this program is squared
+  error or Brier and none is pinball loss. Measuring it is an open question,
+  not a pending task: nothing here says the fade would help or hurt there.
+- **The harness arm reversed direction.** `ChimeraBoostALR` (fade on, vs a
+  default with it off) is now `ChimeraBoostFlatLR` (fade off, vs a default with
+  it on), so the A/B control is still expressible. `_run_chimera` takes
+  `adaptive_lr="off"` on the same convention `refit_full` already used.
+
+Measured scope of the flip, from `scratchpad/check_flip_scope.py` — the rate the
+single-model path resolves to, against the booster's own row count:
+
+| requested rows | booster rows | default (0.30.0) | `adaptive_learning_rate=False` |
+|---|---|---|---|
+| 1,200 | 960 | 0.0700 | 0.1000 |
+| 6,250 | 5,000 | 0.0700 | 0.1000 |
+| 12,500 | 10,000 | 0.0850 | 0.1000 |
+| 25,000 | 20,000 | **0.1000** | 0.1000 |
+
+Three paths measured as byte-identical either way, and the first was not
+predicted: a 3-member bag returns exactly the same predictions with the flag on
+or off, because members carry an explicit member learning rate (0.15) and so
+never consult the auto rule at all. The bagged rungs of the quality ladder are
+therefore untouched by this flip. `early_stopping=False` and the quantile
+regressor are the other two.
+
+This closes SMALLDATA. The open thread it leaves is recorded below and is a
+question about our own pipeline, not a pending item in this file.
 
 ### What this program established
 

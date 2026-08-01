@@ -53,7 +53,7 @@ Core design choices (all deliberate, all validated):
 | Param | Regressor | Classifier |
 |---|---|---|
 | `depth` | 6 | 6 |
-| `learning_rate` | auto (0.1 w/ early stop) | auto |
+| `learning_rate` | auto: w/ early stop, 0.07 ≤5k rows → 0.1 ≥15k | same |
 | `l2_leaf_reg` | 1.0 | 1.0 |
 | `max_bins` | 128 | 128 |
 | `ordered_boosting` (LOO) | False | False |
@@ -166,6 +166,8 @@ In rough chronological order; each survived the full pipeline + sign test.
 - Feature-major (transposed) binned matrix — ~15–20% faster tree build, the
   LightGBM/XGBoost memory layout.
 - Default learning rate → 0.10 with early stopping — ~44% fewer trees, same accuracy.
+  (0.30.0 made this size-dependent: still 0.10 at 15k+ training rows, fading to
+  0.07 at 5k and below, where the extra trees are cheap and buy accuracy.)
 - Reuse training-set leaf assignment + fused LOO leaf-step kernel + **fused forest
   predictor** (parallel over samples) — 5.7× faster tree-walk at predict time.
 - Net effect: ChimeraBoost went from ~6× faster than CatBoost to ~30–36× faster, and

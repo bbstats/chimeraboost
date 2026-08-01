@@ -167,13 +167,15 @@ def _auto_learning_rate(n_estimators, early_stopping, n_train=None,
     Otherwise the rate scales inversely with the iteration budget so short runs
     still cover enough ground.
 
-    ``adaptive`` (opt-in) replaces the flat 0.1 with a linear fade from
+    ``adaptive`` replaces the flat 0.1 with a linear fade from
     ``_AUTO_LR_SMALL`` at ``_AUTO_LR_LO`` training rows up to the unchanged
     ``_AUTO_LR_LARGE`` at ``_AUTO_LR_HI``. It applies ONLY on the
     early-stopping path: the no-early-stopping branch already scales with the
     iteration budget, and the small-data measurement was made end-to-end
-    through early stopping plus the full-data refit. With ``adaptive=False``
-    (the default) this function is bit-for-bit what it always was.
+    through early stopping plus the full-data refit. The estimators pass
+    ``adaptive=True`` by default since 0.30.0; ``adaptive=False`` keeps this
+    function bit-for-bit what it always was, which is why the argument
+    defaults to False here rather than tracking the estimator default.
     """
     if early_stopping:
         if not adaptive or n_train is None:
@@ -227,7 +229,7 @@ class _BaseBooster:
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
                  quantize_gradients=True, eval_metric=None,
-                 replay_donor=None, adaptive_learning_rate=False):
+                 replay_donor=None, adaptive_learning_rate=True):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -250,8 +252,8 @@ class _BaseBooster:
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
         self.quantize_gradients = bool(quantize_gradients)
         self.eval_metric = eval_metric
-        # Opt-in size fade for the auto learning rate (_auto_learning_rate).
-        # False == the historical flat 0.1, byte-identical.
+        # Size fade for the auto learning rate (_auto_learning_rate), default-on
+        # since 0.30.0. False == the historical flat 0.1, byte-identical.
         self.adaptive_learning_rate = bool(adaptive_learning_rate)
         # Structure-transfer refit (see tree.replay_oblivious_tree): a
         # (trees, preprocessor) pair whose splits are replayed instead of

@@ -1044,7 +1044,12 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # False (Clf); for min_child_weight it's the classifier's size-adaptive auto.
     # An explicit value overrides (e.g. --no-ordered-boosting, --chimera-mcw 0).
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
-    if adaptive_lr:
+    # Default-ON since 0.30.0, so the useful override is now the other way: the
+    # control arm has to force the historical flat rate. Same "off" convention
+    # as refit_full below -- a plain False still means "don't override".
+    if adaptive_lr == "off":
+        kw["adaptive_learning_rate"] = False
+    elif adaptive_lr:
         kw["adaptive_learning_rate"] = True
     if quantize:
         kw["quantize_gradients"] = True
@@ -1246,18 +1251,18 @@ def _run_chimera_refit(task, Xtr, ytr, Xte, yte, cat, threads):
                         refit_full=True)
 
 
-def _run_chimera_alr(task, Xtr, ytr, Xte, yte, cat, threads):
-    """Defaults + the size-adaptive auto learning rate (SMALLDATA_PLAN.md C4).
+def _run_chimera_flatlr(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Defaults + the PRE-0.30.0 flat auto learning rate (SMALLDATA_PLAN.md C4).
 
-    Identical to the plain default arm except that the auto rate fades from
-    0.07 on small data back to the historical 0.1 on large data, so on any
-    dataset above the fade's upper threshold this arm is byte-identical to
-    `ChimeraBoost`. Run it in the SAME benchmark as the default arm so the A/B
-    pairing carries no machine-condition drift (the Sel25 / refit_members
-    precedent).
+    The size fade became the default in 0.30.0, so this is now the control arm
+    rather than the treatment: identical to `ChimeraBoost` except that the auto
+    rate stays at a flat 0.1 instead of fading to 0.07 on small data. On any
+    dataset above the fade's upper threshold the two arms are byte-identical.
+    Run it in the SAME benchmark as the default arm so the A/B pairing carries
+    no machine-condition drift (the Sel25 / refit_members precedent).
     """
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
-                        adaptive_lr=True)
+                        adaptive_lr="off")
 
 
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -1407,7 +1412,7 @@ RUNNERS = {
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
-    "ChimeraBoostALR": _run_chimera_alr,
+    "ChimeraBoostFlatLR": _run_chimera_flatlr,
     "ChimeraBoostNoRefit": _run_chimera_norefit,
     "ChimeraBoostNoRefitSel25": _run_chimera_norefit_sel25,
     "sklearn_HGB": _run_sklearn,
@@ -1426,7 +1431,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns3RM",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
-                   "ChimeraBoostALR",
+                   "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 

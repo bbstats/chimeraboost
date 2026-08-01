@@ -377,7 +377,13 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             early_stopping_rounds=es_rounds, min_child_weight=mcw,
             thread_count=self.thread_count, random_state=self.random_state,
             verbose=self.verbose, cat_combinations=cat_combos,
-            quantize_gradients=self.quantize_gradients)
+            quantize_gradients=self.quantize_gradients,
+            # Pinned to the historical flat rate. The size fade became the
+            # booster default in 0.30.0 on RMSE and Brier evidence
+            # (benchmarks/SMALLDATA_PLAN.md); it was never measured against
+            # pinball loss, and inheriting it here would ship an unmeasured
+            # default change to the quantile path. Measure before flipping.
+            adaptive_learning_rate=False)
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight, callbacks=callbacks)
 

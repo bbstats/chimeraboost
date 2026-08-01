@@ -3,6 +3,49 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **The automatic `learning_rate` now depends on how much data it has, and this
+  is the default (`adaptive_learning_rate=True`).** Our rate was a flat 0.1 at
+  every dataset size. CatBoost's is not, and asking it directly — fit at eight
+  row counts and diff the resolved parameters — showed that of its 43 settled
+  parameters, **exactly one varies with dataset size, and it is the learning
+  rate**: a clean power law running from 0.026 at 200 rows to 0.064 at 60,000.
+  Denying CatBoost that schedule costs it 57% of its edge over us at a quarter
+  of the rows, which makes it the measured mechanism behind a win rate that had
+  been collapsing as data shrank.
+
+  Sweeping our own rate found the knee at 0.07, so `None` now resolves to a
+  linear fade: 0.07 at 5,000 training rows or fewer, rising to the historical
+  0.1 at 15,000 or more. **Above 15,000 rows this is a no-op and the model is
+  byte-identical to 0.29.0** — only small-data fits move. It applies only when
+  early stopping is on, since without it the rate already scales with the round
+  budget, and an explicit `learning_rate` still overrides everything.
+
+  On the decision suites the mean is positive in six of seven strata, with
+  sign-test passes at a quarter of the rows on both Grinsztajn (9W-3L) and
+  high-card (3W-0L), and no losses at all on high-card at full size (6W-0L).
+  Against CatBoost on the two strata that named the problem, our win rate moves
+  from 50% to 67% and from 33% to 67% — the first movement on that number. The
+  gains are individually small (medians of +0.13% to +0.31%) and cost 1.09x to
+  1.31x fit time on the sizes the fade touches.
+
+  The seventh stratum, temporal splits, initially read as a loss and held the
+  default back. Re-run over six rolling origins instead of the three the suite
+  happens to use, it is 21 wins and 21 losses — a coin flip.
+
+  Pass `adaptive_learning_rate=False` for the pre-0.30.0 flat 0.1 everywhere.
+  Three paths are unaffected regardless: bagged fits (`n_ensembles >= 2`), whose
+  members already carry an explicit member learning rate and so never consult
+  the auto rule; fits with `early_stopping=False`, where the rate already scales
+  with the round budget; and `ChimeraBoostQuantileRegressor`, deliberately — the
+  evidence here is squared error and Brier score, and the fade has never been
+  measured against pinball loss.
+
+  Also lands as a side effect: **CatBoost does not run ordered boosting** — it
+  resolves `boosting_type=Plain` at every dataset size, which retires a
+  hypothesis this project had carried for months.
+
 ## [0.29.0] - 2026-08-01
 ### Added
 - **`refit_members` (opt-in, bagged path): each member now reclaims the rows it
