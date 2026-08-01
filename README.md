@@ -53,8 +53,7 @@ An opinionated GBDT library that only depends on common Python libraries
 * Fast multi-quantile fitting
   (`ChimeraBoostQuantileRegressor`)
 * Automatic linear-leaf auditioning
-* **Exact SHAP** explanations (`model.shap_values(X)`). The oblivious tree structure
-  makes interventional TreeSHAP cheap enough to compute exactly, with no sampling.
+* Exact SHAP explanations (`model.shap_values(X)`).
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
