@@ -462,6 +462,114 @@ remaining deficit P14 diagnosed as *variance*, and it breaks the recorded
 invariant that leaf values see exactly the rows the split search saw
 (`booster.py`, the MVS row-selection comment).
 
+### Result: FALSIFIED at tier 1. Kill clause honoured, parameter removed.
+
+**Sweep widened before measuring** (recorded because it changes the
+pre-registration): the plan above swept k0 at half and twice the argued 20.
+Before running anything, that was judged too narrow to be diagnostic. With 16
+leaves over 20 000 rows a leaf holds ~1250 rows, so `lambda = k0 / (n_l + k0)`
+is ~0.016 at k0 = 20 — if the optimism is driven by the split *selection*
+rather than by within-leaf sample size, a sweep spanning a factor of four could
+not tell a wrong shape from a too-small constant. The sweep was therefore
+widened to four orders of magnitude, k0 in {20, 100, 500, 2000, 10 000,
+100 000}, up to lambda ~0.99 (the fully-pooled limit). No measurement had been
+taken at that point.
+
+Mechanism screen, synthetic heteroscedastic data (8 features, conditional
+spread 0.2 against 2.0, 4000 train / 4000 test, 300 rounds, 3 seeds, grid
+(0.1, 0.5, 0.9), nominal coverage 0.80):
+
+| k0 | lambda at a 250-row leaf | test coverage | **train coverage** | width |
+|--:|--:|--:|--:|--:|
+| 0 (off) | 0.00 | 0.7555 | 0.8004 | 2.697 |
+| 20 | 0.07 | 0.7586 | 0.8013 | 2.685 |
+| 100 | 0.29 | 0.7674 | 0.8021 | 2.707 |
+| 500 | 0.67 | 0.7702 | 0.8029 | 2.703 |
+| 2 000 | 0.89 | 0.7772 | 0.8023 | 2.581 |
+| 10 000 | 0.98 | 0.7888 | 0.8037 | 2.333 |
+| 100 000 | 1.00 | 0.7882 | 0.8019 | 3.055 |
+
+**The train-coverage column is the whole finding.** It sits at nominal 0.80 at
+every k0, including fully pooled, while test coverage never gets there. The
+deficit is entirely the gap between in-sample and out-of-sample residuals — and
+the pooled band is computed from *in-sample* residuals too, so it carries the
+same bias. Shrinking toward a target that shares the error cannot remove it.
+The mechanism only ever redistributes spread *between* leaves; it has no route
+to the common component, which is all of it. A homoscedastic control moved even
+less (0.7576 to 0.7690 across the same sweep), as expected when there is no
+between-leaf variation to redistribute.
+
+What the residual gain at extreme k0 costs, same data:
+
+| k0 | test coverage | pinball | tight/wide width ratio (true 0.10) |
+|--:|--:|--:|--:|
+| 0 (off) | 0.7555 | 0.28507 | 0.129 |
+| 20 | 0.7586 | 0.28454 | 0.127 |
+| 500 | 0.7702 | 0.28592 | 0.137 |
+| 2 000 | 0.7772 | 0.28733 | 0.166 |
+| 10 000 | 0.7888 | 0.30820 | **0.420** |
+| 100 000 | 0.7882 | 0.33404 | **0.906** |
+
+The three points of coverage available are bought by pooling the band across
+leaves — the ratio walks from 0.129 (near the true 0.10) to 0.906 (a flat
+global band), which is the head ceasing to be conditional at all. That breaks
+ship gate 6 (`test_narrow_regions_are_actually_narrower`, ratio < 0.35) at the
+same k0 where gate 3 breaks too (pinball +8.1% at k0 = 10 000, +17.2% at
+100 000, against a 2% allowance). Coverage never reaches the gate-1 window on
+this data even in the fully-pooled limit. **Every k0 that helps coverage fails
+two other gates; no k0 passes all six.** Killed per the clause; the
+`spread_smoothing` parameter is removed rather than left in as a dead knob.
+
+Cost of the negative: three short screens, no `--decide` run, no probe run. The
+tier-1 screen did its job — the story did not show up, so nothing downstream
+was spent on it.
+
+**Generalizable.** A shrinkage estimator can only correct the part of the error
+that *varies across* the units being shrunk. Diagnose which component you have
+before designing the correction: here, printing in-sample alongside
+out-of-sample coverage answered it in one table and would have falsified the
+design on paper. In-sample-vs-out-of-sample gaps need an out-of-sample estimate;
+there is no arrangement of in-sample quantities that fixes them.
+
+Note what this implies about the *product* question, as distinct from the
+research one: a uniform in-sample/out-of-sample gap is exactly what a global
+multiplicative correction from a held-out fold repairs, and that is
+`conformalize=True`, already shipped and already documented as the route to a
+coverage guarantee. The remaining open item for the raw grid is pinball against
+the rigid offset, which is a sharpness question, not a calibration one.
+
+## P16 — out-of-sample leaf quantiles (pre-registration DRAFT, not started)
+
+The fallback P15 named, now with P15's evidence behind it: the defect is that
+leaf values are residual quantiles of the rows that chose the split, so the
+only fix is to estimate them on rows that did not. Structure from one set of
+rows, leaf values from another — "honest" trees in the Athey-Imbens sense,
+applied to the leaf quantile rather than the leaf mean.
+
+Not started, and it needs a real pre-registration before it is. The three
+things that pre-registration has to answer, all of them recorded costs rather
+than open questions:
+
+1. **Which rows.** Neither existing fold is available: the calibration fold
+   must stay pristine for conformalization, and using the early-stopping fold
+   would let stopping score the rows that set the leaf values. So it needs a
+   third split, or a per-round row partition (cheaper, and closer to what the
+   MVS draw already does).
+2. **Variance.** P14 diagnosed the head's remaining deficit as variance, not
+   bias. Halving the rows per leaf to buy honesty makes that worse; the K = 19
+   grid, whose extreme channels are the noisiest, is where this will show
+   first. Whether the bias removed exceeds the variance added is the whole
+   experiment, and it is genuinely uncertain.
+3. **A recorded invariant breaks.** `booster.py` states that leaf values see
+   exactly the rows the split search saw (the MVS row-selection comment). This
+   mechanism contradicts it deliberately, so the comment changes with the code
+   and the reason lands in the same commit.
+
+Bars would carry over from P15 unchanged (coverage window, no pinball
+give-back against the shipped head, crossing zero, the conformal ledger, the
+identity-snapshot scope), with the rigid-offset comparison still a research
+target and not a gate.
+
 ## Where to go instead
 
 The two untested axes are **re-purposing, not tuning**, and neither is a search
