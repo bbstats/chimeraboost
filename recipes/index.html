@@ -1728,7 +1728,9 @@ rows and early-stops on the groups it never saw.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">n_ensembles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 </code></pre></div>
 <p>Use <code>n_ensembles=8</code>: it is stronger than 5 at similar cost. Avoid <code>n_ensembles=2</code>,
-which scores worse than a single model.</p>
+which scores worse than a single model. If you want the most accuracy per unit of
+fit time, turn on <a href="#reclaiming-the-per-member-data-tax"><code>refit_members</code></a> as well —
+five refit members beat eight plain ones on both accuracy and speed.</p>
 <p>Inside a bag, parameters left on auto resolve to member defaults tuned for averaging,
 currently <code>learning_rate=0.15</code> and <code>colsample=0.85</code>, because averaging tolerates
 coarser and cheaper members. The fit warns once when this happens (a filterable
@@ -1748,7 +1750,10 @@ early stopping is finished:</p>
 </code></pre></div>
 <p>Only the leaf values change; the splits stay exactly as each member's own
 sample grew them, which is where a bag's diversity actually lives. Expect
-roughly 10% more fit time. Regression and binary classification only —
+roughly 10-17% more fit time, the higher end on larger suites. Because each
+member is individually stronger, you can also spend the gain on fewer members:
+<code>n_ensembles=5, refit_members=True</code> beat a plain eight-member bag on accuracy
+while fitting about 20% faster. Regression and binary classification only —
 multiclass members would need a full refit rather than a cheap replay, so the
 flag is ignored there.</p>
 <h2 id="full-data-refit">Full-data refit<a class="headerlink" href="#full-data-refit" title="Permanent link">&para;</a></h2>

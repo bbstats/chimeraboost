@@ -1290,7 +1290,7 @@
 <h2 id="how-does-it-compare-to-catboost-lightgbm-and-xgboost">How does it compare to CatBoost, LightGBM, and XGBoost?<a class="headerlink" href="#how-does-it-compare-to-catboost-lightgbm-and-xgboost" title="Permanent link">&para;</a></h2>
 <p>On defaults, it scores around LightGBM and XGBoost or better, and it is much faster
 than CatBoost. Setting <code>n_ensembles=8</code> bags the model, which is the strongest setting
-available and beats CatBoost on accuracy at well under half its fit cost on
+short of adding <code>refit_members=True</code>, and beats CatBoost on accuracy at well under half its fit cost on
 high-cardinality categorical data.</p>
 <h2 id="do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values">Do I need to one-hot encode categoricals or impute missing values?<a class="headerlink" href="#do-i-need-to-one-hot-encode-categoricals-or-impute-missing-values" title="Permanent link">&para;</a></h2>
 <p>No.</p>
@@ -1332,8 +1332,8 @@ through their own conversion methods, so passing them works whenever you have pa
 <h2 id="how-do-i-tune-it">How do I tune it?<a class="headerlink" href="#how-do-i-tune-it" title="Permanent link">&para;</a></h2>
 <p>Mostly, you don't. The defaults are benchmark-tuned, and in our experiments broad
 hyperparameter search bought little that generalized. Two settings address specific
-situations rather than general tuning: <code>n_ensembles=8</code> is the maximum-accuracy mode, at
-several times the fit cost, and <code>depth=8</code> to <code>10</code> suits large, interaction-heavy
+situations rather than general tuning: <code>n_ensembles=8</code> with <code>refit_members=True</code> is the
+maximum-accuracy mode, at several times the fit cost, and <code>depth=8</code> to <code>10</code> suits large, interaction-heavy
 regression. <a href="../parameters/">Parameters</a> documents every option.</p>
 <h2 id="is-the-api-stable">Is the API stable?<a class="headerlink" href="#is-the-api-stable" title="Permanent link">&para;</a></h2>
 <p>ChimeraBoost is beta (0.x). Breaking API or behavior changes bump the minor version and
