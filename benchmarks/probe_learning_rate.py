@@ -426,8 +426,12 @@ def table():
             auto.append(100.0 * (b - c["score"]["cat"]) / b)
             forced.append(100.0 * (b - c["score"]["cat@0.1"]) / b)
         ma, mf = float(np.mean(auto)), float(np.mean(forced))
-        share = (f"{100.0 * (ma - mf) / ma:>24.0f}%"
-                 if abs(ma) > 1e-9 else f"{'n/a':>25s}")
+        # "Share of CatBoost's edge explained by its rate" is only defined when
+        # CatBoost HAS an edge. Where we are ahead on average (ma <= 0) the
+        # ratio is not a share of anything, so print n/a rather than a number
+        # that reads like one.
+        share = (f"{100.0 * (ma - mf) / ma:>24.0f}%" if ma > 1e-9
+                 else f"{'n/a (we lead)':>25s}")
         print(f"{frac:>6.2f}{len(present):>6d}{ma:>15.3f}%"
               f"{sum(1 for v in auto if v > 0):>5d}/{len(auto):<2d}"
               f"{mf:>15.3f}%{sum(1 for v in forced if v > 0):>5d}/"

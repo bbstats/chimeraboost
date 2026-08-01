@@ -172,6 +172,100 @@ not visible on the datasets most likely to show it, the thread closes cheap.
   fit-time ratio at the sizes where it wins is worse than the strength gain buys
   on the frontier. Strength alone is not the bar; the chart is.
 
+### Verdict: mechanism CONFIRMED from the opponent's side. Ship shape KILLED on cost.
+
+`benchmarks/results/probe-learning-rate.jsonl`, 12 datasets × 3 seeds × 3
+sizes. Two things are true at once, and the program only cares about the
+second.
+
+**1. The pre-registered primary test FAILS outright.** `cb` at frac 0.25 is
+8W-4L, median +0.314%, Holm-adjusted **p=0.388**. No pre-registered claim
+passed, and that is the headline for gating purposes.
+
+| arm | frac 1.00 (6k–15k rows) | frac 0.50 (3k–7.5k) | frac 0.25 (1.5k–3.8k) |
+|---|---|---|---|
+| lr=0.05 | +0.211% (8W-4L, p=0.775) | +0.158% (10W-2L, p=0.077) | **+0.255%** (10W-2L, p=0.077) |
+| lr=0.03 | −0.039% (5W-7L, p=0.775) | +0.236% (10W-2L, p=0.077) | +0.209% (11W-1L, p=0.019) |
+| `cb` | +0.094% (9W-3L, p=0.438) | +0.257% (11W-1L, p=0.019) | +0.314% (8W-4L, **p=0.388**) ← primary |
+
+**The direction is nonetheless real and broad.** Every small-data cell is
+positive, four of six run 10W-2L or 11W-1L, and the full-size column is a wash
+— the sign flips at roughly 5,000–8,000 training rows. Two cells clear a
+Holm-corrected 0.05. Read honestly, though: Holm was applied **across arms
+within a fraction, not across all nine cells**, so a p=0.019 would land near
+0.17 under correction across the grid. The population direction is
+trustworthy; no individual cell is.
+
+The within-dataset mechanism read is weak on its own — each dataset's own best
+fixed rate falls as its rows shrink on 5 datasets, rises on 1, unchanged on 6
+(p=0.219). Unlike C3's min-leaf direction (p=0.002), this does not
+independently confirm.
+
+**2. Ablating the opponent confirms the mechanism, and it is large.** At
+quarter size, CatBoost's mean edge over our shipped arm is +1.033%; forced to
+our 0.1 it drops to +0.442%. **Its learning-rate schedule is worth 57% of its
+small-data edge** — and it is the only size-dependent default it has. At full
+size the same ablation explains 7%, which is the size dependence showing up
+exactly where predicted. (The panel is deliberately enriched with the six sets
+where CatBoost beats us, so the "leads N/12" counts are not the suite standing;
+the share-explained ratio is a within-panel mechanism reading, and is undefined
+in the frac 0.50 row where we lead on average.)
+
+So the question "why does CatBoost win on small data?" now has a measured
+answer, and it is not ordered boosting, not capacity, and not calibration: **it
+is running a learning rate 4–6x lower than ours, and that is over half its
+edge.**
+
+**3. And that is exactly why it does not ship.** The pre-registered Pareto kill
+fires on two counts.
+
+| | strength won | fit cost | rounds |
+|---|---|---|---|
+| `refit_members` (shipped) | gr:sus25 **+1.206%**, 12W-0L | **+17%** | — |
+| this, best arm (lr=0.05 small-data) | **+0.255%** median, 10W-2L | **+48%** | **2.2x** |
+| this, primary arm (`cb`) | +0.314% median, 8W-4L | +85% | 3.1x |
+
+Roughly a quarter of the strength for three to five times the cost — an order
+of magnitude worse trade than the thing we shipped yesterday. Worse, the cost
+is **2.1–3.2x more trees**, which is not only fit time: it slows *prediction*
+by the same factor, and predict speed is a column we lead.
+
+And the north-star chart cannot show a gain even in principle. The strength is
+small-data-only; at full size the effect is a wash (+0.094%, p=0.438) that
+would cost 1.63x. Applying the schedule only where it wins leaves the base
+stratum — which is what the headline Pareto runs — byte-identical, so the
+frontier does not move on either axis. A change that cannot move the chart at
+full size and costs 1.5–2x where it does win is not a frontier move.
+
+The pre-registered escape hatch does not apply: round counts moved 2.1–3.2x, so
+the arms bound hard. This is a real measurement, not a null from arms that were
+too small.
+
+⇒ **KILLED without shipping**: the learning rate as a small-data lever, in both
+fixed and size-adaptive (CatBoost-schedule) forms. `_auto_learning_rate` keeps
+its flat 0.1. Probe: `benchmarks/probe_learning_rate.py` (resumable,
+`--table-only` reprints).
+
+### What this program established
+
+- **Ordered boosting is dead for free** — CatBoost never runs it here. That
+  retires a hypothesis family the project had carried for months, and our own
+  dormant `ordered_boosting` flag with it.
+- **CatBoost's small-data edge is now measured, not guessed**: 57% of it is a
+  learning rate 4–6x below ours, the only size-dependent default it has.
+- **We cannot buy it at a price worth paying.** We gain about a third of what
+  CatBoost loses when denied the same schedule — our pipeline (`refit_full`
+  replay, `selection_rounds`) already recovers most of the benefit for free,
+  which is *why* the remaining gain is too small to justify 2–3x the trees.
+
+**The open thread is now sharper than when this program opened.** The
+single-model small-data gap is not capacity, not calibration, not ordered
+boosting, and not affordable via the learning rate. What remains untested is
+the one asymmetry this probe exposed rather than resolved: **we gain far less
+from a lower rate than CatBoost loses from a higher one.** Whatever is
+absorbing that difference on our side is the next place to look, and it is a
+question about our own pipeline rather than about a mechanism to port.
+
 ---
 
 ## Rules for this program
