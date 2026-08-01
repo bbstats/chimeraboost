@@ -123,7 +123,8 @@ def _replay_member(member, X_full, y_full, cat_features, task):
         replay_donor=donor,
     )
     loss = "Logloss" if task != "regression" else w.loss_name
-    b = GradientBoosting(loss=loss, **kw)
+    lkw = dict(getattr(w, "loss_kwargs", {}) or {})
+    b = GradientBoosting(loss=loss, loss_kwargs=lkw, **kw)
     b.fit(X_full, y_full, cat_features=cat_features)
     return b
 
