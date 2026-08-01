@@ -3,6 +3,28 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **`refit_members` (opt-in, bagged path): each member now reclaims the rows it
+  never learned from.** A bag member trains on `max_samples` of the rows and
+  early-stops on its out-of-bag complement, so the full-data refit that helps a
+  single model never fired for it — every member's leaf values were estimated
+  from 80% of the data. With `refit_members=True` each member replays its own
+  tree structure against gradients from every row once early stopping is done.
+
+  Only the leaf values move: the splits stay exactly as each member's own
+  sample grew them, which is where a bag's diversity actually lives. Measured
+  over 10 datasets and 3 seeds, an 8-member bag improves on 10 of 10 datasets
+  (mean +1.02% on the primary metric), and the gain is largest for small bags
+  (+1.86% at 2 members) — which is what "each member is individually stronger"
+  predicts, since fewer members mean less averaging to hide weak leaf values.
+  A 5-member refit bag matches or beats a plain 8-member bag on 7 of 10.
+  Costs about 10% more fit time.
+
+  Regression and binary classification only; multiclass members would need a
+  full refit rather than a cheap structure replay, so the flag is ignored
+  there. Default `False`, and byte-identical to the previous release when off.
+
 ## [0.28.0] - 2026-07-31
 ### Fixed
 - **`ChimeraBoostQuantileRegressor` returned prediction intervals 2x to 10x
