@@ -99,6 +99,22 @@ PRIMARY_FRAC = 0.25
 TIE_BAND = 1e-9                          # compare_runs' dead band
 PILOT_MAX_ROWS = 20_000
 
+# --knee: the follow-up run. The pilot measured 0.1 / 0.05 / 0.03 and found the
+# STRENGTH saturates by 0.05 while the COST keeps climbing (rounds 2.2x -> 3.2x),
+# so the best point on the curve is somewhere the pilot never sampled. This mode
+# fills in 0.07 and drops every arm not needed to locate the knee.
+#
+# It also PINS thread_count. The pilot left it at the class default, which is
+# why its fit seconds carried a "probe-internal, never compare to a harness
+# slowdown" caveat. With fit time now the axis that decides this, the least
+# trustworthy number in the table was the one being decided on. Pinning makes
+# the ratio between arms decision-grade; the absolute seconds still are not.
+KNEE_RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "results", "probe-learning-rate-knee.jsonl")
+KNEE_ARMS = ("0.1", "0.07", "0.05")
+KNEE_THREADS = 4
+THREAD_COUNT = None                      # set to KNEE_THREADS in --knee mode
+
 # CatBoost's own auto rate, fitted to the 8-point sweep in
 # scratchpad/catboost_size_defaults.py (reproduces every point to under 1%).
 _CB_LR = {"regression": (0.025914, 0.15697), "binary": (0.015751, 0.24700)}
@@ -181,8 +197,9 @@ def _fit_ours(task, lr, Xtr, ytr, Xte, cat):
     early-stopping split and refit_full run exactly as a user gets them."""
     Est = (ChimeraBoostRegressor if task == "regression"
            else ChimeraBoostClassifier)
+    kw = {} if THREAD_COUNT is None else {"thread_count": THREAD_COUNT}
     m = Est(n_estimators=rb.MAX_ITERS, early_stopping_rounds=rb.PATIENCE,
-            learning_rate=lr, random_state=0)
+            learning_rate=lr, random_state=0, **kw)
     m.fit(Xtr, ytr, cat_features=cat)
     pred = (m.predict(Xte) if task == "regression"
             else m.predict_proba(Xte)[:, 1])
@@ -406,6 +423,9 @@ def table():
         print(line)
 
     # ---- Block D: ablate the opponent --------------------------------------
+    if not CAT_ARMS:
+        _mechanism_block(datasets, kept)      # knee mode carries no CatBoost arms
+        return
     print("\n" + "=" * 112)
     print("ABLATE THE OPPONENT - CatBoost's edge over our SHIPPED arm, at its "
           "own auto rate vs forced")
@@ -437,14 +457,24 @@ def table():
               f"{mf:>15.3f}%{sum(1 for v in forced if v > 0):>5d}/"
               f"{len(forced):<2d}{share}")
 
-    # ---- Block E: mechanism, per dataset -----------------------------------
+    _mechanism_block(datasets, kept)
+    if dropped:
+        print(f"\nexcluded cells ({len(dropped)}): "
+              + ", ".join(f"{d}@{f}[{why}]" for (d, f), why in dropped))
+
+
+def _mechanism_block(datasets, kept):
     print("\n" + "=" * 112)
     print("MECHANISM - does each dataset's OWN best rate FALL as its rows "
           "shrink? Counted within")
     print("  datasets, so bucket membership cannot stand in for dataset "
-          "identity.")
+          "identity. NOTE the panel is")
+    print("  FIXED across fractions (same 12 datasets at every size), so the "
+          "population trend in the")
+    print("  VERDICT block cannot be a composition effect; only this "
+          "per-dataset argmin is noisy.")
     print("=" * 112)
-    order = {a: i for i, a in enumerate(("0.1", "0.05", "0.03"))}
+    order = {a: i for i, a in enumerate(FIXED_ARMS)}
     down = up = flat = 0
     print(f"{'dataset':42s}{'f=1.00':>10s}{'f=0.50':>10s}{'f=0.25':>10s}"
           f"{'  direction':>12s}")
@@ -471,12 +501,19 @@ def table():
           f"RISES on {up}, unchanged on {flat}.")
     print(f"  sign test on the datasets that moved: p={_sign_p(down, up):.3f}")
 
-    if dropped:
-        print(f"\nexcluded cells ({len(dropped)}): "
-              + ", ".join(f"{d}@{f}[{why}]" for (d, f), why in dropped))
+
+def _enter_knee_mode():
+    """Point every module-level knob at the knee run (see KNEE_RESULTS)."""
+    global RESULTS, OUR_ARMS, CAT_ARMS, FIXED_ARMS, PRIMARY_ARM, THREAD_COUNT
+    RESULTS = KNEE_RESULTS
+    OUR_ARMS, CAT_ARMS, FIXED_ARMS = KNEE_ARMS, (), KNEE_ARMS
+    PRIMARY_ARM = "0.07"
+    THREAD_COUNT = KNEE_THREADS
 
 
 if __name__ == "__main__":
+    if "--knee" in sys.argv:
+        _enter_knee_mode()
     if "--table-only" in sys.argv:
         table()
     else:

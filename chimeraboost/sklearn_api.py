@@ -1554,7 +1554,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
-                 refit_full="replay", refit_members=False, quality=None):
+                 refit_full="replay", refit_members=False, quality=None,
+                 adaptive_learning_rate=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1591,6 +1592,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.refit_full = refit_full
         self.refit_members = refit_members
         self.quality = quality
+        # Opt-in size fade for the auto learning rate; only consulted when
+        # learning_rate is None. False == the historical flat 0.1.
+        self.adaptive_learning_rate = adaptive_learning_rate
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -2259,7 +2263,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, refit_full="replay", refit_members=False,
-                 quality=None):
+                 quality=None, adaptive_learning_rate=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -2292,6 +2296,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.refit_full = refit_full
         self.refit_members = refit_members
         self.quality = quality
+        # Opt-in size fade for the auto learning rate; only consulted when
+        # learning_rate is None. False == the historical flat 0.1.
+        self.adaptive_learning_rate = adaptive_learning_rate
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):

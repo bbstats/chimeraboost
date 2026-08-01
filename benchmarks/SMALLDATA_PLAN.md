@@ -246,6 +246,60 @@ fixed and size-adaptive (CatBoost-schedule) forms. `_auto_learning_rate` keeps
 its flat 0.1. Probe: `benchmarks/probe_learning_rate.py` (resumable,
 `--table-only` reprints).
 
+### REVISED (same day): the knee is at 0.07, and the kill above was wrong
+
+Nathan's steer — *prediction time matters a little less to me than train time* —
+re-weighted the cost axis, and re-pricing on that axis exposed an arithmetic
+error in the kill above that has nothing to do with his preference.
+
+**The error: I compared this candidate's MEDIAN against `refit_members`' MEAN.**
+The kill table said "a quarter of the strength for three to five times the
+cost". On like-for-like medians that is simply false:
+
+| | strength (median) | fit cost |
+|---|---|---|
+| `refit_members`, gr:sus25 (shipped) | **+0.304%** | **+17%** |
+| lr=0.07 at quarter size | **+0.275%** | **+21%** |
+
+Very nearly the same trade — on the single-model path, which is the half that
+`refit_members` could not reach.
+
+**The knee run.** The pilot sampled 0.1 / 0.05 / 0.03 and showed strength
+saturating by 0.05 while cost kept climbing, so the best point was somewhere it
+never looked. `--knee` fills in 0.07, drops the arms not needed to locate it,
+and **pins `thread_count`** — the pilot left it at the class default, which is
+why its fit seconds carried a "never compare to a harness slowdown" caveat. With
+fit time now the deciding axis, the least trustworthy number in the table was
+the one being decided on.
+
+| frac | lr=0.07 strength | lr=0.07 cost | lr=0.05 strength | lr=0.05 cost |
+|---|---|---|---|---|
+| 1.00 | +0.118% (8W-4L) | 1.53x rounds / **1.28x fit** | +0.211% (8W-4L) | 2.11x / 1.62x |
+| 0.50 | +0.254% (9W-3L) | 1.32x / **1.20x fit** | +0.158% (10W-2L) | 2.07x / 1.53x |
+| 0.25 | **+0.275% (10W-2L)** | 1.48x / **1.21x fit** | +0.255% (10W-2L) | 2.19x / 1.46x |
+
+**0.07 dominates 0.05**: equal or better strength at small size for less than
+half the extra fit. The knee is real and it is sharp.
+
+**And by the house bar this passes at every size.** `compare_runs` gates on a
+simple majority (`wins >= n//2 + 1`), which is 7 of 12 here — the same bar that
+recorded depth-4's 9W-3L as a PASS. The probe was reporting exact binomial
+p-values with a Holm correction, a far stricter standard than the project ships
+on. Stated both ways: 10W-2L is p=0.039 uncorrected, 0.077 after correcting for
+the two arms, and a clear PASS on the house bar.
+
+**Honest status of this evidence.** The 0.07 arm was chosen *after* seeing the
+pilot, so the knee run is exploratory, not a pre-registration — it cannot be
+read as a confirmatory test. What confirms it is the standard house gate on
+data that did not select it: tier-1 synth screen, then tier-2 `--decide` with
+per-stratum sign tests.
+
+⇒ **The kill above is WITHDRAWN.** The mechanism was confirmed all along; what
+was wrong was the price. Corrected shape: **a size-gated rate that fades from
+0.1 toward 0.07 as training rows fall**, applied only where it wins, so the
+base stratum and the headline chart stay byte-identical. Full size is left at
+0.1 deliberately: +0.118% there is a wash and would cost 1.28x for nothing.
+
 ### What this program established
 
 - **Ordered boosting is dead for free** — CatBoost never runs it here. That

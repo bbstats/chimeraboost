@@ -136,7 +136,29 @@ def _eval_advance(Fv, tree, Xvb):
         np.add(Fv, tree.predict(Xvb), out=Fv)
 
 
-def _auto_learning_rate(n_estimators, early_stopping):
+# Size-adaptive auto learning rate (opt-in; see benchmarks/SMALLDATA_PLAN.md).
+#
+# CatBoost's ONLY size-dependent default is its learning rate, and denying it
+# that schedule costs it 57% of its edge over us at quarter size -- the single
+# largest identified cause of the small-data gap. Sweeping our own rate found a
+# sharp knee at 0.07: at quarter size it is +0.275% of the primary metric over
+# the shipped 0.1 (10W-2L) for 1.21x fit, where 0.05 buys no more strength at
+# 1.46x. At full size the same arm is a wash (+0.118%, 8W-4L) that would cost
+# 1.28x, so the fade deliberately returns to 0.1 on large data rather than
+# paying for nothing.
+#
+# Thresholds are in rows the BOOSTER trains on, i.e. after the estimator's
+# early-stopping split has taken validation_fraction out. The probe reported
+# pre-split counts, so its measured-positive buckets (up to ~7,500 pre-split)
+# land at ~6,000 here.
+_AUTO_LR_LARGE = 0.1       # large data: the historical default, unchanged
+_AUTO_LR_SMALL = 0.07      # small data: the measured knee
+_AUTO_LR_LO = 5_000        # at/below this many training rows -> _AUTO_LR_SMALL
+_AUTO_LR_HI = 15_000       # at/above this many -> _AUTO_LR_LARGE
+
+
+def _auto_learning_rate(n_estimators, early_stopping, n_train=None,
+                        adaptive=False):
     """Default learning rate when the user did not specify one.
 
     With early stopping, 0.1 (the field-standard default) lets early stopping
@@ -144,9 +166,21 @@ def _auto_learning_rate(n_estimators, early_stopping):
     with no measured accuracy cost, which speeds up both fit and predict.
     Otherwise the rate scales inversely with the iteration budget so short runs
     still cover enough ground.
+
+    ``adaptive`` (opt-in) replaces the flat 0.1 with a linear fade from
+    ``_AUTO_LR_SMALL`` at ``_AUTO_LR_LO`` training rows up to the unchanged
+    ``_AUTO_LR_LARGE`` at ``_AUTO_LR_HI``. It applies ONLY on the
+    early-stopping path: the no-early-stopping branch already scales with the
+    iteration budget, and the small-data measurement was made end-to-end
+    through early stopping plus the full-data refit. With ``adaptive=False``
+    (the default) this function is bit-for-bit what it always was.
     """
     if early_stopping:
-        return 0.1
+        if not adaptive or n_train is None:
+            return _AUTO_LR_LARGE
+        span = float(_AUTO_LR_HI - _AUTO_LR_LO)
+        t = float(np.clip((float(n_train) - _AUTO_LR_LO) / span, 0.0, 1.0))
+        return float(_AUTO_LR_SMALL + t * (_AUTO_LR_LARGE - _AUTO_LR_SMALL))
     return float(np.clip(20.0 / max(n_estimators, 1), 0.03, 0.2))
 
 
@@ -193,7 +227,7 @@ class _BaseBooster:
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
                  quantize_gradients=True, eval_metric=None,
-                 replay_donor=None):
+                 replay_donor=None, adaptive_learning_rate=False):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -216,6 +250,9 @@ class _BaseBooster:
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
         self.quantize_gradients = bool(quantize_gradients)
         self.eval_metric = eval_metric
+        # Opt-in size fade for the auto learning rate (_auto_learning_rate).
+        # False == the historical flat 0.1, byte-identical.
+        self.adaptive_learning_rate = bool(adaptive_learning_rate)
         # Structure-transfer refit (see tree.replay_oblivious_tree): a
         # (trees, preprocessor) pair whose splits are replayed instead of
         # re-grown. None == ordinary fit, and every path below is unchanged.
@@ -430,11 +467,22 @@ class _BaseBooster:
         w = np.asarray(sample_weight, dtype=np.float64)
         return _uniform_to_none(w * (n_samples / w.sum()))
 
-    def _resolve_lr(self, eval_set):
+    def _resolve_lr(self, eval_set, n_train=None):
+        """Resolve the learning rate once per fit.
+
+        ``n_train`` is the row count this booster actually trains on (after any
+        early-stopping split the estimator layer took), and is only consulted
+        when ``adaptive_learning_rate`` is on. Resolving once matters: the
+        full-data refit pins ``winner.lr_`` (see
+        ``sklearn_api._refit_on_full``), so the rate that chose the round budget
+        is the rate the refit replays at, and the fade cannot drift between the
+        two fits just because the refit sees more rows.
+        """
         if self.learning_rate is not None:
             return float(self.learning_rate)
         es = self.early_stopping_rounds is not None and eval_set is not None
-        return _auto_learning_rate(self.n_estimators, es)
+        return _auto_learning_rate(self.n_estimators, es, n_train=n_train,
+                                   adaptive=self.adaptive_learning_rate)
 
     def _loo_update(self, tree, leaf, g, h):
         """Leave-one-out leaf step: each row's training update uses its leaf's
@@ -586,7 +634,7 @@ class GradientBoosting(_BaseBooster):
         # losses.py protocol (see losses.CustomObjective); used as-is.
         self.loss_ = (LOSSES[self.loss_name](**self.loss_kwargs)
                       if isinstance(self.loss_name, str) else self.loss_name)
-        self.lr_ = self._resolve_lr(eval_set)
+        self.lr_ = self._resolve_lr(eval_set, n_train=n_samples)
 
         donor_trees = None
         if self.replay_donor is not None:
@@ -915,7 +963,7 @@ class MulticlassBoosting(_BaseBooster):
         w = self._normalize_weights(sample_weight, n_samples)
 
         self.loss_ = MultiSoftmax(K)
-        self.lr_ = self._resolve_lr(eval_set)
+        self.lr_ = self._resolve_lr(eval_set, n_train=n_samples)
 
         # One ordered-TS target per class (CatBoost-style per-class statistics).
         Xb, Xvb = self._prep_matrices(X, [Y[:, k] for k in range(K)],
@@ -1321,7 +1369,7 @@ class MultiQuantileBoosting(_BaseBooster):
         taus = self.quantiles
         K = taus.shape[0]
         self.loss_ = MultiQuantile(taus)
-        self.lr_ = self._resolve_lr(eval_set)
+        self.lr_ = self._resolve_lr(eval_set, n_train=n_samples)
         self._contrasts_ = _fixed_contrasts(taus)
 
         # One TS-encoding target: every quantile shares the same y, unlike
