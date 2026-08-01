@@ -1037,13 +1037,15 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
                  cat_smoothing=None, selection_rounds=None, quantize=False,
-                 refit_full=False):
+                 refit_full=False, adaptive_lr=False):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
     # False (Clf); for min_child_weight it's the classifier's size-adaptive auto.
     # An explicit value overrides (e.g. --no-ordered-boosting, --chimera-mcw 0).
     kw = {} if ordered_boosting is None else {"ordered_boosting": ordered_boosting}
+    if adaptive_lr:
+        kw["adaptive_learning_rate"] = True
     if quantize:
         kw["quantize_gradients"] = True
     # "off" forces the full-data refit off (default-ON since 0.25.0); a plain
@@ -1244,6 +1246,20 @@ def _run_chimera_refit(task, Xtr, ytr, Xte, yte, cat, threads):
                         refit_full=True)
 
 
+def _run_chimera_alr(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Defaults + the size-adaptive auto learning rate (SMALLDATA_PLAN.md C4).
+
+    Identical to the plain default arm except that the auto rate fades from
+    0.07 on small data back to the historical 0.1 on large data, so on any
+    dataset above the fade's upper threshold this arm is byte-identical to
+    `ChimeraBoost`. Run it in the SAME benchmark as the default arm so the A/B
+    pairing carries no machine-condition drift (the Sel25 / refit_members
+    precedent).
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        adaptive_lr=True)
+
+
 def _run_sklearn(task, Xtr, ytr, Xte, yte, cat, threads):
     """sklearn HGB with native categorical support.
 
@@ -1391,6 +1407,7 @@ RUNNERS = {
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
+    "ChimeraBoostALR": _run_chimera_alr,
     "ChimeraBoostNoRefit": _run_chimera_norefit,
     "ChimeraBoostNoRefitSel25": _run_chimera_norefit_sel25,
     "sklearn_HGB": _run_sklearn,
@@ -1409,6 +1426,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns3RM",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
+                   "ChimeraBoostALR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 

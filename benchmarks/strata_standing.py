@@ -153,8 +153,17 @@ def analyse(path):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--latest" in sys.argv or not args:
+    # --ours NAME reads the standing for a variant arm (e.g. ChimeraBoostALR)
+    # instead of the shipped default, so an A/B run can be read from either
+    # side without editing the module.
+    global OURS
+    argv = list(sys.argv[1:])
+    if "--ours" in argv:
+        i = argv.index("--ours")
+        OURS = argv[i + 1]
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
+    if "--latest" in argv or not args:
         here = os.path.dirname(os.path.abspath(__file__))
         cands = sorted(glob.glob(os.path.join(here, "results", "2026*.json")))
         if not cands:
