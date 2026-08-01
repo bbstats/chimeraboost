@@ -390,13 +390,38 @@ If this is right it is a much better lever than the depth race: it is a guard
 correction rather than an extra audition, so it costs **nothing** in fit time,
 and it should help wherever `n / 2^depth` is small rather than on one dataset.
 
-Test running: `--decide --seeds 3 --models ChimeraBoost
---chimera-no-linear-leaves`, paired against the depth-6 baseline. If forcing
-constant leaves recovers most of the small-data deficit, the diagnosis holds
-and the fix is to make the guard scale with the parameter count properly (and
-possibly to scale `linear_lambda` with leaf occupancy). If constant leaves are
-flat or worse, the blowup is the *selection* mispicking under a small
-validation fold — the Sel25 amplification story — and the fix is different.
+Test: `--decide --seeds 3 --models ChimeraBoost --chimera-no-linear-leaves`
+(`results/20260801-020906.json`), paired against the depth-6 baseline.
+
+### Verdict: REFUTED. Linear leaves are not the culprit — they are load-bearing.
+
+Forcing constant leaves is worse in every stratum, small data included:
+
+| stratum | noLL W-L | mean |
+|---|---|---|
+| gr:base | 15W-43L | −0.601% |
+| hc:base | 3W-4L-7T | −1.420% |
+| gr:sus25 | 4W-7L | −0.453% |
+| gr:sus50 | 3W-2L-1T | −0.033% |
+| hc:sus25 | 0W-1L-2T | −4.863% |
+| hc:time | 1W-2L-4T | −5.369% |
+
+And the diagnostic dataset settles it: on `cpu_act@sus25` forcing constant
+leaves is **worse** (RMSE 3.8236 → 3.8639, −1.05%). Linear leaves are *helping*
+there, so the per-leaf ridge is not what blows up. `hc:employee_salaries`
+depends on them enormously (−16.6% base, −14.6% @sus25, −37.8% @time without).
+
+⇒ **KILLED without shipping**: the per-leaf sample-guard theory, and any
+"linear leaves overfit small data" variant. The parameterization I had staged
+for it was reverted rather than left in the tree as unused surface.
+
+**What this leaves standing is simpler and better evidenced:** the small-data
+deficit is plain *tree* over-capacity, independent of leaf model — which is
+exactly what the depth-4 experiment measured directly. cpu_act prefers depth 4
+at **both** sizes (+3.27% at full size, +16.41% at sus25), so capacity
+preference is a per-dataset property, not a size threshold. That is an argument
+for measuring it per dataset (a race) rather than predicting it from n — and it
+is also why the historical size-rule attempts failed.
 
 ### Deprioritized by cheap analysis: per-leaf capacity (semi-oblivious trees)
 
