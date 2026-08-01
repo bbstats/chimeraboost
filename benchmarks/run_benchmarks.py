@@ -1115,17 +1115,22 @@ ENSEMBLE_N = 10
 
 
 def _chimera_ens(n, task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
-                 subsample=1.0, colsample=None, quantize=False):
+                 subsample=1.0, colsample=None, quantize=False,
+                 refit_members=False):
     """Shared implementation for all bagged-ChimeraBoost runners.
 
     ensemble_n_jobs is left at the shipped default (parallel members inside
     the task's thread budget) so the chart measures the shipped config
     (BAGGING_PLAN.md B4; same core budget as every other model). lr /
     subsample / colsample / quantize forward to the members (the B3
-    member-defaults grid rides the same --chimera-* flags as the single arm)."""
+    member-defaults grid rides the same --chimera-* flags as the single arm).
+    `refit_members` is the BREAKTHROUGH_PLAN C1 arm: each member replays its
+    own structure against all-row gradients after early stopping."""
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     kw = {"quantize_gradients": True} if quantize else {}
+    if refit_members:
+        kw["refit_members"] = True
     m = Est(n_estimators=MAX_ITERS, early_stopping=True, early_stopping_rounds=PATIENCE,
             n_ensembles=n, learning_rate=lr,
             subsample=subsample, colsample=colsample,
@@ -1150,6 +1155,29 @@ def _run_chimera_ensemble_8(task, Xtr, ytr, Xte, yte, cat, threads, **kw):
     # The blessed bagged config (BAGGING_PLAN.md B3): K=8 with the library's
     # bagged-member defaults.
     return _chimera_ens(8, task, Xtr, ytr, Xte, yte, cat, threads, **kw)
+
+
+# --- BREAKTHROUGH C1: per-member full-data refit ----------------------------
+# Members train on max_samples of the rows and early-stop on their OOB
+# complement, so the ordinary full-data refit never fires and every member's
+# leaf values come from 0.8n rows. These arms replay each member's own
+# structure against all-row gradients. Pinned operating points: they ignore
+# the --chimera-* knobs so several can run side by side in ONE benchmark,
+# which is what makes the A/B pairing free of machine-condition drift.
+def _run_chimera_ens8_rm(task, Xtr, ytr, Xte, yte, cat, threads):
+    return _chimera_ens(8, task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_members=True)
+
+
+def _run_chimera_ens5_rm(task, Xtr, ytr, Xte, yte, cat, threads):
+    return _chimera_ens(5, task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_members=True)
+
+
+def _run_chimera_ens3_rm(task, Xtr, ytr, Xte, yte, cat, threads):
+    # The Pareto question: does a 3-member refit bag reach plain Ens8?
+    return _chimera_ens(3, task, Xtr, ytr, Xte, yte, cat, threads,
+                        refit_members=True)
 
 
 # --- SELECT program arms (benchmarks/SELECT_PLAN.md) ------------------------
@@ -1356,6 +1384,9 @@ RUNNERS = {
     "ChimeraBoostEns5": _run_chimera_ensemble_5,
     "ChimeraBoostEns8": _run_chimera_ensemble_8,
     "ChimeraBoostEns10": _run_chimera_ensemble,
+    "ChimeraBoostEns8RM": _run_chimera_ens8_rm,
+    "ChimeraBoostEns5RM": _run_chimera_ens5_rm,
+    "ChimeraBoostEns3RM": _run_chimera_ens3_rm,
     "ChimeraBoostOne": _run_chimera_one,
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostSel25": _run_chimera_sel25,
@@ -1374,6 +1405,8 @@ RUNNERS = {
 _ALWAYS = ("ChimeraBoost", "sklearn_HGB")
 _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8", "ChimeraBoostEns10",
+                   "ChimeraBoostEns8RM", "ChimeraBoostEns5RM",
+                   "ChimeraBoostEns3RM",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")

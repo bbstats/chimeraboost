@@ -265,6 +265,24 @@ them sequentially.
 
 `feature_importances_` and `shap_values` average across the bag automatically.
 
+### Reclaiming the per-member data tax
+
+Each member's leaf values are estimated from only the rows it sampled — the
+out-of-bag rows it early-stopped on never inform them. `refit_members=True`
+replays each member's own tree structure against gradients from every row once
+early stopping is finished:
+
+```python
+reg = ChimeraBoostRegressor(n_ensembles=8, refit_members=True,
+                            random_state=0).fit(X_train, y_train)
+```
+
+Only the leaf values change; the splits stay exactly as each member's own
+sample grew them, which is where a bag's diversity actually lives. Expect
+roughly 10% more fit time. Regression and binary classification only —
+multiclass members would need a full refit rather than a cheap replay, so the
+flag is ignored there.
+
 ## Full-data refit
 
 Once early stopping has chosen the tree budget on the automatic validation split, the

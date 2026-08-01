@@ -50,7 +50,8 @@ def _fit_temperature(raw, y, multiclass, sample_weight=None):
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "max_samples",
                            "cat_features", "cross_features",
-                           "selection_rounds", "refit_full", "quality"})
+                           "selection_rounds", "refit_full", "refit_members",
+                           "quality"})
 
 # --- quality: named operating points on the strength/slowdown Pareto --------
 # Evidence: benchmarks/SELECT_PLAN.md. Every recipe only pins parameters that
@@ -598,8 +599,18 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                            if len(oob_idx) > 0 else None)
         else:
             member_eval = eval_set
+        # Member-level full-data refit (benchmarks/BREAKTHROUGH_PLAN.md C1):
+        # after early stopping has used the OOB rows, replay this member's own
+        # structure against gradients from EVERY row, so its leaf values stop
+        # being estimated from max_samples*n. Only the leaf values move -- the
+        # splits stay exactly as this member's bag grew them, which is the
+        # diversity the bag actually trades on. Off by default; nothing below
+        # runs and the member is byte-identical when refit_members is False.
+        if getattr(estimator, "refit_members", False) and eval_set is None:
+            member._bag_refit_rows_ = (X, y, sample_weight, ms)
         member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=member_eval,
                    groups=gb, sample_weight=wb)
+        member._bag_refit_rows_ = None
         # Members train on bare ndarray rows, so they would otherwise warn
         # "fitted without feature names" on every DataFrame predict; give them
         # the parent's captured names so the column-order guard applies
@@ -1204,8 +1215,27 @@ def _stop_if_behind(k, target_best):
     return cb
 
 
+def _bag_refit_rows(est):
+    """The full row set a BAG MEMBER should re-estimate its leaf values on, or
+    None when this is not a member of a refitting bag.
+
+    A member trains on ``max_samples`` of the rows and early-stops on the
+    out-of-bag complement, so `auto_split` is False and the ordinary full-data
+    refit never fires: every member's leaf values come from 0.8n rows and
+    nothing reclaims the rest. REFIT_PLAN's "bag members have no data tax" is
+    true of the ENSEMBLE — every row is in some member's bag — but not of any
+    individual member.
+
+    Replaying the member's own structure against all-row gradients is safe for
+    the ensemble because bag lift is STRUCTURAL diversity, measured in the LRE
+    post-mortem ("leaf-only diversity is dead, structural diversity is the
+    value"): the structures stay exactly as each member's own bag grew them,
+    and only the leaf values change. See benchmarks/BREAKTHROUGH_PLAN.md."""
+    return getattr(est, "_bag_refit_rows_", None)
+
+
 def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
-                   loss_kwargs=None, replay=False):
+                   loss_kwargs=None, replay=False, train_frac=None):
     """Retrain ``winner``'s configuration on all rows (benchmarks/
     REFIT_PLAN.md): rounds scaled by the train-size ratio, resolved learning
     rate pinned so the early-stopped budget keeps its meaning, selected
@@ -1213,9 +1243,17 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
     are copied so ``validation_history_`` keeps reporting the curve that
     chose the budget. Size-adaptive autos (the classifier's min_child_weight,
     cat_combinations) re-resolve at the full row count; user callbacks
-    observed the ES fits and are not re-run."""
+    observed the ES fits and are not re-run.
+
+    ``train_frac`` is the fraction of ``X_full`` the winner actually trained
+    on, which sets how far the round budget scales up. It defaults to the
+    auto-split's ``1 - validation_fraction``; a bag member passes its
+    ``max_samples`` instead, since what its leaf values never saw is the
+    out-of-bag complement rather than a validation holdout."""
     t_star = len(winner.trees_)
-    rounds = min(int(np.ceil(t_star / (1.0 - est.validation_fraction))),
+    frac = (1.0 - est.validation_fraction) if train_frac is None \
+        else float(train_frac)
+    rounds = min(int(np.ceil(t_star / max(frac, 1e-9))),
                  int(est.n_estimators))
     rkw = dict(kw)
     rkw["n_estimators"] = rounds
@@ -1498,7 +1536,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
-                 refit_full="replay", quality=None):
+                 refit_full="replay", refit_members=False, quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -1533,6 +1571,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
         self.refit_full = refit_full
+        self.refit_members = refit_members
         self.quality = quality
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
@@ -1876,6 +1915,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             self.model_ = _refit_on_full(
                 self, self.model_, X_full, y_full, sw_full, cat_features, kw,
                 loss_kwargs=loss_kwargs, replay=self.refit_full == "replay")
+        elif _bag_refit_rows(self) is not None and self.loss != "Quantile" \
+                and self.model_.trees_:
+            bx, byy, bsw, bfrac = _bag_refit_rows(self)
+            self.model_ = _refit_on_full(
+                self, self.model_, bx, byy, bsw, cat_features, kw,
+                loss_kwargs=loss_kwargs, replay=True, train_frac=bfrac)
         return self
 
     def _transform_raw(self, raw):
@@ -2177,7 +2222,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
-                 eval_metric=None, refit_full="replay",
+                 eval_metric=None, refit_full="replay", refit_members=False,
                  quality=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -2209,6 +2254,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.max_samples = max_samples
         self.quantize_gradients = quantize_gradients
         self.refit_full = refit_full
+        self.refit_members = refit_members
         self.quality = quality
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
@@ -2515,6 +2561,18 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.model_ = _refit_on_full(
                 self, self.model_, X_full, y_refit, sw_full, cat_features, kw,
                 replay=self.refit_full == "replay")
+        elif (_bag_refit_rows(self) is not None and self.model_.trees_
+                and not self._multiclass):
+            # Binary only: multiclass has no replay path (`_refit_on_full`
+            # rebuilds a vector-leaf model from scratch there), so a member
+            # refit would cost a whole extra fit per member instead of a cheap
+            # structure replay -- a different trade that this evidence does
+            # not cover. Multiclass bags are unchanged.
+            bx, byy, bsw, bfrac = _bag_refit_rows(self)
+            y_refit = (byy == self.classes_[1]).astype(np.float64)
+            self.model_ = _refit_on_full(
+                self, self.model_, bx, y_refit, bsw, cat_features, kw,
+                replay=True, train_frac=bfrac)
         return self
 
     def predict_proba(self, X):
