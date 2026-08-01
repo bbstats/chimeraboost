@@ -33,6 +33,26 @@ Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 - **One benchmark at a time** — never two concurrently (core contention corrupts timings).
 - Full protocol for shipping a change: `/experiment` skill.
 
+## This is a Windows box — write Windows commands
+Windows 11, and the primary shell is **Windows PowerShell 5.1** (`powershell.exe`), not
+bash. Commands written for Linux fail here, usually with a confusing parser error
+rather than a clear one. Rules:
+- **No `&&` and no `||`.** They are parse errors in PowerShell 5.1. To run B only if
+  A succeeded, write `A; if ($?) { B }`. To run both regardless, write `A; B`.
+- No `?:` ternary, no `??`, no `?.` — all PowerShell 7 syntax that 5.1 rejects.
+- No Unix-isms: use `Get-Content -TotalCount N` for `head`, `-Tail N` for `tail`,
+  `2>$null` for `2>/dev/null`, `Remove-Item -Recurse -Force` for `rm -rf`,
+  `New-Item -ItemType Directory -Force` for `mkdir -p`, `$env:VAR = 'x'; cmd` for
+  `VAR=x cmd` (PowerShell has no inline environment-variable prefix).
+- Paths are `C:\Users\Nathan\...` and `A:\code\...`. Quote any path with spaces.
+- Multi-line strings (commit messages) go in a single-quoted here-string `@'...'@`
+  with the closing `'@` at column 0.
+- A Git Bash tool is also available and *does* accept `&&`, forward slashes and
+  `/dev/null` — but it is a separate shell with its own syntax. Pick one per
+  command and stay inside its rules; never mix the two dialects in one line.
+- Anything written to a file for later shell consumption picks up `\r\n` line
+  endings — see the `tr -d '\r'` quirk below.
+
 ## Machine quirks (learned the hard way — trust these)
 - Run script **files**, not `python -c "..."` (quoting breaks on this box).
 - Terminal stdout garbles under batched tool calls; trust file-based reads over what scrolled by.
