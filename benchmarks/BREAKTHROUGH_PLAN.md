@@ -338,7 +338,32 @@ about +1.0-1.5% strength for ~1.1x on the bagged path.
 budget by `max_samples` rather than `1 - validation_fraction`. Harness arms
 `ChimeraBoostEns8RM/Ens5RM/Ens3RM` let both variants run inside ONE benchmark,
 so the A/B pairing carries no machine-condition drift (the Sel25 precedent).
-Next: tier-1 synth screen, then the decide gate.
+
+Gated off for **multiclass**: there is no replay path there
+(`_refit_on_full` rebuilds a vector-leaf model from scratch), so a member
+refit would cost a whole extra fit per member instead of a cheap structure
+replay — a different trade, and one this evidence does not cover.
+
+896 existing tests pass; 10 new ones in `tests/test_refit_members.py` lock the
+contract: default off, off byte-identical, on engages, member structures
+preserved and mutually distinct, single-model and explicit-`eval_set` paths
+untouched, multiclass unchanged, `get_params`/`clone` roundtrip.
+
+#### Pre-registered gate (stated before the runs)
+
+- **Tier 1 (synth screen)**: `--synth --seeds 3 --models ChimeraBoost
+  ChimeraBoostEns8 ChimeraBoostEns8RM --save`, then
+  `compare_runs RUN RUN --model ChimeraBoostEns8 --model-new ChimeraBoostEns8RM`.
+  Also read the Brier column — the standing rule for any
+  classification-touching change.
+- **Tier 2 (decide)**: same arm pair on `--decide`, per-stratum sign tests,
+  never pooled.
+- **Kill rules**: a broad regression in either primary or Brier on any stratum;
+  or a fit-time cost materially above the ~1.1x the probe measured.
+- **Ship shape if it passes**: opt-in `refit_members=True`, following the
+  `refit_full` precedent where the default flip was Nathan's call. It only
+  touches the bagged rungs (quality 4/5), so single-model defaults and the
+  headline chart are unchanged by construction.
 
 ### C2 — the two-way depth race (6 vs 4), whose transfer question is now testable
 
