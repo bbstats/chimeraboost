@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.28.0] - 2026-07-31
 ### Fixed
 - **`ChimeraBoostQuantileRegressor` returned prediction intervals 2x to 10x
   wider than they should have been, and they got worse the longer you
