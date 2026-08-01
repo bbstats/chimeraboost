@@ -424,7 +424,7 @@ stratum, its sign is consistent across three of four datasets, and it has a
 mechanism that predicts it in advance. That combination should not be waved
 away.
 
-### VERDICT: ship the opt-in; do NOT flip the default yet
+### VERDICT (superseded by C5 below — kept for the record)
 
 - **Ship `adaptive_learning_rate=True` as opt-in.** It is byte-identical when
   off (920 tests, numerical-identity goldens included), it passes tier-1 on both
@@ -440,6 +440,158 @@ away.
   gating the fade on the presence of a temporal split — or simply documenting
   "do not enable this when your data drifts" — resolves it. That question is
   now the live one in this program.
+
+## C5 — is the temporal regression real, and is it fixable? (pre-registered 2026-08-01)
+
+The tier-2 verdict withheld a default flip on the strength of **four datasets**.
+Before accepting that, the regression itself gets a probe.
+
+**First, a constraint that kills the obvious response.** "Run more seeds" does
+nothing here: `_temporal_split` takes `TEMPORAL_CUTS[seed % 3]` with
+`TEMPORAL_CUTS = (0.65, 0.70, 0.75)` and no other seed-dependent randomness, so
+seed 3 reproduces seed 0 **exactly**. The hc:time universe is 7 datasets × 3
+cuts, full stop, and no `pub:` temporal columns are registered to widen it.
+More seeds would have produced identical numbers and the appearance of more
+evidence — worth recording, because that is a trap this suite sets.
+
+So the probe attacks the mechanism instead of the sample size.
+
+**The hypothesis to test**: a lower rate buys its gain with more rounds; under
+drift those extra rounds fit a stale past more tightly. Crucially **our
+early-stopping holdout is a RANDOM slice of the training rows**, so it is drawn
+from the past too — early stopping watches it improve and keeps going, blind to
+the fact that fitting the past harder has stopped helping. If that is right,
+validating on the *most recent* slice instead should see the drift and stop
+earlier, removing the regression.
+
+`benchmarks/probe_temporal_lr.py`, 2×3 design:
+
+- **Datasets**: all 7 `hc:*@time`, rows capped at 30,000 (stated: this brings
+  the three largest — kick, sf-police-incidents, Traffic_violations — into the
+  size range where the rate matters at all; in tier-2 they sat above the fade
+  threshold and tied).
+- **Cuts**: 6 rolling origins (0.45, 0.55, 0.65, 0.70, 0.75, 0.82) instead of
+  the suite's 3, so the "does it reproduce" question gets twice the windows
+  from the same sources. Test window is `TEMPORAL_TEST_FRAC` after the cut,
+  with the suite's unseen-class filter.
+- **Arms (6)**: rate ∈ {0.1 shipped, 0.07 the knee} × early-stopping holdout ∈
+  {`auto` (the shipped path: internal random split, `refit_full` on), `rand`
+  (explicit random 20%, refit off), `tail` (explicit *last* 20%
+  chronologically, refit off)}. Fixed rates rather than the fade, because the
+  mechanism question is about the rate; the fade is only a schedule over it.
+  The `rand` arm exists so that `tail` vs `rand` isolates the holdout's
+  *composition* — both have the refit off, so the refit cannot confound it.
+- **Recorded**: test score, rounds, fit seconds per cell, so the
+  "loss tracks the round increase" claim is checkable rather than asserted.
+
+### Pre-registered predictions
+
+- **Mechanism right**: with `rand`/`auto` holdouts, 0.07 loses to 0.1 across the
+  6 cuts; with the `tail` holdout that loss shrinks or reverses; and 0.07 runs
+  fewer rounds under `tail` than under `rand`. ⇒ a temporal-aware ES split is a
+  real fix, and the default flip is back on the table.
+- **Regression was noise**: `auto@0.07` vs `auto@0.1` is a wash over 42 windows.
+  ⇒ the tier-2 hc:time result was three unlucky cuts, and the default flip is
+  back on the table for a different reason.
+- **Mechanism right but unfixable**: 0.07 loses under every holdout type. ⇒ the
+  caveat is real and structural; ship stays opt-in and gets documented as
+  "not for drifting data".
+
+All three outcomes are decisive for the shipping question, which is why this is
+worth one run.
+
+### Verdict: the regression was NOISE. My mechanism story was WRONG. Blocker removed.
+
+`results/probe-temporal-lr.jsonl`, 42 windows (7 datasets × 6 rolling origins).
+
+**1. The temporal regression does not reproduce.** On the shipped path — the
+same configuration tier-2 measured — lr=0.07 vs lr=0.1 is:
+
+| holdout | median | mean | W-L | p |
+|---|---|---|---|---|
+| **`auto` (shipped)** | **−0.004%** | +0.093% | **21W-21L** | **1.000** |
+| `rand` (explicit random, refit off) | −0.103% | +0.272% | 19W-23L | 0.644 |
+| `tail` (explicit most-recent, refit off) | +0.137% | +0.316% | 26W-16L | 0.164 |
+
+Twenty-one wins and twenty-one losses. A perfect coin flip. **Tier-2's
+hc:time result — 1W-3L, mean −1.215% — was three unlucky cuts out of the three
+the suite happens to run.** Per dataset the `auto` medians are −0.44, −0.10,
++0.20, −2.17, +1.28, −0.18, −0.00: three positive, four negative, centred on
+nothing. `hc:eucalyptus@time`, the dataset that drove the tier-2 loss, reads
+−2.17% under `auto` but **+3.32%** under `rand` and **+1.74%** under `tail` —
+unstable in sign across holdouts, which is what 736 rows buys you.
+
+**2. The mechanism I proposed is not supported.** I claimed the loss came from
+extra rounds fitting a stale past, with early stopping blind to it because its
+holdout is drawn from the past. Both halves fail their own test:
+
+- The correlation between the round increase and the loss is **−0.12 to −0.23**
+  across holdouts — the predicted sign, but far too weak to carry the story.
+- The tail holdout was supposed to *see* the drift and stop earlier. It stops
+  **later**: rounds(0.07)/rounds(0.1) is **1.46x** under `tail` versus 1.33x
+  under `rand`. The opposite of the prediction.
+
+I stated that mechanism concisely and confidently when asked. It was a
+plausible story fitted to four data points, and it did not survive its first
+real test.
+
+**3. A bonus negative, and a useful one.** Comparing the holdout types in
+absolute terms at a fixed rate of 0.1:
+
+| comparison | median | W-L of 42 |
+|---|---|---|
+| `rand` vs `auto` | −1.492% | 11W-31L |
+| `tail` vs `auto` | −3.019% | 10W-32L |
+| **`tail` vs `rand`** | **−0.812%** | **13W-29L** |
+
+**A temporal-aware early-stopping split is worse than a random one under
+drift**, on 29 of 42 windows. That retires the "tail ES split" idea that
+[[project-breakthrough-hunt-2026-08-01]] recorded as the unmined temporal lane
+("`@time` training rows arrive in ascending timestamp order, so a tail
+early-stopping split is feasible"). The likely reason is simple and was not
+obvious to me beforehand: validating on the most recent rows means **training
+on none of them**, and those are exactly the rows closest to the future test
+window. The shipped `auto` path beats both explicit arms anyway, since it keeps
+`refit_full`.
+
+**Scope note kept honest**: C5 sweeps FIXED rates (0.1 vs 0.07) where tier-2
+ran the fade, and caps rows at 30,000 — which pulls kick, sf-police-incidents
+and Traffic_violations into the range where the rate bites, whereas in tier-2
+they sat above the fade threshold and tied. So C5 tests the rate that the fade
+delivers, on more of the stratum than tier-2 could reach. That is the right
+test for "does a lower rate hurt under drift", and the answer is no.
+
+⇒ **The only stratum that argued against a default flip does not survive
+contact with six cuts instead of three.** The recommendation to withhold the
+flip was built on noise, and I withdraw it.
+
+### FINAL RECOMMENDATION: flip the default
+
+With hc:time resolved as a coin flip, the evidence for
+`adaptive_learning_rate=True` as the default is:
+
+- **Tier-1 synth**: PASS on both judges (primary 71W-57L, Brier 48W-38L).
+- **Tier-2 decide**: positive mean in **6 of 7 strata**, sign-test PASS on
+  gr:sus25 (9W-3L) and hc:sus25 (3W-0L), **zero losses** on hc:base (6W-0L),
+  22W-14L on gr:base among the datasets where the fade engages.
+- **The seventh stratum is now measured as noise** on six cuts instead of three.
+- **The program's target moved**: 50% → 67% and 33% → 67% against CatBoost on
+  the two strata Finding 3 named — the first movement on that number.
+- **Cost**: 1.09x on gr:base rising to 1.31x on the smallest strata, and
+  **exactly 1.00x above 15,000 training rows**, where the fade is a no-op and
+  the model is byte-identical.
+
+The honest counterweight, stated rather than buried: the gains are real but
+individually small (medians +0.13% to +0.31%), the strongest strata carry
+n=3–12 datasets, and users on large data pay nothing and gain nothing. This is
+a change that helps a specific regime meaningfully and leaves the rest exactly
+where it was.
+
+Per project precedent (`refit_full`, `refit_members`) the flip itself is
+Nathan's call. **I now recommend it.** The remaining implementation step is a
+one-line default change plus a golden refresh, deliberately NOT in this PR —
+flipping a default rewrites the numerical-identity goldens, and that deserves
+its own reviewable change rather than being buried in an investigation.
 
 ### What this program established
 
