@@ -1412,7 +1412,12 @@ the <a href="../api/">API reference</a>; worked examples live in <a href="../rec
 <tr>
 <td><code>learning_rate</code></td>
 <td><code>None</code> (auto)</td>
-<td>Per-tree shrinkage. <code>None</code> resolves to 0.1 with early stopping. Lower values trade more trees for a slightly better fit.</td>
+<td>Per-tree shrinkage. With early stopping, <code>None</code> resolves to 0.1 on data of about 15,000 training rows or more, and fades to 0.07 at 5,000 rows or fewer — see <code>adaptive_learning_rate</code>. Lower values trade more trees for a slightly better fit.</td>
+</tr>
+<tr>
+<td><code>adaptive_learning_rate</code></td>
+<td><code>True</code></td>
+<td>Let the auto <code>learning_rate</code> depend on how much data it has: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set <code>False</code> for the pre-0.30.0 flat 0.1 everywhere. Only consulted when <code>learning_rate</code> is <code>None</code> and early stopping is on, so three paths are unaffected: bagged fits (<code>n_ensembles &gt;= 2</code>), whose members already carry an explicit member learning rate, fits with <code>early_stopping=False</code>, and <code>ChimeraBoostQuantileRegressor</code>.</td>
 </tr>
 <tr>
 <td><code>depth</code></td>
