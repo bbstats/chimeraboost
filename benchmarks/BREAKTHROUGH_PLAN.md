@@ -365,6 +365,28 @@ untouched, multiclass unchanged, `get_params`/`clone` roundtrip.
   touches the bagged rungs (quality 4/5), so single-model defaults and the
   headline chart are unchanged by construction.
 
+#### Tier 1 (synth screen) — PASS on primary, Brier a wash
+
+`results/20260801-022821.json`, both arms in one benchmark, 136 datasets,
+3 seeds.
+
+| judge | result |
+|---|---|
+| **primary** | **71W-27L-38T, mean +0.738%, median +0.035% — sign test PASS** |
+| Brier | 24W-30L-34T, mean **+0.181%**, median +0.000% — sign bar FAIL |
+
+Read honestly: the 34 Brier ties are exactly the 34 multiclass sets the arm
+gates off, so the binary Brier split is 24W-30L on 54 sets — a coin flip
+(p≈0.5), with a positive mean and a median of exactly zero. That is a wash,
+not the broad regression the kill rule names. The aggregate column moves the
+right way too: Bin Brier% 98.3 → **98.6**, Reg RMSE% 97.9 → **99.8**.
+
+Fit cost 4.4x → 4.8x = **+9%**, matching the probe's ~11% estimate.
+
+The Brier sign count is recorded as a **watch item** for tier 2 rather than
+waved away — the B1 lesson is that a classification-touching change can look
+fine on primary and cost Brier, and that the screen predicted it.
+
 ### C2 — the two-way depth race (6 vs 4), whose transfer question is now testable
 
 `A2_PLAN.md` measured this and then shelved it: **+0.398% mean, 16W-4L-16T,
