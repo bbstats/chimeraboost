@@ -251,7 +251,9 @@ reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)
 ```
 
 Use `n_ensembles=8`: it is stronger than 5 at similar cost. Avoid `n_ensembles=2`,
-which scores worse than a single model.
+which scores worse than a single model. If you want the most accuracy per unit of
+fit time, turn on [`refit_members`](#reclaiming-the-per-member-data-tax) as well —
+five refit members beat eight plain ones on both accuracy and speed.
 
 Inside a bag, parameters left on auto resolve to member defaults tuned for averaging,
 currently `learning_rate=0.15` and `colsample=0.85`, because averaging tolerates
@@ -279,7 +281,10 @@ reg = ChimeraBoostRegressor(n_ensembles=8, refit_members=True,
 
 Only the leaf values change; the splits stay exactly as each member's own
 sample grew them, which is where a bag's diversity actually lives. Expect
-roughly 10% more fit time. Regression and binary classification only —
+roughly 10-17% more fit time, the higher end on larger suites. Because each
+member is individually stronger, you can also spend the gain on fewer members:
+`n_ensembles=5, refit_members=True` beat a plain eight-member bag on accuracy
+while fitting about 20% faster. Regression and binary classification only —
 multiclass members would need a full refit rather than a cheap replay, so the
 flag is ignored there.
 

@@ -839,22 +839,28 @@ no-replacement samples, parallel workers.**
 - **Strength: targets EXCEEDED.** Cumulative over the Phase-0 Ens5
   baseline: +0.28% (B3) then +0.94% gr (B-samp) primary, with perfect
   tier-2 Brier sweeps (23-0, 8-0) — on top of Ens5's original +2.16% over
-  the single model. Canonical 5-arm close-out runs in flight for the
-  final pareto numbers.
+  the single model. Canonical 5-arm close-out runs **COMPLETE 2026-07-17**
+  (see the checklist below: gr `20260717-112941`, hc `115025`).
 - **Speed: the ≤~12x ceiling was NOT met.** Projected ~30x absolute on gr
   (34.3 baseline × B3 ~1.01 × B-samp 0.874; B4's chart gain is small
   under harness pinning). Every fit-cost lever that touched the ensemble
   mechanism's diversity or data was killed by measurement; what shipped
-  is what survived. Remaining known headroom: B-prep shared binning
-  (hc-heavy, est. single-digit % pooled) — OPEN, queued for a future
-  session. **Kill-rule review (>20x) = Nathan's call**: the program
-  delivered a much stronger, modestly cheaper frontier point rather than
-  a cheap one.
+  is what survived. B-prep **SHIPPED 2026-07-17** as intra-fit prep reuse
+  (the cross-member border sharing it originally named was skipped on
+  measured-ceiling and diversity-risk grounds — see the checklist).
+  **Kill-rule review (>20x): RESOLVED — the frontier point was accepted
+  and the program closed.** It delivered a much stronger, modestly cheaper
+  point rather than a cheap one.
 - **Phase 2 verdicts:** B6 recalibration — **SKIP, documented**: the leg
   it targeted is now the bag's strongest (tier-2 Brier sweeps); nothing
-  to fix. B7 reweighting — queued as a zero-library-change OOB-masked
-  probe (design + downgraded outlook recorded above with Nathan); B8
-  moot unless B7 ships. B5 shared trunk stays parked.
+  to fix. B7 reweighting — **KILLED 2026-07-17** (0/15 vs the registered
+  bar; see the checklist), so B8 is moot. B5 shared trunk stays parked.
+
+**PROGRAM CLOSED.** The one later addition to the bagged path is
+`refit_members` (opt-in, 2026-08-01, `BREAKTHROUGH_PLAN.md` C1): each member
+replays its own structure against all-row gradients, which is more data per
+member rather than a new ensemble mechanism — the only class of change this
+program ever found shippable.
 
 ## Acceptance checklist
 

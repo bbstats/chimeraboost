@@ -106,3 +106,19 @@ documented in docs/parameters.md + recipes.md. Consequently no pareto
 or README refresh (the chart measures defaults, which are unchanged)
 and no TabArena re-read needed. The spliced 73.7%/93.0% single-model
 headline stays a plan-file fact, not a chart claim.
+
+### SUPERSEDED 2026-07-26 (0.25.0) — the default did flip, via a cheaper mechanism
+
+`refit_full` now defaults to **`"replay"`**, not `False`. The opt-in decision
+above was made when the only option was the from-scratch refit at ×1.98 fit.
+`REPLAY_PLAN.md` then reused the winner's tree structures and refit only the
+leaf values, getting the same benefit for about two thirds of the cost, and
+`SELECT_PLAN.md` shipped it default-ON as the strongest single-model setting.
+Pass `False` (or `quality=2`) for the pre-0.25 behaviour.
+
+Both open items above are therefore closed: the **canonical 5-arm chart re-run
+is no longer deferred** — the default flip happened under SELECT_PLAN, which
+refreshed the chart at the time — and there is nothing here awaiting a
+decision. The bagged half of this file's "no data tax" claim was also revisited
+and turned out to be true of the ensemble but not of any individual member; see
+`BREAKTHROUGH_PLAN.md` C1, which shipped `refit_members` on that finding.

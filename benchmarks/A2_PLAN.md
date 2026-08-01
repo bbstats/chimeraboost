@@ -186,6 +186,25 @@ so it is not evidence yet. It only becomes real if it survives the untouched
 instruments: synth screen → Grinsztajn + high-card (sign-tested separately)
 → OpenML one-shot gate. **Nathan's call whether that is worth the run.**
 
+### RESOLVED 2026-08-01 — the transfer question is answered, and the race is dead
+
+Both halves closed in `BREAKTHROUGH_PLAN.md` (C2 and C3):
+
+- **Transfer: confirmed.** The `@sus25`/`@sus50` strata, which did not exist
+  when this was shelved, measure exactly the small-data regime depth 4 was
+  claimed to win. Every small-data stratum has a positive mean for depth 4 and
+  every full-size stratum a negative one, `gr:sus25` 9W-3L. So small data does
+  want less capacity, and a uniform depth 4 is still not shippable.
+- **The race itself: NOT WORTH THE RUN, and priced rather than guessed.** The
+  registered answer was a per-dataset depth race. C3 measured the *oracle* of
+  the capacity-racing family — perfect per-dataset selection, which no
+  implementation can beat — at a median +0.12% per dataset and +0.29% at
+  quarter size. Against this plan's own Phase 0 finding that validation
+  recovers only ~20% of an oracle, the achievable prize is ~+0.02-0.06%,
+  against a program bar of a broad +0.25%.
+
+⇒ **Do not build the depth race.** The thread is closed; no run is pending.
+
 ## Phases
 
 - [x] **Phase 0** — offline headroom + race simulation on PMLB tune

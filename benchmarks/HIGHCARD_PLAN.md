@@ -131,6 +131,12 @@ synthgen freezes).
 
 After shakedown passes: /experiment tier 2 becomes "Grinsztajn + hc, with
 per-suite sign tests reported separately and a pooled union verdict."
+
+**Superseded 2026-07-27 — there is no pooled verdict.** Results are sign-tested
+**per stratum, never pooled** (CLAUDE.md, and `compare_runs.py --by-suite`):
+a variant is a derived view of its parent, so pooling would count its rows
+twice. Read the clause above as "per-suite sign tests reported separately",
+full stop.
 A change that wins only on one suite needs a mechanism story for why.
 Update: `.claude/skills/experiment/SKILL.md`, CLAUDE.md benchmark section,
 memory (algorithm history + a new hc-suite entry). Exact ship-rule weighting

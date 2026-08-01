@@ -1486,6 +1486,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         from-scratch refit — marginally stronger on high-card data, and the
         setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
         and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
+    refit_members : bool, default False
+        The bagged analogue of ``refit_full``, and off by default. A bag member
+        trains on ``max_samples`` of the rows and early-stops on its
+        out-of-bag complement, so its leaf values never see the rows it stopped
+        on — the full-data refit that helps a single model has never fired for
+        it. With ``True`` each member replays its own tree structure against
+        gradients from every row once early stopping is done. Only the leaf
+        values move; the splits stay exactly as that member's own sample grew
+        them, which is where a bag's diversity actually lives.
+
+        Measured on the decision suites, an 8-member bag improves in every
+        stratum, with perfect sweeps on the small-data ones (Grinsztajn at a
+        quarter of the rows 12W-0L, +1.206%), for about 10-17% more fit time.
+        Because each member is individually stronger you can also spend the
+        gain on fewer members: 5 refit members beat a plain 8-member bag on
+        accuracy while fitting about 20% faster. Ignored unless the fit is
+        bagged (``n_ensembles >= 2``), and ignored for multiclass, where a
+        member would need a full refit rather than a cheap structure replay.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
@@ -2178,6 +2196,24 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         from-scratch refit — marginally stronger on high-card data, and the
         setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
         and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
+    refit_members : bool, default False
+        The bagged analogue of ``refit_full``, and off by default. A bag member
+        trains on ``max_samples`` of the rows and early-stops on its
+        out-of-bag complement, so its leaf values never see the rows it stopped
+        on — the full-data refit that helps a single model has never fired for
+        it. With ``True`` each member replays its own tree structure against
+        gradients from every row once early stopping is done. Only the leaf
+        values move; the splits stay exactly as that member's own sample grew
+        them, which is where a bag's diversity actually lives.
+
+        Measured on the decision suites, an 8-member bag improves in every
+        stratum, with perfect sweeps on the small-data ones (Grinsztajn at a
+        quarter of the rows 12W-0L, +1.206%), for about 10-17% more fit time.
+        Because each member is individually stronger you can also spend the
+        gain on fewer members: 5 refit members beat a plain 8-member bag on
+        accuracy while fitting about 20% faster. Ignored unless the fit is
+        bagged (``n_ensembles >= 2``), and ignored for multiclass, where a
+        member would need a full refit rather than a cheap structure replay.
     cat_features : list of int or str, or None, default None
         Default categorical columns, given as integer positions and/or column
         names (names resolved against the DataFrame at fit). Used when ``fit`` is
