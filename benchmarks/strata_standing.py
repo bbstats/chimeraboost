@@ -153,7 +153,7 @@ def analyse(path):
 
 
 def main():
-    # --ours NAME reads the standing for a variant arm (e.g. ChimeraBoostALR)
+    # --ours NAME reads the standing for a variant arm (e.g. ChimeraBoostFlatLR)
     # instead of the shipped default, so an A/B run can be read from either
     # side without editing the module.
     global OURS
