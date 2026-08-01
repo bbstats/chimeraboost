@@ -49,7 +49,7 @@ An opinionated GBDT library that only depends on common Python libraries
 * Regression, quantile regression, binary and multiclass classification
 
 ## What makes it different?
-* Bagging as a first-class feature (`n_ensembles`)
+* Bagging as a first-class feature (`n_ensembles=8` is the strongest setting)
 * Automatic early stopping
 * Fast multi-quantile fitting
   (`ChimeraBoostQuantileRegressor`)
@@ -59,7 +59,7 @@ An opinionated GBDT library that only depends on common Python libraries
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
 <sub>Scored against CatBoost and LightGBM only; how the suite is built and weighted is in
-<a href="https://github.com/bbstats/chimeraboost/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.
+<a href="https://bbstats.github.io/chimeraboost/benchmarks/">the benchmarking notes</a>.
 On the sealed <a href="https://tabarena.ai/">TabArena</a> leaderboard the default scores above
 XGBoost and LightGBM while training faster than either; CatBoost scores higher and takes
 considerably longer

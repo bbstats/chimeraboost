@@ -265,7 +265,8 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
       weighted). Full attribution table + per-lever verdicts in GROW_PLAN.md.
       Settled: the fused scatter+scan (37-58% of fit) is the ONLY remaining
       double-digit fit-side object, and it is Phase-2/FP-drift class.
-      L-pytree (single-launch level kernel) retained on branch grow-kernels,
-      identity-certified 73/73; merge = Nathan's call.
+      L-pytree (single-launch level kernel), identity-certified 73/73,
+      was subsequently MERGED and released in 0.18.0 — it is the live fit
+      path (`_build_split_descend`). Nothing is left on a side branch.
 - [x] Memory + CLAUDE.md updated with verdicts (wins AND kills) — ongoing per
       program close; algorithm-history memory current through M1

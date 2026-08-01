@@ -1,6 +1,9 @@
 # Draft: follow-up comment for PR #358 (or a new issue) — ready to paste
 
-Status: DRAFT, not posted. Update the 0.14.1 link once the release is on PyPI.
+Status: DRAFT, still not posted — sending it remains an open decision, not a
+pending chore. The 0.14.1 references below are correct history (that release
+added `warmup()`) and it has long been on PyPI; if this is ever sent, re-time
+against the current release rather than 0.14.1.
 
 ---
 
