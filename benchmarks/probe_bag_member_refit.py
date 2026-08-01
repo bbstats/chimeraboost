@@ -96,14 +96,28 @@ def _score(task, y, pred):
     return float(np.mean(2.0 * (pred - y) ** 2))
 
 
-def _replay_member(member, X_full, y_full, cat_features, task):
+def _replay_member(member, X_full, y_full, cat_features, task, scale_rounds):
     """Rebuild this member's booster by replaying its splits against full-data
-    gradients. Mirrors _refit_on_full's donor path: same rounds, pinned learning
-    rate, donor binner adopted, no early stopping."""
+    gradients. Mirrors _refit_on_full's donor path: pinned learning rate, donor
+    binner adopted, no early stopping.
+
+    ``scale_rounds`` separates the two mechanisms that _refit_on_full bundles.
+    The booster replays donor tree m while m < len(donor), and GROWS a fresh
+    tree after that, so a round count above the donor's length is a
+    replay-prefix + regrow-tail hybrid:
+      False - exactly len(donor) rounds: pure leaf-value effect, same trees.
+      True  - ceil(len(donor)/max_samples) rounds: the faithful refit_full
+              analogue, which also buys the member extra trees for the extra
+              rows. Any gain here that `False` does not show is the tail, not
+              the leaves.
+    """
     w = member.model_
     donor = (w.trees_, w.prep_)
+    rounds = len(w.trees_)
+    if scale_rounds:
+        rounds = min(int(np.ceil(len(w.trees_) / MAX_SAMPLES)), MAX_ITERS)
     kw = dict(
-        n_estimators=len(w.trees_),
+        n_estimators=rounds,
         learning_rate=float(w.lr_),
         depth=w.depth,
         l2_leaf_reg=w.l2_leaf_reg,
@@ -179,7 +193,7 @@ def main():
 
             seeds_k = np.random.default_rng(seed).integers(
                 0, 2**31 - 1, size=K_MAX)
-            plain_preds, refit_preds = [], []
+            plain_preds, refit_preds, scaled_preds = [], [], []
             t0 = time.time()
             t_refit = 0.0
             for mseed in seeds_k:
@@ -196,29 +210,36 @@ def main():
                 temp = getattr(m, "temperature_", 1.0)
                 plain_preds.append(
                     _member_predict(m.model_, Xte, task, temp))
-                # --- the arm under test: replay this member on ALL train rows
+                # --- the arms under test: replay this member on ALL train rows
                 tr = time.time()
                 y_rep = (ytr_fit if task == "regression"
                          else (ytr_fit == classes[1]).astype(np.float64))
-                b = _replay_member(m, Xtr, y_rep, cat, task)
-                t_refit += time.time() - tr
+                b = _replay_member(m, Xtr, y_rep, cat, task, scale_rounds=False)
                 refit_preds.append(_member_predict(b, Xte, task, temp))
+                b2 = _replay_member(m, Xtr, y_rep, cat, task, scale_rounds=True)
+                scaled_preds.append(_member_predict(b2, Xte, task, temp))
+                t_refit += time.time() - tr
             total_s = time.time() - t0
 
             rec = {"dataset": key, "seed": seed, "task": task, "n_train": int(n),
-                   "fit_s": total_s, "refit_s": t_refit, "plain": {}, "refit": {}}
+                   "fit_s": total_s, "refit_s": t_refit,
+                   "plain": {}, "refit": {}, "scaled": {}}
             for K in KS:
                 rec["plain"][str(K)] = _score(
                     task, yte01, np.mean(plain_preds[:K], axis=0))
                 rec["refit"][str(K)] = _score(
                     task, yte01, np.mean(refit_preds[:K], axis=0))
+                rec["scaled"][str(K)] = _score(
+                    task, yte01, np.mean(scaled_preds[:K], axis=0))
             os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
             with open(RESULTS, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec) + "\n")
-            g8 = 100.0 * (rec["plain"]["8"] - rec["refit"]["8"]) / rec["plain"]["8"]
-            g2 = 100.0 * (rec["plain"]["2"] - rec["refit"]["2"]) / rec["plain"]["2"]
+            def _g(arm, K):
+                p = rec["plain"][str(K)]
+                return 100.0 * (p - rec[arm][str(K)]) / p
             print(f"  s{seed} {total_s:6.1f}s (replay {t_refit:5.1f}s)  "
-                  f"K=2 {g2:+.3f}%   K=8 {g8:+.3f}%")
+                  f"refit K2 {_g('refit', 2):+.3f}% K8 {_g('refit', 8):+.3f}%  |  "
+                  f"scaled K2 {_g('scaled', 2):+.3f}% K8 {_g('scaled', 8):+.3f}%")
     table()
 
 
@@ -229,66 +250,78 @@ def table():
             if line.strip():
                 rows.append(json.loads(line))
     from collections import defaultdict
+    ARMS = ["refit", "scaled"]
     agg = defaultdict(lambda: defaultdict(list))
     task_of = {}
     for r in rows:
         task_of[r["dataset"]] = r["task"]
         for K in KS:
             agg[r["dataset"]][("plain", K)].append(r["plain"][str(K)])
-            agg[r["dataset"]][("refit", K)].append(r["refit"][str(K)])
-
-    print("\n" + "=" * 116)
-    print("BAG MEMBER REFIT — % improvement from replaying each member on all train rows")
-    print("  positive = refit better. Same member structures in both arms, so this is exactly paired.")
-    print("=" * 116)
-    print(f"{'dataset':34s}{'task':7s}" + "".join(f"{'K=' + str(K):>12s}" for K in KS))
+            for arm in ARMS:
+                if arm in r:
+                    agg[r["dataset"]][(arm, K)].append(r[arm][str(K)])
 
     gains = defaultdict(list)
-    for ds in DATASETS:
-        if ds not in agg:
-            continue
-        line = f"{ds.replace('gr:', '')[:34]:34s}{task_of[ds][:6]:7s}"
-        for K in KS:
-            p = float(np.mean(agg[ds][("plain", K)]))
-            q = float(np.mean(agg[ds][("refit", K)]))
-            g = 100.0 * (p - q) / p
-            gains[K].append(g)
-            line += f"{g:+11.3f}%"
-        print(line)
+    for arm, label in (("refit", "REPLAY ONLY (same trees, leaf values from all rows)"),
+                       ("scaled", "REPLAY + REGROWN TAIL (rounds scaled by 1/max_samples)")):
+        print("\n" + "=" * 116)
+        print(f"BAG MEMBER {label}")
+        print("  % improvement over the shipped member. Same member structures in "
+              "every arm, so this is exactly paired; positive = better.")
+        print("=" * 116)
+        print(f"{'dataset':34s}{'task':7s}"
+              + "".join(f"{'K=' + str(K):>12s}" for K in KS))
+        for ds in DATASETS:
+            if ds not in agg or not agg[ds].get((arm, KS[0])):
+                continue
+            line = f"{ds.replace('gr:', '')[:34]:34s}{task_of[ds][:6]:7s}"
+            for K in KS:
+                p = float(np.mean(agg[ds][("plain", K)]))
+                q = float(np.mean(agg[ds][(arm, K)]))
+                g = 100.0 * (p - q) / p
+                gains[(arm, K)].append(g)
+                line += f"{g:+11.3f}%"
+            print(line)
 
     print("\n" + "=" * 116)
     print("VERDICT — mean improvement by bag size")
     print("=" * 116)
-    for K in KS:
-        g = gains[K]
-        if g:
-            print(f"  K={K}: mean {np.mean(g):+7.3f}%   median {np.median(g):+7.3f}%   "
-                  f"better on {sum(1 for x in g if x > 0)}/{len(g)} datasets")
+    for arm in ARMS:
+        for K in KS:
+            g = gains[(arm, K)]
+            if g:
+                print(f"  {arm:7s} K={K}: mean {np.mean(g):+7.3f}%   "
+                      f"median {np.median(g):+7.3f}%   "
+                      f"better on {sum(1 for x in g if x > 0)}/{len(g)} datasets")
+        print()
 
     # Pareto question: does a small refit bag match a big plain bag?
-    print("\n" + "=" * 116)
-    print("PARETO — can a SMALL refit bag match a LARGE plain bag?")
-    print("  each cell: refit@K vs plain@8, % better (positive = refit@K wins at a fraction of the cost)")
     print("=" * 116)
-    print(f"{'dataset':34s}" + "".join(f"{'refit' + str(K) + ' vs p8':>15s}" for K in KS))
-    tot = defaultdict(list)
-    for ds in DATASETS:
-        if ds not in agg:
-            continue
-        p8 = float(np.mean(agg[ds][("plain", 8)]))
-        line = f"{ds.replace('gr:', '')[:34]:34s}"
+    print("PARETO — can a SMALL refit bag match plain@8 (26.8x on the headline chart)?")
+    print("  each cell: arm@K vs plain@8, % better. Positive = matches or beats the "
+          "big bag at a fraction of the cost.")
+    print("=" * 116)
+    for arm in ARMS:
+        print(f"\n-- {arm} " + "-" * (110 - len(arm)))
+        print(f"{'dataset':34s}"
+              + "".join(f"{arm + str(K) + ' vs p8':>15s}" for K in KS))
+        tot = defaultdict(list)
+        for ds in DATASETS:
+            if ds not in agg or not agg[ds].get((arm, KS[0])):
+                continue
+            p8 = float(np.mean(agg[ds][("plain", 8)]))
+            line = f"{ds.replace('gr:', '')[:34]:34s}"
+            for K in KS:
+                q = float(np.mean(agg[ds][(arm, K)]))
+                d = 100.0 * (p8 - q) / p8
+                tot[K].append(d)
+                line += f"{d:+14.3f}%"
+            print(line)
         for K in KS:
-            q = float(np.mean(agg[ds][("refit", K)]))
-            d = 100.0 * (p8 - q) / p8
-            tot[K].append(d)
-            line += f"{d:+14.3f}%"
-        print(line)
-    print()
-    for K in KS:
-        d = tot[K]
-        if d:
-            print(f"  refit@{K} vs plain@8: mean {np.mean(d):+7.3f}%   "
-                  f"wins on {sum(1 for x in d if x > 0)}/{len(d)} datasets")
+            d = tot[K]
+            if d:
+                print(f"  {arm}@{K} vs plain@8: mean {np.mean(d):+7.3f}%   "
+                      f"wins on {sum(1 for x in d if x > 0)}/{len(d)} datasets")
 
 
 if __name__ == "__main__":
