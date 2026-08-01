@@ -9,21 +9,11 @@
 
 </center>
 
-## Install
+## Installation
 
 ```
 pip install chimeraboost
 ```
-
-[OPTIONAL]:
-```
-chimeraboost-warmup
-```
-
-`chimeraboost-warmup` compiles the numba kernels once and caches them, so the first
-`fit` is not several seconds slower than the rest. Re-run it after every upgrade, which
-resets the cache. See
-[Deployment](https://bbstats.github.io/chimeraboost/deployment/).
 
 ## Quickstart
 
@@ -31,39 +21,34 @@ resets the cache. See
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
 # classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,
-# defaulting to 3.
-clf = ChimeraBoostClassifier(quality=5)
+# default is 3.
+clf = ChimeraBoostClassifier(quality=4)
 clf.fit(X, y, cat_features=[0, 1], sample_weight=w)
 proba = clf.predict_proba(X_test)
 
 # regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)
-reg = ChimeraBoostRegressor(loss="Quantile", alpha=0.9)
+reg = ChimeraBoostRegressor()
 reg.fit(X, y)
 ```
 
-## What it is
-
-An opinionated GBDT library that only depends on common Python libraries
-(NumPy, numba, scikit-learn, SciPy):
+## What?
 
 * Regression, quantile regression, binary and multiclass classification
+* Fast training and inference, all in python
+* Extremely high quality predictions
 
-## What makes it different?
-* Bagging as a first-class feature (`n_ensembles=8` is the strongest setting)
+## How?
+* Bagging as a first-class feature (using `n_ensembles`)
 * Automatic early stopping
-* Fast multi-quantile fitting
-  (`ChimeraBoostQuantileRegressor`)
 * Automatic linear-leaf auditioning
-* Exact SHAP explanations (`model.shap_values(X)`).
-
+* numba is very fast
+* 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
-<sub>Scored against CatBoost and LightGBM only; how the suite is built and weighted is in
-<a href="https://bbstats.github.io/chimeraboost/benchmarks/">the benchmarking notes</a>.
-On the sealed <a href="https://tabarena.ai/">TabArena</a> leaderboard the default scores above
-XGBoost and LightGBM while training faster than either; CatBoost scores higher and takes
-considerably longer
-(<a href="https://github.com/bbstats/chimeraboost/blob/main/images/tabarena_pareto.png">chart</a>).</sub>
+## Why?
+
+* I want to be able to modify my GBDT library at will
+* I know Python and I don't know C
 
 ## Documentation
 
@@ -71,11 +56,6 @@ considerably longer
 * [Recipes](https://bbstats.github.io/chimeraboost/recipes/): categoricals, quantiles, bagging, custom losses, and more
 * [Parameters](https://bbstats.github.io/chimeraboost/parameters/): every option, with defaults and guidance
 * [FAQ](https://bbstats.github.io/chimeraboost/faq/): common questions
-
-## Why?
-
-* I want to be able to modify my GBDT library at will
-* I know Python and I don't know C
 
 ## Inspirations / Citations
 
