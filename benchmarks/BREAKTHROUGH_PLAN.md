@@ -387,6 +387,77 @@ The Brier sign count is recorded as a **watch item** for tier 2 rather than
 waved away — the B1 lesson is that a classification-touching change can look
 fine on primary and cost Brier, and that the screen predicted it.
 
+#### Tier 2 (decide) — ALL GATES PASS
+
+`results/20260801-023724.json`, all five arms in ONE benchmark so the pairing
+carries no machine-condition drift. `ChimeraBoostEns8RM` vs `ChimeraBoostEns8`,
+per stratum, never pooled:
+
+| stratum | primary W-L-T | mean | median | Brier W-L | Brier mean |
+|---|---|---|---|---|---|
+| gr:base | **52W-7L-0T** | +0.500% | +0.175% | **20W-3L** | **+1.503%** |
+| gr:sus25 | **12W-0L-0T** | **+1.206%** | +0.304% | 4W-1L | +0.248% |
+| gr:sus50 | **6W-0L-0T** | +0.272% | +0.200% | 2W-0L | +0.736% |
+| hc:base | 7W-2L-5T | +0.395% | +0.035% | 2W-2L-4T | −0.002% |
+| hc:sus25 | 2W-0L-1T | +1.452% | +1.054% | 0W-0L-1T | +0.000% |
+| hc:sus50 | 1W-0L-1T | +0.032% | — | — | — |
+| hc:time | 3W-2L-2T | +1.020% | +0.000% | 0W-2L-2T | −0.102% |
+
+**Every stratum has a positive mean on the primary metric, and the two
+small-data Grinsztajn strata are perfect sweeps (12-0 and 6-0)** — the regime
+Finding 3 identified as our weakness. The three strata that miss the sign bar
+(hc:base, hc:sus50, hc:time) miss it because the bar counts ties against the
+change: hc:base is 7W-2L among decided datasets, hc:sus50 has n=2, hc:time
+n=7. None is a loss.
+
+**The tier-1 Brier watch item resolved positively**: on real data gr:base is
+20W-3L at +1.503% mean. The only negative anywhere is hc:time Brier at
+−0.102% on 4 datasets — inside noise.
+
+Fit cost 4.0x → 4.7x (+17%), a little above the probe's 11% and tier-1's 9%.
+
+#### And the Pareto claim: a 5-member refit bag beats the 8-member plain bag
+
+`ChimeraBoostEns5RM` vs `ChimeraBoostEns8` — **stronger and 20% cheaper**
+(3.2x vs 4.0x):
+
+| stratum | W-L-T | mean |
+|---|---|---|
+| gr:base | 44W-15L | +0.414% |
+| gr:sus25 | **11W-1L** | +0.982% |
+| gr:sus50 | 4W-2L | +0.021% |
+| hc:base | 7W-5L-2T | +0.235% |
+| hc:sus25 | **3W-0L** | +1.296% |
+| hc:time | 3W-4L | +0.848% (median −0.092%) |
+
+That is the frontier move: five refit members dominate eight plain ones on
+both axes. **`Ens3RM` does not** — at 2.1x it is a genuine wash against Ens8
+(35W-24L on base but 2W-10L on high-card, 4W-8L on sus25), so the honest claim
+stops at five members. The blended-% column flatters Ens3RM (99.4 vs 98.9);
+the sign test is the trustworthy reading and it says parity-at-half-cost, not
+dominance.
+
+### VERDICT: SHIP (opt-in)
+
+All pre-registered gates pass. Shipping as `refit_members=True`, opt-in,
+following the `refit_full` precedent where the default flip was Nathan's call.
+
+Honest scope: this moves the **bagged** rungs (quality 4/5) only. The default
+single-model configuration is byte-identical, so `images/pareto.png` and the
+README headline are unchanged by construction and need no refresh. What moves
+is the high-strength end of the frontier — and Ens8 is the blessed bagged mode.
+
+Open follow-ups, owned rather than implied:
+- **Default-flip decision for the bagged path** is Nathan's. The evidence for
+  it is strong (positive mean in all 7 strata, +17% fit).
+- **Multiclass** is gated off and stays a real gap: multiclass Brier is the one
+  column we lose to CatBoost (91.1 vs 98.8, Finding 3). Closing it needs a
+  replay path for vector-leaf trees, which does not exist.
+- **The small-data deficit is only partly addressed.** `refit_members` helps
+  the bagged rungs there (12-0 on sus25); the single-model small-data collapse
+  against CatBoost (81% → 50%/33%) is untouched, and remains the largest known
+  headroom in the project.
+
 ### C2 — the two-way depth race (6 vs 4), whose transfer question is now testable
 
 `A2_PLAN.md` measured this and then shelved it: **+0.398% mean, 16W-4L-16T,

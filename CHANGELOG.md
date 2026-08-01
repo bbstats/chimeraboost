@@ -21,9 +21,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   A 5-member refit bag matches or beats a plain 8-member bag on 7 of 10.
   Costs about 10% more fit time.
 
+  On the decision suites an 8-member bag improves in **every stratum**, with
+  perfect sweeps on the small-data ones — Grinsztajn 52W-7L (+0.500%),
+  Grinsztajn at a quarter of the rows **12W-0L** (+1.206%), at half the rows
+  **6W-0L**, high-card at a quarter of the rows 2W-0L (+1.452%). Brier moves
+  with it (Grinsztajn 20W-3L, +1.503%). Fit cost rises about 17%.
+
+  A **5-member bag with `refit_members` beats a plain 8-member bag on both
+  axes** — stronger in five of seven strata and 20% faster — so the cheapest
+  way to buy accuracy from bagging is now fewer, better members.
+
   Regression and binary classification only; multiclass members would need a
   full refit rather than a cheap structure replay, so the flag is ignored
-  there. Default `False`, and byte-identical to the previous release when off.
+  there. Default `False`, and byte-identical to the previous release when off:
+  single-model behaviour, the default configuration and the headline chart are
+  all untouched.
 
 ## [0.28.0] - 2026-07-31
 ### Fixed
