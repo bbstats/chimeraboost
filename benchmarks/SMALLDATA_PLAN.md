@@ -43,14 +43,47 @@ budget `n_estimators=2000`, `early_stopping_rounds=50`):
 
 Two things fall out, and the second is the one that matters:
 
-1. **`boosting_type` does not vary.** Ordered boosting is *not* what switches on
-   at small n — it was the obvious hypothesis and it is dead before any run.
+1. **`boosting_type` does not vary — and its value is `Plain` at every size.**
+   See the free kill below.
 2. **CatBoost's rate is a clean power law in n** — regression
    `0.0259·(n/200)^0.157`, binary `0.0158·(n/200)^0.247`, both reproducing all
    eight measured points to under 1%. It is below our flat 0.1 at *every* size
    in our suites, but the mismatch widens from ~1.6x at 60k rows to **4x
    (regression) and 6.4x (binary) at 200 rows** — which is the shape of the
    collapse curve.
+
+### Free kill: CatBoost is NOT running ordered boosting. It never was.
+
+Asking for the *values* rather than the variation settles a hypothesis this
+project has repeated for months. At both 500 and 20,000 rows, under the harness
+budget, CatBoost resolves:
+
+```
+boosting_type            Plain          <-- NOT Ordered, at any size
+bootstrap_type           MVS            <-- not the Bayesian bootstrap
+leaf_estimation_method   Newton
+grow_policy              SymmetricTree
+score_function           Cosine
+l2_leaf_reg              3
+```
+
+Finding 3 explained the small-data collapse as CatBoost being strong in "the
+regime its ordered boosting was designed for". **Ordered boosting is switched
+off.** CatBoost only defaults to `Ordered` in configurations we do not run, so
+the mechanism cannot be the explanation for anything we have measured, and no
+port of it can be justified by our benchmark.
+
+⇒ **KILLED for free**: ordered boosting, and any small-data story that rests on
+prediction-shift correction in the opponent. This also retires our own dormant
+`ordered_boosting=False` default as a small-data candidate: the opponent we are
+chasing does not use it.
+
+A second correction falls out: the predecessor's Finding 2 described
+`bagging_temperature=1` as CatBoost's "Bayesian bootstrap per-tree row
+weights". The resolved default is **MVS** (Minimal Variance Sampling), so
+`bagging_temperature` was inert and that ablation actually tested MVS on/off.
+The conclusion is unaffected — the arm was killed either way — but the
+mechanism named in the record was wrong.
 
 `_auto_learning_rate` returns a flat 0.1 whenever early stopping is on, and its
 docstring justifies it as converging "in ~half the trees of a smaller rate with
