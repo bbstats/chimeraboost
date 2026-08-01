@@ -122,10 +122,10 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `n_ensembles` | `None` | `None` or `1` is a single model. `2` or more averages members fit on random row subsamples, which reduces variance. 8 is the recommended size. See the User Guide: [bagging](recipes.md#bagging). |
+| `n_ensembles` | `None` | `None` or `1` is a single model. `2` or more averages members fit on random row subsamples, which reduces variance. 8 is the recommended size; pair it with `refit_members=True` for the strongest configuration. See the User Guide: [bagging](recipes.md#bagging). |
 | `ensemble_n_jobs` | `-1` | Worker processes fitting members concurrently, each on an equal share of the thread budget. Same total cores, identical models, 1.2 to 2x faster wall clock. `1` fits members sequentially. |
 | `max_samples` | `0.8` | Fraction of rows each member trains on, drawn without replacement. This beats the classic bootstrap on both accuracy and fit time; `1.0` restores the full-size with-replacement bootstrap. |
-| `refit_members` | `False` | After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from `max_samples` of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10% more fit time. Regression and binary only. |
+| `refit_members` | `False` | After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from `max_samples` of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10-17% more fit time, the higher end on larger suites. Five refit members beat eight plain ones on both accuracy and speed. Regression and binary only. |
 
 ## System
 

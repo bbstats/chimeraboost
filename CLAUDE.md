@@ -84,7 +84,8 @@ rather than a clear one. Rules:
 ## Layout
 - `chimeraboost/` library · `tests/` (395+, incl. numerical-identity goldens — bit-identical refactors must keep them green)
 - `benchmarks/` harness + analysis scripts · `benchmarks/tabarena/` sealed-holdout runners · `benchmarks/research/` cascade engine
-- `images/` committed charts (pareto.png is the README headline — refresh after shipping)
+- `images/` committed charts (public_pareto.png is the README/docs headline, from
+  `make_public_pareto.py`; pareto.png is the internal north-star chart — refresh both after shipping)
 - `docs/` user docs — keep terse, no slop, no tuning-priority claims (defaults are Grinsztajn-tuned)
 
 ## Skills

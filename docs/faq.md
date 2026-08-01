@@ -8,7 +8,7 @@ No.
 
 On defaults, it scores around LightGBM and XGBoost or better, and it is much faster
 than CatBoost. Setting `n_ensembles=8` bags the model, which is the strongest setting
-available and beats CatBoost on accuracy at well under half its fit cost on
+short of adding `refit_members=True`, and beats CatBoost on accuracy at well under half its fit cost on
 high-cardinality categorical data.
 
 ## Do I need to one-hot encode categoricals or impute missing values?
@@ -73,8 +73,8 @@ through their own conversion methods, so passing them works whenever you have pa
 
 Mostly, you don't. The defaults are benchmark-tuned, and in our experiments broad
 hyperparameter search bought little that generalized. Two settings address specific
-situations rather than general tuning: `n_ensembles=8` is the maximum-accuracy mode, at
-several times the fit cost, and `depth=8` to `10` suits large, interaction-heavy
+situations rather than general tuning: `n_ensembles=8` with `refit_members=True` is the
+maximum-accuracy mode, at several times the fit cost, and `depth=8` to `10` suits large, interaction-heavy
 regression. [Parameters](parameters.md) documents every option.
 
 ## Is the API stable?

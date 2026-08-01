@@ -113,6 +113,7 @@ regressing — gdiff wins it), cat_binary +0.27%, adult +0.22%. Losses:
 sick −1.01%, cat_multiclass −0.25%, abalone −0.12%. Gate not burned.
 
 ## VERDICT (2026-07-20) — SHIP RECOMMENDED, merge = Nathan's call
+## → MERGED the same day as PR #24 (`8c6f149`). `cross_features` is on `main` and shipped; nothing here is pending.
 
 All registered bars met, no kill clause tripped:
 - T1 mechanism confirmed (entity-slice concentration, controls exact).
