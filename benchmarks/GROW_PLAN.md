@@ -165,7 +165,10 @@ bit-identity test):
   survives the interchange) but re-reads leaf data k²/2 times — only wins
   if leaves stay L2-resident; ~2-4%-of-fit ceiling, revisit only if the
   program strands below the bar.
-- **L-pytree: IMPLEMENTED 2026-07-18, tier-2 pending** (commit 12d0f74).
+- **L-pytree: MERGED to main and RELEASED in 0.18.0** (commit 12d0f74;
+  `_build_split_descend` is the live fit path in `chimeraboost/tree.py`).
+  The "tier-2 pending" state below was resolved by shipping it alongside
+  the quantization program.
   One fused launch per level: `_build_split_descend` = `_build_and_split`'s
   search + in-kernel descend + next-level occupancy list at small n; the
   per-level bincount/flatnonzero numpy pair and the descend launch are gone.

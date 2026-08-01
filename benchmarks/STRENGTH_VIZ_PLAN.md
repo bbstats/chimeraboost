@@ -51,7 +51,8 @@ metric itself has to change to something ordinal.
 ### A. Mean rank on the per-dataset primary metric  (RECOMMENDED axis)
 Per dataset, rank models on that dataset's primary metric (average-rank for
 ties); average ranks across datasets. Lower = better.
-- Spread: ranks span 1..k (k≈5). Illustrative (NOT yet computed): Ens8 ~1.3,
+- Spread: ranks span 1..k (k≈5). Design-time guesses, never results — the
+  shipped numbers are in the chart itself: Ens8 ~1.3,
   ChimeraBoost ~2.6, CatBoost ~2.9, HGB ~3.9, LightGBM ~4.0 — the full axis,
   not a 2-point smear.
 - Winner/loser: this IS the winner/loser ordering, directly.

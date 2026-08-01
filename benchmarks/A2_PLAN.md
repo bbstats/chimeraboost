@@ -191,8 +191,10 @@ instruments: synth screen → Grinsztajn + high-card (sign-tested separately)
 - [x] **Phase 0** — offline headroom + race simulation on PMLB tune
       (`benchmarks/a2_phase0.py`). Bars A–D. No source change.
       **Done 2026-07-25: A2 killed on cost; two-way depth race survives.**
-- [ ] **Phase 1** — if Phase 0 passes: implement the config race inside the
-      existing `selection_rounds` audition, default-off flag, byte-identical
-      when off, numerical-identity goldens green.
-- [ ] **Phase 2** — `/experiment`: synth screen → Grinsztajn + high-card →
-      OpenML one-shot gate. Default flip is Nathan's call, as always.
+- [~] **Phase 1 — NEVER RUN, moot.** Phase 0 killed the program on cost
+      (validation recovers only ~20% of the oracle gain), so the gate that
+      would have opened this phase never opened.
+- [~] **Phase 2 — NEVER RUN, moot** (same reason). Note for anyone
+      reopening this: the OpenML one-shot gate named here was RETIRED
+      2026-07-27, so a revived A2 would run synth → Grinsztajn + high-card
+      per stratum, with `--public` as post-hoc validation.

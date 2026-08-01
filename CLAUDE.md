@@ -33,6 +33,24 @@ Pure-Python oblivious-tree GBDT (numpy + numba + sklearn only).
 - **One benchmark at a time** — never two concurrently (core contention corrupts timings).
 - Full protocol for shipping a change: `/experiment` skill.
 
+## Close the loop — no loose ends
+A record must never outlive the thread it describes. Close it out in the SAME
+change that resolves the thread, not in a later sweep.
+- **Plan files**: when a program ends, the commit that records the verdict also
+  clears that file's open items. No `*_PLAN.md` may sit saying "pending",
+  "deferred", "not yet run", or "Nathan's call" once the answer is known — mark
+  it resolved, killed, or shipped, with the date.
+- **Branches**: delete a branch when it merges. After a stacked-PR merge,
+  confirm the commits actually reached `main` (PR #56 was silently orphaned
+  that way and had to be recovered as PR #60).
+- **Prose follows the code**: replacing a chart, flag, or default means
+  grepping README, `docs/`, and image alt text for descriptions of the old one
+  in the same change. A chart axis renamed in code and not in prose is a lie
+  with a long half-life.
+- **Orphans**: delete a file in the change that stops referencing it.
+- **"Later"**: gets a GitHub issue or a dated plan-file line. Never an unowned
+  comment or an unwritten intention.
+
 ## This is a Windows box — write Windows commands
 Windows 11, and the primary shell is **Windows PowerShell 5.1** (`powershell.exe`), not
 bash. Commands written for Linux fail here, usually with a confusing parser error

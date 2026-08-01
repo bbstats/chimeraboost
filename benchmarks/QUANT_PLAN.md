@@ -260,7 +260,13 @@ Durable design facts:
 - Phase-0 literal go/no-go missed 2/6 cells (narrow nf=10 shapes); the
   suite referee vindicated proceeding — record for future bar-setting:
   register bars against the SUITE-DOMINANT shape, not per-cell.
-- Phase-2 registered follow-up NOT spent: integer histogram subtraction
-  (exact in int domain, no extra drift class) — ceiling ~(d-1)/d * 1/2 of
-  remaining scatter; open only as its own program with these numbers as
-  the base.
+- Phase-2 registered follow-up SPENT AND KILLED, same day (2026-07-18):
+  integer histogram subtraction measured **0.49-0.57x — a ~2x regression**
+  — with its correctness oracle green. No library change was made.
+  **Mechanism: quantization and sibling subtraction are SUBSTITUTES, not
+  complements.** The int64 hist slice (64 KB/feature) is L2-resident once
+  packed, so the random RMW that subtraction saves is cheaper than the
+  50/50 `leaf & 1` branch mispredict it adds. Reopen only if the histogram
+  working set leaves cache again (max_bins >> 128, or much deeper trees).
+  Its SUBTRACT_PLAN.md was never committed; this note and GPU_PLAN.md:56
+  are the surviving record.

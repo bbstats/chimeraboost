@@ -193,14 +193,20 @@ conditional information the frozen band discarded.
 intervals 2x to 10x too wide, and the head loses to a one-model rigid residual
 band on every dataset tried, conformalized or not, at higher cost. The
 non-crossing guarantee should be re-derived per-row rather than as a worst-case
-bound over all leaves and rounds, or made optional. **Not yet shipped as a fix
-— no library code touched, and any change needs the `/experiment` protocol.**
+bound over all leaves and rounds, or made optional. **SHIPPED as exactly that
+fix — PR #62, released in 0.28.0**: ordering is now imposed per row on the
+delivered predictions by monotone rearrangement, the narrowing budget is gone,
+and `crossing_rate` is still exactly zero. Pinball loss improved 80%/24%/24%
+on the three sets measured.
 
-*Separate, minor, confirmed:* `_auto_min_child_weight` returns 11 for the grid
-[0.1, 0.5, 0.9] where 10 is intended — `1.0 - 0.9` is slightly under 0.1 in
-binary and the reciprocal rounds past the integer. The 19-level default grid
-(20), [0.25, 0.75] (4) and [0.01, 0.99] (100) are all correct. Fix is to round
-the reciprocal before `ceil`.
+*Separate, minor, confirmed — since FIXED:* `_auto_min_child_weight` returned
+11 for the grid [0.1, 0.5, 0.9] where 10 is intended, because `1.0 - 0.9` is
+slightly under 0.1 in binary and the reciprocal rounds past the integer. The
+19-level default grid (20), [0.25, 0.75] (4) and [0.01, 0.99] (100) were all
+correct. The reciprocal is now snapped to a whole number when it is within
+rounding noise of one (`chimeraboost/quantile_api.py:58-66`); genuine
+fractions such as the 3.33 of a [0.3, 0.7] grid are far outside the tolerance
+and still round up.
 
 ## P14 — the fix, pre-registered 2026-07-31 (branch `fix-quantile-interval-width`)
 
