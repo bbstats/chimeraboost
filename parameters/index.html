@@ -1728,6 +1728,11 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. <code>los
 <td><code>0.8</code></td>
 <td>Fraction of rows each member trains on, drawn without replacement. This beats the classic bootstrap on both accuracy and fit time; <code>1.0</code> restores the full-size with-replacement bootstrap.</td>
 </tr>
+<tr>
+<td><code>refit_members</code></td>
+<td><code>False</code></td>
+<td>After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from <code>max_samples</code> of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10% more fit time. Regression and binary only.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="system">System<a class="headerlink" href="#system" title="Permanent link">&para;</a></h2>
