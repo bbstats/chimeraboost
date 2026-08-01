@@ -325,6 +325,79 @@ Cheap first step, **no library change**: the harness already exposes
 `--chimera-depth 4`, and the run above provides a perfectly paired depth-6
 baseline on identical splits and seeds. One decide run answers it.
 
+#### Verdict: the mechanism TRANSFERS. The sign flips exactly at data size.
+
+`results/20260801-020408.json` (depth 4) paired against `20260801-013306.json`
+(depth 6), same seeds and splits, per stratum:
+
+| stratum | n | depth4 W-L | mean | median | sign test |
+|---|--:|---|---|---|---|
+| gr:base | 57 | — | **−1.102%** | −0.239% | depth 6 |
+| hc:base | 13 | — | −0.331% | +0.000% | depth 6 |
+| **gr:sus25** | 12 | **9W-3L** | **+1.265%** | +0.138% | **PASS** |
+| gr:sus50 | 6 | 3W-3L | +0.214% | +0.008% | fail |
+| hc:sus25 | 3 | 2W-1L | +0.754% | +0.390% | pass (n=3) |
+| hc:sus50 | 2 | 1W-0L-1T | +0.078% | — | fail |
+| hc:time | 7 | 3W-4L | −0.542% | −0.044% | fail |
+
+**Every small-data stratum has a positive mean; every full-size stratum has a
+negative one.** Four independent strata agreeing in direction is the real
+signal — the individual sign tests are underpowered at n=2-6.
+
+Read honestly, though, the *magnitude* is modest and concentrated: gr:sus25's
+median is only +0.138%, and its +1.265% mean is carried by one dataset,
+`cpu_act@sus25` at **+16.41%** (RMSE 3.82 → 3.20). A uniform depth 4 is not
+shippable (base loses 1.1%); the registered answer is a per-dataset race, worth
+roughly the median.
+
+⇒ A2's transfer question is **ANSWERED**: small data does want less capacity,
+and the effect is real but small except where it is enormous. The enormous case
+is the interesting one — see below.
+
+---
+
+## FINDING 4 — the linear-leaf per-leaf guard is far too permissive on small data
+
+`cpu_act@sus25` is both our worst small-data loss (+26.55% vs CatBoost, +41.17%
+vs LightGBM) and the dataset depth 4 rescues by +16.41%. That says the failure
+is **over-capacity**, and the capacity is not where it first appears.
+
+`tree.py::_linear_leaf_fit` falls back to a constant leaf only when
+
+```
+if counts[l] < 2 * d or k == 0:      # d = 1 + k, k = numeric split features
+```
+
+so a leaf fits a **(1+k)-parameter ridge on as few as 2 rows per parameter**,
+with `linear_lambda` fixed at 1.0 regardless of leaf occupancy. At depth 6, k
+can be 6, so d=7 and the guard admits leaves of 14 rows.
+
+The arithmetic lines up with every observation:
+
+| | rows | leaves at d=6 | rows/leaf | rows/parameter |
+|---|--:|--:|--:|--:|
+| cpu_act (base) | 6,144 | 64 | ~96 | ~13.7 |
+| **cpu_act@sus25** | **1,536** | **64** | **~24** | **~3.4** |
+| cpu_act@sus25 at depth 4 | 1,536 | 16 | ~96 | ~13.7 |
+
+Full-size cpu_act is only +0.41% behind CatBoost; at a quarter of the rows it
+is +26.55% behind; and forcing depth 4 — which restores the same rows-per-leaf
+as full size — recovers +16.41%. The gate that decides whether linear leaves
+run at all (`LINEAR_LEAVES_MIN_SAMPLES=1000`) counts **total** rows and is
+blind to depth, so it cannot see this.
+
+If this is right it is a much better lever than the depth race: it is a guard
+correction rather than an extra audition, so it costs **nothing** in fit time,
+and it should help wherever `n / 2^depth` is small rather than on one dataset.
+
+Test running: `--decide --seeds 3 --models ChimeraBoost
+--chimera-no-linear-leaves`, paired against the depth-6 baseline. If forcing
+constant leaves recovers most of the small-data deficit, the diagnosis holds
+and the fix is to make the guard scale with the parameter count properly (and
+possibly to scale `linear_lambda` with leaf occupancy). If constant leaves are
+flat or worse, the blowup is the *selection* mispicking under a small
+validation fold — the Sel25 amplification story — and the fix is different.
+
 ### Deprioritized by cheap analysis: per-leaf capacity (semi-oblivious trees)
 
 The panel's highest-novelty structural idea was to break the oblivious
