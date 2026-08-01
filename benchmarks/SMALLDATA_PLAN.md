@@ -300,6 +300,63 @@ was wrong was the price. Corrected shape: **a size-gated rate that fades from
 base stratum and the headline chart stay byte-identical. Full size is left at
 0.1 deliberately: +0.118% there is a wash and would cost 1.28x for nothing.
 
+### Ship shape — `adaptive_learning_rate`, opt-in
+
+Implemented following the `refit_full` / `refit_members` precedent: opt-in and
+byte-identical when off, so the gate can measure it without moving a shipped
+default. `adaptive_learning_rate=True` fades the auto rate from
+`_AUTO_LR_SMALL=0.07` at `_AUTO_LR_LO=5,000` training rows up to the unchanged
+`_AUTO_LR_LARGE=0.1` at `_AUTO_LR_HI=15,000`.
+
+Three implementation notes worth keeping:
+
+- **Thresholds are POST-split rows** — what the booster actually trains on
+  after the estimator's early-stopping split takes `validation_fraction`. The
+  probe reported PRE-split counts, so its measured-positive buckets (up to
+  ~7,500 pre-split) land at ~6,000 on this axis. Two scales, documented rather
+  than left to be confused later.
+- **The fade cannot drift into the refit.** `_refit_on_full` already pins
+  `rkw["learning_rate"] = float(winner.lr_)`, so the rate that chose the
+  early-stopped round budget is the rate the refit replays at — even though the
+  refit sees more rows and a naive re-resolve would fade differently. Locked by
+  a test.
+- **Unknown row count falls back to 0.1**, never to the small rate. Also
+  locked.
+- **Full size deliberately stays at 0.1.** The +0.118% there is a wash that
+  would cost 1.28x.
+
+Harness arm `ChimeraBoostALR` runs both arms inside ONE benchmark (the Sel25 /
+`refit_members` precedent), so the A/B pairing carries no machine-condition
+drift. 920 tests pass, 1 skipped, numerical-identity goldens included; 14 new
+tests in `tests/test_adaptive_learning_rate.py` lock the contract.
+
+### Tier 1 (synth screen) — PASS on both judges
+
+`results/20260801-134051.json`, both arms in one benchmark, 136 datasets,
+3 seeds.
+
+| judge | result |
+|---|---|
+| **primary** | **71W-57L-8T**, bar 69+ → **PASS**, mean +0.128%, median +0.025% |
+| **Brier** | **48W-38L-2T**, bar 45+ → **PASS**, median +0.301% |
+| head-to-head | ALR wins **60.4%** (81W-53L), median gap 0.35% |
+| fit cost | **1.23x**, matching the probe's 1.20–1.28x |
+
+**The Brier MEAN reads −1.171% and that number is an artefact, not a
+regression.** It is one dataset: `syn:v2/117` moves Brier 0.0018 → 0.0036, an
+absolute delta of 0.0018 that reads as −99.85% on a near-zero denominator. Its
+Brier sits just above the 0.001 near-solved cutoff, so the house filter does not
+catch it. That single set contributes −1.161% of the −1.171%; excluding it the
+Brier mean is **−0.010%**, flat. This is exactly the trap
+[[project-compare-runs-near-solved-fix]] records (near-solved sets turned an
+88-set mean into −144%), and the standing rule is to read the sign test, which
+passes.
+
+Tier 2 (`--decide`) is the confirmatory test on data that did not select 0.07,
+run with CatBoost in the same benchmark so the program's actual target — the
+small-data win rate against CatBoost from Finding 3 — is read directly rather
+than inferred.
+
 ### What this program established
 
 - **Ordered boosting is dead for free** — CatBoost never runs it here. That
