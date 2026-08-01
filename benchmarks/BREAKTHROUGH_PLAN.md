@@ -281,7 +281,20 @@ named list of 6-11 datasets.
 
 ---
 
-## Live candidates (broad by construction)
+## Candidates (broad by construction) — ALL THREE RESOLVED as of 2026-08-01
+
+| | candidate | outcome |
+|---|---|---|
+| C1 | bag-member refit | **SHIPPED** opt-in as `refit_members`; all gates passed, and `Ens5RM` dominates `Ens8` on both axes |
+| C2 | per-dataset depth race | mechanism transfers, race **NOT BUILT** — priced below the bar by C3's oracle |
+| C3 | regressor min-leaf floor | **KILLED**: direction real (p=0.002), magnitude inside noise, ceiling too low |
+
+**No live candidate remains in this program.** What the hunt established is in
+Finding 3: the small-data collapse against CatBoost (81% → 50%/33%/0%) is the
+largest known headroom, `refit_members` addresses the bagged half of it, and
+the single-model half is still open. Three capacity levers were aimed at it
+and all three came back too small — capacity is not the mechanism. The next
+program needs a different hypothesis, not another capacity knob.
 
 ### C1 — BAGREFIT: replay each bag member on the full row set
 
@@ -507,6 +520,15 @@ roughly the median.
 and the effect is real but small except where it is enormous. The enormous case
 is the interesting one — see below.
 
+**And the race itself is now closed, priced rather than run** (2026-08-01, by
+C3 below). A per-dataset depth race and a per-dataset `min_child_weight` are
+the same object: a capacity choice with a real direction and a per-dataset
+optimum. C3 measured that family's *oracle* — perfect selection, which no
+implementation can beat — at a median +0.12% per dataset and +0.29% at quarter
+size, against A2's own finding that validation recovers only ~20% of an oracle
+like this. So the achievable prize is roughly +0.02–0.06%, against a program
+bar of a broad +0.25%. **Do not build the depth race.**
+
 ---
 
 ## FINDING 4 — the linear-leaf per-leaf guard is far too permissive on small data
@@ -596,7 +618,7 @@ beat CatBoost while fitting in half the time. The panel's most expensive build
 (judged feasibility 3.0, the lowest of 15) would chase the smallest target.
 Not pursued. Script: `scratchpad/oblivious_tax.py`.
 
-### C3 — the regressor has no effective min-leaf constraint (unprobed)
+### C3 — the regressor has no effective min-leaf constraint
 
 For squared error the Hessian is exactly 1 per row, so `min_child_weight=1.0`
 means "at least one sample" — the weakest possible veto, at every dataset
@@ -604,6 +626,125 @@ size. The classifier fades one in via `_auto_min_child_weight`; the regressor
 pins 1.0 forever. The PMLB random-search study found `min_child_weight` is the
 one knob that transfers. Whether small-data regression wants a real min-leaf
 floor has never been tested, and `@sus*` regression is where it would show.
+
+#### Probe design (pre-registered 2026-08-01, before any results)
+
+`benchmarks/probe_reg_mcw.py`. The decide strata carry too few regression
+sets at `@sus*` (6-7 in gr:sus25, 3 in gr:sus50) to answer this, so the probe
+applies the sus mechanism to **every** decision-suite regression set:
+
+- **Datasets**: all 42 regression sets we decide on — 19 `gr:reg_num`,
+  17 `gr:reg_cat`, 6 `hc:` (wine-reviews, colleges, house_prices_nominal,
+  black_friday, employee_salaries, Moneyball). No `pub:` (post-hoc only),
+  no TabArena in any form.
+- **Sizes**: train fraction ∈ {1.00, 0.50, 0.25} using the harness's own
+  `_subsample_train` (random_state=0, **test set unchanged**) — exactly the
+  `@sus` semantics, learning-curve reading.
+- **No extra row cap**: `frac=1.0` is the harness's own size (the 50k `gr:` /
+  100k `hc:` builder caps), so the top of every curve is the regime the
+  decide gate actually runs. A 20k cap was in the first draft and was cut
+  after pricing it: it would have shrunk the full-size arm on 20 of the 42
+  sets (`hc:wine-reviews` 75,000 → 15,000 rows) while saving 16 minutes on a
+  ~45-minute run — measured, not guessed, from the decide run's own recorded
+  fit times (105.3 s for one seed across all 42 sets).
+- **Arms**: `min_child_weight` ∈ {1 (shipped), 4, 8, 16, 32} — for squared
+  error these ARE min rows per child. Everything else is the out-of-box
+  default the harness measures (`n_estimators=2000`,
+  `early_stopping_rounds=50`, `random_state=0`). Split 0.25 test at
+  `random_state=seed`, seeds 0-2, all arms exactly paired on each split.
+- **Primary arm is `mcw=8`**, named here before the run. Four arms × three
+  sizes is twelve chances to find a majority in noise, so the other three are
+  supporting evidence and every sign test carries a **Holm correction across
+  the four arms**.
+- **Reading**, all conventions matched to the house tools: seeds averaged on
+  the metric before any ratio (never a mean of per-seed percentages);
+  wins/losses/**ties** on `compare_runs`' ±1e-9 dead band, so an arm whose
+  veto never binds reads as a tie rather than a loss; near-solved excluded on
+  the **best** arm in the cell, matching `compare_runs.is_near_solved`;
+  per-dataset rows printed before any aggregate. Rounds and fit seconds are
+  printed as ratios — a real veto should make fits cheaper.
+
+Pre-registered predictions:
+
+- **C3 right**: `mcw=8` beats `mcw=1` at frac 0.25 on a Holm-corrected sign
+  test, each dataset's **own** best mcw rises as its rows shrink (counted
+  within datasets, so it cannot be an artefact of which datasets sit in which
+  size bucket), and at full size large mcw is neutral-to-harmful (the
+  oblivious-veto underfit that made the classifier auto fade to zero above 2k
+  rows). Ship shape: a size-adaptive regressor auto analogous to
+  `_auto_min_child_weight`, then the standard tier-1 synth + tier-2 decide
+  gates.
+- **C3 wrong**: flat-to-negative at every size ⇒ the thread closes for good:
+  the regressor keeps `min_child_weight=1.0` and the small-data deficit is
+  not a min-leaf story. **One caveat is pre-registered against that kill**:
+  if rounds and fit seconds are *also* unmoved, the veto never bound at these
+  values and the honest finding is "these arms did nothing", not "the
+  mechanism is refuted" — that would call for larger arms, not a closed
+  thread.
+
+### Verdict: the effect is REAL and DIRECTIONAL, and far too small to ship. KILLED.
+
+378 cells (42 datasets × 3 seeds × 3 sizes), `results/probe-reg-mcw.jsonl`.
+Two things are true at once, and the program only cares about the second.
+
+**The direction is confirmed, significantly.** Each dataset's own best `mcw`
+rises as its rows shrink on 22 datasets, falls on 5, unchanged on 13 — a sign
+test at **p=0.002**. Small-data regression really does want more min-leaf, and
+the oracle grows the right way too (median best-arm gain +0.104% at full size
+→ +0.290% at quarter size, and +0.577% on the 15 smallest cells).
+
+**The primary pre-registered test fails outright.** `mcw=8` at frac 0.25 is
+23W-17L, median **+0.085%**, Holm-adjusted **p=1.000**. No arm at any size
+comes close — the best p anywhere is 0.615.
+
+| frac | mcw=4 | mcw=8 (primary) | mcw=16 | mcw=32 |
+|---|---|---|---|---|
+| 1.00 | +0.013% (21W-19L) | −0.070% (16W-24L) | −0.266% (15W-25L) | −0.136% (15W-25L) |
+| 0.50 | +0.012% (21W-19L) | −0.043% (19W-21L) | +0.038% (22W-18L) | −0.156% (20W-20L) |
+| 0.25 | +0.046% (21W-19L) | **+0.085% (23W-17L)** | +0.047% (24W-16L) | +0.012% (20W-20L) |
+
+The full-size half of the prediction also holds directionally and weakly: the
+two large arms are the worst cells in the table at frac 1.00, which is the
+oblivious-veto underfit the classifier auto was built to avoid.
+
+**The pre-registered escape hatch does not apply.** The kill rule was
+suspended if rounds and fit seconds were also unmoved, since that would mean
+the veto never bound. It bound: rounds run **1.05–1.24×** and fit time
+**1.01–1.10×** above the mcw=1 arm. The constraint is changing the trees and
+forcing early stopping to run longer — it simply does not pay. So this is a
+refutation, not a null from arms that were too small. It is not even a speed
+win to trade against.
+
+**And the ship shape is priced dead.** The pre-registered ship was a
+size-adaptive auto. The best *fixed* arm captures only 13–31% of the oracle,
+so a schedule cannot recover the per-dataset scatter — at frac 0.25 the
+winning arm is spread across all five values. The alternative shape, a
+per-dataset race, is capped by the oracle itself: median **+0.120%** per
+dataset, and A2's config-portfolio measured that validation recovers only
+**~20% of an oracle** like this. That lands around +0.02–0.06% against a
+program bar of a broad +0.25%.
+
+⇒ **KILLED without shipping**: `min_child_weight` as a small-data regression
+lever, in both the fixed and size-adaptive forms. The regressor keeps 1.0.
+
+**What this also settles, by pricing the shape rather than the knob**: C2's
+depth race is the same object — a per-dataset capacity choice with a real
+direction and a per-dataset optimum. Its own measured prize was a +0.138%
+median on `gr:sus25`; this probe independently prices the whole
+capacity-racing family at a +0.12–0.29% *oracle*, before the ~80% haircut
+that selecting on validation costs. **Racing capacity per dataset is below
+the bar as a family**, which is a stronger statement than either measurement
+alone and is why C2 should not be built either. (An argument from a priced
+ceiling, not a sign test on the depth race — but the ceiling is the binding
+constraint, and it binds well under the bar.)
+
+The one dataset that keeps confessing is `cpu_act@0.25`: **+7.77%** from
+`mcw=8`, after **+16.41%** from depth 4. Same story as Finding 4 — its
+capacity preference is enormous and idiosyncratic. Everything the program has
+measured says that is a property of that dataset, not a rule we can infer
+from n.
+
+Probe: `benchmarks/probe_reg_mcw.py` (resumable, `--table-only` reprints).
 
 ---
 
