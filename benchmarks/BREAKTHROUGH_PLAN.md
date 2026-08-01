@@ -596,7 +596,7 @@ beat CatBoost while fitting in half the time. The panel's most expensive build
 (judged feasibility 3.0, the lowest of 15) would chase the smallest target.
 Not pursued. Script: `scratchpad/oblivious_tax.py`.
 
-### C3 — the regressor has no effective min-leaf constraint (unprobed)
+### C3 — the regressor has no effective min-leaf constraint
 
 For squared error the Hessian is exactly 1 per row, so `min_child_weight=1.0`
 means "at least one sample" — the weakest possible veto, at every dataset
@@ -604,6 +604,61 @@ size. The classifier fades one in via `_auto_min_child_weight`; the regressor
 pins 1.0 forever. The PMLB random-search study found `min_child_weight` is the
 one knob that transfers. Whether small-data regression wants a real min-leaf
 floor has never been tested, and `@sus*` regression is where it would show.
+
+#### Probe design (pre-registered 2026-08-01, before any results)
+
+`benchmarks/probe_reg_mcw.py`. The decide strata carry too few regression
+sets at `@sus*` (6-7 in gr:sus25, 3 in gr:sus50) to answer this, so the probe
+applies the sus mechanism to **every** decision-suite regression set:
+
+- **Datasets**: all 42 regression sets we decide on — 19 `gr:reg_num`,
+  17 `gr:reg_cat`, 6 `hc:` (wine-reviews, colleges, house_prices_nominal,
+  black_friday, employee_salaries, Moneyball). No `pub:` (post-hoc only),
+  no TabArena in any form.
+- **Sizes**: train fraction ∈ {1.00, 0.50, 0.25} using the harness's own
+  `_subsample_train` (random_state=0, **test set unchanged**) — exactly the
+  `@sus` semantics, learning-curve reading.
+- **No extra row cap**: `frac=1.0` is the harness's own size (the 50k `gr:` /
+  100k `hc:` builder caps), so the top of every curve is the regime the
+  decide gate actually runs. A 20k cap was in the first draft and was cut
+  after pricing it: it would have shrunk the full-size arm on 20 of the 42
+  sets (`hc:wine-reviews` 75,000 → 15,000 rows) while saving 16 minutes on a
+  ~45-minute run — measured, not guessed, from the decide run's own recorded
+  fit times (105.3 s for one seed across all 42 sets).
+- **Arms**: `min_child_weight` ∈ {1 (shipped), 4, 8, 16, 32} — for squared
+  error these ARE min rows per child. Everything else is the out-of-box
+  default the harness measures (`n_estimators=2000`,
+  `early_stopping_rounds=50`, `random_state=0`). Split 0.25 test at
+  `random_state=seed`, seeds 0-2, all arms exactly paired on each split.
+- **Primary arm is `mcw=8`**, named here before the run. Four arms × three
+  sizes is twelve chances to find a majority in noise, so the other three are
+  supporting evidence and every sign test carries a **Holm correction across
+  the four arms**.
+- **Reading**, all conventions matched to the house tools: seeds averaged on
+  the metric before any ratio (never a mean of per-seed percentages);
+  wins/losses/**ties** on `compare_runs`' ±1e-9 dead band, so an arm whose
+  veto never binds reads as a tie rather than a loss; near-solved excluded on
+  the **best** arm in the cell, matching `compare_runs.is_near_solved`;
+  per-dataset rows printed before any aggregate. Rounds and fit seconds are
+  printed as ratios — a real veto should make fits cheaper.
+
+Pre-registered predictions:
+
+- **C3 right**: `mcw=8` beats `mcw=1` at frac 0.25 on a Holm-corrected sign
+  test, each dataset's **own** best mcw rises as its rows shrink (counted
+  within datasets, so it cannot be an artefact of which datasets sit in which
+  size bucket), and at full size large mcw is neutral-to-harmful (the
+  oblivious-veto underfit that made the classifier auto fade to zero above 2k
+  rows). Ship shape: a size-adaptive regressor auto analogous to
+  `_auto_min_child_weight`, then the standard tier-1 synth + tier-2 decide
+  gates.
+- **C3 wrong**: flat-to-negative at every size ⇒ the thread closes for good:
+  the regressor keeps `min_child_weight=1.0` and the small-data deficit is
+  not a min-leaf story. **One caveat is pre-registered against that kill**:
+  if rounds and fit seconds are *also* unmoved, the veto never bound at these
+  values and the honest finding is "these arms did nothing", not "the
+  mechanism is refuted" — that would call for larger arms, not a closed
+  thread.
 
 ---
 
