@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.29.0] - 2026-08-01
 ### Added
 - **`refit_members` (opt-in, bagged path): each member now reclaims the rows it
   never learned from.** A bag member trains on `max_samples` of the rows and
@@ -36,6 +36,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   there. Default `False`, and byte-identical to the previous release when off:
   single-model behaviour, the default configuration and the headline chart are
   all untouched.
+
+### Docs
+- **Corrected the bagging guidance, which `refit_members` made wrong.** The FAQ
+  called `n_ensembles=8` "the strongest setting available" and "the
+  maximum-accuracy mode"; both are false now that adding `refit_members`
+  improves on it in every stratum. The recommended default is unchanged.
+- `refit_members` is now documented on both estimator classes, so it appears in
+  the published API reference alongside the other bagging parameters, and the
+  quoted fit cost is stated as 10-17% (the 10% figure came from the smaller
+  10-dataset probe; the decision suites measured 17%).
 
 ## [0.28.0] - 2026-07-31
 ### Fixed
