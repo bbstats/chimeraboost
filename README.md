@@ -1,6 +1,6 @@
 # chimeraboost
 
-### Lightning-fast Gradient Boosting, near-CatBoost quality, all in Python
+### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
