@@ -357,6 +357,90 @@ run with CatBoost in the same benchmark so the program's actual target — the
 small-data win rate against CatBoost from Finding 3 — is read directly rather
 than inferred.
 
+### Tier 2 (decide) — the target moved, and one stratum regressed
+
+`results/20260801-134418.json`, 103 datasets, 3 seeds, all three arms in ONE
+benchmark. Per stratum, never pooled. The default arm reproduces Finding 3's
+standing exactly (81/31/50/33/0/0/43 vs CatBoost), which validates the run.
+
+| stratum | ALR vs default | mean | median | sign bar | fit | **vs CatBoost: default → ALR** |
+|---|---|---|---|---|---|---|
+| gr:base | 22W-14L-**23T** | +0.217% | +0.000% | FAIL (ties) | 1.09x | 81% → **82%** |
+| hc:base | **6W-0L**-8T | +0.813% | +0.000% | FAIL (ties) | 1.14x | 31% → 31% |
+| **gr:sus25** | **9W-3L-0T** | +0.247% | +0.309% | **PASS** | 1.22x | **50% → 67%** |
+| gr:sus50 | 3W-1L-2T | +0.197% | +0.131% | FAIL (ties) | 1.12x | **33% → 67%** |
+| **hc:sus25** | **3W-0L-0T** | +0.677% | +0.144% | **PASS** | 1.31x | 0% → 0% |
+| hc:sus50 | 0W-0L-2T | +0.000% | — | n=2, all ties | 1.20x | 0% → 0% |
+| **hc:time** | **1W-3L-3T** | **−1.215%** | +0.000% | **FAIL — a real loss** | 1.12x | 43% → 43% |
+
+**The program's target moved.** Finding 3's two Grinsztajn small-data strata go
+from 50% to **67%** and from 33% to **67%** against CatBoost, on the
+single-model path that `refit_members` could not reach. That is the collapse
+partially closed, and it is the first time anything in this program has moved
+that number.
+
+**The large ties counts are the design working, not a weak result.** gr:base
+carries 23 ties because those datasets sit above the fade's upper threshold,
+where ALR is byte-identical to the default by construction. Among the 36
+datasets where the fade actually engages it is 22W-14L. hc:base is **6W-0L with
+zero losses** among decided datasets; it misses the bar only because the bar
+counts ties against the change (the same reading `refit_members` recorded).
+
+**Brier is neutral-to-positive except where primary is**: gr:base 6W-7L-10T
+(−0.046%, flat), hc:base 2W-1L-5T (+0.492%), gr:sus25 3W-2L (+0.377%, PASS),
+hc:sus25 1W-0L (+0.360%, PASS), hc:time 0W-1L-3T (−1.006%).
+
+**Cost lands where it should**: 1.09x on gr:base, rising to 1.22–1.31x on the
+small-data strata — i.e. the bill is largest exactly where fits are cheapest in
+absolute seconds, which was the argument for a size-gated rate in the first
+place.
+
+#### The regression: hc:time, and it has a mechanism
+
+Four of the seven temporal datasets engage the fade (the other three sit above
+the threshold and tie). Of those four, ALR loses three:
+
+| dataset | change |
+|---|---|
+| hc:eucalyptus@time | **−4.59%** |
+| hc:employee_salaries@time | −2.31% |
+| hc:Moneyball@time | −1.77% |
+| hc:house_prices_nominal@time | +0.17% |
+
+And the gap to CatBoost on this stratum widens from a +1.94% median to
+**+3.74%**.
+
+**This is coherent, not noise.** A lower rate buys its gain by fitting more
+rounds; under distribution shift those extra rounds fit the *past* more tightly,
+which is precisely the wrong thing when the test window has moved. The same
+mechanism that helps on a random split hurts on a temporal one. It also lands on
+`hc:eucalyptus@time`, already recorded in Finding 3 as our worst matchup
+anywhere and as a "confidently wrong" failure under drift — this makes it worse.
+
+Honest weighting: n=4 engaged datasets, and Finding 3 itself cautioned that
+eucalyptus has 736 total rows so each temporal window carries real variance —
+"a pointer, not a sign test". It is weak evidence. But it is the *only* negative
+stratum, its sign is consistent across three of four datasets, and it has a
+mechanism that predicts it in advance. That combination should not be waved
+away.
+
+### VERDICT: ship the opt-in; do NOT flip the default yet
+
+- **Ship `adaptive_learning_rate=True` as opt-in.** It is byte-identical when
+  off (920 tests, numerical-identity goldens included), it passes tier-1 on both
+  judges, and it passes tier-2 on the two strata it was built for while moving
+  the program's target metric by 17 and 34 points.
+- **The default flip is Nathan's call and I do not recommend it today.** Not
+  because the small-data evidence is weak — it is the strongest result this
+  program has produced — but because a default applies to every user including
+  those with drifting data, and hc:time says this hurts exactly there. An
+  opt-in carries no such obligation.
+- **Owned follow-up, not left implied**: the temporal regression is worth one
+  probe. If the drift loss is really "extra rounds overfit a stale past", then
+  gating the fade on the presence of a temporal split — or simply documenting
+  "do not enable this when your data drifts" — resolves it. That question is
+  now the live one in this program.
+
 ### What this program established
 
 - **Ordered boosting is dead for free** — CatBoost never runs it here. That
