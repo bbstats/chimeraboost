@@ -177,7 +177,7 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
 
     wins = losses = ties = 0
     print(f"{'dataset':22s} {base_label:>12s} {new_label:>12s} {'delta':>12s}  result")
-    rel_deltas, all_pairs = [], []
+    rel_deltas, all_pairs, rel_named = [], [], []
     for ds in shared:
         b, n = base[ds], new[ds]
         d = n - b                       # primary is higher-better
@@ -195,6 +195,7 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
         # relative improvement (guard tiny/zero base)
         rel = d / abs(b) if abs(b) > 1e-12 else 0.0
         rel_deltas.append(rel)
+        rel_named.append((rel, ds))
         print(f"{ds:22s} {b:12.4f} {n:12.4f} {d:+12.4f}  {tag}  ({rel:+.2%})")
 
     n_ds = len(shared)
@@ -211,9 +212,25 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
               f"classification Brier < {NEAR_SOLVED_BRIER}): "
               + ", ".join(sorted(near)))
     if rel_deltas:
+        mean_v, med_v = float(np.mean(rel_deltas)), float(np.median(rel_deltas))
         print(f"mean relative change in {args.metric} (+ = better): "
-              f"{np.mean(rel_deltas):+.3%}   "
-              f"[median {np.median(rel_deltas):+.3%}, n={len(rel_deltas)}]")
+              f"{mean_v:+.3%}   "
+              f"[median {med_v:+.3%}, n={len(rel_deltas)}]")
+        # A mean far from its median is being carried by one or two datasets --
+        # usually a near-zero denominator that sits just ABOVE the near-solved
+        # cutoff, so the guard above never fired. This project has been misread
+        # that way three times (-144%, -8e21%, -1.171%), so name the culprit
+        # rather than leaving the mean to be quoted on its own. Print-only: no
+        # verdict depends on it (benchmarks/GATE_ROBUSTNESS.md #3).
+        if rel_named and abs(mean_v) > 3 * abs(med_v) + 1e-12:
+            worst = max(rel_named, key=lambda t: abs(t[0] - med_v))
+            without = [r for r, d in rel_named if d != worst[1]]
+            if without:
+                print(f"  !! mean is {abs(mean_v) / (abs(med_v) + 1e-12):.0f}x "
+                      f"its median -- largest single contributor is "
+                      f"{worst[1]} at {worst[0]:+.2%}; "
+                      f"mean without it: {float(np.mean(without)):+.3%}. "
+                      f"Read the sign test and the median.")
     else:
         print(f"mean relative change in {args.metric}: n/a (no scored datasets)")
 

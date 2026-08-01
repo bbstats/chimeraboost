@@ -78,6 +78,15 @@ Ship rules:
 A/B trap (cost an hour once): editable install means `python script.py` runs **repo** code from any
 CWD. For worktree baselines set `PYTHONPATH=<worktree>` and print `chimeraboost.__file__` in both arms.
 
+**Before letting any number decide a ship, read `benchmarks/GATE_ROBUSTNESS.md`** — the eight ways
+this process has produced numbers that looked like evidence and weren't, each with the incident that
+proved it. The four questions it ends on, in short: how many INDEPENDENT things is this actually;
+what happens if I drop the single biggest contributor; am I comparing the same statistic on both
+sides; was this instrument built to be decided on? Highest-frequency traps: `@time` replication is
+capped at 3 rolling origins so extra seeds duplicate (the harness now warns); a stratum under ~8
+decided datasets is a pointer, not a gate; ties count against the change, so a conditionally-gated
+change reads FAIL at 6W-0L; and a mean far from its median is one dataset (compare_runs now names it).
+
 After a ship: update CHANGELOG [Unreleased], regenerate the Pareto (`/pareto`), and record the
 verdict (win or kill — kills are valuable) in memory's algorithm history.
 

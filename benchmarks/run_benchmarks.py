@@ -2052,6 +2052,21 @@ def main():
           + (f"  synth={args.synth_suite}" if args.synth else "")
           + "\n")
 
+    # @time replication is capped by the number of rolling origins, NOT by
+    # --seeds: _temporal_split takes TEMPORAL_CUTS[seed % 3] and nothing else in
+    # that path is seed-dependent, so seed 3 reproduces seed 0 exactly. Without
+    # this warning a --seeds 6 run reports twice the temporal evidence it has
+    # (benchmarks/GATE_ROBUSTNESS.md #1).
+    n_time = sum(1 for ds in selected if ds.endswith(f"{VARIANT_SEP}time"))
+    if n_time and args.seeds > len(TEMPORAL_CUTS):
+        print(f"!! WARNING: {n_time} @time dataset(s) in this run, but "
+              f"--seeds {args.seeds} exceeds the {len(TEMPORAL_CUTS)} rolling "
+              f"origins in TEMPORAL_CUTS. Seeds beyond the first "
+              f"{len(TEMPORAL_CUTS)} REPRODUCE earlier ones exactly on those "
+              f"datasets -- the @time stratum has {len(TEMPORAL_CUTS)} distinct "
+              f"windows per dataset no matter how many seeds you run. Vary "
+              f"TEMPORAL_CUTS in a probe if you need more.\n")
+
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
