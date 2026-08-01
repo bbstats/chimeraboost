@@ -305,6 +305,41 @@ leaf-value effect) and `scaled` (rounds × 1/max_samples, the faithful
 refit_full analogue, which also grows a tail) — so a win is attributable.
 `benchmarks/probe_bag_member_refit.py`.
 
+#### Probe verdict: CONFIRMED, broadly and unanimously.
+
+10 datasets × 3 seeds, exactly paired (both arms replay the *same* fitted
+members, so only the leaf values differ). Improvement over the shipped bag:
+
+| arm | K=2 | K=3 | K=5 | K=8 |
+|---|---|---|---|---|
+| replay only | **+1.858%** (10/10) | +1.589% (10/10) | +0.920% (9/10) | **+1.023% (10/10)** |
+| replay + regrown tail | +2.262% (9/10) | +1.992% (9/10) | +1.389% (9/10) | **+1.527% (9/10)** |
+
+**The mechanism's own prediction held**: the gain is largest at small K
+(+1.86% at K=2 falling to +1.02% at K=8), which is what "each member is
+individually stronger" implies — with fewer members there is less averaging to
+paper over weak leaf values. If this were a diversity loss the sign would go
+the other way.
+
+Biggest movers are the structured regression sets (sulfur +4.2%,
+Brazilian_houses +2.1%, cpu_act +1.4%) plus electricity (+1.3% Brier); heloc is
+the only near-zero. Nothing regresses at K=8 in the replay-only arm.
+
+**And the Pareto question answers yes**: `refit@5` beats `plain@8` on 7 of 10
+datasets (mean +1.022%), so a five-member refit bag reaches the eight-member
+bag's strength — Ens8 is the 26.8x point on the headline chart.
+
+Cost, measured in the probe: one replay arm is roughly **11% of the member-fit
+time** (replaying a structure is far cheaper than growing it), so this is
+about +1.0-1.5% strength for ~1.1x on the bagged path.
+
+⇒ **Implemented** as `refit_members=False` (opt-in, byte-identical when off).
+`_refit_on_full` gained a `train_frac` override so a member scales its round
+budget by `max_samples` rather than `1 - validation_fraction`. Harness arms
+`ChimeraBoostEns8RM/Ens5RM/Ens3RM` let both variants run inside ONE benchmark,
+so the A/B pairing carries no machine-condition drift (the Sel25 precedent).
+Next: tier-1 synth screen, then the decide gate.
+
 ### C2 — the two-way depth race (6 vs 4), whose transfer question is now testable
 
 `A2_PLAN.md` measured this and then shelved it: **+0.398% mean, 16W-4L-16T,
