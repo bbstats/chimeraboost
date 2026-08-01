@@ -374,6 +374,94 @@ Reusable facts from this pass:
   `mae`, `mae_w_sub`, `quantile` and `quantile_w` share the same leaf kernels at
   K=1 and are untouched, which is what licenses skipping a `--decide` run.
 
+## P15 — spread smoothing, pre-registered 2026-07-31 (branch `quantile-spread-smoothing`)
+
+Written **before** anything was measured. This is the follow-up P14 called for:
+attack the in-sample bias in the leaf values rather than re-capping the width.
+
+**The defect.** A leaf's value at level tau is the empirical tau-quantile of the
+residuals of the rows *in that leaf*, measured on those same rows. That is
+optimistically tight, and the smaller the leaf the tighter it is: an m-row leaf
+cannot resolve a 0.95 quantile at all once m is small, so the estimate collapses
+toward the middle of the leaf's residuals. Nothing damps it, so the band narrows
+with every round and coverage decays monotonically (P14 result table).
+
+**Change.** Per round, after the leaf refit and **before** the values enter `F`,
+shrink each leaf's *spread* toward the pooled band by an amount that depends on
+how much data the leaf actually has. With `v_l` the leaf's K-vector, `p` the
+pooled band (the same quantile computation over all rows, one leaf), `c(.)` the
+interpolated tau=0.5 point of a vector, and `n_l` the leaf's row mass:
+
+```
+lambda_l = k0 / (n_l + k0)
+v'_l[k]  = c(v_l) + (1 - lambda_l) * (v_l[k] - c(v_l)) + lambda_l * (p[k] - c(p))
+```
+
+Four properties, each chosen against a recorded failure:
+
+- **Convex, never a floor.** The band stays free to be *narrower* than pooled,
+  which trap 1 in `QUANTILE_PLAN.md` says any pooled-band mechanism must
+  preserve — a sum of clipped-to-monotone vectors can never narrow, and that is
+  what diverged in PR #48. Nothing is sorted and `F` is never touched.
+- **Location-preserving**, so it is exactly the identity at K=1 (the deviations
+  from the centre are all zero). The scalar MAE/Quantile paths share these leaf
+  kernels at K=1; this keeps them provably unreachable.
+- **Adaptive, not a knob.** P11 established that no knob on this head moved
+  coverage. `lambda_l` is a function of leaf mass, so small leaves — precisely
+  the ones whose tail quantiles are unresolvable — shrink hardest, while a leaf
+  with plenty of rows keeps its own spread.
+- **The blend is NumPy on `tree.values` in the booster**, not a kernel change,
+  so the four leaf kernels and their bit-exact oracles are untouched and no new
+  warmup entry is owed.
+
+`k0` is argued, not tuned: `_auto_min_child_weight(taus)` = ceil(1 / min(tau_0,
+1 - tau_K)), the constant this head already uses for "rows needed before the
+extreme channel means anything" (20 on the default grid). A leaf sitting at the
+minimum admissible mass gets lambda = 1/2. The probe sweeps k0 at half and twice
+that value as **diagnosis of the mechanism's shape**, not to pick a default.
+
+**Arms** (`probe_quantile_band.py --tag p15`, same 3 datasets, seeds 0-2, K3 and
+K19 grids as P14): `head` (the shipped PR #62 head, unchanged), `head+sm` at the
+argued k0, `head+sm-half` and `head+sm2` for the sweep, `head+sm+CQR`, and the
+`offset` baseline. Freeze section gains a `head+sm` row.
+
+**Bars.** Ship gates, judged at the argued default `head+sm`, all required for
+the default to flip on:
+
+1. **Coverage** without `conformalize` inside [0.75, 0.88] at nominal 0.80 on
+   3 of 3 (fix: 0.758 / 0.719 / 0.725 — P14's failed bar 1).
+2. **The decay is dead**: freeze-section coverage at round 3000 is no more than
+   1 pp below its round-300 value on 3 of 3, and width at 3000 still differs
+   from round 50 by more than 1% (the P14 freeze stays dead — this must not be
+   bought by re-freezing the band).
+3. **No pinball give-back**: within 2% of the shipped PR #62 head on every
+   dataset, both grids. This is the "compare against what users have" gate that
+   P14's status entry established as the right shipping question.
+4. **Crossing rate exactly 0.0** in every arm, every path, every staged stage.
+5. **The conformal ledger is restored**: worst conformalized coverage error
+   ≤ 2 pp (fix: 2.65 pp, FAIL).
+6. **Unchanged obligations**: the identity snapshot moves only the two `mq3`
+   families and every scalar family is byte-identical (which again licenses
+   skipping `--decide`); the full suite green, including
+   `test_narrow_regions_are_actually_narrower` (tight/wide ratio < 0.35 — the
+   test that bounds how hard this may pull toward a global band).
+
+**Research target, not a gate.** Pinball beats or matches the rigid offset on
+3 of 3, currently −34.3% / −3.0% / −5.9%. Per the P14 status entry this is an
+open research target for the head and never a gate on improvements to it; bars 1
+and 3 of P14 remain recorded as FAILED. Report the movement either way.
+
+**Kill clause.** If any ship gate fails at every probed k0, mechanism A is
+falsified for this defect. Record the negative here and **remove the parameter**
+— no dead knobs. The fallback, which would need its own pre-registration, is
+mechanism B: fit the leaf residual quantiles out-of-sample on a dedicated third
+fold. B was not built first because it needs a fold that is neither the
+calibration nor the early-stopping fold (reusing the ES fold would let stopping
+score rows that set the leaf values), it cuts rows-per-leaf on a head whose
+remaining deficit P14 diagnosed as *variance*, and it breaks the recorded
+invariant that leaf values see exactly the rows the split search saw
+(`booster.py`, the MVS row-selection comment).
+
 ## Where to go instead
 
 The two untested axes are **re-purposing, not tuning**, and neither is a search
