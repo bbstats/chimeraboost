@@ -224,6 +224,61 @@ named list of 6-11 datasets.
 
 ---
 
+## Live candidates (broad by construction)
+
+### C1 — BAGREFIT: replay each bag member on the full row set
+
+`_fit_bagged` hands every member an explicit OOB `eval_set`, and
+`_refit_on_full` fires only when `auto_split` is True, so **no bag member has
+ever run the refit that is worth +2.1 points to the single model.** Each
+member's leaf values come from its 0.8n bag. REFIT_PLAN's "bag members have no
+data tax" holds for the ensemble (every row is in some member's bag) but not
+for any individual member.
+
+Why it should be net positive rather than a diversity loss: the LRE kill
+measured that bag lift is *structural* diversity and that leaf-level
+resampling buys nothing. Replay keeps each member's structure exactly as its
+own bag grew it and only re-estimates leaf values, so it should buy per-member
+strength at close to zero diversity cost.
+
+The prize is Pareto, not just strength: Ens8 is 99.8/99.8 at **26.8x**. If
+refit members let a smaller bag reach that, the frontier moves a long way.
+Probe sweeps K ∈ {2,3,5,8} with two arms — `refit` (same trees, pure
+leaf-value effect) and `scaled` (rounds × 1/max_samples, the faithful
+refit_full analogue, which also grows a tail) — so a win is attributable.
+`benchmarks/probe_bag_member_refit.py`.
+
+### C2 — the two-way depth race (6 vs 4), whose transfer question is now testable
+
+`A2_PLAN.md` measured this and then shelved it: **+0.398% mean, 16W-4L-16T,
+p=0.012, at 1.12–1.24x fit**, on the PMLB tune fold. It was left open with an
+explicit caveat — the gain concentrates on datasets under 2,000 rows
+(+1.09% to +7.41% there, collapsing to +0.1–0.6% above 4,900), the panel
+skewed small, and "the transfer question [is] unresolved". Registered as
+"Nathan's call whether that is worth the run."
+
+**The instrument that settles it did not exist then.** The decision tier now
+carries `@sus25`/`@sus50` — the same datasets cut to a quarter and a half of
+their training rows. That is precisely the small-data regime where depth 4 is
+claimed to win, measured on the suites we actually decide on. If depth 4 wins
+on `@sus*` and is neutral on base, the mechanism transfers and the race is
+worth building; if it is flat on `@sus*` too, the thread closes for good.
+
+Cheap first step, **no library change**: the harness already exposes
+`--chimera-depth 4`, and the run above provides a perfectly paired depth-6
+baseline on identical splits and seeds. One decide run answers it.
+
+### C3 — the regressor has no effective min-leaf constraint (unprobed)
+
+For squared error the Hessian is exactly 1 per row, so `min_child_weight=1.0`
+means "at least one sample" — the weakest possible veto, at every dataset
+size. The classifier fades one in via `_auto_min_child_weight`; the regressor
+pins 1.0 forever. The PMLB random-search study found `min_child_weight` is the
+one knob that transfers. Whether small-data regression wants a real min-leaf
+floor has never been tested, and `@sus*` regression is where it would show.
+
+---
+
 ## Rules for this program
 - Every candidate gets a cheap decisive probe BEFORE library work where one
   exists. Two candidates have already been killed at zero implementation cost.
