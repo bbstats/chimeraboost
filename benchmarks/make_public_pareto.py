@@ -37,8 +37,7 @@ IMAGES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
                       "images")
 OUT_PNG = os.path.join(IMAGES, "public_pareto.png")
 
-# The whole `quality` ladder, not just the default and the top rung. These are
-# the five named operating points a user actually selects with quality=N
+# The five named operating points a user selects with quality=N
 # (chimeraboost.sklearn_api.QUALITY_NAMES), mapped to the harness arms that
 # reproduce each one exactly:
 #
@@ -48,9 +47,14 @@ OUT_PNG = os.path.join(IMAGES, "public_pareto.png")
 #   quality=4 ensemble  5 bagged members
 #   quality=5 max       8 bagged members
 #
-# Charting all five is the point: the reader picks a rung off the frontier,
-# and a ladder with two rungs shown is not a ladder. Sibling rungs are never
-# each other's opponents (see score()), so adding rungs cannot move any row.
+# This map is the label lookup, NOT the charted set -- see CHARTED_RUNGS below,
+# which is two rungs. Sibling rungs are never each other's opponents (see
+# score()), so adding or dropping a rung cannot move any other row.
+#
+# Only the charted arms need to be in the benchmark run. Running the other
+# three costs real time and buys nothing here: quality=5 is the single most
+# expensive arm on the board, and on a suite whose smallest dataset is ~35,000
+# training rows that is hours of compute for a point the chart discards.
 QUALITY_ARMS = {
     "ChimeraBoostOneLin":  (1, "fast"),
     "ChimeraBoostNoRefit": (2, "balanced"),
