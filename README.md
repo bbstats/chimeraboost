@@ -1,4 +1,5 @@
 # chimeraboost
+*pronounced kai-MEER-uh-boost*
 
 ### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
 
@@ -66,4 +67,3 @@ reg.fit(X, y)
 * **TreeSHAP**, Lundberg et al., *Nature Machine Intelligence* 2020 (orig. SHAP, *NeurIPS* 2017). Exact additive feature attributions (`shap_values`).
 * **OpenFE**, Zhang et al., *ICML* 2023 (arXiv:2211.12507). Automated pairwise feature generation (`cross_features`).
 * **Conformalized quantile regression**, Romano, Patterson & Candès, *NeurIPS* 2019. Distribution-free interval calibration (`conformalize`).
-* **TabArena**, Erickson et al., *NeurIPS* 2025 (arXiv:2506.16791). The tabular benchmark used for evaluation.
