@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.30.0] - 2026-08-02
 ### Changed
 - **The automatic `learning_rate` now depends on how much data it has, and this
   is the default (`adaptive_learning_rate=True`).** Our rate was a flat 0.1 at
