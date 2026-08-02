@@ -11,7 +11,7 @@ changed since.*
 > per-stratum sign tests (`run_benchmarks.py --decide`), the 22-dataset public suite
 > is post-hoc validation only, and **TabArena is the one sealed holdout** (official
 > leaderboard Elo 1278, rank 31/68, 2026-07-23). Headline strength axis is
-> head-to-head win rate (since 2026-07-18). Major features shipped since this
+> skill scores split by task — Brier skill and R² (since 2026-08-02). Major features shipped since this
 > briefing: quantized histograms (default-on), the SELECT `quality` ladder with
 > `refit_full` and the REPLAY structure-transfer refit (default-on), A1 vector-leaf
 > multiclass, the custom objective hook, and `ChimeraBoostQuantileRegressor` (0.26.0)
@@ -71,13 +71,27 @@ training rows, 0 above ~2000. This is one of our most important defaults (see §
 **Strength vs slowdown**, plotted as a Pareto (`benchmarks/make_pareto.py` →
 `images/pareto.png`, companion `images/winrate_matrix.png`).
 
-Headline strength axis (since 2026-07-18): **head-to-head win rate** — the percent
-of (dataset × opponent) matchups a model wins on that dataset's primary metric
-(RMSE for regression, Brier for classification; exact ties count ½ each), with 95%
-bootstrap CIs over datasets. 50% = mid-pack; equals mean rank rescaled,
-(k − mean_rank)/(k − 1). The previous blended-% axis saturated — on
-near-Bayes-optimal tabular data every strong model lands within ~2% of best, so
-ratios-to-best all read 9x.x — and it remains as the **diagnostic**:
+Headline strength axis (since 2026-08-02): **skill scores, split into two panels** —
+Brier skill for classification, R² for regression. Both read 0 at the no-skill
+baseline (predicting the class marginals / the target mean) and 1 at perfect.
+
+Chosen for readability, and for two properties the earlier axes lacked. It is not
+field-relative, so adding or dropping an arm moves nobody. And it needs no
+near-solved exclusion, because BSS and R² stay bounded where a ratio-to-best
+explodes on a near-perfectly-solved dataset. Kept as two panels rather than one
+average because BSS and R² occupy different parts of the 0..1 range, and averaging
+buries the classification leg — which is where the field actually spreads.
+
+The cost, stated plainly: the axis is compressed. The whole field typically sits
+within ~0.02 of skill, so both panels are truncated dot plots — read the tick
+labels, not the visual gaps. This is expected to be superseded by TabArena scores
+once the runs we want are uploaded.
+
+**Head-to-head win rate** (`--metric winrate` → `pareto_winrate.png`) is now a
+diagnostic: the percent of (dataset × opponent) matchups a model wins on that
+dataset's primary metric, ties counting ½, with 95% bootstrap CIs. It is ordinal so
+it spreads the field further, but it is field-relative and counts matchups without
+regard to margin. The older blended-% axis remains a second **diagnostic**:
 
 ```
 classification = ⅔·BinBrier%  +  ⅓·BinF1%          (all "% vs best", higher = better)
@@ -87,7 +101,7 @@ slowdown       = mean fit-time multiple vs the fastest model (lower = better)
 
 The harmonic mean collapses toward the **weaker leg**, so the blended diagnostic
 still answers "which task is weak". Ship decisions are unchanged (per-dataset sign
-tests; the win-rate axis is the same winner/loser evidence, aggregated).
+tests); the chart axis is legibility only and gates nothing.
 
 **Current standing** (`results/20260731-142609.json`, 3 seeds — the post-0.27.0
 re-run; the 0.27.0 perf pass was bit-identical, so only the speed axis moved).

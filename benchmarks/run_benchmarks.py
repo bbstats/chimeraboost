@@ -1559,6 +1559,23 @@ def _run_seed_task(task):
     # RMSE ratio explodes a negligible absolute gap. See summarize.NEAR_SOLVED_NRMSE.
     if ttype == "regression":
         meta["y_std"] = float(np.std(y))
+        # Target scale on the TEST split, which is where RMSE is measured, so
+        # make_pareto's R2 leg matches the textbook 1 - MSE/Var(y_eval). Kept
+        # as a SEPARATE field: y_std above feeds the near-solved cutoff, and
+        # redefining it would quietly move that threshold. Measured impact of
+        # the difference is a uniform ~-0.005 on R2 with the ranking unchanged
+        # (scratchpad/r2_denominator_check.py), so it is a correctness tidy-up
+        # rather than a fix for a wrong reading.
+        meta["y_std_test"] = float(np.std(yte))
+    else:
+        # Class marginals on the TEST split, which is what the metrics are
+        # computed on. The Brier skill score needs a no-skill reference, and
+        # the harness's Brier is mean(sum_k (p_k - onehot_k)^2), so the
+        # matching reference is sum_k pbar_k (1 - pbar_k). Recording it here is
+        # the classification twin of y_std above: without it make_pareto has to
+        # rebuild the dataset just to count labels.
+        _, _counts = np.unique(yte, return_counts=True)
+        meta["class_prior"] = [float(c) for c in _counts / _counts.sum()]
     if ds_name.startswith("syn:"):
         import synthgen
         meta["synth"] = synthgen.recipe_meta(ds_name)  # LRU hit: builder just ran

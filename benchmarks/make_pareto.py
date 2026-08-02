@@ -4,19 +4,42 @@ One scalar strength per model, plotted against fit-time slowdown, with the
 Pareto frontier highlighted. This is the chart we steer by: a model is only
 worth shipping if it pushes the strength/speed frontier.
 
-Headline strength axis (STRENGTH_VIZ_PLAN, resolved by Nathan 2026-07-18):
-**head-to-head win rate** — the percent of (dataset x opponent) matchups a
-model wins on that dataset's primary metric (RMSE for regression, Brier for
-classification; exact ties count 1/2 each). 50% = mid-pack; with complete
-data it equals (k - mean_rank)/(k - 1), i.e. mean rank in friendlier units.
-The old blended-% axis saturated: on near-Bayes-optimal tabular data every
-strong model lands within ~2% of best, so ratios-to-best cluster at 99.x and
-no axis transform can decompress them. Win rate is ordinal, so it spreads the
-field by who actually beats whom. Whiskers are 95% bootstrap CIs (resampling
-datasets). A companion figure (winrate_matrix.png) shows the full pairwise
-matrix; the axis scalar is that matrix's row mean, so the two figures agree.
+Headline strength axis (resolved by Nathan 2026-08-02): **skill scores, split
+into two panels** — Brier skill for classification, R2 for regression:
 
-Blended strength stays as the DIAGNOSTIC (text table + --metric blended):
+    classification : BSS = 1 - Brier / Brier_noskill
+    regression     : R2  = 1 - MSE / Var(y)
+
+Both read 0 at the no-skill baseline (predicting the class marginals / the
+target mean) and 1 at perfect. Chosen for readability: one number per task,
+on a scale a reader already understands, with no normalisation against the
+field — so unlike win rate, a model's position does not move when another arm
+is added or dropped. Two panels rather than one average, because BSS and R2
+occupy different parts of the 0..1 range and averaging buries the
+classification leg, which is where the field actually spreads (CatBoost ranks
+5th on regression and 7th on classification).
+
+It also needs NO near-solved exclusion. Ratio-to-best metrics explode when the
+denominator is near zero — the -144% and -8e21% readings this project has hit
+twice — while BSS and R2 stay bounded, so every dataset in the run is scored.
+
+Cost of the choice, stated plainly: the axis is compressed. The whole field
+typically sits within ~0.02 of skill, so both panels are truncated dot plots.
+Position (not length) encodes the value, which makes that legitimate, but read
+the tick labels rather than the visual gaps.
+
+This is expected to be superseded by TabArena scores once the runs we want are
+uploaded.
+
+Head-to-head win rate stays as a DIAGNOSTIC (--metric winrate, writing
+pareto_winrate.png): the percent of (dataset x opponent) matchups a model wins,
+ties counting 1/2. It is ordinal, so it spreads the field more than skill
+scores do, but it is field-relative — every row moves when an arm is added —
+and it counts matchups without regard to margin. The companion
+winrate_matrix.png is a standalone who-beats-whom diagnostic and is still
+written by the default run.
+
+Blended strength stays as a second DIAGNOSTIC (text table + --metric blended):
 
     classification = (2/3) * Bin Brier%  +  (1/3) * Bin F1%     (weighted avg)
     blended        = HarmonicMean(Reg RMSE%, classification)
@@ -34,7 +57,13 @@ Run:
     python benchmarks/make_pareto.py                      # newest results json
     python benchmarks/make_pareto.py benchmarks/results/<stamp>.json
     python benchmarks/make_pareto.py --no-image           # text tables only
+    python benchmarks/make_pareto.py --metric winrate     # win-rate diagnostic
     python benchmarks/make_pareto.py --metric blended     # legacy blended axis
+
+The skill axis needs `class_prior` (classification) and `y_std` (regression) in
+the run's dataset metadata. `y_std` has always been recorded; `class_prior`
+arrived with 0.30.0, so runs made before it can only be read with
+--metric winrate.
 """
 import argparse
 import math
@@ -90,7 +119,19 @@ W_F1 = 1.0 / 3.0
 
 
 def _short(m):
-    return SHORT_NAME.get(m, m[:5])
+    """Compact label for a model name.
+
+    The fallback used to be m[:5], which collided: every unlisted ChimeraBoost
+    arm rendered as "Chime", so ChimeraBoostNoRefit and ChimeraBoostOneLin were
+    indistinguishable on the chart and in the matrix's column headers. Stripping
+    the shared prefix instead is collision-free for the whole family, whether or
+    not an arm has an explicit entry above.
+    """
+    if m in SHORT_NAME:
+        return SHORT_NAME[m]
+    if m.startswith("ChimeraBoost") and len(m) > len("ChimeraBoost"):
+        return m[len("ChimeraBoost"):]
+    return m[:7]
 
 
 def _harmonic_mean(a, b):
@@ -147,6 +188,93 @@ def score_models(data, n_boot=N_BOOT):
     meta["n_h2h"] = len(primary)
     meta["n_ties"] = summarize.n_tied_matchups(primary)
     return scored, meta, primary
+
+
+def skill_scores(data):
+    """Per-task skill-score strength + slowdown: the HEADLINE axis since 0.30.0.
+
+    Returns {task: {model: {"strength", "slowdown", "n"}}} for "classification"
+    and "regression", where strength is
+
+        classification : BSS = 1 - Brier / Brier_noskill
+        regression     : R2  = 1 - MSE / Var(y)
+
+    Both are 0 at the no-skill baseline (predicting the class marginals / the
+    target mean) and 1 at perfect, so each is readable on its own without a
+    "% vs best" normalisation, and neither explodes on a near-perfectly-solved
+    dataset the way a ratio-to-best does. That last property is why this axis
+    needs NO near-solved exclusion: every dataset in the run is scored.
+
+    Kept as two tasks rather than one averaged number on purpose. Brier skill
+    and R2 sit on different parts of the 0..1 range, and averaging them buries
+    the classification leg -- which is exactly where the field spreads out most
+    (CatBoost ranks 5th on regression and 7th on classification).
+
+    Slowdown is computed WITHIN each task's datasets, so each panel's x-axis
+    matches its own y-axis population.
+    """
+    import numpy as np
+
+    meta = data.get("datasets", {})
+    vals, fits = {}, {}
+    for r in data.get("records", []):
+        ds, model, m = r["dataset"], r["model"], r.get("metrics", {})
+        info = meta.get(ds)
+        if not info:
+            continue
+        v = m.get("rmse") if info["task"] == "regression" else m.get("brier")
+        if v is not None:
+            vals.setdefault((ds, model), []).append(v)
+        if r.get("fit_time") is not None:
+            fits.setdefault((ds, model), []).append(r["fit_time"])
+
+    skill = {"classification": {}, "regression": {}}
+    for (ds, model), samples in vals.items():
+        info = meta[ds]
+        v = float(np.mean(samples))
+        if info["task"] == "regression":
+            # Prefer the test-split target scale, which is where RMSE is
+            # measured; fall back to the full-target y_std for runs made before
+            # y_std_test was recorded. The two differ by a uniform ~0.005 on R2
+            # and do not change the ranking.
+            y_std = info.get("y_std_test") or info.get("y_std")
+            if not y_std:
+                continue
+            skill["regression"].setdefault(model, {})[ds] = 1.0 - (v / y_std) ** 2
+        else:
+            prior = info.get("class_prior")
+            if not prior:
+                continue          # pre-0.30.0 run: no reference recorded
+            p = np.asarray(prior, dtype=float)
+            ref = float(np.sum(p * (1.0 - p)))
+            if ref > 0:
+                skill["classification"].setdefault(model, {})[ds] = 1.0 - v / ref
+
+    by_ds = {}
+    for (ds, model), t in ((k, float(np.mean(v))) for k, v in fits.items()):
+        by_ds.setdefault(ds, {})[model] = t
+    slow = {"classification": {}, "regression": {}}
+    for ds, per in by_ds.items():
+        best = min(per.values()) if per else 0.0
+        if best <= 0 or ds not in meta:
+            continue
+        task = ("regression" if meta[ds]["task"] == "regression"
+                else "classification")
+        for model, t in per.items():
+            slow[task].setdefault(model, []).append(t / best)
+
+    out = {}
+    for task in ("classification", "regression"):
+        out[task] = {}
+        for model, per_ds in skill[task].items():
+            if model not in slow[task]:
+                continue
+            out[task][model] = {
+                "strength": float(np.mean(list(per_ds.values()))),
+                "slowdown": float(np.mean(slow[task][model])),
+                "n": len(per_ds),
+            }
+    return out
 
 
 def pareto_frontier(scored, key="winrate"):
@@ -429,6 +557,83 @@ def render_image(scored, meta, out_path, metric="winrate"):
     plt.close(fig)
 
 
+def format_skill_text(skill, label=None):
+    """Phone-readable tables for the two skill panels."""
+    lines = [label] if label else []
+    for task, ylab in (("classification", "Brier skill"), ("regression", "R2")):
+        scored = skill.get(task) or {}
+        if not scored:
+            continue
+        front = pareto_frontier(scored, key="strength")
+        n = max(s["n"] for s in scored.values())
+        lines.append(f"\n{task.capitalize()} — {n} datasets")
+        lines.append(f"{'Model':24s}{ylab:>12s}{'Slowdown':>11s}  Pareto")
+        lines.append("-" * 60)
+        for m, s in sorted(scored.items(), key=lambda kv: -kv[1]["strength"]):
+            mark = "yes" if m in front else "-"
+            lines.append(f"{m:24s}{s['strength']:12.4f}{s['slowdown']:10.1f}x"
+                         f"  {mark}")
+    return "\n".join(lines)
+
+
+def render_skill_image(skill, out_path):
+    """The headline chart: two panels, classification and regression.
+
+    Both y-axes are truncated. That is legitimate here because these are dot
+    plots -- position, not length, encodes the value -- but it does mean the
+    axis range is doing work, so read the tick labels rather than the visual
+    gaps. The whole field typically sits within ~0.02 of skill.
+    """
+    plt = _plt()
+    import numpy as np
+
+    fig, axes = plt.subplots(1, 2, figsize=(14.5, 6.2))
+    panels = (("classification", "Brier skill score (higher = better)"),
+              ("regression", "R² (higher = better)"))
+
+    for ax, (task, ylab) in zip(axes, panels):
+        scored = skill.get(task) or {}
+        if not scored:
+            ax.set_visible(False)
+            continue
+        front = pareto_frontier(scored, key="strength")
+        pts = sorted(scored.items(), key=lambda kv: kv[1]["slowdown"])
+
+        fx = np.array([s["slowdown"] for m, s in pts if m in front])
+        fy = np.array([s["strength"] for m, s in pts if m in front])
+        if fx.size:
+            order = np.argsort(fx)
+            ax.plot(fx[order], fy[order], color="#9a9a9a", linewidth=1.3,
+                    zorder=1)
+
+        for model, s in pts:
+            on = model in front
+            ax.scatter(s["slowdown"], s["strength"], s=150 if on else 95,
+                       color=MODEL_COLOR.get(model, "#777777"),
+                       edgecolor="#222" if on else "white",
+                       linewidth=1.3 if on else 1.0, zorder=3)
+            ax.annotate(_short(model), (s["slowdown"], s["strength"]),
+                        textcoords="offset points", xytext=(9, 4),
+                        fontsize=8.5, color="#1a1a1a")
+
+        n = max(s["n"] for s in scored.values())
+        ax.set_title(f"{task.capitalize()} — {n} datasets", fontsize=12,
+                     fontweight="bold", pad=10)
+        ax.set_xlabel("← Slowdown — mean fit-time multiple vs fastest",
+                      fontsize=9)
+        ax.set_ylabel(ylab, fontsize=9.5)
+        ax.grid(True, linestyle="-", linewidth=0.5, color="#e4e4e4", zorder=0)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+
+    fig.suptitle("Strength vs slowdown — Grinsztajn et al. (2022)",
+                 fontsize=13.5, fontweight="bold", y=0.99)
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def render_matrix(primary, meta, out_path):
     """Companion figure: who beats whom, every pairwise win rate as a matrix.
 
@@ -436,7 +641,10 @@ def render_matrix(primary, meta, out_path):
     Diverging fill around the 50% midpoint (blue = row wins, red = row loses);
     every cell is direct-labeled so color is reinforcement, never the only
     encoding. The bold right-hand column is the row mean = the win-rate axis
-    of pareto.png, so the two figures agree by construction.
+    of pareto_winrate.png, so those two figures agree by construction. Since
+    0.30.0 the headline pareto.png plots skill scores instead, so this matrix
+    is a standalone who-beats-whom diagnostic rather than that chart's
+    companion — it is still written by the default run.
     """
     import numpy as np
 
@@ -502,7 +710,7 @@ def render_matrix(primary, meta, out_path):
         f"cell = % of datasets where ROW beats COLUMN on the primary metric "
         f"(RMSE reg / Brier clf; ties ½)\nblue = row wins, red = row loses  ·  "
         f"{meta['suite']}, {meta['n_h2h']} of {meta['n_total']} datasets"
-        f"{excl_s}  ·  bold = row mean (the pareto.png axis)",
+        f"{excl_s}  ·  bold = row mean (the --metric winrate axis)",
         fontsize=8.5, color="#555", pad=30)
 
     fig.tight_layout(rect=[0, 0, 1, 0.97])
@@ -518,10 +726,12 @@ def main():
                     help="output dir for the PNGs (default: ../images/)")
     ap.add_argument("--no-image", action="store_true",
                     help="print the text tables only, skip the PNGs")
-    ap.add_argument("--metric", choices=["winrate", "blended"],
-                    default="winrate",
-                    help="headline axis: winrate (default) or the legacy "
-                         "blended %% (writes pareto_blended.png)")
+    ap.add_argument("--metric", choices=["skill", "winrate", "blended"],
+                    default="skill",
+                    help="headline axis: skill (default; Brier skill + R2, "
+                         "writes pareto.png) or the winrate diagnostic "
+                         "(pareto_winrate.png + winrate_matrix.png) or the "
+                         "legacy blended %% (pareto_blended.png)")
     args = ap.parse_args()
 
     path = args.json_path or summarize.latest_json()
@@ -531,8 +741,18 @@ def main():
     data = summarize.load(path)
 
     scored, meta, primary = score_models(data)
-    print(format_text(scored, meta, primary, f"# {os.path.basename(path)}",
-                      metric=args.metric))
+    label = f"# {os.path.basename(path)}"
+    if args.metric == "skill":
+        skill = skill_scores(data)
+        if not any(skill.values()):
+            print(f"{label}\nNo skill scores available. Classification needs "
+                  "`class_prior` and regression needs `y_std` in the run's "
+                  "dataset metadata; runs made before 0.30.0 lack class_prior. "
+                  "Re-run the benchmark, or use --metric winrate.")
+            return
+        print(format_skill_text(skill, label))
+    else:
+        print(format_text(scored, meta, primary, label, metric=args.metric))
 
     if not args.no_image:
         out_dir = args.out_dir or os.path.join(
@@ -540,10 +760,19 @@ def main():
         out_dir = os.path.abspath(out_dir)
         os.makedirs(out_dir, exist_ok=True)
         wrote = []
-        if args.metric == "winrate":
-            render_image(scored, meta, os.path.join(out_dir, "pareto.png"),
-                         metric="winrate")
+        if args.metric == "skill":
+            render_skill_image(skill, os.path.join(out_dir, "pareto.png"))
             wrote.append("pareto.png")
+            # The who-beats-whom matrix is a standalone diagnostic, not tied to
+            # whichever axis is headline, so it keeps being refreshed here.
+            render_matrix(primary, meta,
+                          os.path.join(out_dir, "winrate_matrix.png"))
+            wrote.append("winrate_matrix.png")
+        elif args.metric == "winrate":
+            render_image(scored, meta,
+                         os.path.join(out_dir, "pareto_winrate.png"),
+                         metric="winrate")
+            wrote.append("pareto_winrate.png")
             render_matrix(primary, meta,
                           os.path.join(out_dir, "winrate_matrix.png"))
             wrote.append("winrate_matrix.png")
