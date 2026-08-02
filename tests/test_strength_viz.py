@@ -138,3 +138,101 @@ def test_score_models_and_winrate_frontier():
     # The winrate table + matrix render without error and carry the numbers.
     txt = make_pareto.format_text(scored, meta, primary, metric="winrate")
     assert "87.5" in txt and "MeanRank" in txt and "vs field" in txt
+
+
+# ---------------------------------------------------------------------------
+# Skill-score axis (headline since 2026-08-02): Brier skill for classification,
+# R2 for regression, split into two panels. Pinned here because it now decides
+# what images/pareto.png shows.
+# ---------------------------------------------------------------------------
+
+def _skill_data():
+    """Same shape as _data(), plus the class priors the BSS reference needs.
+
+    gr:bin1 is a balanced binary set, so the no-skill Brier under the harness's
+    sum-over-classes convention is sum_k p_k(1-p_k) = 0.5. gr:reg1 has
+    y_std = 10, so an RMSE of 1.0 is R2 = 1 - (1/10)^2 = 0.99.
+    """
+    data = _data()
+    data["datasets"]["gr:bin1"]["class_prior"] = [0.5, 0.5]
+    data["datasets"]["gr:bin0"]["class_prior"] = [0.5, 0.5]
+    return data
+
+
+def test_skill_scores_match_their_definitions():
+    skill = make_pareto.skill_scores(_skill_data())
+    # R2 = 1 - (rmse / y_std)^2, averaged over the two regression datasets.
+    # A: reg1 1 - (1.0/10)^2 = 0.99 ; reg0 1 - (0.5/100)^2 = 0.999975
+    assert skill["regression"]["A"]["strength"] == pytest.approx(
+        (0.99 + 0.999975) / 2)
+    # BSS = 1 - brier / 0.5. A: bin1 1 - 0.20/0.5 = 0.6 ; bin0 1 - 0.0005/0.5
+    assert skill["classification"]["A"]["strength"] == pytest.approx(
+        (0.6 + (1 - 0.0005 / 0.5)) / 2)
+
+
+def test_skill_axis_keeps_near_solved_datasets():
+    """The whole point of a bounded score: no exclusion, nothing to explode."""
+    skill = make_pareto.skill_scores(_skill_data())
+    assert skill["regression"]["A"]["n"] == 2      # reg1 AND near-solved reg0
+    assert skill["classification"]["A"]["n"] == 2  # bin1 AND near-solved bin0
+
+
+def test_skill_slowdown_is_per_task():
+    """Each panel's x-axis is scored on its own datasets only."""
+    skill = make_pareto.skill_scores(_skill_data())
+    for task in ("classification", "regression"):
+        assert skill[task]["C"]["slowdown"] == pytest.approx(1.0)  # fastest
+        assert skill[task]["A"]["slowdown"] == pytest.approx(2.0)
+        assert skill[task]["B"]["slowdown"] == pytest.approx(4.0)
+
+
+def test_skill_is_not_field_relative():
+    """Dropping an arm must not move anyone else -- the property win rate lacks."""
+    full = make_pareto.skill_scores(_skill_data())
+    data = _skill_data()
+    data["records"] = [r for r in data["records"] if r["model"] != "B"]
+    pruned = make_pareto.skill_scores(data)
+    for task in ("classification", "regression"):
+        assert (pruned[task]["A"]["strength"]
+                == pytest.approx(full[task]["A"]["strength"]))
+
+
+def test_skill_degrades_without_class_prior():
+    """Pre-0.30.0 runs carry no class_prior; classification drops out rather
+    than silently inventing a reference, and regression still scores."""
+    data = _data()                       # no class_prior anywhere
+    skill = make_pareto.skill_scores(data)
+    assert skill["classification"] == {}
+    assert skill["regression"]["A"]["n"] == 2
+
+
+def test_skill_frontier_and_table():
+    skill = make_pareto.skill_scores(_skill_data())
+    front = make_pareto.pareto_frontier(skill["regression"], key="strength")
+    assert front == {"A", "C"}           # B is slower than A and weaker
+    txt = make_pareto.format_skill_text(skill, "# fixture")
+    assert "Classification" in txt and "Regression" in txt and "Pareto" in txt
+
+
+def test_short_names_never_collide():
+    """m[:5] used to map every unlisted ChimeraBoost arm to "Chime", so two
+    different models shared a chart label and a matrix column header."""
+    arms = ["ChimeraBoost", "ChimeraBoostNoRefit", "ChimeraBoostOneLin",
+            "ChimeraBoostEns5", "ChimeraBoostEns8", "ChimeraBoostEns5RM",
+            "ChimeraBoostSel25", "ChimeraBoostFlatLR", "ChimeraBoostRefit",
+            "CatBoost", "LightGBM", "sklearn_HGB"]
+    shorts = [make_pareto._short(a) for a in arms]
+    assert len(set(shorts)) == len(arms), dict(zip(arms, shorts))
+
+
+def test_r2_prefers_the_test_split_target_scale():
+    """y_std_test is where RMSE is measured; y_std (full target) is the
+    fallback for runs recorded before that field existed."""
+    data = _skill_data()
+    only_full = make_pareto.skill_scores(data)["regression"]["A"]["strength"]
+    for ds in ("gr:reg1", "gr:reg0"):
+        data["datasets"][ds]["y_std_test"] = data["datasets"][ds]["y_std"] * 2
+    with_test = make_pareto.skill_scores(data)["regression"]["A"]["strength"]
+    assert with_test != pytest.approx(only_full)
+    # rmse 1.0 / (y_std_test 20) -> 1 - 0.0025 ; rmse 0.5 / 200 -> 1 - 6.25e-6
+    assert with_test == pytest.approx(((1 - 0.0025) + (1 - 6.25e-06)) / 2)
