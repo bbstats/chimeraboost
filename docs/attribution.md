@@ -22,38 +22,30 @@ from the paper or the described behaviour; the idea is not.
 | Smoothing a category's target estimate toward the prior | Micci-Barreca, SIGKDD Explorations 2001 |
 | Histogram-based split finding on pre-binned features | LightGBM, Ke et al., NeurIPS 2017; earlier in McRank (Li et al. 2007) and pGBRT (Tyree et al. 2011) |
 | Second-order split gain `G²/(H+λ)`, Newton leaf values, `min_child_weight` | XGBoost, Chen & Guestrin, KDD 2016 |
-| Column subsampling (`colsample`) | Breiman, *Random Forests*, 2001; random subspaces, Ho, IEEE TPAMI 1998 — the sources the XGBoost paper itself names for it |
 | Minimum Variance Sampling — the gradient-weighted row draw behind `subsample` | Ibragimov & Gusev, NeurIPS 2019 (CatBoost's MVS) |
 | Quantized gradient histograms (`quantize_gradients`) | Shi, Ke et al., *Quantized Training of Gradient Boosting Decision Trees*, NeurIPS 2022 (LightGBM) |
 | Vector leaves for multiclass, and the random-projection gradient sketch that scores their splits | SketchBoost, Iosipoi & Vakhrushev, NeurIPS 2022; GBDT-MO, Zhang & Jung, IEEE TNNLS 2021 |
 | Linear (ridge) leaves | Shi, Li & Li, IJCAI 2019; model trees back to Quinlan's M5, 1992 |
 | Exact TreeSHAP attributions, interventional formulation | Lundberg & Lee, NeurIPS 2017; Lundberg et al., Nature Machine Intelligence 2020 |
 | Automatic pairwise feature generation (`cross_features`) | OpenFE, Zhang et al., ICML 2023 |
-| Pinball loss | Koenker & Bassett, Econometrica 1978 |
-| One fitted model serving every quantile level | Quantile regression forests, Meinshausen, JMLR 2006 |
-| Labelling each row by which quantile-grid bucket its target falls in, and scoring one shared split across all levels on those labels | Generalized random forests, Athey, Tibshirani & Wager, Annals of Statistics 2019 (the `grf` quantile forest) |
-| Shifted-Legendre contrasts in tau as location, spread and skew | L-moments, Hosking, JRSS-B 1990 |
-| Cycling boosting updates through location and spread, and the greedy variant that instead picks the strongest component each round | gamboostLSS, Mayr, Fenske, Hofner, Kneib & Schmid, JRSS-C 2012; the non-cyclical variant of Thomas et al., Statistics and Computing 2018 |
-| Making a tree's split criterion see spread and not only location | Distributional regression forests, Schlosser, Hothorn, Stauffer & Zeileis, AoAS 2019 |
+| Quantile regression, and one fitted model serving every level at once | Koenker & Bassett, Econometrica 1978; quantile regression forests, Meinshausen, JMLR 2006; CatBoost's `MultiQuantile` |
+| The pieces our multi-quantile split search is built from: one shared split scored across every level, location/spread/skew contrasts in tau, and cycling through them or greedily picking the strongest each round | `grf`, Athey, Tibshirani & Wager, Annals of Statistics 2019; L-moments, Hosking, JRSS-B 1990; gamboostLSS, Mayr et al., JRSS-C 2012, and the non-cyclical variant of Thomas et al. 2018 |
 | Non-crossing quantiles by monotone rearrangement | Chernozhukov, Fernández-Val & Galichon, Econometrica 2010 |
-| Split-conformal calibration | Papadopoulos et al. 2002; Vovk, Gammerman & Shafer 2005; Lei et al., JASA 2018 |
-| Conformalized quantile regression (`conformalize`) | Romano, Patterson & Candès, NeurIPS 2019 |
+| Split-conformal calibration, and its quantile form (`conformalize`) | Vovk, Gammerman & Shafer 2005; Lei et al., JASA 2018; conformalized quantile regression, Romano, Patterson & Candès, NeurIPS 2019 |
 | Temperature scaling of classifier probabilities | Guo, Pleiss, Sun & Weinberger, ICML 2017; Platt 1999 |
-| Bagging, subagging, out-of-bag estimation | Breiman 1996; Bühlmann & Yu, Annals of Statistics 2002 |
-| Refitting the selected model on all the data; named quality presets | AutoGluon, Erickson et al. 2020; the CV-then-refit convention in scikit-learn |
-| Refreshing leaf values on a fixed tree structure — the mechanism `refit_full="replay"` uses | XGBoost's `refresh` updater; LightGBM's `Booster.refit()` |
+| Bagging, out-of-bag estimation, and column subsampling (`colsample`) | Breiman 1996 and 2001; subagging, Bühlmann & Yu, Annals of Statistics 2002; random subspaces, Ho, IEEE TPAMI 1998 — the sources the XGBoost paper itself names for `colsample` |
+| Refitting the selected model on all the data, and refreshing leaf values on a fixed tree structure — the two halves of `refit_full` | AutoGluon, Erickson et al. 2020; XGBoost's `refresh` updater; LightGBM's `Booster.refit()` |
 | Racing candidate configurations under a shared budget and killing the loser early | Hoeffding races, Maron & Moore, NeurIPS 1993; Karnin et al., ICML 2013; Jamieson & Talwalkar, AISTATS 2016 |
-| CRPS as mean pinball loss over a quantile grid | Gneiting & Raftery, JASA 2007 |
-| Huber loss for outlier-robust regression | Huber, Annals of Mathematical Statistics 1964; as a boosting loss, Friedman 2001 |
-| Log-link Poisson, Gamma and Tweedie losses | generalized linear models, Nelder & Wedderburn, JRSS-A 1972; the compound Poisson-gamma family, Tweedie 1984 and Jorgensen 1987 |
 | Missing values routed to their own bin, so no imputation is needed | XGBoost's sparsity-aware split finding, Chen & Guestrin, KDD 2016; LightGBM's dedicated missing bin |
 | Greedy bin construction that isolates heavy values | LightGBM's `GreedyFindBin` |
-| Split-gain feature importance (`feature_importances_`) | Breiman, Friedman, Olshen & Stone, *CART* 1984; relative influence for boosted ensembles, Friedman 2001 |
-| Early stopping on a held-out split with a patience window | Prechelt 1998, and the automatic-internal-holdout convention of scikit-learn, LightGBM and XGBoost |
-| Compensated summation in the group-mean kernel | Kahan, CACM 1965 |
 | The estimator API — `fit`/`predict`, `get_params`, validation and error conventions | scikit-learn, Buitinck et al., ECML-PKDD 2013 |
-| SplitMix64, the counter-based generator behind stochastic rounding | Steele, Lea & Flood, OOPSLA 2014 |
 | Synthetic data drawn from structural-causal-model priors (the `--synth` screen) | the prior-sampling approach of TabPFN, Hollmann et al., ICLR 2023, and its descendants |
+
+Not listed: the textbook. Huber loss, the GLM log links behind Poisson/Gamma/Tweedie,
+CRPS, split-gain importance, early stopping with a patience window, compensated
+summation. These belong to everybody, and citing a 1964 paper because the library
+offers `loss="Huber"` would make the credits above look like padding rather than
+the real debts they are.
 
 ## Adapted
 
@@ -64,51 +56,94 @@ still belongs upstream.
 |---|---|---|
 | `adaptive_learning_rate` | CatBoost's automatic learning rate — the size-dependent default that showed up when we diffed its resolved parameters | The fade curve is ours; that the rate should depend on `n` at all is theirs |
 | `min_child_weight` on oblivious trees | XGBoost's `min_child_weight` | One sparse child vetoes the whole level, because the split is shared. Empty children are exempt so pure leaves do not cap depth |
-| `refit_members` | The fixed-structure leaf refresh above | Applied per bag member, to recover the data each member gives up to its own out-of-bag split |
 | `cat_combinations` default | CatBoost's feature combinations | The rule that turns them on automatically for all-categorical data is ours |
 | Interval calibration | Conformalized quantile regression | Applied as a per-level multiplicative scale around the predicted median rather than the usual additive widening, so that calibrating cannot reorder the quantile grid. Scaled conformity scores are a known variant of CQR, not something we invented |
-| The multi-quantile head | CatBoost's `MultiQuantile` loss and Meinshausen's quantile regression forests — one model, all levels at once | Vector leaves hold an exact empirical quantile per level, and the split search scores gains on a projection rather than on class indicators. See below for what is and is not ours in it |
-| Scoring one shared split across all quantile levels | `grf`'s quantile forest, which relabels each row by the grid bucket its target falls in | We score that shared split with a projected second-order gain instead of a multiclass split rule, and never materialise the per-level gradient matrix on the default settings |
-| Rotating the split direction through location and spread contrasts | gamboostLSS's cyclical fitting, on the shifted-Legendre (L-moment) basis | Ours is the measured ratio — two location rounds per spread round — and restricting the greedy `"gram"` variant to that subspace against a no-signal whitener |
-| Reclaiming the early-stopping split | Refitting on all the data once the round count is known: AutoGluon's `refit_full`, and the same pattern packaged elsewhere for LightGBM and XGBoost | We do it as a fixed-structure leaf refresh rather than a from-scratch regrow, and it is on by default rather than an extra step the user asks for |
+| The multi-quantile head | CatBoost's `MultiQuantile`, Meinshausen's quantile regression forests, and `grf`'s shared-split scoring | Vector leaves hold an exact empirical quantile per level, and the split search scores a projected second-order gain instead of a multiclass split rule. The contrast schedule — two location rounds per spread round — is measured here, on a basis that is Hosking's |
 | `ordered_boosting` | CatBoost's ordered boosting | CatBoost estimates gradients from a cascade of permutation-ordered supporting models. Ours is a leave-one-out leaf step: a row's update uses its leaf's totals with its own contribution removed. Same goal, far cheaper, weaker guarantee. Off by default — and CatBoost itself resolves to plain boosting at every size we measured |
 | Bag member draws | Subagging and the cluster bootstrap | Group-disjoint draws, so grouped data keeps a usable out-of-bag set |
 
 ## Ours
 
-Written here, by Nathan Walker and Claude. This list got considerably shorter once we
-went looking for prior art properly, which is the honest outcome: nearly everything we
-thought of as ours turned out to have a name and a paper. What survives is engineering
-and small default-setting, not new learning theory.
+Written here, by Nathan Walker and Claude. It is mostly engineering rather than new
+learning theory, and two of these carry measured results.
 
-**Not building the per-level gradient matrix.** On the default settings the quantile
-split search collapses each row's whole K-channel pinball gradient to one number in a
-single pass over that row's own scores, so the `(n, K)` gradient is never materialised
-and a K-level head costs roughly what a one-level head costs per round. It is built on
-the `"gram"` and `exact_splits` arms, which need it. The representation this scores —
-one shared split across every level — is `grf`'s, and the projection machinery is
-SketchBoost's; what we have not found elsewhere is scoring that shared split with a
-projected second-order gain that never forms the matrix.
+### Structure-transfer refit — `refit_full="replay"`, on by default
 
-**Small default policies.** The classifier fades `min_child_weight` out as the training
-set grows, because on an oblivious tree a single sparse child vetoes the whole level.
-Quantile losses default to depth 4 rather than 6, on measurement, for the standard reason
-that tail estimates need more rows per leaf. The multi-quantile head derives its leaf-size
-floor from the most extreme level on the grid, wiring in the usual rule that a tau
-quantile needs on the order of `1/tau` rows to be estimable, so the floor tracks whatever
-grid you ask for. A bag member whose draw collapses to a single class gets one donor row,
-which is a crash guard rather than the stratified draw the imbalanced-bagging literature
-would reach for. Setting a default by a formula in `n` is itself an old idea — `mtry` is
-the textbook case — so what is ours here is which curve, not the shape of the answer.
+**The problem.** Early stopping holds rows back to choose the tree count, and those rows
+never reach the model you ship. The standard fix is to retrain on all the data once the
+count is known. It works — and it costs a second full fit. On our own profile that refit
+was 37 to 49% of every default fit, the single largest thing the library did.
 
-**Equivalence-preserving engineering.** The fused per-level kernel, the bit-identical
-splice that adds cross features to an already-fitted preprocessor, and the audited fast
-path for factorizing numeric categories. Checking an optimized path against a reference
-implementation is standard practice in numerical libraries, not a house invention; what
-is ours is only these particular equivalences and the tests that pin them.
+**The observation.** Growing trees is 83 to 85% of a fit. So a from-scratch refit spends
+most of its time rediscovering split structures the first model already found. It does
+not have to.
 
-**A cold-start notice.** Detecting that numba is about to spend fifteen seconds
-compiling, and saying so, instead of appearing to hang. Small, but we have not seen
+**What it does instead.** Replay the winner's splits round by round against gradients
+computed on all the rows, and refit only the leaf values. The held-out rows still reach
+the leaf estimates — which is where the accuracy came from — without paying for the split
+search a second time.
+
+**What it bought.** On Grinsztajn, fit time down **34.8%** and faster on **58 of 59**
+datasets; on the high-cardinality suite, down 15.2% and faster on 12 of 14 — less,
+because replay does not cover multiclass and categorical preprocessing is a fixed cost
+either way. Accuracy is a wash on four independent suites, every median essentially zero:
+Grinsztajn +0.005%, high-card −0.017%, PMLB −0.043%, public −0.114%. Two of those four
+played no part in the decision. `refit_members` applies the same trick per bag member, to
+reclaim what each member gives up to its own out-of-bag split.
+
+**What is borrowed.** Both halves. Refreshing leaf values on a fixed structure is
+XGBoost's `refresh` updater and LightGBM's `refit()`. Retraining on all the data after
+early stopping is AutoGluon's `refit_full`, and is packaged elsewhere for LightGBM and
+XGBoost. Using the first as the implementation of the second, by default, is the part we
+put together.
+
+**One thing worth recording.** The first cut of this leaked the target. Split thresholds
+are bin *indices*, so the donor's preprocessor has to be reused verbatim — a re-fitted
+binner silently moves every threshold underneath the structures it is replaying. Our own
+leakage regression test caught it, and the buggy run's apparent wins turned out to be the
+leak. The headline number above is from the fixed version.
+
+### A quantile split search that never builds the gradient matrix
+
+Each row's whole K-channel pinball gradient collapses to one number in a single pass over
+that row's own scores, so on the default settings the `(n, K)` gradient is never
+materialised and a K-level head costs roughly what a one-level head costs per round. The
+`"gram"` and `exact_splits` arms do build it, because they need it.
+
+It costs accuracy, and the cost is small: the default projection lands within **7%** of
+the exact summed-across-levels gain while building one histogram per round instead of one
+per level. Scoring the levels by simply adding them up — the obvious thing — is much
+worse, and for a reason worth knowing: on a symmetric grid the pushes from tau and
+1 − tau are equal and opposite, so an interval centred correctly but too narrow sums to
+exactly zero. Adding them up is blind to spread.
+
+The representation being scored — one shared split across every level — is `grf`'s, and
+the projection machinery is SketchBoost's. What we have not found elsewhere is scoring
+that shared split with a projected second-order gain that never forms the matrix.
+
+### Small default policies
+
+The classifier fades `min_child_weight` out as the training set grows, because on an
+oblivious tree a single sparse child vetoes the whole level. Quantile losses default to
+depth 4 rather than 6, on measurement, for the standard reason that tail estimates need
+more rows per leaf. The multi-quantile head derives its leaf-size floor from the most
+extreme level on the grid, so the floor tracks whatever grid you ask for. A bag member
+whose draw collapses to a single class gets one donor row — a crash guard, not the
+stratified draw the imbalanced-bagging literature would reach for.
+
+Setting a default by a formula in `n` is an old idea; `mtry` is the textbook case. What
+is ours is which curve, not the shape of the answer.
+
+### Equivalence-preserving engineering
+
+The fused per-level kernel, the bit-identical splice that adds cross features to an
+already-fitted preprocessor, and the audited fast path for factorizing numeric
+categories. Checking an optimized path against a reference implementation is standard
+practice in numerical libraries, not a house invention; ours are these particular
+equivalences and the tests that pin them.
+
+Also a cold-start notice: detecting that numba is about to spend fifteen seconds
+compiling and saying so, rather than appearing to hang. Small, but we have not seen
 another library do it.
 
 ## Benchmarks
@@ -122,8 +157,6 @@ The evaluation leans on other people's work too:
 - **TabArena** — the community leaderboard, run by its maintainers on their own defaults.
   It is read and reported, never tuned against.
 - **OpenML** and **Hugging Face** host most of the datasets.
-- Scoring uses the **Brier** score (Brier 1950) in **Murphy**'s (1973) skill-score form,
-  alongside R² and CRPS.
 
 Two things the harness does that are worth stating plainly, with no claim that they are
 new: it diffs a competitor's resolved parameters across dataset sizes to find which of
