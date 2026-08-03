@@ -11,10 +11,7 @@ the point of writing it down.
 
 ## Borrowed
 
-Taken from published work or from another library. The implementation is ours, written
-from the paper or the described behaviour; the idea is not.
-
-| What | Where it came from |
+| What | Borrowed from |
 |---|---|
 | Gradient boosting, shrinkage, the terminal-node value override used for MAE and quantile losses | Friedman, *Greedy Function Approximation*, Annals of Statistics 2001; *Stochastic Gradient Boosting*, 2002 |
 | Oblivious (symmetric) trees — one shared split per level | CatBoost, Prokhorenkova et al., NeurIPS 2018. The tree type itself goes back to Kohavi & Li, IJCAI 1995 |
@@ -52,7 +49,7 @@ the real debts they are.
 A borrowed idea, changed enough here that the difference is worth stating. The credit
 still belongs upstream.
 
-| What | Borrowed from | What is different here |
+| What | Borrowed from | Our version |
 |---|---|---|
 | `adaptive_learning_rate` | CatBoost's automatic learning rate — the size-dependent default that showed up when we diffed its resolved parameters | The fade curve is ours; that the rate should depend on `n` at all is theirs |
 | `min_child_weight` on oblivious trees | XGBoost's `min_child_weight` | One sparse child vetoes the whole level, because the split is shared. Empty children are exempt so pure leaves do not cap depth |
@@ -67,7 +64,7 @@ still belongs upstream.
 Written here, by Nathan Walker and Claude. It is mostly engineering rather than new
 learning theory, and two of these carry measured results.
 
-### Structure-transfer refit — `refit_full="replay"`, on by default
+### 1. Structure-transfer refit — `refit_full="replay"`, on by default
 
 **The problem.** Early stopping holds rows back to choose the tree count, and those rows
 never reach the model you ship. The standard fix is to retrain on all the data once the
@@ -103,7 +100,7 @@ binner silently moves every threshold underneath the structures it is replaying.
 leakage regression test caught it, and the buggy run's apparent wins turned out to be the
 leak. The headline number above is from the fixed version.
 
-### A quantile split search that never builds the gradient matrix
+### 2. Gradient-matrix free quantile split search
 
 Each row's whole K-channel pinball gradient collapses to one number in a single pass over
 that row's own scores, so on the default settings the `(n, K)` gradient is never
@@ -121,30 +118,13 @@ The representation being scored — one shared split across every level — is `
 the projection machinery is SketchBoost's. What we have not found elsewhere is scoring
 that shared split with a projected second-order gain that never forms the matrix.
 
-### Small default policies
-
-The classifier fades `min_child_weight` out as the training set grows, because on an
-oblivious tree a single sparse child vetoes the whole level. Quantile losses default to
-depth 4 rather than 6, on measurement, for the standard reason that tail estimates need
-more rows per leaf. The multi-quantile head derives its leaf-size floor from the most
-extreme level on the grid, so the floor tracks whatever grid you ask for. A bag member
-whose draw collapses to a single class gets one donor row — a crash guard, not the
-stratified draw the imbalanced-bagging literature would reach for.
-
-Setting a default by a formula in `n` is an old idea; `mtry` is the textbook case. What
-is ours is which curve, not the shape of the answer.
-
-### Equivalence-preserving engineering
+### 3. Equivalence-preserving engineering
 
 The fused per-level kernel, the bit-identical splice that adds cross features to an
 already-fitted preprocessor, and the audited fast path for factorizing numeric
 categories. Checking an optimized path against a reference implementation is standard
 practice in numerical libraries, not a house invention; ours are these particular
 equivalences and the tests that pin them.
-
-Also a cold-start notice: detecting that numba is about to spend fifteen seconds
-compiling and saying so, rather than appearing to hang. Small, but we have not seen
-another library do it.
 
 ## Benchmarks
 
