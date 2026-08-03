@@ -687,6 +687,8 @@
       
         
       
+        
+      
     
     
     
@@ -1047,6 +1049,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where the ideas come from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../faq/" class="md-nav__link">
         
   
@@ -1228,13 +1258,14 @@ decomposition of each prediction into per-feature contributions.</p>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">base</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span>           <span class="c1"># baseline, set by the call above</span>
 </code></pre></div>
 <h2 id="why-it-can-be-exact">Why it can be exact<a class="headerlink" href="#why-it-can-be-exact" title="Permanent link">&para;</a></h2>
-<p>Most SHAP tooling approximates by sampling feature coalitions, because exact
-computation is expensive on trees of arbitrary shape. ChimeraBoost computes it exactly.
-Oblivious trees split on the same feature at every node of a level, so a depth-<code>D</code> tree
-involves at most <code>D</code> distinct features. The coalition game therefore has at most <code>D</code>
-players, and all <code>2**D</code> coalitions or fewer are enumerated directly in a numba kernel
-(64 evaluations per tree at depth 6). This is the interventional formulation of
-TreeSHAP, integrated over a background distribution.</p>
+<p>This is TreeSHAP (Lundberg et al.), in its interventional formulation, integrated over a
+background distribution. TreeSHAP is exact on trees of any shape, so exactness is not
+special here — what oblivious trees buy is that the exact computation is cheap and
+short. A depth-<code>D</code> tree splits on at most <code>D</code> distinct features, so the coalition game
+has at most <code>D</code> players and every one of its <code>2**D</code> coalitions can simply be enumerated
+in a numba kernel (64 evaluations per tree at depth 6), with no clever bookkeeping. The
+practical difference for you is that it is built in: no separate <code>shap</code> install, and no
+sampling approximation to configure.</p>
 <h2 id="efficiency">Efficiency<a class="headerlink" href="#efficiency" title="Permanent link">&para;</a></h2>
 <p>Contributions plus the baseline reconstruct the prediction, to floating-point
 tolerance:</p>

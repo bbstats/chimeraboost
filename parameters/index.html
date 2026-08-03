@@ -541,6 +541,8 @@
       
         
       
+        
+      
     
     
     
@@ -1124,6 +1126,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where the ideas come from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../faq/" class="md-nav__link">
         
   
@@ -1417,7 +1447,7 @@ the <a href="../api/">API reference</a>; worked examples live in <a href="../rec
 <tr>
 <td><code>adaptive_learning_rate</code></td>
 <td><code>True</code></td>
-<td>Let the auto <code>learning_rate</code> depend on how much data it has: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set <code>False</code> for the pre-0.30.0 flat 0.1 everywhere. Only consulted when <code>learning_rate</code> is <code>None</code> and early stopping is on, so three paths are unaffected: bagged fits (<code>n_ensembles &gt;= 2</code>), whose members already carry an explicit member learning rate, fits with <code>early_stopping=False</code>, and <code>ChimeraBoostQuantileRegressor</code>.</td>
+<td>Let the auto <code>learning_rate</code> depend on how much data it has, as CatBoost's automatic rate does: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set <code>False</code> for the pre-0.30.0 flat 0.1 everywhere. Only consulted when <code>learning_rate</code> is <code>None</code> and early stopping is on, so three paths are unaffected: bagged fits (<code>n_ensembles &gt;= 2</code>), whose members already carry an explicit member learning rate, fits with <code>early_stopping=False</code>, and <code>ChimeraBoostQuantileRegressor</code>.</td>
 </tr>
 <tr>
 <td><code>depth</code></td>
@@ -1459,7 +1489,7 @@ the <a href="../api/">API reference</a>; worked examples live in <a href="../rec
 <tr>
 <td><code>quantize_gradients</code></td>
 <td><code>True</code></td>
-<td>Search splits on 15-bit quantized gradients and hessians packed into integer histograms. Fits are 20 to 25% faster at the same accuracy. Leaf values always use exact float gradients, and results stay deterministic for a fixed <code>random_state</code>. <code>False</code> uses exact float64 histograms.</td>
+<td>Search splits on 15-bit quantized gradients and hessians packed into integer histograms, the quantized-training technique of Shi, Ke et al. Fits are 20 to 25% faster at the same accuracy. Leaf values always use exact float gradients, and results stay deterministic for a fixed <code>random_state</code>. <code>False</code> uses exact float64 histograms.</td>
 </tr>
 </tbody>
 </table>
@@ -1476,7 +1506,7 @@ the <a href="../api/">API reference</a>; worked examples live in <a href="../rec
 <tr>
 <td><code>subsample</code></td>
 <td><code>1.0</code></td>
-<td>Row fraction per tree. Below 1.0, rows are drawn by Minimum Variance Sampling (gradient-weighted and unbiased) rather than uniformly.</td>
+<td>Row fraction per tree. Below 1.0, rows are drawn by Minimum Variance Sampling (Ibragimov &amp; Gusev; gradient-weighted and unbiased) rather than uniformly.</td>
 </tr>
 <tr>
 <td><code>colsample</code></td>

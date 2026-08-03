@@ -399,10 +399,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inspirations-citations" class="md-nav__link">
+  <a href="#credit-where-it-is-due" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Inspirations / Citations
+        Credit where it is due
       
     </span>
   </a>
@@ -663,6 +663,8 @@
   
     
     
+      
+        
       
         
       
@@ -1032,6 +1034,34 @@
   
   
     <li class="md-nav__item">
+      <a href="attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where the ideas come from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="faq/" class="md-nav__link">
         
   
@@ -1164,10 +1194,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inspirations-citations" class="md-nav__link">
+  <a href="#credit-where-it-is-due" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Inspirations / Citations
+        Credit where it is due
       
     </span>
   </a>
@@ -1211,15 +1241,14 @@
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChimeraBoostClassifier</span><span class="p">,</span> <span class="n">ChimeraBoostRegressor</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># quality picks the speed/accuracy trade-off: 1 is fastest - 5 is strongest,</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># default is 3.</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">quality</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cat_features</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">()</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">()</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">reg</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="what">What?<a class="headerlink" href="#what" title="Permanent link">&para;</a></h2>
 <ul>
@@ -1232,6 +1261,8 @@
 <li>Bagging as a first-class feature (using <code>n_ensembles</code>)</li>
 <li>Automatic early stopping</li>
 <li>Automatic linear-leaf auditioning</li>
+<li>Replay mechanism for faster refitting after early stopping</li>
+<li>Gradient-matrix free multi-quantile split search</li>
 <li>numba is very fast</li>
 </ul>
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
@@ -1243,20 +1274,27 @@
 </ul>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="https://bbstats.github.io/chimeraboost/getting-started/">Getting started</a>: install and first models</li>
-<li><a href="https://bbstats.github.io/chimeraboost/recipes/">Recipes</a>: categoricals, quantiles, bagging, custom losses, and more</li>
-<li><a href="https://bbstats.github.io/chimeraboost/parameters/">Parameters</a>: every option, with defaults and guidance</li>
-<li><a href="https://bbstats.github.io/chimeraboost/faq/">FAQ</a>: common questions</li>
+<li><a href="https://bbstats.github.io/chimeraboost/getting-started/">Getting started</a></li>
+<li><a href="https://bbstats.github.io/chimeraboost/recipes/">Recipes</a></li>
+<li><a href="https://bbstats.github.io/chimeraboost/parameters/">Parameters</a></li>
+<li><a href="https://bbstats.github.io/chimeraboost/faq/">FAQ</a></li>
+<li><a href="https://bbstats.github.io/chimeraboost/attribution/">Where the ideas come from</a></li>
 </ul>
-<h2 id="inspirations-citations">Inspirations / Citations<a class="headerlink" href="#inspirations-citations" title="Permanent link">&para;</a></h2>
+<h2 id="credit-where-it-is-due">Credit where it is due<a class="headerlink" href="#credit-where-it-is-due" title="Permanent link">&para;</a></h2>
+<p>Most ideas in ChimeraBoost were someone else's.</p>
 <ul>
-<li><strong>CatBoost</strong>, Prokhorenkova et al., <em>NeurIPS</em> 2018. Ordered boosting, ordered target statistics, oblivious trees.</li>
-<li><strong>XGBoost</strong>, Chen &amp; Guestrin, <em>KDD</em> 2016. Regularized objective, Newton leaf estimation, column subsampling.</li>
-<li><strong>LightGBM</strong>, Ke et al., <em>NeurIPS</em> 2017. Histogram-based split finding.</li>
-<li><strong>Linear-leaf trees</strong>, Shi et al., <em>IJCAI</em> 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (<code>linear_leaves</code>).</li>
+<li><strong>CatBoost</strong>, Prokhorenkova et al., <em>NeurIPS</em> 2018. Oblivious trees (the tree type itself from Kohavi &amp; Li, <em>IJCAI</em> 1995), ordered target statistics, feature combinations, ordered boosting, and the size-dependent automatic learning rate (<code>adaptive_learning_rate</code>).</li>
+<li><strong>XGBoost</strong>, Chen &amp; Guestrin, <em>KDD</em> 2016. Regularized objective, second-order split gain, Newton leaf estimation, <code>min_child_weight</code>.</li>
+<li><strong>LightGBM</strong>, Ke et al., <em>NeurIPS</em> 2017. Histogram-based split finding, which that paper itself treats as prior art (McRank, Li et al. 2007; pGBRT, Tyree et al. 2011).</li>
+<li><strong>Minimum Variance Sampling</strong>, Ibragimov &amp; Gusev, <em>NeurIPS</em> 2019. Gradient-weighted row sampling (<code>subsample</code>).</li>
+<li><strong>Quantized GBDT training</strong>, Shi, Ke et al., <em>NeurIPS</em> 2022. Integer gradient histograms (<code>quantize_gradients</code>).</li>
+<li><strong>SketchBoost</strong>, Iosipoi &amp; Vakhrushev, <em>NeurIPS</em> 2022, and <strong>GBDT-MO</strong>, Zhang &amp; Jung. Vector leaves and the projected gradient used for multiclass and multi-quantile splits.</li>
+<li><strong>Linear-leaf trees</strong>, Shi, Li &amp; Li, <em>IJCAI</em> 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (<code>linear_leaves</code>); model trees back to Quinlan's M5, 1992.</li>
 <li><strong>TreeSHAP</strong>, Lundberg et al., <em>Nature Machine Intelligence</em> 2020 (orig. SHAP, <em>NeurIPS</em> 2017). Exact additive feature attributions (<code>shap_values</code>).</li>
 <li><strong>OpenFE</strong>, Zhang et al., <em>ICML</em> 2023 (arXiv:2211.12507). Automated pairwise feature generation (<code>cross_features</code>).</li>
-<li><strong>Conformalized quantile regression</strong>, Romano, Patterson &amp; Candès, <em>NeurIPS</em> 2019. Distribution-free interval calibration (<code>conformalize</code>).</li>
+<li><strong>Conformal prediction</strong>, Papadopoulos et al. 2002 and Vovk et al. 2005; <strong>conformalized quantile regression</strong>, Romano, Patterson &amp; Candès, <em>NeurIPS</em> 2019. Distribution-free interval calibration (<code>conformalize</code>).</li>
+<li><strong>Temperature scaling</strong>, Guo et al., <em>ICML</em> 2017 (Platt 1999 lineage). Probability calibration.</li>
+<li><strong>Bagging and out-of-bag estimation</strong>, Breiman 1996; <strong>subagging</strong>, Bühlmann &amp; Yu, <em>Annals of Statistics</em> 2002; column subsampling from <em>Random Forests</em> 2001 and random subspaces, Ho, <em>IEEE TPAMI</em> 1998. The <code>n_ensembles</code> path and <code>colsample</code>.</li>
 </ul>
 
 
