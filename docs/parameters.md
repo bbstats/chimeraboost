@@ -15,7 +15,7 @@ the [API reference](api/index.md); worked examples live in [Recipes](recipes.md)
 |---|---|---|
 | `n_estimators` | `2000` | Maximum boosting rounds (trees). |
 | `learning_rate` | `None` (auto) | Per-tree shrinkage. With early stopping, `None` resolves to 0.1 on data of about 15,000 training rows or more, and fades to 0.07 at 5,000 rows or fewer — see `adaptive_learning_rate`. Lower values trade more trees for a slightly better fit. |
-| `adaptive_learning_rate` | `True` | Let the auto `learning_rate` depend on how much data it has: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set `False` for the pre-0.30.0 flat 0.1 everywhere. Only consulted when `learning_rate` is `None` and early stopping is on, so three paths are unaffected: bagged fits (`n_ensembles >= 2`), whose members already carry an explicit member learning rate, fits with `early_stopping=False`, and `ChimeraBoostQuantileRegressor`. |
+| `adaptive_learning_rate` | `True` | Let the auto `learning_rate` depend on how much data it has, as CatBoost's automatic rate does: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set `False` for the pre-0.30.0 flat 0.1 everywhere. Only consulted when `learning_rate` is `None` and early stopping is on, so three paths are unaffected: bagged fits (`n_ensembles >= 2`), whose members already carry an explicit member learning rate, fits with `early_stopping=False`, and `ChimeraBoostQuantileRegressor`. |
 | `depth` | `None`→auto (reg) / `6` (clf) | Tree depth (a depth-d tree makes d splits). The regressor's `None` resolves to 6 for `"RMSE"` and `"MAE"`, and to 4 for `loss="Quantile"`, where deep leaves overfit the tail. Conservative by default; raise to 8 or 10 for large, interaction-heavy regression. See the User Guide: [interaction-heavy regression](recipes.md#interaction-heavy-regression). |
 | `l2_leaf_reg` | `1.0` | L2 penalty on leaf values. Higher is smoother. |
 | `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | Minimum hessian mass on each side of a split. The classifier's `None` adapts to dataset size: the full veto (1.0) below about 500 training rows, fading linearly to 0 above about 2000. Small data needs the veto, and oblivious trees underfit large data when it stays on. |
@@ -26,13 +26,13 @@ the [API reference](api/index.md); worked examples live in [Recipes](recipes.md)
 | Parameter | Default | Effect |
 |---|---|---|
 | `max_bins` | `128` | Histogram bins per numeric feature. Raising it can improve the fit on some data. |
-| `quantize_gradients` | `True` | Search splits on 15-bit quantized gradients and hessians packed into integer histograms. Fits are 20 to 25% faster at the same accuracy. Leaf values always use exact float gradients, and results stay deterministic for a fixed `random_state`. `False` uses exact float64 histograms. |
+| `quantize_gradients` | `True` | Search splits on 15-bit quantized gradients and hessians packed into integer histograms, the quantized-training technique of Shi, Ke et al. Fits are 20 to 25% faster at the same accuracy. Leaf values always use exact float gradients, and results stay deterministic for a fixed `random_state`. `False` uses exact float64 histograms. |
 
 ## Row and column sampling
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `subsample` | `1.0` | Row fraction per tree. Below 1.0, rows are drawn by Minimum Variance Sampling (gradient-weighted and unbiased) rather than uniformly. |
+| `subsample` | `1.0` | Row fraction per tree. Below 1.0, rows are drawn by Minimum Variance Sampling (Ibragimov & Gusev; gradient-weighted and unbiased) rather than uniformly. |
 | `colsample` | `None` | Feature fraction eligible per tree. `None` means 1.0 for a single model and 0.85 for members inside a bag. See the User Guide: [bagging](recipes.md#bagging). |
 
 ## Categorical features

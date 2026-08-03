@@ -1,9 +1,15 @@
 """ChimeraBoost: a CatBoost-inspired gradient boosting library in pure Python.
 
-Key ingredients borrowed from CatBoost:
+Borrowed from CatBoost (Prokhorenkova et al. 2018):
   * Ordered target statistics for categorical features (anti-leakage encoding)
   * Oblivious / symmetric trees (fast, strongly regularized -> good defaults)
-  * Histogram-based quantized splitting (numba accelerated)
+
+Borrowed from LightGBM:
+  * Histogram-based split finding on pre-binned features (Ke et al. 2017)
+  * Quantized gradient histograms (Shi, Ke et al. 2022)
+
+docs/attribution.md maps every technique to its source, and says which of them
+originated here.
 
 Public API:
   >>> from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
