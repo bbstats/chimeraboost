@@ -36,7 +36,8 @@ shrunk toward the global mean by `cat_smoothing`. Pass the columns (by integer p
 or column name) to `fit(..., cat_features=[...])`; everything else is automatic.
 
 `cat_combinations` additionally builds all pairwise category-by-category features. The
-default (`None`) turns them on automatically when every column is categorical.
+default (`None`) turns them on automatically when every column is categorical and the
+number of pairs stays affordable.
 
 ## Cross features
 
@@ -53,16 +54,25 @@ keeps whichever scores better on validation, so the extra columns cannot hurt be
 their fit-time cost. The payoff is largest on data with real geometric or arithmetic
 structure, such as coordinates, prices, and physical units.
 
+Cross features are on by default, and run whenever the data can use them: from about
+2000 rows up, with either two numeric columns or one numeric column plus a categorical
+one, a validation split (which `fit` makes for you), and, for regression, the default
+`loss="RMSE"`. Outside those conditions they are skipped. `cross_features=False` turns
+them off — full conditions in [Parameters](parameters.md#cross-features).
+
 ## Leaf values and linear leaves
 
 By default each leaf predicts a single constant value. With `linear_leaves`, a leaf
 instead fits a small ridge **linear model** over the numeric features the tree split
 on, adding local slope where a constant underfits smooth structure — piece-wise-linear
-trees, from Shi et al. and the older model-tree literature. Leaves with too few
-rows fall back to constant behavior, which limits overfitting on small datasets. Linear
-leaves are on by default for binary classification. The regression default fits both
-variants and keeps whichever reaches the lower validation loss; set `True` or `False`
-to skip the double fit.
+trees, from Shi et al. and the older model-tree literature. Leaves with too few rows fall
+back to constant behavior, and below about 1000 training rows the linear models are
+skipped entirely, which limits overfitting on small datasets.
+
+Linear leaves are on by default for binary classification. For regression with the
+default `loss="RMSE"`, the model fits both variants and keeps whichever reaches the lower
+validation loss; the other losses use constant leaves unless you ask for
+`linear_leaves=True`. Setting `True` or `False` skips the double fit.
 
 ## Probability calibration
 
@@ -85,4 +95,6 @@ still carry signal.
 
 ## SHAP
 
-See [SHAP](shap.md).
+Per-feature contributions to a single prediction, read exactly off the tree structure
+rather than sampled, and they add up: contributions plus the baseline reconstruct the
+prediction. See [SHAP](shap.md).

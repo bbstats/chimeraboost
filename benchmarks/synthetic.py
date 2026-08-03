@@ -1,7 +1,7 @@
 """
 benchmarks/synthetic.py — Stage-1 synthetic generators + sweep harness.
 
-Probes the oblivious-tree "sharpness tax" (docs/PROJECT_STATUS.md §6, §9) on
+Probes the oblivious-tree "sharpness tax" (benchmarks/PROJECT_STATUS.md §6, §9) on
 PARAMETRIC families, so a candidate change is judged by MECHANISM (Brier vs n,
 Brier vs label noise) BEFORE it ever touches a real-dataset suite. This is
 Stage 1 of the 4-stage loop: synthetic (fit/inspect) -> Grinsztajn (test) ->

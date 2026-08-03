@@ -189,7 +189,7 @@ Implementation is Option A's machinery with a final rescale.
 - [x] Phase 2: images/winrate_matrix.png (diverging blue-win/red-lose cells,
   direct-labeled, row mean = the pareto.png axis by construction). README NOT
   touched: pareto.png was deliberately swapped out of the README for the
-  TabArena chart in fcdc874 — the headline lives in docs/PROJECT_STATUS §2 and
+  TabArena chart in fcdc874 — the headline lives in benchmarks/PROJECT_STATUS §2 and
   the /pareto skill, both updated.
 - [x] Tests: tests/test_strength_viz.py (9 fixture tests: exclusions,
   average-rank ties, ties=½, rank↔winrate identity, matrix row-mean identity,

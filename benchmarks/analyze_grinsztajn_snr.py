@@ -1,7 +1,7 @@
 """
 Stage-2 TEST (report-only): does ChimeraBoost's binary Brier deficit concentrate
 on LOW-NOISE / HIGH-SIGNAL datasets, as the Stage-1 synthetic sweep predicted
-(docs/PROJECT_STATUS.md §9.4)?
+(benchmarks/PROJECT_STATUS.md §9.4)?
 
 This is pure analysis of an EXISTING Grinsztajn results JSON — no fitting, no
 source change. Per §8, Stage 2 ADJUDICATES the synthetic hypothesis; we read the
