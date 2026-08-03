@@ -1029,9 +1029,10 @@ the regressor's <code>loss</code>. See the User Guide:
 <code>eval(y, raw, sample_weight=None)</code> -&gt; scalar (lower is better; drives
 early stopping). Optionally override <code>init(y, sample_weight=None)</code> (the
 starting raw score, default 0.0) and <code>transform(raw)</code> (raw scores -&gt;
-predictions, default identity). Pass an <em>instance</em> as the regressor's
-<code>loss</code>. Instances must be stateless across fits and picklable, so define
-the subclass at module level: bagged members fit in worker processes.</p>
+predictions, default identity).</p>
+<p>Pass an <em>instance</em> as the regressor's <code>loss</code>. Instances must be stateless
+across fits and picklable, so define the subclass at module level: bagged
+members fit in worker processes.</p>
 <p>Read more in the <a href="https://bbstats.github.io/chimeraboost/recipes/">User Guide</a>.</p>
 
 
