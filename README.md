@@ -41,6 +41,8 @@ reg.fit(X, y)
 * Bagging as a first-class feature (using `n_ensembles`)
 * Automatic early stopping
 * Automatic linear-leaf auditioning
+* Replay mechanism for faster refitting after early stopping
+* Gradient-matrix free multi-quantile split search
 * numba is very fast
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
@@ -52,17 +54,25 @@ reg.fit(X, y)
 
 ## Documentation
 
-* [Getting started](https://bbstats.github.io/chimeraboost/getting-started/): install and first models
-* [Recipes](https://bbstats.github.io/chimeraboost/recipes/): categoricals, quantiles, bagging, custom losses, and more
-* [Parameters](https://bbstats.github.io/chimeraboost/parameters/): every option, with defaults and guidance
-* [FAQ](https://bbstats.github.io/chimeraboost/faq/): common questions
+* [Getting started](https://bbstats.github.io/chimeraboost/getting-started/)
+* [Recipes](https://bbstats.github.io/chimeraboost/recipes/)
+* [Parameters](https://bbstats.github.io/chimeraboost/parameters/)
+* [FAQ](https://bbstats.github.io/chimeraboost/faq/)
+* [Where the ideas come from](https://bbstats.github.io/chimeraboost/attribution/)
 
-## Inspirations / Citations
+## Credit where it is due
 
-* **CatBoost**, Prokhorenkova et al., *NeurIPS* 2018. Ordered boosting, ordered target statistics, oblivious trees.
-* **XGBoost**, Chen & Guestrin, *KDD* 2016. Regularized objective, Newton leaf estimation, column subsampling.
-* **LightGBM**, Ke et al., *NeurIPS* 2017. Histogram-based split finding.
-* **Linear-leaf trees**, Shi et al., *IJCAI* 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (`linear_leaves`).
+Most ideas in ChimeraBoost were someone else's.
+
+* **CatBoost**, Prokhorenkova et al., *NeurIPS* 2018. Oblivious trees (the tree type itself from Kohavi & Li, *IJCAI* 1995), ordered target statistics, feature combinations, ordered boosting, and the size-dependent automatic learning rate (`adaptive_learning_rate`).
+* **XGBoost**, Chen & Guestrin, *KDD* 2016. Regularized objective, second-order split gain, Newton leaf estimation, `min_child_weight`.
+* **LightGBM**, Ke et al., *NeurIPS* 2017. Histogram-based split finding, which that paper itself treats as prior art (McRank, Li et al. 2007; pGBRT, Tyree et al. 2011).
+* **Minimum Variance Sampling**, Ibragimov & Gusev, *NeurIPS* 2019. Gradient-weighted row sampling (`subsample`).
+* **Quantized GBDT training**, Shi, Ke et al., *NeurIPS* 2022. Integer gradient histograms (`quantize_gradients`).
+* **SketchBoost**, Iosipoi & Vakhrushev, *NeurIPS* 2022, and **GBDT-MO**, Zhang & Jung. Vector leaves and the projected gradient used for multiclass and multi-quantile splits.
+* **Linear-leaf trees**, Shi, Li & Li, *IJCAI* 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (`linear_leaves`); model trees back to Quinlan's M5, 1992.
 * **TreeSHAP**, Lundberg et al., *Nature Machine Intelligence* 2020 (orig. SHAP, *NeurIPS* 2017). Exact additive feature attributions (`shap_values`).
 * **OpenFE**, Zhang et al., *ICML* 2023 (arXiv:2211.12507). Automated pairwise feature generation (`cross_features`).
-* **Conformalized quantile regression**, Romano, Patterson & Candès, *NeurIPS* 2019. Distribution-free interval calibration (`conformalize`).
+* **Conformal prediction**, Papadopoulos et al. 2002 and Vovk et al. 2005; **conformalized quantile regression**, Romano, Patterson & Candès, *NeurIPS* 2019. Distribution-free interval calibration (`conformalize`).
+* **Temperature scaling**, Guo et al., *ICML* 2017 (Platt 1999 lineage). Probability calibration.
+* **Bagging and out-of-bag estimation**, Breiman 1996; **subagging**, Bühlmann & Yu, *Annals of Statistics* 2002; column subsampling from *Random Forests* 2001 and random subspaces, Ho, *IEEE TPAMI* 1998. The `n_ensembles` path and `colsample`.

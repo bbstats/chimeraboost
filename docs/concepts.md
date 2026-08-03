@@ -2,6 +2,9 @@
 
 ## Oblivious trees
 
+The tree type is CatBoost's, and so is much of what follows on this page — see
+[where the ideas come from](attribution.md).
+
 Every node at a given depth splits on the same `(feature, threshold)`. A depth-`d` tree
 is therefore `d` splits, and a sample's leaf is a `d`-bit number: bit `k` is 1 when the
 sample exceeds the threshold at level `k`. Two things follow:
@@ -20,8 +23,8 @@ splits, which matters on clean, high-signal data. Raising `depth` and enabling
 
 Numeric features are bucketed into at most `max_bins` (default 128) bins once, up
 front. Splits are searched over bin edges rather than raw values, which is what makes
-the histogram pass fast. Missing values route to their own bin, so NaNs are handled
-directly at fit and predict time, with no imputation.
+the histogram pass fast — the approach LightGBM is built around. Missing values route to
+their own bin, so NaNs are handled directly at fit and predict time, with no imputation.
 
 ## Categorical features
 
@@ -42,9 +45,10 @@ greater than x₂" has to be approximated by a staircase of axis-aligned splits,
 costs depth and generalizes poorly. Adding the column `x₁ − x₂` turns that rule into a
 single split.
 
-`cross_features` builds those columns automatically: differences and products for the
-top numeric pairs, plus group-centered columns `x − mean(x | category)` that express
-"above this row's category baseline". The model then fits with and without them and
+`cross_features` builds those columns automatically, following OpenFE's approach to
+automated feature generation: differences and products for the top numeric pairs, plus
+group-centered columns `x − mean(x | category)` that express "above this row's category
+baseline". The model then fits with and without them and
 keeps whichever scores better on validation, so the extra columns cannot hurt beyond
 their fit-time cost. The payoff is largest on data with real geometric or arithmetic
 structure, such as coordinates, prices, and physical units.
@@ -53,7 +57,8 @@ structure, such as coordinates, prices, and physical units.
 
 By default each leaf predicts a single constant value. With `linear_leaves`, a leaf
 instead fits a small ridge **linear model** over the numeric features the tree split
-on, adding local slope where a constant underfits smooth structure. Leaves with too few
+on, adding local slope where a constant underfits smooth structure — piece-wise-linear
+trees, from Shi et al. and the older model-tree literature. Leaves with too few
 rows fall back to constant behavior, which limits overfitting on small datasets. Linear
 leaves are on by default for binary classification. The regression default fits both
 variants and keeps whichever reaches the lower validation loss; set `True` or `False`
@@ -61,8 +66,9 @@ to skip the double fit.
 
 ## Probability calibration
 
-After fitting, the classifier scales its raw scores by a single temperature chosen on
-the validation split to minimize log loss. The scaling is monotonic, so AUC and
+After fitting, the classifier applies temperature scaling (Guo et al.): it scales its
+raw scores by a single temperature chosen on the validation split to minimize log loss.
+The scaling is monotonic, so AUC and
 accuracy are unchanged while the probabilities from `predict_proba` become better
 calibrated. The fitted value is exposed as `temperature_`.
 
@@ -72,9 +78,10 @@ calibrated. The fitted value is exposed as `temperature_`.
 default 0.8, drawn without replacement) and averages them to reduce variance:
 predictions for regression, calibrated probabilities for classification.
 
-Within a single model, `subsample < 1.0` uses Minimum Variance Sampling. Rows are drawn
-with probability tied to gradient magnitude and reweighted to stay unbiased, which
-concentrates effort on the rows that still carry signal.
+Within a single model, `subsample < 1.0` uses Minimum Variance Sampling (Ibragimov &
+Gusev, the row sampler CatBoost uses). Rows are drawn with probability tied to gradient
+magnitude and reweighted to stay unbiased, which concentrates effort on the rows that
+still carry signal.
 
 ## SHAP
 
