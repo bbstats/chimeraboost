@@ -3,18 +3,17 @@
 
 ### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
 
-### #2 On TabArena GBDT Elo (Defaults)
-<img width="1312" height="464" alt="image" src="https://github.com/user-attachments/assets/e1d26498-88f4-4ad9-bc76-05b7778054e5" />
-
-
-
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
 <center>
 <img width="532" height="428" alt="image" src="https://github.com/user-attachments/assets/1778b56f-e05e-4dfb-be93-1f0b66f15d98" />
 
-</center>
 
+
+**#2 On TabArena GBDT Elo (Defaults)**
+<img width="1312" height="464" alt="image" src="https://github.com/user-attachments/assets/e1d26498-88f4-4ad9-bc76-05b7778054e5" />
+<br><br>
+</center>
 ## Installation
 
 ```
