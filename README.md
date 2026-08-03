@@ -84,7 +84,6 @@ Each writes `benchmarks/results/<timestamp>.json`:
 }
 ```
 
-That file is all we need.
 
 ## Inspirations / Citations
 
