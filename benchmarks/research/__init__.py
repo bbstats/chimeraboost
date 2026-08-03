@@ -20,6 +20,11 @@ See the package modules: ``datasets`` (tiers + cache), ``curves`` (paired curve
 comparison), ``runner`` (three-way split + fast/promotion fits), ``ideas`` (the
 pre-registered queue), ``cascade`` (orchestration + gates), ``report``.
 
-GUARDRAIL: this engine must never load TabArena. OpenML is a one-shot gate, not
-an iteration target. See memory feedback_tabarena_lite_is_sealed_holdout.
+GUARDRAIL: this engine must never load TabArena. See memory
+feedback_tabarena_lite_is_sealed_holdout.
+
+Tiers run on Grinsztajn (numeric breadth), the hc: high-cardinality suite (the
+categorical gate) and the PMLB holdout fold. They ran on the OpenML one-shot
+gate until 2026-08-02, when that registry was deleted; ``datasets.py`` records
+the swap and what it means for the verdicts already in SUMMARY.md.
 """

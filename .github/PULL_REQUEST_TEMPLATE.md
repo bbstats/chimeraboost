@@ -6,11 +6,17 @@
 
 <!-- Pick one: -->
 - [ ] No default behavior changes (benchmarks unaffected)
-- [ ] Default/algorithm change — Grinsztajn + OpenML-gate evidence attached (sign test, before/after aggregate table)
+- [ ] Default/algorithm change — benchmark JSON attached
+
+```
+python benchmarks/run_benchmarks.py --decide --seeds 3 --save
+```
+
+Attach `benchmarks/results/<timestamp>.json`, ideally one with your change and
+one without. That is all we need.
 
 ## Checklist
 
 - [ ] `pytest` green
-- [ ] TabArena-Lite untouched (sealed holdout — results are report-only, never a reason for a change)
 - [ ] CHANGELOG.md updated (user-facing changes)
 - [ ] Docs updated (API/parameter changes)

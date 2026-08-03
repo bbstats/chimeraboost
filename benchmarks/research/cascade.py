@@ -1,12 +1,13 @@
-"""Cascade orchestration: idea -> T0 (paired curves) -> gate -> T1 -> gate ->
-T2 (+ OpenML one-shot gate inside) -> PMLB holdout, with a pre-registered
-hypothesis and a consolidated per-idea report.
+"""Cascade orchestration: idea -> T0 (paired curves) -> gate -> T1 (high-card
+categorical gate) -> gate -> T2 (Grinsztajn + high-card) -> PMLB holdout, with a
+pre-registered hypothesis and a consolidated per-idea report.
 
 Efficiency: paired same-split deltas (variance crusher), shared-baseline cache
 (only the variant refits), and a sequential sign-test early-stop per tier. Fits
 parallelize over datasets (ProcessPoolExecutor).
 
-GUARDRAIL: never loads TabArena; OpenML is a one-shot gate (T1), not iterated.
+GUARDRAIL: never loads TabArena. Tier membership lives in datasets.py, which
+also records the 2026-08-02 move off the retired OpenML suite.
 
 CLI:
   python -m benchmarks.research.cascade --idea C1_onehot_low_card --tier T0 T1
@@ -190,8 +191,8 @@ def cascade(idea_name, tiers, seed, threads, jobs):
             return out
 
     if "T1" in tiers:
-        print("\n[T1] promotion -- OpenML categorical gate (paired sign test) ...",
-              flush=True)
+        print("\n[T1] promotion -- high-card categorical gate "
+              "(paired sign test) ...", flush=True)
         keys = datasets.tier_keys("T1")
         v = run_promo_tier(params, seed, threads, jobs, keys)
         out["tiers"]["T1"] = v
@@ -202,7 +203,7 @@ def cascade(idea_name, tiers, seed, threads, jobs):
             return out
 
     if "T2" in tiers:
-        print("\n[T2] large -- full sign test (Grinsztajn + OpenML) ...",
+        print("\n[T2] large -- full sign test (Grinsztajn + high-card) ...",
               flush=True)
         keys = datasets.tier_keys("T2")
         v = run_promo_tier(params, seed, threads, jobs, keys)
@@ -237,6 +238,22 @@ def selftest(seed, threads, jobs):
         below 0) with high pointwise dominance.
       * patience300 -- a NO-OP on the fast tier (early stopping is disabled, so
         patience cannot move the curve): the trajectory is IDENTICAL to baseline.
+
+    BOTH ANCHORS ARE STALE AND THIS SELF-TEST FAILS TODAY (checked 2026-08-02).
+    The cause is library drift, not the tier: the regressor's linear_leaves=None
+    default now auditions constant-leaf against linear-leaf and keeps the winner,
+    and on pol it picks linear -- so linear_leaves=True is bit-identical to the
+    baseline curve, and the "off by default" premise is simply no longer true
+    anywhere the fast tier can see it (binary auto-enables it, multiclass raises
+    on an explicit True). pol was a member of the OpenML-era T0 too, so this
+    predates the 2026-08-02 tier swap. Separately, early_stopping_rounds is not
+    inert under early_stopping=False -- on hc:kick the patience300 curve reaches
+    0.3208 against the baseline's 0.3230.
+
+    Fixing it means choosing anchors that are still genuinely off-by-default,
+    which is an edit to ideas.py, not here. The thresholds below are deliberately
+    left alone: relaxing them until they pass would destroy the only thing this
+    function is for.
     """
     print("=== ENGINE SELF-TEST (T0) ===", flush=True)
     pos = run_fast_tier(ideas.get("linear_leaves")["params"], seed, threads, jobs)

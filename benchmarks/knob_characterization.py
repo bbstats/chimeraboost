@@ -28,18 +28,20 @@ Suites:
   --suite offline    7 built-in datasets (reg/binary/multiclass/cat), NO network.
   --suite grinsztajn 59 real Grinsztajn datasets (HuggingFace). Dataset-outer so
                      each CSV downloads once and is reused across all knobs.
-  --suite openml-cat OpenML datasets that have REAL string categoricals (adult,
-                     bank-marketing, credit-g, sick, mushroom, kr-vs-kp, car,
-                     splice, abalone). Focused on cat knobs by default.
+  --suite highcard   the 14 audited high-cardinality datasets (hc:). Grinsztajn
+                     curates real string categoricals out, so this is the only
+                     real-data suite where the cat knobs have anything to bite
+                     on — hence cat knobs only unless --knob says otherwise.
 
 Report-only: this CHARACTERIZES the knobs. It does NOT tune defaults — nothing
-ships off these numbers without the full synthetic->Grinsztajn->OpenML pipeline.
+ships off these numbers without the full synthetic -> Grinsztajn + high-card
+decision pipeline.
 
 Usage:
   python benchmarks/knob_characterization.py                       # offline, all knobs
   python benchmarks/knob_characterization.py --knob colsample subsample
   python benchmarks/knob_characterization.py --suite grinsztajn --runs 1
-  python benchmarks/knob_characterization.py --suite openml-cat   # cat knobs only
+  python benchmarks/knob_characterization.py --suite highcard     # cat knobs only
 """
 
 import argparse
@@ -247,10 +249,11 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--knob", nargs="+", default=["all"],
                     help=f"knobs to characterize, or 'all'. Available: {list(KNOBS)}")
-    ap.add_argument("--suite", choices=["offline", "grinsztajn", "openml-cat"],
+    ap.add_argument("--suite", choices=["offline", "grinsztajn", "highcard"],
                     default="offline")
     ap.add_argument("--runs", type=int, default=None,
-                    help="seeds per (dataset, value); default 3 offline / 1 grinsztajn")
+                    help="seeds per (dataset, value); default 3 offline, "
+                         "1 grinsztajn/highcard")
     ap.add_argument("--threads", type=int, default=None)
     ap.add_argument("--verbose", action="store_true", help="per-dataset breakdown")
     args = ap.parse_args()
@@ -264,11 +267,13 @@ def main():
         rb._add_grinsztajn_datasets()
         dataset_keys = [k for k in rb.DATASETS if k.startswith("gr:")]
         runs = args.runs if args.runs is not None else 1
-    elif args.suite == "openml-cat":
-        rb._add_openml_datasets()
-        dataset_keys = [f"oml:{name}" for name, spec in rb.OPENML_SUITE.items()
-                        if spec.get("cats") == "auto"]
-        runs = args.runs if args.runs is not None else 3
+    elif args.suite == "highcard":
+        rb._add_highcard_datasets()
+        dataset_keys = [k for k in rb.DATASETS if k.startswith("hc:")]
+        # One seed by default: these run to 100k rows, an order of magnitude
+        # more than the offline panel, and a cat knob sweep fits each of them
+        # once per value.
+        runs = args.runs if args.runs is not None else 1
         # Default to cat knobs only when none specified explicitly
         if args.knob == ["all"]:
             knobs = [k for k in knobs if KNOBS[k]["group"] == "cat"]

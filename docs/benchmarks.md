@@ -7,8 +7,8 @@ ships.
 | suite | what it is | what it is for |
 |---|---|---|
 | SynthGen | synthetic generators | a first screen: does the idea do anything at all? |
-| Grinsztajn + high-card | real datasets, one low-cardinality and one high | the decision. A change ships or dies here. |
-| PMLB | curated sets with tune and holdout folds | hyperparameter tuning only |
+| Grinsztajn + high-card | real datasets, one low-cardinality and one high — the Grinsztajn et al. 2022 tabular benchmark plus a frozen high-cardinality set | the decision. A change ships or dies here. |
+| PMLB | the Penn Machine Learning Benchmarks, split into tune and holdout folds | hyperparameter tuning only |
 | Public | independently audited larger datasets | published evidence, including the chart below |
 | TabArena | the community leaderboard | a sealed read, reported and never tuned against |
 
@@ -29,12 +29,29 @@ Datasets are picked on data properties alone: row counts, cardinality, missingne
 type. No benchmark result is allowed to influence which datasets are in a suite, or it
 would be cherry-picked from birth.
 
-Reproduce the chart with:
+## Running them yourself
+
+Run either one, then open an issue or PR with the JSON.
 
 ```
-python benchmarks/run_benchmarks.py --public --seeds 3 --save \
-    --models ChimeraBoost ChimeraBoostEns5 CatBoost LightGBM
-python benchmarks/make_public_pareto.py benchmarks/results/<stamp>.json
+pip install -e ".[bench,competitors]"
+
+python benchmarks/run_benchmarks.py --synth --seeds 3 --save     # quick, synthetic
+python benchmarks/run_benchmarks.py --decide --seeds 3 --save    # slower, 103 real datasets
 ```
 
-`benchmarks/PUBLIC_PLAN.md` records every dataset and why it is in the suite.
+Each writes `benchmarks/results/<timestamp>.json`:
+
+```json
+{
+  "provenance": {"chimeraboost": "0.30.0", "platform": "Linux-6.1", "cpu_count": 12,
+                 "libraries": {"catboost": "1.2.10", "lightgbm": "4.6.0"}},
+  "records": [
+    {"dataset": "diabetes", "model": "ChimeraBoost", "seed": 0,
+     "metrics": {"primary": -59.82, "rmse": 59.82}, "fit_time": 0.23}
+  ]
+}
+```
+
+That file is all we need. The first run downloads a few gigabytes into
+`benchmarks/data_cache/`; set `BENCH_DATA_HOME` to put it elsewhere.

@@ -45,6 +45,52 @@ from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
 # --------------------------------------------------------------------------
 # Optional competitors: detected once, skipped silently if not installed.
 # --------------------------------------------------------------------------
+def _provenance(argv, chimera_cfg):
+    """What a result JSON needs before two of them can be compared.
+
+    Without this a saved run records seeds and thread counts and nothing about
+    the machine, the library version, or which arm it is -- so two JSONs from
+    two people are not comparable, and a JSON cannot even say what it tested.
+    Everything here is best-effort: a missing git or an unreadable version is
+    recorded as None rather than failing a run that has already spent its
+    compute.
+    """
+    import platform
+    import subprocess
+
+    def _version(mod):
+        try:
+            return __import__(mod).__version__
+        except Exception:
+            return None
+
+    def _git(*args):
+        try:
+            out = subprocess.run(("git",) + args, capture_output=True, text=True,
+                                 timeout=10, cwd=os.path.dirname(
+                                     os.path.abspath(__file__)))
+            return out.stdout.strip() or None if out.returncode == 0 else None
+        except Exception:
+            return None
+
+    dirty = _git("status", "--porcelain")
+    return {
+        "chimeraboost": _version("chimeraboost"),
+        "git_sha": _git("rev-parse", "HEAD"),
+        # A dirty tree means the SHA does not describe what actually ran.
+        "git_dirty": None if dirty is None else bool(dirty),
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "processor": platform.processor() or None,
+        "cpu_count": os.cpu_count(),
+        "libraries": {m: _version(m) for m in
+                      ("numpy", "numba", "sklearn", "pandas",
+                       "catboost", "lightgbm", "xgboost")},
+        "argv": list(argv),
+        "chimera_cfg": dict(chimera_cfg),
+    }
+
+
 def _detect():
     have = {}
     try:
@@ -294,8 +340,6 @@ def _add_variant_datasets(base_keys):
 def _task_of(ds_name):
     """Task type of a dataset by name, without building it."""
     ds_name = ds_name.split(VARIANT_SEP, 1)[0]     # variants inherit the parent's task
-    if ds_name.startswith("oml:"):
-        return OPENML_SUITE[ds_name[4:]]["task"]
     if ds_name.startswith("gr:"):
         return GRINSZTAJN_TASKS[ds_name]
     if ds_name.startswith("pm:"):
@@ -307,69 +351,6 @@ def _task_of(ds_name):
     if ds_name.startswith("syn:"):
         return SYN_TASKS[ds_name]
     return SYNTH_TASKS[ds_name]
-
-
-# --------------------------------------------------------------------------
-# RETIRED AS A GATE, 2026-07-27. This was the "independent one-shot gate": run
-# once after a change cleared the decision suites, required non-negative to
-# ship. It could not do that job, because it was not independent of what it
-# gated -- EIGHT of these 29 are exact-name members of Grinsztajn
-# (bank-marketing, electricity, cpu_act, wine_quality, elevators, ailerons,
-# abalone, house_16H), so it partly re-scored the very data it was meant to
-# check. nursery is also in PMLB and four more sit in TabArena. It is small and
-# partly solved besides (boston 506 rows, kc2 522, credit-g 1000; mushroom and
-# nursery are near-solved). It was paying compute for a confirmation that was
-# partly guaranteed. Validation now falls to the public suite, which is audited
-# for zero overlap with anything we tune on.
-#
-# The LIST survives only as a dataset registry: benchmarks/research/datasets.py,
-# knob_characterization.py and multiclass_panel.py address these by key, and
-# `--datasets oml:<name>` still registers them. There is no --openml flag and
-# no suite-level run.
-#
-# Each entry: (openml_name_or_id, task, cat_feature_indices_or_None).
-# Categoricals are auto-detected from dtype when the index list is "auto".
-#
-# This list is intentionally broad and editable -- add the datasets you care
-# about. IDs are OpenML dataset IDs (stable); names can drift, so IDs preferred.
-# --------------------------------------------------------------------------
-OPENML_SUITE = {
-    # classification (binary)
-    "credit-g":      dict(data_id=31,    task="binary",     cats="auto"),
-    "adult":         dict(data_id=1590,  task="binary",     cats="auto"),
-    "bank-marketing":dict(data_id=1461,  task="binary",     cats="auto"),
-    "kc1":           dict(data_id=1067,  task="binary",     cats=None),
-    "phoneme":       dict(data_id=1489,  task="binary",     cats=None),
-    "electricity":   dict(data_id=151,   task="binary",     cats=None),
-    "magic":         dict(data_id=1120,  task="binary",     cats=None),
-    "spambase":      dict(data_id=44,    task="binary",     cats=None),
-    "kc2":           dict(data_id=1063,  task="binary",     cats=None),
-    "sick":          dict(data_id=38,    task="binary",     cats="auto"),
-    "mushroom":      dict(data_id=24,    task="binary",     cats="auto"),
-    "kr-vs-kp":      dict(data_id=3,     task="binary",     cats="auto"),
-    # high-cardinality real categoricals -- where one-hot vs ordered TS and fresh
-    # permutations actually differ (the CatBoost-gap research targets). Added for
-    # the categorical tier (Part B); all-categorical, no pre-encoding.
-    "Amazon_access": dict(data_id=4135,  task="binary",     cats="auto"),
-    # classification (multiclass)
-    "vehicle":       dict(data_id=54,    task="multiclass", cats=None),
-    "segment":       dict(data_id=40984, task="multiclass", cats=None),
-    "optdigits":     dict(data_id=28,    task="multiclass", cats=None),
-    "car":           dict(data_id=40975, task="multiclass", cats="auto"),
-    "splice":        dict(data_id=46,    task="multiclass", cats="auto"),
-    "nursery":       dict(data_id=26,    task="multiclass", cats="auto"),
-    "satimage":      dict(data_id=182,   task="multiclass", cats=None),
-    "pendigits":     dict(data_id=32,    task="multiclass", cats=None),
-    "letter":        dict(data_id=6,     task="multiclass", cats=None),
-    # regression
-    "cpu_act":       dict(data_id=197,   task="regression", cats=None),
-    "wine_quality":  dict(data_id=287,   task="regression", cats=None),
-    "boston":        dict(data_id=531,   task="regression", cats=None),
-    "elevators":     dict(data_id=216,   task="regression", cats=None),
-    "ailerons":      dict(data_id=296,   task="regression", cats=None),
-    "abalone":       dict(data_id=183,   task="regression", cats="auto"),
-    "house_16H":     dict(data_id=574,   task="regression", cats=None),
-}
 
 
 def _is_categorical_dtype(dtype):
@@ -384,7 +365,7 @@ def _is_categorical_dtype(dtype):
 
 def _frame_to_dataset(X_df, y, cats, task):
     """Turn a (features DataFrame, target Series) into (X, y, cat_idx, task).
-    Shared by the OpenML and Grinsztajn/HuggingFace builders.
+    Shared by every real-data builder.
 
     `cats` is "auto" (detect object/category/string columns), an explicit index
     list, or None. Categorical NaNs become the "__nan__" string: CatBoost rejects
@@ -416,21 +397,6 @@ def _frame_to_dataset(X_df, y, cats, task):
     else:
         X = X_df.to_numpy(dtype=float)
     return X, y, (cat_idx or None), task
-
-
-def _make_openml_builder(spec):
-    """Build a dataset-builder closure for one OpenML spec (fetched by data_id)."""
-    def builder(scale, rng):
-        from sklearn.datasets import fetch_openml
-        ds = fetch_openml(data_id=spec["data_id"], as_frame=True)
-        X_df = ds.frame.drop(columns=[ds.target.name])
-        return _frame_to_dataset(X_df, ds.target, spec["cats"], spec["task"])
-    return builder
-
-
-def _add_openml_datasets():
-    for name, spec in OPENML_SUITE.items():
-        DATASETS[f"oml:{name}"] = _make_openml_builder(spec)
 
 
 # The Grinsztajn et al. 2022 tabular benchmark ("Why do tree-based models still
@@ -645,28 +611,43 @@ def _add_synth_datasets():
 # audit matrix + rationale live in benchmarks/HIGHCARD_PLAN.md. The frozen list
 # only changes with a version bump + re-audit (synthgen-freeze discipline).
 #
-# Loaded via fetch_openml(as_frame=True); cats auto-detected from dtype; a 100k
+# Loaded from data.openml.org's parquet files with an explicitly pinned target,
+# exactly as the pub: suite is; cats auto-detected from dtype; a 100k
 # deterministic subsample (random_state=0, NOT the harness seed -- the train/test
 # split stays the only seed-dependent step). Keys are "hc:<name>".
+#
+# This suite used to load through fetch_openml, which resolves the target from
+# OpenML's metadata API and also silently drops any column the uploader flagged
+# a row identifier. Reading the parquet directly does neither, so `target` is
+# pinned per dataset and two sets need `drop_cols` for a numeric row id the
+# near-unique filter cannot see (it only inspects categorical columns).
+#
+# The switch was audited rather than assumed: benchmarks/verify_highcard_load.py
+# builds all fourteen both ways and compares. Thirteen come out value-identical.
+# The fourteenth, colleges, agrees to a relative 1.4e-14 -- the ARFF stored
+# decimal text and the parquet stores the binary double, so the two round-trip
+# to neighbouring float64s. Nothing in the suite changed meaning.
 # --------------------------------------------------------------------------
 HC_DATASETS = {
     # binary, high-card real categoricals
-    "kick":                  dict(data_id=41162, task="binary"),      # Model card 1063
-    "porto-seguro":          dict(data_id=42742, task="binary"),      # ps_car_11_cat 104
-    "sf-police-incidents":   dict(data_id=42344, task="binary"),      # Address 15165
-    "kdd_ipums_la_97-small": dict(data_id=993,   task="binary"),      # occ/ind codes 191
+    "kick":                  dict(data_id=41162, task="binary", target="IsBadBuy"),          # Model card 1063
+    "porto-seguro":          dict(data_id=42742, task="binary", target="target"),            # ps_car_11_cat 104
+    "sf-police-incidents":   dict(data_id=42344, task="binary", target="ViolentCrime"),      # Address 15165
+    "kdd_ipums_la_97-small": dict(data_id=993,   task="binary", target="binaryClass"),       # occ/ind codes 191
     # multiclass, the regime Grinsztajn lacks entirely
-    "okcupid-stem":          dict(data_id=42734, task="multiclass"),  # speaks 7019 (3-class)
-    "Traffic_violations":    dict(data_id=42345, task="multiclass"),  # Model 3830 (3-class)
-    "cjs":                   dict(data_id=473,   task="multiclass"),  # TREE 57 (6-class)
-    "eucalyptus":            dict(data_id=188,   task="multiclass"),  # Sp 27 (5-class)
+    "okcupid-stem":          dict(data_id=42734, task="multiclass", target="job"),           # speaks 7019 (3-class)
+    "Traffic_violations":    dict(data_id=42345, task="multiclass", target="Violation.Type"),  # Model 3830 (3-class)
+    "cjs":                   dict(data_id=473,   task="multiclass", target="TR"),            # TREE 57 (6-class)
+    "eucalyptus":            dict(data_id=188,   task="multiclass", target="Utility"),       # Sp 27 (5-class)
     # regression with categoricals
-    "wine-reviews":          dict(data_id=41275, task="regression"),  # winery 15633
-    "colleges":              dict(data_id=42727, task="regression"),  # zip 6039 / state 59
-    "house_prices_nominal":  dict(data_id=42563, task="regression"),  # Ames, Neighborhood 25
-    "black_friday":          dict(data_id=41540, task="regression"),  # low-card cats
-    "employee_salaries":     dict(data_id=42125, task="regression"),  # department 37
-    "Moneyball":             dict(data_id=41021, task="regression"),  # Team 39
+    "wine-reviews":          dict(data_id=41275, task="regression", target="points"),        # winery 15633
+    "colleges":              dict(data_id=42727, task="regression", target="percent_pell_grant",
+                                  drop_cols=("UNITID", "school_name", "school_webpage")),    # zip 6039 / state 59
+    "house_prices_nominal":  dict(data_id=42563, task="regression", target="SalePrice",
+                                  drop_cols=("Id",)),                                        # Ames, Neighborhood 25
+    "black_friday":          dict(data_id=41540, task="regression", target="Purchase"),      # low-card cats
+    "employee_salaries":     dict(data_id=42125, task="regression", target="current_annual_salary"),  # department 37
+    "Moneyball":             dict(data_id=41021, task="regression", target="RS"),            # Team 39
 }
 HC_TASKS = {}   # "hc:<name>" -> task, filled at registration
 
@@ -799,11 +780,19 @@ PUBLIC_FACETS = {
 PUBLIC_TASKS = {}   # "pub:<name>" -> task, filled at registration
 _PUBLIC_MAX_ROWS = 200000   # higher cap than HC: the speed axis is the point
 _HIGHCARD_MAX_ROWS = 100000
-# The pub: suite fetches data files straight from OpenML's data host, which has
-# no API in front of it. Cache on A: -- C: has ~4 GB free and these run to
-# hundreds of MB (override with PUBLIC_DATA_HOME).
-_PUBLIC_DATA_HOME = os.environ.get("PUBLIC_DATA_HOME") or r"A:\code\openml_pq"
-_PUBLIC_PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}.pq"
+# Every real-data suite caches into benchmarks/data_cache/, which is gitignored
+# and works the same on Windows, Linux and macOS. Set BENCH_DATA_HOME to move it
+# (these files run to hundreds of MB, so a small system drive may want to).
+_BENCH_DATA_HOME = (os.environ.get("BENCH_DATA_HOME")
+                    or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "data_cache"))
+_PUBLIC_DATA_HOME = os.environ.get("PUBLIC_DATA_HOME") or os.path.join(
+    _BENCH_DATA_HOME, "openml_pq")
+# BOTH path segments are zero-padded to four digits; the file name is not. The
+# unpadded form 404s for every dataset id below 10000, which is three of the
+# fourteen high-card sets -- and rendered identically above it, so nothing that
+# already worked changes.
+_PUBLIC_PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did:04d}/dataset_{did}.pq"
 # Categorical columns whose nunique/n exceeds this are row identifiers / free
 # text (e.g. wine-reviews' `description`/`title`, ~94% unique). They carry no
 # repeated-level signal -- the opposite of the entity-cat regime this suite
@@ -811,10 +800,7 @@ _PUBLIC_PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}
 # threshold sits well above every genuine high-card cat in the frozen suite
 # (the highest is colleges' zip at ~0.855), so no real categorical is dropped.
 _HIGHCARD_ID_FRAC = 0.9
-# sklearn's OpenML cache lands on C: by default, which has ~4 GB free while
-# porto/sf-police/wine-reviews are 100-500 MB fetches, so default the cache to A:
-# (override with the standard SCIKIT_LEARN_DATA env var on a box where C: is fine).
-_HIGHCARD_DATA_HOME = os.environ.get("SCIKIT_LEARN_DATA") or r"A:\code\sklearn_data"
+
 
 
 def _prepare_frame(frame, target, spec, time_col, cap):
@@ -856,8 +842,8 @@ def _prepare_frame(frame, target, spec, time_col, cap):
 
 
 def _make_highcard_builder(spec, time_col=None, max_rows=None):
-    """Build a dataset-builder closure for one HC spec (fetched by data_id, with
-    a deterministic 100k subsample). Mirrors the Grinsztajn/PMLB builders.
+    """Build a dataset-builder closure for one HC spec, with a deterministic
+    100k subsample. Reads the same parquet files the pub: suite does.
 
     With `time_col`, rows are returned in ascending time order and rows whose
     timestamp won't parse are dropped, so _run_seed_task can cut a temporal
@@ -865,10 +851,14 @@ def _make_highcard_builder(spec, time_col=None, max_rows=None):
     later timestamps is precisely the deployment failure the variant measures.
     """
     def builder(scale, rng):
-        from sklearn.datasets import fetch_openml
-        ds = fetch_openml(data_id=spec["data_id"], as_frame=True,
-                          data_home=_HIGHCARD_DATA_HOME)
-        X_df, y = _prepare_frame(ds.frame, ds.target.name, spec, time_col,
+        import pandas as pd
+        frame = pd.read_parquet(_public_parquet_path(spec["data_id"]))
+        target = spec["target"]
+        if target not in frame.columns:
+            raise ValueError(
+                f"target {target!r} is not a column of dataset "
+                f"{spec['data_id']}; columns: {list(frame.columns)[:12]}...")
+        X_df, y = _prepare_frame(frame, target, spec, time_col,
                                  max_rows or _HIGHCARD_MAX_ROWS)
         return _frame_to_dataset(X_df, y, "auto", spec["task"])
     return builder
@@ -1306,7 +1296,10 @@ def _run_catboost(task, Xtr, ytr, Xte, yte, cat, threads):
     from catboost import CatBoostRegressor, CatBoostClassifier
     Xf, Xv, yf, yv = _val_split(Xtr, ytr, task, 0)
     t = time.time()
-    common = dict(n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
+    # Without this CatBoost writes a catboost_info/ directory into whatever
+    # the working directory happens to be. The harness never reads it.
+    common = dict(allow_writing_files=False,
+                  n_estimators=MAX_ITERS, early_stopping_rounds=PATIENCE,
                   thread_count=threads or -1, verbose=False, random_seed=0)
     Est = CatBoostRegressor if task == "regression" else CatBoostClassifier
     m = Est(**common)
@@ -1507,12 +1500,10 @@ def _run_seed_task(task):
     (ds_name, seed, meta, {model: (metrics, secs, best_iter) or None})."""
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
-     ensemble_n, need_openml, need_grinsztajn, need_pmlb, need_synth,
+     ensemble_n, need_grinsztajn, need_pmlb, need_synth,
      need_highcard, need_public, need_variants) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
-    if need_openml:
-        _add_openml_datasets()
     if need_grinsztajn:
         _add_grinsztajn_datasets()
     if need_pmlb:
@@ -1736,10 +1727,6 @@ def main():
                          "closely and roughly doubles competitor runtime).")
     ap.add_argument("--only", choices=["regression", "classification"],
                     default=None)
-    # --openml / --no-synthetic are GONE: the one-shot gate was retired
-    # 2026-07-27 (see OPENML_SUITE). The datasets stay addressable individually
-    # with --datasets oml:<name> for the research and knob-characterisation
-    # scripts that still use them.
     ap.add_argument("--grinsztajn", action="store_true",
                     help="run the Grinsztajn et al. 2022 tabular benchmark "
                          "(binary + regression), loaded from the HuggingFace mirror.")
@@ -1752,8 +1739,9 @@ def main():
     ap.add_argument("--highcard", action="store_true",
                     help="run the frozen HC suite (real high-cardinality-"
                          "categorical datasets; decision tier 2 alongside "
-                         "Grinsztajn). Fetched from OpenML, cached on A: "
-                         "(see SCIKIT_LEARN_DATA). See benchmarks/HIGHCARD_PLAN.md.")
+                         "Grinsztajn). Cached under benchmarks/data_cache "
+                         "(override with BENCH_DATA_HOME). See "
+                         "benchmarks/HIGHCARD_PLAN.md.")
     ap.add_argument("--public", action="store_true",
                     help="run the public validation suite (post-hoc; never "
                          "blocks a ship; see benchmarks/PUBLIC_PLAN.md).")
@@ -1883,8 +1871,8 @@ def main():
     ap.add_argument("--datasets", nargs="+", default=None,
                     metavar="DS",
                     help=("run only these datasets, e.g. --datasets diabetes "
-                          "oml:phoneme boston. Names must match keys in DATASETS "
-                          "(after --openml datasets are added)."))
+                          "gr:electricity hc:kick. Names must match keys in "
+                          "DATASETS; --list-datasets prints them."))
     ap.add_argument("--save", nargs="?", const="auto", default=None,
                     metavar="PATH",
                     help=("Also write the full benchmark output to a file. "
@@ -1933,11 +1921,6 @@ def main():
     # for two suites at once (--grinsztajn --highcard, the decision pair) left
     # nothing to run -- whichever registered last wiped the other.
     keepers = []
-
-    need_openml = bool(
-        args.datasets and any(d.startswith("oml:") for d in args.datasets))
-    if need_openml:
-        _add_openml_datasets()
 
     need_grinsztajn = args.grinsztajn or bool(
         args.datasets and any(d.startswith("gr:") for d in args.datasets))
@@ -2091,7 +2074,7 @@ def main():
 
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
-              PATIENCE, ENSEMBLE_N, need_openml, need_grinsztajn, need_pmlb,
+              PATIENCE, ENSEMBLE_N, need_grinsztajn, need_pmlb,
               need_synth, need_highcard, need_public, need_variants)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
@@ -2245,6 +2228,7 @@ def main():
                     # are NOT comparable with these; summarize warns on a mix.
                     "timing": "fit_only",
                 },
+                "provenance": _provenance(sys.argv, chimera_cfg),
                 "datasets": dataset_meta,
                 "records": raw_records,
             }, jf, indent=2)

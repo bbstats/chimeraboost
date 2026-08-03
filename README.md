@@ -60,7 +60,33 @@ reg.fit(X, y)
 * [FAQ](https://bbstats.github.io/chimeraboost/faq/)
 * [Where the ideas come from](https://bbstats.github.io/chimeraboost/attribution/)
 
-## Credit where it is due
+## Benchmarking
+
+Want to help? Run either one, then open an issue or PR with the JSON.
+
+```
+pip install -e ".[bench,competitors]"
+
+python benchmarks/run_benchmarks.py --synth --seeds 3 --save     # quick, synthetic
+python benchmarks/run_benchmarks.py --decide --seeds 3 --save    # slower, 103 real datasets
+```
+
+Each writes `benchmarks/results/<timestamp>.json`:
+
+```json
+{
+  "provenance": {"chimeraboost": "0.30.0", "platform": "Linux-6.1", "cpu_count": 12,
+                 "libraries": {"catboost": "1.2.10", "lightgbm": "4.6.0"}},
+  "records": [
+    {"dataset": "diabetes", "model": "ChimeraBoost", "seed": 0,
+     "metrics": {"primary": -59.82, "rmse": 59.82}, "fit_time": 0.23}
+  ]
+}
+```
+
+That file is all we need.
+
+## Inspirations / Citations
 
 Most ideas in ChimeraBoost were someone else's.
 
