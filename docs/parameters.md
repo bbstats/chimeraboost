@@ -15,7 +15,7 @@ the [API reference](api/index.md); worked examples live in [Recipes](recipes.md)
 |---|---|---|
 | `n_estimators` | `2000` | Maximum boosting rounds (trees). |
 | `learning_rate` | `None` (auto) | Per-tree shrinkage. With early stopping, `None` resolves to 0.1 on data of about 15,000 training rows or more, and fades to 0.07 at 5,000 rows or fewer — see `adaptive_learning_rate`. Lower values trade more trees for a slightly better fit. |
-| `adaptive_learning_rate` | `True` | Let the auto `learning_rate` depend on how much data it has, as CatBoost's automatic rate does: a linear fade from 0.07 at 5,000 training rows or fewer up to the historical flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. Above the upper threshold this is a no-op and the model is byte-identical to earlier versions. Set `False` for the pre-0.30.0 flat 0.1 everywhere. Only consulted when `learning_rate` is `None` and early stopping is on, so three paths are unaffected: bagged fits (`n_ensembles >= 2`), whose members already carry an explicit member learning rate, fits with `early_stopping=False`, and `ChimeraBoostQuantileRegressor`. |
+| `adaptive_learning_rate` | `True` | Let the auto `learning_rate` depend on how much data it has, as CatBoost's automatic rate does: a linear fade from 0.07 at 5,000 training rows or fewer up to a flat 0.1 at 15,000 or more. Small data is where a lower rate pays, and it is also where the extra trees are cheap. At 15,000 training rows or more it changes nothing; `False` uses a flat 0.1 at every size. Only consulted when `learning_rate` is `None` and early stopping is on, so three paths are unaffected: bagged fits (`n_ensembles >= 2`), whose members already carry an explicit member learning rate, fits with `early_stopping=False`, and `ChimeraBoostQuantileRegressor`. |
 | `depth` | `None`→auto (reg) / `6` (clf) | Tree depth (a depth-d tree makes d splits). The regressor's `None` resolves to 6 for `"RMSE"` and `"MAE"`, and to 4 for `loss="Quantile"`, where deep leaves overfit the tail. Conservative by default; raise to 8 or 10 for large, interaction-heavy regression. See the User Guide: [interaction-heavy regression](recipes.md#interaction-heavy-regression). |
 | `l2_leaf_reg` | `1.0` | L2 penalty on leaf values. Higher is smoother. |
 | `min_child_weight` | `1.0` (reg) / `None`→auto (clf) | Minimum hessian mass on each side of a split. The classifier's `None` adapts to dataset size: the full veto (1.0) below about 500 training rows, fading linearly to 0 above about 2000. Small data needs the veto, and oblivious trees underfit large data when it stays on. |
@@ -26,7 +26,7 @@ the [API reference](api/index.md); worked examples live in [Recipes](recipes.md)
 | Parameter | Default | Effect |
 |---|---|---|
 | `max_bins` | `128` | Histogram bins per numeric feature. Raising it can improve the fit on some data. |
-| `quantize_gradients` | `True` | Search splits on 15-bit quantized gradients and hessians packed into integer histograms, the quantized-training technique of Shi, Ke et al. Fits are 20 to 25% faster at the same accuracy. Leaf values always use exact float gradients, and results stay deterministic for a fixed `random_state`. `False` uses exact float64 histograms. |
+| `quantize_gradients` | `True` | Fits are 20 to 25% faster at the same accuracy, because the split search runs on 15-bit quantized gradients and hessians packed into integer histograms — the quantized-training technique of Shi, Ke et al. Leaf values always use exact float gradients, and results stay deterministic for a fixed `random_state`. `False` uses exact float64 histograms. |
 
 ## Row and column sampling
 
@@ -72,8 +72,8 @@ A whole grid of conditional quantiles from one booster. See the User Guide:
 | `quantiles` | `0.05` to `0.95` in steps of `0.05` | The levels to estimate: ascending, unique, strictly inside (0, 1). Column `k` of `predict` is level `k`. |
 | `conformalize` | `False` | Calibrate the intervals on a fold held out before the early-stopping split. Raises if that fold is too small to certify the levels you asked for. |
 | `calibration_fraction` | `0.2` | Rows reserved for calibration. Ignored unless `conformalize=True`. |
-| `split_projection` | `"rotate"` | How the K gradient columns collapse for the split search. `"rotate"` measured best; `"sum"` is blind to changes in spread; `"gram"` measured no better than `"rotate"`. |
-| `exact_splits` | `False` | Score splits on the exact gain summed across levels instead of a projection. Slightly more accurate, at the cost of K histogram channels per feature. |
+| `split_projection` | `"rotate"` | How the split search scores gain across the quantile levels. Leave it at `"rotate"` unless you are experimenting: `"sum"` adds the levels up and is blind to changes in spread, and `"gram"` costs more without fitting better. |
+| `exact_splits` | `False` | Score splits on the exact gain summed across every level instead of a projection. More faithful, but the split search then builds one histogram per quantile level instead of one in total, so fits are much slower and use more memory as the grid grows. A check on the projection, not a routine setting. |
 
 Two defaults are set for this head rather than inherited: `depth` is 4, because deep
 leaves overfit tail quantiles, and `min_child_weight` follows the most extreme level on
@@ -91,21 +91,21 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. `loss`,
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `linear_leaves` | `None`→auto | Fit a ridge linear model per leaf over the numeric split features instead of a constant. On by default for binary classification. For regression the default fits both variants and keeps the validation winner, at roughly twice the fit time; `True` or `False` skips that double fit. Falls back to constant leaves below about 1000 rows. Unavailable with MAE, Quantile, and multiclass. See the User Guide: [linear leaves](recipes.md#interaction-heavy-regression). |
+| `linear_leaves` | `None`→auto | Fit a ridge linear model per leaf over the numeric split features instead of a constant. On by default for binary classification. For `loss="RMSE"` regression the default fits both variants and keeps the validation winner, at roughly twice the fit time; `True` or `False` skips that double fit. That double fit needs a validation split and about 1000 rows — below that, and under the other regression losses, you get constant leaves unless you set `linear_leaves=True` yourself. Unavailable with MAE, Quantile, and multiclass. See the User Guide: [linear leaves](recipes.md#interaction-heavy-regression). |
 | `linear_lambda` | `1.0` | Ridge penalty on the per-leaf slopes. Larger values approach a constant leaf. |
 
 ## Cross features
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `cross_features` | `None`→auto | Refit with cross columns built from the base fit's top features, then keep whichever model has the lower validation loss. The columns are differences and products for the top-6 numeric pairs, plus group-centered columns `x_i − mean(x_i \| category)` for the top-4 numerics against the top-3 categoricals. Gains are largest on interaction-heavy data (coordinates, prices, physical units) and on entity-heavy categorical data. Auto applies to RMSE regression and to binary and multiclass classification with at least 2000 rows and either 2 numeric features or 1 numeric feature plus categoricals, and skips everything else. `False` turns it off. `cross_features_selected_` and `cross_pairs_` record the outcome. See [How it works](concepts.md#cross-features). |
+| `cross_features` | `None`→auto | Refit with interaction columns built from the base fit's top features, then keep whichever model has the lower validation loss. Gains are largest on interaction-heavy data (coordinates, prices, physical units) and on entity-heavy categorical data. Auto applies to RMSE regression and to binary and multiclass classification with at least 2000 rows and either 2 numeric features or 1 numeric feature plus categoricals, and skips everything else; `False` turns it off. `cross_features_selected_` and `cross_pairs_` record the outcome. See [How it works](concepts.md#cross-features) for the columns it builds. |
 | `selection_rounds` | `100` | Round budget for the internal selection fits (the linear-leaves double fit and the pre-cross base fit). Candidates are judged on their best validation loss within the budget, and only the winner continues to full early stopping, which makes fits about 1.5x faster. An audition that early-stops before the budget is already the full fit. `None` runs every variant to full early stopping; the short audition can occasionally pick a different variant than full runs would. |
 
 ## Ordered boosting
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `ordered_boosting` | `False` | Leave-one-out leaf training step. Off by default, and mutually exclusive with `leaf_estimation_iterations` in the booster. Ignored while linear leaves are active, since the linear-leaf update owns the training step (set `linear_leaves=False` to use it), and ignored with `loss="MAE"` and `loss="Quantile"`. Supported for multiclass. |
+| `ordered_boosting` | `False` | A leave-one-out training step: each row's update uses its leaf's totals with that row's own contribution removed, which curbs the self-reinforcement of plain boosting (CatBoost's ordered boosting, done cheaply). It measured no better than the plain update, so leave it off unless you want to try it on your own data. Mutually exclusive with `leaf_estimation_iterations`. Ignored while linear leaves are active, since the linear-leaf update owns the training step (set `linear_leaves=False` to use it), and ignored with `loss="MAE"` and `loss="Quantile"`. Supported for multiclass. |
 
 ## Early stopping
 
@@ -114,7 +114,7 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. `loss`,
 | `early_stopping` | `True` | Hold out a validation split and stop on a plateau. `False` builds a fixed `n_estimators` trees. |
 | `early_stopping_rounds` | `None`→`50` | Patience when early stopping is active. 50 is the best general-purpose value; raise it to 100 or 300 for large, high-signal datasets, which is the only place the extra trees pay for themselves. |
 | `validation_fraction` | `0.2` | Held-out fraction (stratified for classifiers). Ignored when `eval_set` is passed to `fit`. |
-| `refit_full` | `"replay"` | After early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on all of the rows at that budget (rounds scaled by the train-size ratio), so the final model is not left trained on only part of your data. This is the strongest single-model setting available. The default `"replay"` reuses the winner's tree structures and refits only the leaf values, which costs about a third of what a from-scratch refit does at the same accuracy. `True` grows the whole model again, which is worth it where feature interactions run deep. `False` (or `quality=2`) skips the refit. Multiclass always refits from scratch. No effect with an explicit `eval_set`, with `early_stopping=False`, with `loss="Quantile"`, or inside bagged members. See the User Guide: [full-data refit](recipes.md#full-data-refit). |
+| `refit_full` | `"replay"` | After early stopping has chosen the tree budget on the automatic split, retrain the winning configuration on all of the rows at that budget (rounds scaled by the train-size ratio), so the final model is not left trained on only part of your data. This is the strongest single-model setting available. The default `"replay"` reuses the winner's tree structures and refits only the leaf values, which reaches the same accuracy for about a third less fit time than a from-scratch refit. `True` grows the whole model again, which is worth it where feature interactions run deep. `False` (or `quality=2`) skips the refit. Multiclass always refits from scratch. No effect with an explicit `eval_set`, with `early_stopping=False`, with `loss="Quantile"`, or inside bagged members. See the User Guide: [full-data refit](recipes.md#full-data-refit). |
 
 See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` and
 `groups`.
@@ -123,16 +123,16 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `n_ensembles` | `None` | `None` or `1` is a single model. `2` or more averages members fit on random row subsamples, which reduces variance. 8 is the recommended size; pair it with `refit_members=True` for the strongest configuration. See the User Guide: [bagging](recipes.md#bagging). |
+| `n_ensembles` | `None` | `None` or `1` is a single model. `2` or more averages members fit on random row subsamples, which reduces variance. Two sizes are worth knowing: `n_ensembles=8` with `refit_members=True` is the strongest setting there is, and `n_ensembles=5` with `refit_members=True` is the better deal when fit time matters — it beats a plain 8-member bag on accuracy while fitting about 20% faster. `quality=5` sets 8 members but leaves `refit_members` alone, so set it yourself. See the User Guide: [bagging](recipes.md#bagging). |
 | `ensemble_n_jobs` | `-1` | Worker processes fitting members concurrently, each on an equal share of the thread budget. Same total cores, identical models, 1.2 to 2x faster wall clock. `1` fits members sequentially. |
 | `max_samples` | `0.8` | Fraction of rows each member trains on, drawn without replacement. This beats the classic bootstrap on both accuracy and fit time; `1.0` restores the full-size with-replacement bootstrap. |
-| `refit_members` | `False` | After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from `max_samples` of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10-17% more fit time, the higher end on larger suites. Five refit members beat eight plain ones on both accuracy and speed. Regression and binary only. |
+| `refit_members` | `False` | After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from `max_samples` of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10 to 17% more fit time and improved accuracy at every dataset size measured; `n_ensembles` gives the two sizes to pair it with. Regression and binary classification only, and ignored with an explicit `eval_set` or `loss="Quantile"`. |
 
 ## System
 
 | Parameter | Default | Effect |
 |---|---|---|
-| `thread_count` | `None` | numba threads. `None` or `-1` uses all cores. Affects the determinism of floating-point reductions. |
+| `thread_count` | `None` | CPU threads used for fitting and prediction. `None` or `-1` uses all cores. Results can shift slightly between different thread counts, because the summation order changes, so keep it fixed along with `random_state` if you need runs to match exactly. See [Deployment: thread control](deployment.md#thread-control). |
 | `random_state` | `None` | Seed (deterministic for a fixed `thread_count`). |
 | `verbose` | `False` | Print per-round metrics. |
 

@@ -1,7 +1,7 @@
 # Deployment
 
 What to know when a fitted model leaves the notebook: first-call compile cost, thread
-control, prediction latency, big batches, model size, and fit-time memory.
+control, concurrency, prediction latency, big batches, model size, and fit-time memory.
 
 ## The first call pays the numba compile
 
@@ -12,7 +12,8 @@ cached on disk per user, so later processes pay only a small cache-load cost.
 Run this once after installing and the wait never lands on a real call:
 
 ```
-pip install -U chimeraboost && chimeraboost-warmup
+pip install -U chimeraboost
+chimeraboost-warmup
 ```
 
 **Re-run it after every upgrade.** Numba stamps each cache entry with its source file's
@@ -20,8 +21,7 @@ modification time and size, so installing a new ChimeraBoost version invalidates
 cache and the next run compiles from scratch again. This surprises people who assumed
 the cost was once per machine.
 
-Measured on a 12-core desktop. Regenerate with
-`python benchmarks/cold_start.py --kernels`:
+Measured on a 12-core desktop:
 
 | First call in a fresh process | cold cache | warm cache | steady state |
 |---|---|---|---|
@@ -30,10 +30,13 @@ Measured on a 12-core desktop. Regenerate with
 | `fit` (3K rows, 2 categorical) | 10.1 s | 0.83 s | 0.27 s |
 | `predict` (1 row, unpickled model) | 0.98 s | 0.27 s | 0.5 ms |
 
-Two thirds of that cold compile is two kernels: the linear-leaf solver and the fused
-tree-build level. Both are parallel kernels, which are expensive to compile and several
-times faster to run. The trade is worth it, and it is why the number is seconds rather
-than milliseconds.
+The 0.5 ms in the last row is a repeat call on a classifier with two categorical columns,
+so it carries the categorical re-mapping cost. A plain numeric model is faster — see
+[Prediction latency](#prediction-latency) for the per-call floor.
+
+Most of that cold compile goes into parallel kernels, which are expensive to compile and
+several times faster to run. That trade is why the wait is seconds rather than
+milliseconds.
 
 Serving is the shape that hurts: a process that only unpickles a model pays the
 first-predict cost on its first request, and `warmup()` removes it.
@@ -78,6 +81,38 @@ switched and restored on every call, which is usually cheap but has measured up 
 about 1 ms per call in some process states, since numba's OpenMP layer re-teams on the
 switch.
 
+## Serving one model from several threads
+
+One fitted model can serve `predict`, `predict_proba` and `staged_predict` from as many
+threads as you like. Fitted state is read-only after `fit`, and everything else a
+prediction touches is allocated fresh per call. The one write is a lazily-built internal
+cache, and building it twice produces exactly the same bytes, so a race there costs
+duplicated work and nothing more. No lock is needed, and no copy per worker — share the
+one object. That cache is empty on a model just loaded from a pickle, so call `predict`
+once on a single row before the process accepts traffic — concurrent first calls are safe,
+but the rebuild does not belong on a real request.
+
+Threads give you safety, though not much extra throughput: the compiled kernels hold the
+GIL, so overlapping calls take turns inside the forest walk. The parallelism that matters
+is inside each call, where numba spreads the work across cores itself. If you need more
+requests per second than one process delivers, run more processes. Each holds its own copy
+of the model, which is always safe and costs about 0.5 to 1.7 MB (see
+[Model size and persistence](#model-size-and-persistence)).
+
+Two things to watch:
+
+- `shap_values` sets `expected_value_` on the estimator, so concurrent calls can leave you
+  reading a baseline that belongs to another call. The returned contribution array is
+  always correct; only the attribute races. Serialize those calls if you read it.
+- An explicit `thread_count` is applied by changing a process-global numba setting for the
+  duration of the call and restoring it afterwards. Overlapping calls can interleave those
+  swaps and strand the process on the wrong count. Leave `thread_count=None` and set the
+  ambient count instead, as above.
+
+`fit` is the opposite: it writes to the estimator, so concurrent fits each need their own
+estimator object. They also share one thread pool, so running several at once splits the
+same cores rather than adding any.
+
 ## Prediction latency
 
 Small-batch predict is dominated by fixed per-call overhead (input validation, dtype
@@ -112,10 +147,14 @@ preds = np.concatenate([model.predict(X[i:i + 1_000_000])
 
 A fitted estimator pickles like any scikit-learn object (see
 [Recipes](recipes.md#save-and-load-a-model)). A 500-tree model is roughly 0.5 MB on
-disk, or about 1.7 MB with linear leaves. The packed predict cache is excluded from
-pickles automatically and rebuilds on the first predict after loading. Pickles are not
-guaranteed to load across ChimeraBoost versions, so store the version alongside the
-model (see [FAQ](faq.md#is-the-api-stable)).
+disk, or about 1.7 MB with linear leaves. Pickles leave out an internal prediction cache,
+so the first predict after loading is slower while it rebuilds; later calls are
+unaffected. In a fresh process that rebuild is part of the first-predict cost measured
+under [the numba compile](#the-first-call-pays-the-numba-compile).
+
+Pickles are not guaranteed to load across ChimeraBoost versions, so store
+`chimeraboost.__version__` alongside the model and re-fit after an upgrade — see
+[How do I save and load a model?](faq.md#how-do-i-save-and-load-a-model) for the pattern.
 
 ## Fit-time memory
 

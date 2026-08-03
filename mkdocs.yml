@@ -73,20 +73,16 @@ plugins:
             show_symbol_type_toc: true
             filters: ["!^_"]
 
-# PROJECT_STATUS.md is an internal dev/handoff briefing — keep it in the repo but
-# out of the published site.
-exclude_docs: |
-  PROJECT_STATUS.md
-
 nav:
   - Home: index.md
   - Getting started: getting-started.md
   - User guide:
       - Recipes: recipes.md
-      - Predictive distributions: quantiles.md
+      - Quantiles and prediction intervals: quantiles.md
       - How it works: concepts.md
       - SHAP explanations: shap.md
       - Deployment: deployment.md
+      - Coming from XGBoost, LightGBM or CatBoost: migrating.md
   - Reference:
       - Parameters: parameters.md
       - API reference:

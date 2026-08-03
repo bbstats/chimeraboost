@@ -1,12 +1,12 @@
 # chimeraboost
 *pronounced kai-MEER-uh-boost*
 
-### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
+### Lightning-fast gradient boosting, near-[CatBoost quality](https://bbstats.github.io/chimeraboost/benchmarks/), all in Python
 
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
 <center>
-<img width="532" height="428" alt="image" src="https://github.com/user-attachments/assets/1778b56f-e05e-4dfb-be93-1f0b66f15d98" />
+<img width="532" height="428" alt="Accuracy against fit time: ChimeraBoost sits close to CatBoost at a fraction of its fit cost" src="https://github.com/user-attachments/assets/1778b56f-e05e-4dfb-be93-1f0b66f15d98" />
 
 </center>
 
@@ -35,21 +35,21 @@ reg.fit(X, y)
 ## What?
 
 * Regression, quantile regression, binary and multiclass classification
-* Fast training and inference, all in python
-* Extremely high quality predictions
+* Categorical columns handled directly — no one-hot, no label encoding
+* Near-CatBoost accuracy on public benchmarks, at a fraction of the fit time (chart below)
 
 ## How?
-* Bagging as a first-class feature (using `n_ensembles`)
-* Automatic early stopping
-* Automatic linear-leaf auditioning
+* Bagging as a first-class feature (`n_ensembles`)
+* Early stopping and probability calibration on by default
+* Fits with and without linear leaves, and keeps whichever validates better
 * numba is very fast
 
 <p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
 
 ## Why?
 
-* I want to be able to modify my GBDT library at will
-* I know Python and I don't know C
+* It is all Python, so you can read and change any part of it
+* No C or C++ build step, and no compiled extension to fight
 
 ## Documentation
 

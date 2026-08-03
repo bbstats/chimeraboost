@@ -31,26 +31,28 @@ exactly the shipped defaults.
 reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 ```
 
-| `quality` | name | fit time | sets |
+| `quality` | name | fit time vs default | sets |
 |---|---|--:|---|
-| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
-| `2` | balanced | 5.3x | `refit_full=False` |
-| `3` | accurate *(= default)* | 6.9x | nothing (these are the defaults) |
-| `4` | ensemble | 18.1x | `n_ensembles=5` |
-| `5` | max | 26.0x | `n_ensembles=8` |
+| `1` | fast | **0.28x** | `cross_features=False`, `refit_full=False`, plus `linear_leaves=True` on the regressor |
+| `2` | balanced | 0.77x | `refit_full=False` |
+| `3` | accurate *(= default)* | 1x | nothing (these are the defaults) |
+| `4` | ensemble | 2.6x | `n_ensembles=5` |
+| `5` | max | 3.8x | `n_ensembles=8` |
 
-Fit times are multiples of the fastest gradient boosting library measured on the same
-data, averaged over a benchmark suite. Every rung buys accuracy for its extra time, so
-none of them is a bad deal; pick the one that fits your time budget.
+Every rung buys accuracy for its extra time, so none of them is a bad deal; pick the
+one that fits your time budget. One step past rung 5, add
+[`refit_members=True`](#reclaiming-the-per-member-data-tax).
 
 The default is rung 3, the strongest setting that does not build an ensemble. Rung 2 is
 the same model without the [full-data refit](#full-data-refit). It saves less time than
-the gap suggests, because the default now does that refit by replaying tree structures
+the gap suggests, because the default does that refit by replaying tree structures
 instead of re-growing them.
 
 **What rung 1 gives up.** By default ChimeraBoost auditions its own configuration:
 constant leaves against linear leaves, plain features against cross features. That
-costs two to four boosting fits. `quality=1` pins both decisions and fits once.
+costs two to four boosting fits. `quality=1` pins both decisions and fits once. The
+linear-leaf pin applies to the regressor only: the classifier already follows a fixed
+rule (linear leaves for binary, constant for multiclass) that costs no extra fit.
 Reach for it on numeric-heavy data and large parameter sweeps. Prefer `quality=2`
 when categorical columns dominate, where the saving is smaller (categorical
 preprocessing is a fixed cost that skipping auditions cannot touch) and the accuracy
@@ -66,9 +68,10 @@ Drop it to set those parameters yourself.
 ## Categorical features
 
 Pass your categoricals as `cat_features`, by integer position or, for a DataFrame, by
-column name (or a mix of both). They are encoded with ordered target statistics
-(CatBoost-style), so there is no one-hot or `LabelEncoder` step. Categorical columns
-can hold strings or objects while the rest of the matrix stays numeric.
+column name (or a mix of both). They are encoded with [ordered target
+statistics](concepts.md#categorical-features) (CatBoost-style), so there is no one-hot
+or `LabelEncoder` step. Categorical columns can hold strings or objects while the rest
+of the matrix stays numeric.
 
 ```python
 # columns 0 and 3 are categorical (e.g. "city", "device_type")
@@ -129,14 +132,15 @@ model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
 lo, med, hi = model.predict(X_test).T
 ```
 
-Raw intervals come out too wide, because boosting shrinks every round's step and the
-grid never fully contracts. `conformalize=True` calibrates them:
+Raw intervals run slightly narrow: each leaf's quantiles are measured on the same rows
+that formed the leaf, which is optimistic. `conformalize=True` rescales every level
+about the median until the intervals hit their nominal coverage:
 
 ```python
 model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9], conformalize=True,
                                       random_state=0).fit(X_train, y_train)
 lo, med, hi = model.predict(X_test).T
-print(model.conformal_scale_)                              # < 1 means the fit was too wide
+print(model.conformal_scale_)                   # one factor per level; above 1 widened the fit
 print(np.mean((y_test >= lo) & (y_test <= hi)))            # ~0.80, the nominal level
 ```
 
@@ -180,8 +184,15 @@ claims = ChimeraBoostRegressor(loss="Tweedie",
                                tweedie_variance_power=1.5).fit(X, y)   # y >= 0, exact zeros
 ```
 
+## Outlier-robust regression
+
 `loss="Huber"` is squared error that tolerates outliers, switching to absolute error
-beyond `delta` (measured in units of y).
+beyond `delta` (measured in units of y). `loss="MAE"` goes further and ignores how far
+out an outlier sits, fitting the conditional median instead of the mean.
+
+```python
+reg = ChimeraBoostRegressor(loss="Huber", delta=1.0).fit(X, y)
+```
 
 ## Custom objectives and metrics
 
@@ -234,8 +245,11 @@ clf = ChimeraBoostClassifier(random_state=0)
 clf.fit(X_train, y_train, sample_weight=w)
 ```
 
-Weights are normalized to mean 1 internally and apply to training only. The
-early-stopping metric stays unweighted.
+Weights are normalized to mean 1 internally and apply throughout the fit: the gradients
+and leaf values, the categorical encoder, the histogram bin borders, and the
+early-stopping metric on the automatic validation split (or a bag member's out-of-bag
+rows). A zero-weight row never influences the model. An `eval_set` you pass yourself is
+scored unweighted unless you pass its weights with it, as `(X_val, y_val, w_val)`.
 
 ## Bagging
 
@@ -250,10 +264,10 @@ rows and early-stops on the groups it never saw.
 reg = ChimeraBoostRegressor(n_ensembles=8, random_state=0).fit(X_train, y_train)
 ```
 
-Use `n_ensembles=8`: it is stronger than 5 at similar cost. Avoid `n_ensembles=2`,
-which scores worse than a single model. If you want the most accuracy per unit of
-fit time, turn on [`refit_members`](#reclaiming-the-per-member-data-tax) as well —
-five refit members beat eight plain ones on both accuracy and speed.
+`n_ensembles=8` is stronger than 5, for about 45% more fit time. Avoid `n_ensembles=2`,
+which scores worse than a single model. For the most accuracy per unit of fit time,
+turn on [`refit_members`](#reclaiming-the-per-member-data-tax): five refit members beat
+eight plain ones on both accuracy and speed.
 
 Inside a bag, parameters left on auto resolve to member defaults tuned for averaging,
 currently `learning_rate=0.15` and `colsample=0.85`, because averaging tolerates
@@ -281,7 +295,7 @@ reg = ChimeraBoostRegressor(n_ensembles=8, refit_members=True,
 
 Only the leaf values change; the splits stay exactly as each member's own
 sample grew them, which is where a bag's diversity actually lives. Expect
-roughly 10-17% more fit time, the higher end on larger suites. Because each
+roughly 10-17% more fit time, the higher end on larger datasets. Because each
 member is individually stronger, you can also spend the gain on fewer members:
 `n_ensembles=5, refit_members=True` beat a plain eight-member bag on accuracy
 while fitting about 20% faster. Regression and binary classification only —
@@ -423,8 +437,11 @@ reg = ChimeraBoostRegressor(depth=10, random_state=0).fit(X_train, y_train)
 ```
 
 Per-leaf linear models add local slope inside each leaf. They are on by default for
-binary classification; for regression the default fits both variants and keeps the one
-with the lower validation loss. Set the parameter explicitly to skip that double fit:
+binary classification. For regression the default fits both variants and keeps the one
+with the lower validation loss, but only under `loss="RMSE"` (the default) with a
+validation split and at least 1000 rows; every other loss gets constant leaves unless
+you set `linear_leaves=True` yourself, which MAE and quantile loss reject. Set the
+parameter explicitly to skip the double fit:
 
 ```python
 reg = ChimeraBoostRegressor(linear_leaves=True, random_state=0).fit(X_train, y_train)
@@ -435,6 +452,6 @@ reg = ChimeraBoostRegressor(linear_leaves=True, random_state=0).fit(X_train, y_t
 ```python
 m = ChimeraBoostRegressor(
     random_state=0,        # deterministic for a fixed thread count
-    thread_count=4,        # numba threads; None or -1 uses all cores
+    thread_count=4,        # CPU threads used for fitting; None or -1 uses all cores
 ).fit(X_train, y_train)
 ```

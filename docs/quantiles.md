@@ -2,7 +2,7 @@
 
 `ChimeraBoostQuantileRegressor` estimates a whole grid of conditional quantiles from a
 single booster. One tree structure per round serves every level, and each leaf holds a
-K-vector with one entry per level. CatBoost's `MultiQuantile` loss works the same way;
+vector with one entry per level. CatBoost's `MultiQuantile` loss works the same way;
 one booster for the whole grid is not a design we came up with.
 
 ```python
@@ -42,20 +42,20 @@ The 30% quantile is never returned above the 70%. Every row is sorted on its way
 never increases pinball loss at any level, for any row (Chernozhukov, Fernández-Val &
 Galichon 2010), so the guarantee is free.
 
-Independently fitted per-level models have no such property. On the benchmark in
-`benchmarks/quantile_head.py`, 18 to 21% of adjacent quantile pairs come out reversed.
+Independently fitted per-level models have no such property: in our benchmarks, 18 to
+21% of their adjacent quantile pairs come out reversed.
 
-The band is free to be much *narrower* than the pooled one where the data is quiet — it
-tracks the local spread rather than a global floor.
+Ordering does not mean a fixed width. Where the data is quiet the band comes out much
+*narrower* than one built from the unconditional quantiles of `y`, because it tracks
+local spread rather than a global floor.
 
 ## Interval calibration
 
 Read the intervals with this in mind: **the raw grid runs slightly narrow.** Leaf values
 are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. On the datasets in `benchmarks/probe_quantile_band.py` a nominal 80%
-interval delivers about 72 to 76% coverage. Pinball loss is what the model optimizes and
-it is good — better than one dedicated LightGBM booster per level — but a raw interval
-is not a coverage guarantee.
+is optimistic. Across our benchmark datasets a nominal 80% interval delivers about 72 to
+76% coverage. Pinball loss is what the model optimizes and it is good — better than one
+dedicated LightGBM booster per level — but a raw interval is not a coverage guarantee.
 
 `conformalize=True` turns it into one:
 
@@ -124,10 +124,9 @@ Two defaults are set for this head rather than inherited. `depth` is 4, because 
 leaves overfit tail quantiles, and `min_child_weight` follows the most extreme level on
 the grid, so a leaf estimating the 5% quantile keeps at least about 20 rows.
 
-`split_projection` chooses how the K gradient columns collapse into the single vector
-the tree grower accepts. Leave it alone unless you are exploring: `"rotate"` measured
-best, `"sum"` is blind to changes in spread, and `"gram"` measured no better than
-`"rotate"`. `exact_splits=True` scores the exact gain summed across levels, which is
-slightly more accurate at the cost of K histogram channels per feature.
-
-`benchmarks/QUANTILE_PLAN.md` records why each of those defaults is what it is.
+`split_projection` controls how a split's gain is scored across the quantile levels.
+Leave it at the default `"rotate"`: `"sum"` is blind to changes in spread, and `"gram"`
+scores no better. `exact_splits=True` scores the gain exactly across every level instead
+of through a projection — more faithful, but fits get much slower and use much more
+memory, both growing with the number of levels. It is a reference setting, not something
+to switch on for routine use.
