@@ -11,9 +11,6 @@ the point of writing it down.
 
 ## Borrowed
 
-Taken from published work or from another library. The implementation is ours, written
-from the paper or the described behaviour; the idea is not.
-
 | What | Borrowed from |
 |---|---|
 | Gradient boosting, shrinkage, the terminal-node value override used for MAE and quantile losses | Friedman, *Greedy Function Approximation*, Annals of Statistics 2001; *Stochastic Gradient Boosting*, 2002 |
