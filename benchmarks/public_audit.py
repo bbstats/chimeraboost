@@ -46,8 +46,22 @@ sys.path.insert(0, _HERE)
 import suite_overlap  # noqa: E402
 
 CACHE_PATH = os.path.join(_HERE, "data_cache", "openml_meta.json")
-PQ_CACHE = os.environ.get("PUBLIC_AUDIT_CACHE") or r"A:\code\openml_pq"
 PQ_URL = "https://data.openml.org/datasets/{pad:04d}/{did}/dataset_{did}.pq"
+
+
+def pq_cache():
+    """Where downloaded parquets live: the harness's own cache, so `verify`
+    reads the same files a benchmark run does instead of a second copy.
+
+    run_benchmarks is imported lazily -- it pulls in chimeraboost and sklearn,
+    and `shortlist` needs neither. PUBLIC_AUDIT_CACHE still overrides for a
+    one-off; BENCH_DATA_HOME is the setting that moves both at once.
+    """
+    override = os.environ.get("PUBLIC_AUDIT_CACHE")
+    if override:
+        return override
+    import run_benchmarks
+    return run_benchmarks._PUBLIC_DATA_HOME
 
 # The consumed/alias pool lives in suite_overlap so the audit and both suite
 # tests apply one list. Kept as a module alias for readability below.
@@ -227,9 +241,10 @@ def report(rows, cuts, cat, min_rows, markdown=False, top=25):
 # content verification (reads the real bytes)
 # --------------------------------------------------------------------------
 def fetch_parquet(did):
-    """Download dataset <did>'s parquet into the A: cache; return the path."""
-    os.makedirs(PQ_CACHE, exist_ok=True)
-    path = os.path.join(PQ_CACHE, f"dataset_{did}.pq")
+    """Download dataset <did>'s parquet into the shared cache; return the path."""
+    cache = pq_cache()
+    os.makedirs(cache, exist_ok=True)
+    path = os.path.join(cache, f"dataset_{did}.pq")
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return path
     url = PQ_URL.format(pad=did // 10000, did=did)

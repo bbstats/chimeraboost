@@ -35,6 +35,12 @@ chimeraboost-warmup = "chimeraboost.warmup:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pandas>=1.3"]
+# Everything the benchmark harness needs beyond the library itself. pandas reads
+# the dataset files, pyarrow reads the parquet ones, matplotlib draws the charts.
+bench = ["pandas>=1.3", "pyarrow>=10", "matplotlib>=3.5", "pytest"]
+# The models we measure against. Optional because the harness detects and skips
+# whatever is absent -- but a run without them has nothing to compare to.
+competitors = ["catboost", "lightgbm", "xgboost"]
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24", "black>=24.0"]
 
 [tool.setuptools.packages.find]

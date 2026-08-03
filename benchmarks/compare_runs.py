@@ -2,19 +2,34 @@
 
 Usage:
     python benchmarks/compare_runs.py BASE.json NEW.json [base_label new_label]
-                                      [--model ChimeraBoost]
+                                      [--model ChimeraBoost] [--by-suite]
+                                      [--metric brier]
 
 Compares the per-dataset mean of the 'primary' metric (always higher-is-better:
 negative RMSE for regression, F1/accuracy for classification). Reports per-dataset
 deltas and a sign test (how many datasets NEW beats BASE).
 
+READ THE SIGN TEST AND THE MEDIAN, NOT THE MEAN
+-----------------------------------------------
+The win/loss/tie count and the MEDIAN relative gap are what this project
+decides on. The mean of relative gaps is printed for continuity with numbers
+quoted in older plan files and is never a verdict: a single dataset whose base
+loss is near zero can move it by thousands of percent. It has read -144% and
+-8e21% here on comparisons the sign test read as fine (the -144% one was 54
+wins to 31 losses). See NEAR-SOLVED DATASETS below.
+
+--by-suite reports one INDEPENDENT sign test per stratum (suite x variant)
+instead of one over the union. Mandatory for reading a --decide run: the
+decision suites answer different questions, and a variant (@sus25/@sus50/@time)
+is a derived view of its parent dataset, so a pooled test counts the same rows
+twice. The tool warns loudly if you pool strata without it.
+--metric brier judges on Brier instead: classification sets only (regression
+records carry no Brier), oriented so NEW wins = lower Brier.
 --model filters records to one model first. Without it, a multi-model JSON
 blends every model's records into the per-dataset mean (fine when both runs
 hold the other models fixed, but the deltas are diluted).
 --model-new names the NEW run's records when they differ (e.g. baseline
 ChimeraBoost vs an arm's ChimeraBoostEns2).
---metric brier judges on Brier instead: classification sets only (regression
-records carry no Brier), oriented so NEW wins = lower Brier.
 
 NEAR-SOLVED DATASETS
 --------------------
@@ -105,6 +120,29 @@ def is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n):
     return bool(vals) and min(vals) < NEAR_SOLVED_BRIER
 
 
+def _warn_pooled_strata(ds_names):
+    """Shout when one pooled sign test is about to span several strata.
+
+    A variant (@sus25/@sus50/@time) is a derived VIEW of its parent dataset, so
+    pooling the two counts the same rows twice and the test claims a larger
+    sample than it has. Grinsztajn and the high-card suite are separate
+    questions besides. CLAUDE.md therefore requires --by-suite for a --decide
+    run. Warning only: nothing below it changes and the exit code stays 0.
+    """
+    strata = summarize.split_strata(ds_names)
+    if len(strata) < 2:
+        return
+    found = ", ".join(f"{summarize.stratum_label(s)} ({len(d)})"
+                      for s, d in strata.items())
+    bar = "!" * 72
+    print(f"{bar}\n"
+          f"WARNING: pooling {len(strata)} strata into one sign test: {found}.\n"
+          f"A variant is a derived view of its parent dataset, so a pooled test\n"
+          f"scores the same rows twice and overstates its own sample size.\n"
+          f"Re-run with --by-suite for the per-stratum tests the protocol wants.\n"
+          f"{bar}\n")
+
+
 def _sign_counts(pairs):
     """(wins, losses, ties) over (base, new) pairs on a higher-is-better metric."""
     wins = sum(1 for b, n in pairs if n - b > 1e-9)
@@ -130,8 +168,8 @@ def main():
                          "(reproduces pre-fix numbers quoted in older plans).")
     ap.add_argument("--by-suite", action="store_true",
                     help="report an independent sign test per stratum (suite x "
-                         "variant) instead of one over the union -- the correct "
-                         "read for a --decide run.")
+                         "variant) instead of one over the union -- mandatory "
+                         "for reading a --decide run.")
     args = ap.parse_args()
     base_label, new_label = args.base_label, args.new_label
 
@@ -163,6 +201,8 @@ def main():
             _report(ds_names, base, new, ds_meta, rmse_b, rmse_n,
                     brier_b, brier_n, args, base_label, new_label)
         return
+
+    _warn_pooled_strata(shared)
     _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
             args, base_label, new_label)
 

@@ -1,7 +1,9 @@
 """Profile a ChimeraBoost fit on a representative dataset.
 
-Picks adult (n=32K, mixed numeric/categorical) by default since it is the
-slowest dataset in our benchmark and exercises every code path. Reports:
+Datasets come from run_benchmarks' registry, so the row caps, target columns
+and download cache are the decision suites' own. Picks hc:kick by default
+(n=73K, numeric + high-cardinality categorical): one of the slower sets we run
+and it exercises every code path. Reports:
 
   * End-to-end wall-clock fit time
   * Per-phase breakdown (tree build vs everything else)
@@ -13,7 +15,7 @@ and cProfile to spot unexpected pure-Python overhead.
 
 Run:
     python benchmarks/profile_fit.py
-    python benchmarks/profile_fit.py --dataset car        # multiclass path
+    python benchmarks/profile_fit.py --dataset eucalyptus   # multiclass path
 
 Attribution mode (PARETO_PLAN.md Track 1 step 0): time the DEFAULT estimator
 fit across representative Grinsztajn + hc datasets, split by selection fit
@@ -41,7 +43,10 @@ import io
 import json
 import os
 import pstats
+import sys
 import time
+
+import numpy as np
 
 
 # Patch BEFORE constructing any booster so the timing wrapper is picked up.
@@ -61,52 +66,42 @@ def _timed_build(*args, **kw):
 bm.build_oblivious_tree = _timed_build
 
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
-from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import run_benchmarks as rb  # noqa: E402  (the repo's one dataset loader)
 
-# Same OpenML loader the main benchmark uses, distilled.
-DATASETS = {
-    "adult":       dict(data_id=1590, task="binary"),
-    "bank":        dict(data_id=1461, task="binary"),
-    "car":         dict(data_id=40975, task="multiclass"),
-    "phoneme":     dict(data_id=1489, task="binary"),
-    "electricity": dict(data_id=151,  task="binary"),
-    "cpu_act":     dict(data_id=197,  task="regression"),
+
+# Short names for the cProfile panel -> run_benchmarks registry keys. This
+# script used to carry its own fetch_openml loader, which cached to the system
+# drive and gave the profiler different data from the benchmarks; now there is
+# one loading path. `--dataset` also takes a raw registry key for anything the
+# panel doesn't name.
+#
+# adult, phoneme and car went with the OpenML registry — no suite we still run
+# has them. kick replaces adult as the mixed numeric/categorical default, and
+# eucalyptus covers the multiclass path car used to.
+PROFILE_DATASETS = {
+    "kick":           "hc:kick",                    # binary, 73K, high-card cats
+    "electricity":    "gr:clf_cat/electricity",     # binary, with cats
+    "bank-marketing": "gr:clf_num/bank-marketing",  # binary, numeric only
+    "cpu_act":        "gr:reg_num/cpu_act",         # regression, numeric only
+    "wine-reviews":   "hc:wine-reviews",            # regression, 100K, high-card cats
+    "eucalyptus":     "hc:eucalyptus",              # multiclass
 }
 
 
 def load(name):
-    spec = DATASETS[name]
-    ds = fetch_openml(data_id=spec["data_id"], as_frame=True)
-    df = ds.frame
-    y = ds.target
-    X_df = df.drop(columns=[ds.target.name])
-
-    def _is_cat(d):
-        s = str(d).lower()
-        return s in ("category", "object") or s.startswith("string")
-    cat_idx = [i for i, c in enumerate(X_df.columns) if _is_cat(X_df[c].dtype)]
-
-    task = spec["task"]
-    if task == "regression":
-        y = y.astype(float).to_numpy()
-    else:
-        y = y.astype("category").cat.codes.to_numpy()
-
-    if cat_idx:
-        import pandas as pd
-        cols = []
-        for i, c in enumerate(X_df.columns):
-            s = X_df[c]
-            if i in cat_idx:
-                cols.append(s.astype(object).where(s.notna(), "__nan__"))
-            else:
-                cols.append(s.astype(float))
-        X = pd.concat(cols, axis=1).to_numpy(dtype=object)
-    else:
-        X = X_df.to_numpy(dtype=float)
-    return X, y, (cat_idx or None), task
+    """Build one panel dataset through run_benchmarks. The rng only moves
+    synthetic sets, and every panel entry is real data, so seed 0 is fixed."""
+    rb._add_grinsztajn_datasets()
+    rb._add_highcard_datasets()
+    key = PROFILE_DATASETS.get(name, name)
+    if key not in rb.DATASETS:
+        raise SystemExit(f"unknown dataset {name!r}; panel: "
+                         f"{', '.join(PROFILE_DATASETS)} (or a registry key)")
+    print(f"Loading {key}...")
+    return rb.DATASETS[key](1.0, np.random.default_rng(0))
 
 
 # --------------------------------------------------------------------------
@@ -267,10 +262,6 @@ def _split_members(fits):
 
 
 def run_bag_attribution(args):
-    import numpy as np
-    import run_benchmarks as rb
-    from sklearn.model_selection import train_test_split
-
     rb._add_grinsztajn_datasets()
     rb._add_highcard_datasets()
     keys = args.datasets or BAG_ATTR_DATASETS
@@ -451,10 +442,6 @@ def _pct(x, tot):
 
 
 def run_attribution(args):
-    import numpy as np
-    import run_benchmarks as rb
-    from sklearn.model_selection import train_test_split
-
     rb._add_grinsztajn_datasets()
     rb._add_highcard_datasets()
     keys = args.datasets or ATTR_DATASETS
@@ -625,7 +612,9 @@ def attr_report(results):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", default="adult", choices=list(DATASETS))
+    ap.add_argument("--dataset", default="kick",
+                    help=f"panel name ({', '.join(PROFILE_DATASETS)}) or any "
+                         "run_benchmarks registry key")
     ap.add_argument("--n_estimators", type=int, default=500)
     ap.add_argument("--no-early-stopping", action="store_true")
     ap.add_argument("--top", type=int, default=25,
@@ -654,7 +643,6 @@ def main():
         run_attribution(args)
         return
 
-    print(f"Loading {args.dataset}...")
     X, y, cat_idx, task = load(args.dataset)
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.25, random_state=0,

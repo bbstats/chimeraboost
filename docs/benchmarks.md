@@ -7,8 +7,8 @@ ships.
 | suite | what it is | what it is for |
 |---|---|---|
 | SynthGen | synthetic generators | a first screen: does the idea do anything at all? |
-| Grinsztajn + high-card | real datasets, one low-cardinality and one high | the decision. A change ships or dies here. |
-| PMLB | curated sets with tune and holdout folds | hyperparameter tuning only |
+| Grinsztajn + high-card | real datasets, one low-cardinality and one high — the Grinsztajn et al. 2022 tabular benchmark plus a frozen high-cardinality set | the decision. A change ships or dies here. |
+| PMLB | the Penn Machine Learning Benchmarks, split into tune and holdout folds | hyperparameter tuning only |
 | Public | independently audited larger datasets | published evidence, including the chart below |
 | TabArena | the community leaderboard | a sealed read, reported and never tuned against |
 
@@ -29,12 +29,22 @@ Datasets are picked on data properties alone: row counts, cardinality, missingne
 type. No benchmark result is allowed to influence which datasets are in a suite, or it
 would be cherry-picked from birth.
 
-Reproduce the chart with:
+## Running these yourself
 
 ```
-python benchmarks/run_benchmarks.py --public --seeds 3 --save \
-    --models ChimeraBoost ChimeraBoostEns5 CatBoost LightGBM
+pip install -e ".[bench,competitors]"
+python benchmarks/run_benchmarks.py --public --seeds 3 --save --models ChimeraBoost ChimeraBoostEns5 CatBoost LightGBM
 python benchmarks/make_public_pareto.py benchmarks/results/<stamp>.json
 ```
+
+The library has to be installed, not just checked out. The first run downloads
+several gigabytes into `benchmarks/data_cache/`; set `BENCH_DATA_HOME` to put
+that somewhere else.
+
+If you want to benchmark a *change* rather than reproduce the chart, the full
+protocol — which suite decides, why the sign test is run per stratum and never
+pooled, and what a submission needs to contain — is in
+[benchmarks/CONTRIBUTING_BENCHMARKS.md](https://github.com/bbstats/chimeraboost/blob/main/benchmarks/CONTRIBUTING_BENCHMARKS.md).
+It is the same protocol we hold ourselves to.
 
 `benchmarks/PUBLIC_PLAN.md` records every dataset and why it is in the suite.

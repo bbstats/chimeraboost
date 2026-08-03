@@ -57,6 +57,7 @@ reg.fit(X, y)
 * [Recipes](https://bbstats.github.io/chimeraboost/recipes/): categoricals, quantiles, bagging, custom losses, and more
 * [Parameters](https://bbstats.github.io/chimeraboost/parameters/): every option, with defaults and guidance
 * [FAQ](https://bbstats.github.io/chimeraboost/faq/): common questions
+* [Benchmarking](benchmarks/CONTRIBUTING_BENCHMARKS.md): how to run the suites and submit a result we can read
 
 ## Inspirations / Citations
 

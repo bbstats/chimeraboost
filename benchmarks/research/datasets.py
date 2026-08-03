@@ -1,18 +1,29 @@
 """Dataset tiers for the cascade, with a download-once persistent cache.
 
-Reuses the loaders already wired in ``run_benchmarks`` (OpenML, Grinsztajn,
+Reuses the loaders already wired in ``run_benchmarks`` (Grinsztajn, high-card,
 PMLB) -- never re-implements a fetch. Each tier is a list of ``run_benchmarks``
 DATASETS keys; ``load(key)`` returns ``(X, y, cat, task)`` and caches the result
 to ``research/cache/data/`` keyed by the dataset key, so a dataset is fetched at
 most once ever (not once per idea, not once per seed).
 
 Tiers (categorical-first, never TabArena):
-  T0  handful (~8)  -- fast go/kill on paired curves. Seconds per fit-pair.
-  T1  medium (~)    -- OpenML real-categorical breadth (the categorical-aware
-                       gate; OpenML is used ONCE as a gate, never iterated).
-  T2  large         -- Grinsztajn-59 numeric breadth + OpenML + the categorical
-                       tier -> full sign test + blended Pareto.
+  T0  handful (8)   -- fast go/kill on paired curves. Seconds per fit-pair.
+  T1  medium (14)   -- the hc: high-cardinality suite: real-categorical breadth,
+                       the categorical-aware promotion gate.
+  T2  large (73)    -- Grinsztajn-59 numeric breadth + the hc: suite -> full
+                       sign test + blended Pareto. The expensive tier.
   HOLDOUT           -- PMLB holdout fold, out-of-sample generalization.
+
+TIER MEMBERSHIP CHANGED 2026-08-02 (issue #71). Every tier used to be built on
+the 29-dataset OpenML one-shot gate, which was retired on 2026-07-27 (eight of
+its datasets were exact-name Grinsztajn members, so it partly re-scored the data
+it was meant to check) and whose registry has now been deleted outright, along
+with the last fetch_openml call in the harness. T1 moved to hc:, the project's
+audited real-categorical suite and what decisions actually run on today. T0 kept
+its two gr: members and refilled the other six by role, not by name: one numeric
+binary, two categorical binaries, two categorical multiclass, plus a categorical
+regression the old handful lacked. The cascade's own verdicts predate the swap
+and are not comparable dataset-for-dataset -- see SUMMARY.md.
 
 GUARDRAIL: no tier may reference TabArena. See feedback_tabarena_lite_is_sealed_holdout.
 """
@@ -32,40 +43,44 @@ _CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 # ---------------------------------------------------------------------------
 # Tier membership. Keys are run_benchmarks DATASETS keys; the loaders for the
-# oml:/gr:/pm: namespaces are registered lazily by _ensure_registered().
+# gr:/hc:/pm: namespaces are registered lazily by _ensure_registered().
 # ---------------------------------------------------------------------------
 
 # T0: a handful spanning the known levers' sweet-spots -- high-signal binary, an
-# interaction-heavy regression, real string-categorical sets (low + high card),
-# and multiclass. Row-capped (see T0_MAX_ROWS) so a fit-pair is seconds.
+# interaction-heavy regression, real categorical sets (low + high card), and
+# multiclass. Row-capped (see T0_MAX_ROWS) so a fit-pair is seconds; the hc:
+# members are the small end of that suite so the first download is cheap too
+# (the largest, kick, is a 2.6 MB parquet).
+#
+# Every categorical slot is filled from hc:, not from Grinsztajn's clf_cat /
+# reg_cat folders. Those folders are named for the paper's *original* feature
+# types, but the HuggingFace mirror serves the paper's transformed CSVs, in which
+# the categoricals are already numerically encoded -- cats="auto" detects zero
+# string columns in every one of them. A gr:clf_cat key exercises nothing this
+# tier is here to screen.
 T0_HANDFUL = [
-    "oml:electricity",        # binary, high-signal numeric
-    "gr:clf_num/covertype",   # binary, large numeric (capped)
-    "gr:reg_num/pol",         # regression, interaction-heavy
-    "oml:kr-vs-kp",           # binary, all real categoricals
-    "oml:adult",              # binary, mixed real categoricals (high card)
-    "oml:bank-marketing",     # binary, mixed real categoricals
-    "oml:car",                # multiclass, all real categoricals
-    "oml:splice",             # multiclass, real categoricals
+    "gr:clf_num/electricity",    # binary, high-signal numeric
+    "gr:clf_num/covertype",      # binary, large numeric (capped)
+    "gr:reg_num/pol",            # regression, interaction-heavy
+    "hc:kick",                   # binary, high-card categoricals (Model, 1063)
+    "hc:kdd_ipums_la_97-small",  # binary, mid-card code categoricals (191)
+    "hc:Moneyball",              # regression with categoricals (Team, 39)
+    "hc:eucalyptus",             # multiclass (5), real categoricals
+    "hc:cjs",                    # multiclass (6), high-card categoricals
 ]
 T0_MAX_ROWS = 8000   # cap rows on T0 only, to keep go/kill in well under a minute
 
-# T1: OpenML real-categorical breadth -- the categorical-aware medium tier. Used
-# ONCE as a gate (not an iteration target). The cats="auto" members of the
-# (Part-B-extended) OpenML suite.
-def _openml_cat_keys():
-    return [f"oml:{name}" for name, spec in rb.OPENML_SUITE.items()
-            if spec.get("cats") == "auto"]
+
+# T1: the frozen hc: suite -- 14 audited real-categorical datasets, the
+# categorical-aware promotion gate.
+def _highcard_keys():
+    return [k for k in rb.DATASETS if k.startswith("hc:")]
 
 
-# T2 large: full numeric breadth (Grinsztajn) + the whole OpenML suite + the
-# categorical tier. Built lazily (membership depends on registration).
+# T2 large: full numeric breadth (Grinsztajn) + the categorical tier. Built
+# lazily (membership depends on registration).
 def _grinsztajn_keys():
     return [k for k in rb.DATASETS if k.startswith("gr:")]
-
-
-def _openml_keys():
-    return [f"oml:{name}" for name in rb.OPENML_SUITE]
 
 
 def _pmlb_holdout_keys():
@@ -74,8 +89,8 @@ def _pmlb_holdout_keys():
 
 def _ensure_registered():
     """Register every namespace loader (idempotent, cheap)."""
-    rb._add_openml_datasets()
     rb._add_grinsztajn_datasets()
+    rb._add_highcard_datasets()
     rb._add_pmlb_datasets()
 
 
@@ -87,12 +102,13 @@ def tier_keys(tier):
     if tier == "T0":
         return list(T0_HANDFUL)
     if tier == "T1":
-        return _openml_cat_keys()
+        return _highcard_keys()
     if tier == "T2":
         # De-dup while preserving order: Grinsztajn numeric breadth, then the
-        # OpenML suite (includes the categorical tier from Part B).
+        # categorical tier. The two suites are audited disjoint, but the de-dup
+        # stays -- it is what makes T2 safe to extend with another namespace.
         seen, out = set(), []
-        for k in _grinsztajn_keys() + _openml_keys():
+        for k in _grinsztajn_keys() + _highcard_keys():
             if k not in seen:
                 seen.add(k)
                 out.append(k)

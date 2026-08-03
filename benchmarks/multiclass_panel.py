@@ -5,7 +5,14 @@ Motivation: the public TabArena leaderboard shows multiclass as ChimeraBoost's
 weakest problem type. Our 2026-06-08 check found single-model parity on 8
 OpenML sets — but TabArena scores 8-fold BAGGED models on LOG LOSS, neither of
 which that check covered. This panel re-establishes ground truth on
-independent suites (OpenML + PMLB multiclass; TabArena itself stays sealed).
+independent suites (high-card + PMLB multiclass; TabArena itself stays sealed).
+
+Coverage is smaller than it used to be, and worth saying plainly: the panel ran
+9 OpenML sets plus 8 PMLB sets until the retired one-shot gate's registry was
+deleted. Nothing can register an OpenML key any more, so multiclass now means
+the 4 multiclass members of the high-card suite plus all 10 PMLB multiclass
+sets — 14 datasets rather than 17, and less of the small clean-numeric flavour
+(vehicle, optdigits, letter) than before.
 
 Bag proxy = AutoGluon's bagging: stratified 8-fold split of the training data,
 each child fits on 7/8 and early-stops on its held-out fold, test prediction
@@ -13,7 +20,7 @@ is the mean of the children's probabilities.
 
 Usage:
     python benchmarks/multiclass_panel.py                # full panel
-    python benchmarks/multiclass_panel.py --datasets oml:vehicle
+    python benchmarks/multiclass_panel.py --datasets hc:eucalyptus
 Results append to benchmarks/results/multiclass_panel.jsonl (resumable);
 the aggregate table prints at the end of every run.
 """
@@ -36,13 +43,17 @@ from chimeraboost import ChimeraBoostClassifier  # noqa: E402
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 RESULTS = os.path.join(RESULTS_DIR, "multiclass_panel.jsonl")
 
-# OpenML multiclass suite + PMLB multiclass sets (pm names resolved to their
-# fold-qualified registry keys at runtime). PMLB `nursery`/`segmentation`
-# duplicate oml:nursery / oml:segment and are skipped.
-OML = ["oml:vehicle", "oml:segment", "oml:optdigits", "oml:car", "oml:splice",
-       "oml:nursery", "oml:satimage", "oml:pendigits", "oml:letter"]
-PMLB = ["yeast", "contraceptive_method", "texture", "dna", "page_blocks",
-        "ann_thyroid", "mfeat_factors", "krkopt"]
+# The multiclass half of the high-card suite — the only real-categorical
+# multiclass data in the decision stack — plus every PMLB multiclass set (pm
+# names resolved to their fold-qualified registry keys at runtime). `nursery`
+# and `segmentation` used to be dropped as duplicates of oml:nursery /
+# oml:segment; with the OpenML registry gone they are the only copies left.
+# hc:cjs is a guaranteed tie, not a datapoint: its TREE column (57 levels) has a
+# single treatment group per level, so every model scores log loss ~0. Kept for
+# completeness; read it as a tie, never as parity.
+HC = ["hc:okcupid-stem", "hc:Traffic_violations", "hc:cjs", "hc:eucalyptus"]
+PMLB = ["yeast", "contraceptive_method", "segmentation", "texture", "nursery",
+        "dna", "page_blocks", "ann_thyroid", "mfeat_factors", "krkopt"]
 
 SINGLE_SEEDS = (0, 1, 2)
 BAG_SEEDS = (0, 1)
@@ -50,9 +61,9 @@ N_BAG_FOLDS = 8
 
 
 def _dataset_keys():
-    rb._add_openml_datasets()
+    rb._add_highcard_datasets()
     rb._add_pmlb_datasets()
-    keys = list(OML)
+    keys = list(HC)
     for name in PMLB:
         match = [k for k in rb.DATASETS if k.startswith("pm:")
                  and k.endswith("/" + name)]
@@ -191,7 +202,9 @@ def main():
                             out = SINGLE_RUNNERS[model](
                                 task, Xtr, ytr, Xte, yte, cat, None)
                             if out is not None:
-                                metrics, secs, _ = out
+                                # (metrics, fit_s, predict_s, best_iter) since
+                                # the harness split prediction out of fit_time.
+                                metrics, secs, _pred_s, _best = out
                                 row = {"dataset": ds, "model": model,
                                        "variant": "single", "seed": seed,
                                        "log_loss": metrics["log_loss"],

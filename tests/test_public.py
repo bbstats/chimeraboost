@@ -80,8 +80,9 @@ def test_overlap_gate_actually_catches_a_hit():
     pool and require a failure -- otherwise an empty PUBLIC_DATASETS would make
     test_no_suite_overlap pass for the wrong reason forever."""
     pools = suite_overlap.exclusion_pools(include_hc=True)
-    adult_id = rb.OPENML_SUITE["adult"]["data_id"]
-    assert suite_overlap.overlap_failures("adult", adult_id, pools)
+    # 1590 is adult's OpenML id, from the retired oml: gate's registry. Decorative
+    # here -- adult is in suite_overlap.CONSUMED_ELSEWHERE, so the name alone fires.
+    assert suite_overlap.overlap_failures("adult", 1590, pools)
     assert suite_overlap.overlap_failures("Amazon_employee_access", None, pools)
     assert suite_overlap.overlap_failures("wine-reviews", None, pools)   # HC
     assert not suite_overlap.overlap_failures("a-name-in-no-suite", 10**9, pools)
@@ -131,7 +132,7 @@ def test_public_flag_errors_while_empty(monkeypatch):
 # --------------------------------------------------------------------------
 # drop_cols: what near-uniqueness cannot catch
 # --------------------------------------------------------------------------
-def test_drop_cols_removes_named_columns():
+def test_drop_cols_removes_named_columns(monkeypatch):
     """rossmann ships a train/test/valid `Set` marker and freMTPL2freq a numeric
     IDpol row id; neither is near-unique enough for the categorical filter."""
     pd = pytest.importorskip("pandas")
@@ -144,21 +145,22 @@ def test_drop_cols_removes_named_columns():
         "y": np.arange(50.0),
     })
 
-    class _DS:
-        pass
+    # Both builders now read a parquet off disk, so stub both halves of that
+    # seam: the path (no download) and the read (no file, no pyarrow needed).
+    seen = []
 
-    ds = _DS()
-    ds.frame = frame
-    ds.target = frame["y"]
-    spec = dict(data_id=-1, task="regression", drop_cols=("Set", "IDpol", "absent"))
+    def _fake_path(data_id):
+        seen.append(data_id)
+        return "<stub parquet>"
+
+    monkeypatch.setattr(rb, "_public_parquet_path", _fake_path)
+    monkeypatch.setattr(pd, "read_parquet", lambda path: frame.copy())
+
+    spec = dict(data_id=-1, task="regression", target="y",
+                drop_cols=("Set", "IDpol", "absent"))
     builder = rb._make_highcard_builder(spec, max_rows=None)
-    import sklearn.datasets as skds
-    orig = skds.fetch_openml
-    skds.fetch_openml = lambda **kw: ds
-    try:
-        X, y, cat, task = builder(1.0, np.random.default_rng(0))
-    finally:
-        skds.fetch_openml = orig
+    X, y, cat, task = builder(1.0, np.random.default_rng(0))
+    assert seen == [-1], "the loader must go through the cached-parquet path"
     assert X.shape[1] == 1, "only `keep` should survive drop_cols"
     assert task == "regression" and len(y) == 50
 

@@ -176,19 +176,26 @@ _TABARENA_NAME_FALLBACK = {
 }
 
 
+# The 29 OpenML ids of the one-shot gate retired 2026-07-27, whose registry was
+# deleted from run_benchmarks.py (issue #71). Kept verbatim, NOT re-derived: they
+# set the `curated` flag on corpus rows, and corpus_marginals.json is a frozen
+# generator artifact. Re-running --refresh must reproduce that corpus, not
+# silently redefine what "curated" means. Editing this list is a generator change
+# -- VERSION bump, re-freeze, backtest re-validation.
+_RETIRED_OPENML_IDS = (
+    31, 1590, 1461, 1067, 1489, 151, 1120, 44, 1063, 38, 24, 3, 4135,  # binary
+    54, 40984, 28, 40975, 46, 26, 182, 32, 6,                          # multiclass
+    197, 287, 531, 216, 296, 183, 574,                                 # regression
+)
+
+
 def _in_repo_curated():
     """Names/ids of the in-repo decision suites (curated tags for the corpus)."""
-    names, ids = set(), set()
+    names, ids = set(), set(_RETIRED_OPENML_IDS)
     try:
         import run_benchmarks as rb
         for folder_names in rb.GRINSZTAJN_DATASETS.values():
             names.update(n.lower() for n in folder_names)
-        for spec in rb.OPENML_SUITE.values():
-            data_id = spec.get("data_id")
-            if isinstance(data_id, int):
-                ids.add(data_id)
-            elif isinstance(data_id, str):
-                names.add(data_id.lower())
     except Exception as exc:  # noqa: BLE001
         print(f"  WARNING: run_benchmarks registries unavailable ({exc})", flush=True)
     return names, ids

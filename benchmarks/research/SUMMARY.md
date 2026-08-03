@@ -3,8 +3,16 @@
 Pre-registered ideas run through the efficient cascade (`cascade.py`). Each was a
 default-OFF flag, byte-identical no-op when off, tested, then judged on paired
 validation curves (T0) and/or held-out test metric with a sign test (T1). Lower
-is better throughout. **Guardrail: TabArena never touched; OpenML T1 is a one-shot
-gate, not an iteration target.**
+is better throughout. **Guardrail: TabArena never touched.**
+
+**Historical ledger — the tiers below no longer exist.** Every verdict here was
+reached on the OpenML one-shot gate, retired 2026-07-27 and deleted 2026-08-02
+(issue #71). T1 is now the `hc:` high-cardinality suite and T0's OpenML members
+were replaced by role; see the tier note in `datasets.py`. The dataset names in
+this table (`kr-vs-kp`, `car`, `splice`, `adult`, `bank-marketing`) are not
+loadable by the harness any more, so a re-run of any idea would produce numbers
+that are not comparable dataset-for-dataset with these. The conclusions still
+stand as the reason the queue was closed; they are not a live baseline.
 
 | Idea | Flag | Tier | Verdict | What happened |
 |---|---|---|---|---|
@@ -36,12 +44,20 @@ on-permutations machinery operating together, not any single transplantable part
 make it +6% to +27% worse). Its ordered-TS encoding is already near-perfect (Brier
 ~0.024), so any added categorical structure just injects variance it overfits.
 That single dataset is the clearest evidence the defaults are at a good optimum.
+It went with the OpenML registry and the current T0 has no all-categorical
+near-solved set to play the same role; anyone reviving this line should expect to
+find the canary somewhere else before trusting a categorical win.
 
 ## Engine notes
 - One fit = whole `validation_history_` curve; paired same-split deltas; shared
   baseline cache → each verdict reached in ~25–60s (T0) for ~0 marginal cost.
 - Post-fit ideas (G1) are invisible to the per-round curve → routed straight to
   the promotion tier (`post_fit=True`).
+- `cascade.py --selftest` FAILS as of 2026-08-02: its `linear_leaves` anchor
+  assumes that flag is off by default, and the regressor now auditions it and
+  picks it (bit-identical curves on `pol`). Library drift, not the tier swap —
+  `pol` was in the OpenML-era T0 too. Needs new anchors in `ideas.py`; details in
+  the `selftest` docstring.
 
 ## Queue complete
 Every pre-registered lever has been run (C1, C3, C4, G1, G2, G3, G4) or deferred
