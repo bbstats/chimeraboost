@@ -399,10 +399,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#credit-where-it-is-due" class="md-nav__link">
+  <a href="#benchmarking" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Credit where it is due
+        Benchmarking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspirations-citations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspirations / Citations
       
     </span>
   </a>
@@ -1194,10 +1205,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#credit-where-it-is-due" class="md-nav__link">
+  <a href="#benchmarking" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Credit where it is due
+        Benchmarking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspirations-citations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspirations / Citations
       
     </span>
   </a>
@@ -1280,7 +1302,25 @@
 <li><a href="https://bbstats.github.io/chimeraboost/faq/">FAQ</a></li>
 <li><a href="https://bbstats.github.io/chimeraboost/attribution/">Where the ideas come from</a></li>
 </ul>
-<h2 id="credit-where-it-is-due">Credit where it is due<a class="headerlink" href="#credit-where-it-is-due" title="Permanent link">&para;</a></h2>
+<h2 id="benchmarking">Benchmarking<a class="headerlink" href="#benchmarking" title="Permanent link">&para;</a></h2>
+<p>Want to help? Run either one, then open an issue or PR with the JSON.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip install -e &quot;.[bench,competitors]&quot;
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>python benchmarks/run_benchmarks.py --synth --seeds 3 --save     # quick, synthetic
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>python benchmarks/run_benchmarks.py --decide --seeds 3 --save    # slower, 103 real datasets
+</code></pre></div>
+<p>Each writes <code>benchmarks/results/&lt;timestamp&gt;.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;provenance&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;chimeraboost&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.30.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Linux-6.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;cpu_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">                 </span><span class="nt">&quot;libraries&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;catboost&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1.2.10&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;lightgbm&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4.6.0&quot;</span><span class="p">}},</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">&quot;records&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;dataset&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;diabetes&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ChimeraBoost&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;seed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">     </span><span class="nt">&quot;metrics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-59.82</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;rmse&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">59.82</span><span class="p">},</span><span class="w"> </span><span class="nt">&quot;fit_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.23</span><span class="p">}</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">]</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>That file is all we need.</p>
+<h2 id="inspirations-citations">Inspirations / Citations<a class="headerlink" href="#inspirations-citations" title="Permanent link">&para;</a></h2>
 <p>Most ideas in ChimeraBoost were someone else's.</p>
 <ul>
 <li><strong>CatBoost</strong>, Prokhorenkova et al., <em>NeurIPS</em> 2018. Oblivious trees (the tree type itself from Kohavi &amp; Li, <em>IJCAI</em> 1995), ordered target statistics, feature combinations, ordered boosting, and the size-dependent automatic learning rate (<code>adaptive_learning_rate</code>).</li>

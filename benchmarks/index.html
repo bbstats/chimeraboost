@@ -945,6 +945,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#running-them-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running them yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1054,6 +1065,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#running-them-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running them yourself
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1094,12 +1116,12 @@ ships.</p>
 </tr>
 <tr>
 <td>Grinsztajn + high-card</td>
-<td>real datasets, one low-cardinality and one high</td>
+<td>real datasets, one low-cardinality and one high — the Grinsztajn et al. 2022 tabular benchmark plus a frozen high-cardinality set</td>
 <td>the decision. A change ships or dies here.</td>
 </tr>
 <tr>
 <td>PMLB</td>
-<td>curated sets with tune and holdout folds</td>
+<td>the Penn Machine Learning Benchmarks, split into tune and holdout folds</td>
 <td>hyperparameter tuning only</td>
 </tr>
 <tr>
@@ -1126,12 +1148,25 @@ overlapping intervals, at 7.1x versus 53.1x slowdown.</p>
 <p>Datasets are picked on data properties alone: row counts, cardinality, missingness, task
 type. No benchmark result is allowed to influence which datasets are in a suite, or it
 would be cherry-picked from birth.</p>
-<p>Reproduce the chart with:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python benchmarks/run_benchmarks.py --public --seeds 3 --save \
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    --models ChimeraBoost ChimeraBoostEns5 CatBoost LightGBM
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>python benchmarks/make_public_pareto.py benchmarks/results/&lt;stamp&gt;.json
+<h2 id="running-them-yourself">Running them yourself<a class="headerlink" href="#running-them-yourself" title="Permanent link">&para;</a></h2>
+<p>Run either one, then open an issue or PR with the JSON.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install -e &quot;.[bench,competitors]&quot;
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>python benchmarks/run_benchmarks.py --synth --seeds 3 --save     # quick, synthetic
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>python benchmarks/run_benchmarks.py --decide --seeds 3 --save    # slower, 103 real datasets
 </code></pre></div>
-<p><code>benchmarks/PUBLIC_PLAN.md</code> records every dataset and why it is in the suite.</p>
+<p>Each writes <code>benchmarks/results/&lt;timestamp&gt;.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;provenance&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;chimeraboost&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.30.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Linux-6.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;cpu_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">                 </span><span class="nt">&quot;libraries&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;catboost&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1.2.10&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;lightgbm&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4.6.0&quot;</span><span class="p">}},</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;records&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="p">{</span><span class="nt">&quot;dataset&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;diabetes&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ChimeraBoost&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;seed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">     </span><span class="nt">&quot;metrics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-59.82</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;rmse&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">59.82</span><span class="p">},</span><span class="w"> </span><span class="nt">&quot;fit_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.23</span><span class="p">}</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="p">]</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>That file is all we need. The first run downloads a few gigabytes into
+<code>benchmarks/data_cache/</code>; set <code>BENCH_DATA_HOME</code> to put it elsewhere.</p>
 
 
 
