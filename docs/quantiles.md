@@ -2,7 +2,8 @@
 
 `ChimeraBoostQuantileRegressor` estimates a whole grid of conditional quantiles from a
 single booster. One tree structure per round serves every level, and each leaf holds a
-K-vector with one entry per level.
+K-vector with one entry per level. CatBoost's `MultiQuantile` loss works the same way;
+one booster for the whole grid is not a design we came up with.
 
 ```python
 import numpy as np

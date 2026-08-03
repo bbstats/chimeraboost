@@ -47,7 +47,8 @@ recompiles. Put `chimeraboost-warmup` in the same script as your `pip install -U
 ## Why oblivious (symmetric) trees?
 
 They make prediction extremely fast and provide strong built-in regularization, at some
-cost to per-tree sharpness. See [How it works](concepts.md#oblivious-trees).
+cost to per-tree sharpness. The design is CatBoost's, not ours. See
+[How it works](concepts.md#oblivious-trees).
 
 ## Does SHAP support multiclass?
 

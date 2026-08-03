@@ -11,13 +11,14 @@ base = reg.expected_value_           # baseline, set by the call above
 
 ## Why it can be exact
 
-Most SHAP tooling approximates by sampling feature coalitions, because exact
-computation is expensive on trees of arbitrary shape. ChimeraBoost computes it exactly.
-Oblivious trees split on the same feature at every node of a level, so a depth-`D` tree
-involves at most `D` distinct features. The coalition game therefore has at most `D`
-players, and all `2**D` coalitions or fewer are enumerated directly in a numba kernel
-(64 evaluations per tree at depth 6). This is the interventional formulation of
-TreeSHAP, integrated over a background distribution.
+This is TreeSHAP (Lundberg et al.), in its interventional formulation, integrated over a
+background distribution. TreeSHAP is exact on trees of any shape, so exactness is not
+special here — what oblivious trees buy is that the exact computation is cheap and
+short. A depth-`D` tree splits on at most `D` distinct features, so the coalition game
+has at most `D` players and every one of its `2**D` coalitions can simply be enumerated
+in a numba kernel (64 evaluations per tree at depth 6), with no clever bookkeeping. The
+practical difference for you is that it is built in: no separate `shap` install, and no
+sampling approximation to configure.
 
 ## Efficiency
 
