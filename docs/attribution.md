@@ -121,19 +121,6 @@ The representation being scored — one shared split across every level — is `
 the projection machinery is SketchBoost's. What we have not found elsewhere is scoring
 that shared split with a projected second-order gain that never forms the matrix.
 
-### Small default policies
-
-The classifier fades `min_child_weight` out as the training set grows, because on an
-oblivious tree a single sparse child vetoes the whole level. Quantile losses default to
-depth 4 rather than 6, on measurement, for the standard reason that tail estimates need
-more rows per leaf. The multi-quantile head derives its leaf-size floor from the most
-extreme level on the grid, so the floor tracks whatever grid you ask for. A bag member
-whose draw collapses to a single class gets one donor row — a crash guard, not the
-stratified draw the imbalanced-bagging literature would reach for.
-
-Setting a default by a formula in `n` is an old idea; `mtry` is the textbook case. What
-is ours is which curve, not the shape of the answer.
-
 ### Equivalence-preserving engineering
 
 The fused per-level kernel, the bit-identical splice that adds cross features to an
@@ -141,10 +128,6 @@ already-fitted preprocessor, and the audited fast path for factorizing numeric
 categories. Checking an optimized path against a reference implementation is standard
 practice in numerical libraries, not a house invention; ours are these particular
 equivalences and the tests that pin them.
-
-Also a cold-start notice: detecting that numba is about to spend fifteen seconds
-compiling and saying so, rather than appearing to hang. Small, but we have not seen
-another library do it.
 
 ## Benchmarks
 
