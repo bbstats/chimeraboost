@@ -49,8 +49,6 @@ reg.fit(X, y)
 * Gradient-matrix free multi-quantile split search
 * numba is very fast
 
-<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
-
 ## Why?
 
 * I want to be able to modify my GBDT library at will
