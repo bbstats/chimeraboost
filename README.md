@@ -3,6 +3,11 @@
 
 ### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
 
+### #2 On TabArena GBDT Elo (Defaults)
+<img width="1312" height="464" alt="image" src="https://github.com/user-attachments/assets/e1d26498-88f4-4ad9-bc76-05b7778054e5" />
+
+
+
 📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
 
 <center>
