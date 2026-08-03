@@ -1,10 +1,9 @@
 """The multi-quantile estimator (benchmarks/QUANTILE_PLAN.md).
 
-Kept out of ``sklearn_api`` because it shares that module's input-validation
-helpers but almost none of its fit machinery: no loss family, no linear
-leaves, no cross features, no bagging, no full-data refit. It reuses the
-validation helpers by importing them, in the same flat, module-function style
-`sklearn_api` already uses.
+Kept out of ``sklearn_api`` because it shares that module's input validation
+but almost none of its fit machinery: no loss family, no linear leaves, no
+cross features, no bagging, no full-data refit. It imports the validation
+helpers and keeps the same flat, module-function style.
 """
 
 import numpy as np
@@ -29,41 +28,51 @@ def _resolve_quantiles(quantiles):
     """Validate and normalize the tau grid."""
     q = DEFAULT_QUANTILES if quantiles is None else np.asarray(
         quantiles, dtype=np.float64).ravel()
+
     if q.size == 0:
         raise ValueError("quantiles must contain at least one level.")
+
     if not np.all(np.isfinite(q)):
         raise ValueError(f"quantiles must all be finite; got {q!r}.")
+
     if np.any(q <= 0.0) or np.any(q >= 1.0):
         raise ValueError(
             f"quantiles must lie strictly inside (0, 1); got {q!r}.")
+
     if q.size > 1 and np.any(np.diff(q) <= 0.0):
         raise ValueError(
             "quantiles must be strictly ascending and unique; got "
             f"{q!r}. The column order of predict() is the order given here, "
             "so sort them first.")
+
     return np.ascontiguousarray(q)
 
 
 def _auto_min_child_weight(taus):
     """Leaf-size floor implied by the most extreme level on the grid.
 
-    A leaf estimating the 5% quantile from fewer than 20 rows is estimating it
-    from under one expected observation in that tail, which is noise. Scaling
-    with the grid keeps that honest for a user who asks for 0.01. It also
-    lands on 20 for the default grid, which happens to match LightGBM's
-    ``min_data_in_leaf`` -- convenient when comparing the two.
+    A leaf estimating the 5% quantile from fewer than 20 rows has under one
+    expected observation in that tail, which is noise. Scaling with the grid
+    keeps that honest for a user who asks for 0.01. On the default grid it
+    lands on 20, which matches LightGBM's ``min_data_in_leaf`` -- convenient
+    when comparing the two.
+
+    Notes
+    -----
+    ``1.0 - taus[-1]`` is not exact in binary. For a symmetric grid such as
+    (0.1, 0.5, 0.9) it lands a couple of ulps below 0.1, so the reciprocal
+    creeps just past 10 and ``ceil`` rounds the floor up to 11. Hence the snap
+    below. Genuine fractions -- the 3.33 of a (0.3, 0.7) grid, say -- are far
+    outside the tolerance and still round up, as intended.
     """
     edge = min(float(taus[0]), 1.0 - float(taus[-1]))
     inv = 1.0 / max(edge, 1e-9)
-    # `1.0 - taus[-1]` is not exact in binary: for a symmetric grid such as
-    # (0.1, 0.5, 0.9) it lands a couple of ulps BELOW 0.1, so the reciprocal
-    # creeps just past 10 and `ceil` rounds the floor up to 11. Snap to a whole
-    # number when we are within rounding noise of one -- genuine fractions like
-    # the 3.33 of a (0.3, 0.7) grid are far outside the tolerance and still
-    # round up, which is the intended behaviour.
+
+    # Snap to a whole number when only float error separates us from one.
     nearest = round(inv)
     if abs(inv - nearest) <= 1e-9 * max(1.0, abs(inv)):
         inv = float(nearest)
+
     return float(np.ceil(inv))
 
 
@@ -73,6 +82,7 @@ def _median_index(taus):
     K = taus.shape[0]
     if K == 1:
         return 0, 0.0
+
     j = int(np.searchsorted(taus, 0.5))
     if j < K and abs(taus[j] - 0.5) < 1e-12:
         return j, 0.0
@@ -80,6 +90,7 @@ def _median_index(taus):
         return 0, 0.0
     if j >= K:
         return K - 1, 0.0
+
     lo, hi = taus[j - 1], taus[j]
     return j - 1, float((0.5 - lo) / (hi - lo))
 
@@ -94,37 +105,35 @@ def _centre(Q, mi, mw):
 def _cqr_scales(Q, y, taus, mi, mw):
     """Conformalized quantile regression as a per-level SCALE about the median.
 
-    For each symmetric pair the conformity score is how far out the point sat
+    For each symmetric pair the conformity score is how far out the point sat,
     in units of the predicted half-interval,
 
         E_i = max((c_i - y_i) / (c_i - q_lo,i), (y_i - c_i) / (q_hi,i - c_i))
 
-    with c the predicted median, and the calibrated factor is that score's
+    with c the predicted median. The calibrated factor is that score's
     ``ceil((n+1)(1-alpha))``-th order statistic -- the standard conformal rank
     (Romano, Patterson & Candes 2019), which gives distribution-free marginal
-    coverage on exchangeable data. Prediction then returns
-    ``c + s * (q - c)``.
+    coverage on exchangeable data. Prediction then returns ``c + s * (q - c)``.
 
-    Why scaling rather than the usual additive widening. The scores this is
-    applied to are already rearranged, so every deviation from the median is
-    sign-correct and ordered outward; multiplying it by a non-negative factor
-    cannot reorder anything, for any row. An additive correction has no such
-    property -- one that SHRINKS an interval is a non-monotone offset vector
-    and can reorder the grid on its own. Scaling also happens to be the
-    correction with the right degree of freedom, since a shrunk fit can be
-    over- or under-dispersed and a factor moves in both directions.
+    Why scale rather than widen additively. These scores are already
+    rearranged, so every deviation from the median is sign-correct and ordered
+    outward, and multiplying by a non-negative factor cannot reorder any row.
+    An additive correction can: one that SHRINKS an interval is a non-monotone
+    offset vector and can reorder the grid on its own. A factor also carries
+    the right degree of freedom, since a shrunk fit can be over- or
+    under-dispersed and a factor moves both ways.
 
     Two constraints are enforced:
 
-    * Outer intervals get a factor at least as large as the ones nested inside
-      them, which is what keeps the rescaled grid ordered.
+    * An outer interval's factor is at least that of the ones nested inside
+      it, which is what keeps the rescaled grid ordered.
     * The rank must exist: ``ceil((n+1)(1-alpha)) <= n`` needs
       ``n >= (1-alpha)/alpha``. Below that the interval is vacuous, and this
       raises rather than quietly returning an uncalibrated model.
 
     Only symmetric pairs (t and 1-t both on the grid) can be calibrated
-    directly; a grid with none raises. Unpaired levels on asymmetric grids
-    get a factor interpolated by distance from the median across the paired
+    directly; a grid with none raises. Unpaired levels on asymmetric grids get
+    a factor interpolated by distance from the median across the paired
     factors -- uncertified, but it keeps the factor profile monotone outward,
     which preserves the non-crossing guarantee.
     """
@@ -132,14 +141,17 @@ def _cqr_scales(Q, y, taus, mi, mw):
     s = np.ones(K)
     n = y.shape[0]
     c = _centre(Q, mi, mw)
+
     # Relative floor for the half-widths: a row whose predicted interval has
     # collapsed to a point would otherwise divide by zero.
     eps = 1e-9 * max(float(np.mean(Q[:, -1] - Q[:, 0])), 1e-12)
+
     pairs = []
     for k in range(K // 2):
         j = K - 1 - k
         if abs((taus[k] + taus[j]) - 1.0) > 1e-9:
             continue                       # not a symmetric pair
+
         alpha = 1.0 - (taus[j] - taus[k])
         need = int(np.ceil((1.0 - alpha) / max(alpha, 1e-12)))
         if n < need:
@@ -149,30 +161,31 @@ def _cqr_scales(Q, y, taus, mi, mw):
                 f"coverage {1 - alpha:.0%}), but the calibration fold holds "
                 f"only {n}. Raise calibration_fraction, supply more data, or "
                 "drop the extreme levels from `quantiles`.")
+
         E = np.maximum((c - y) / np.maximum(c - Q[:, k], eps),
                        (y - c) / np.maximum(Q[:, j] - c, eps))
         rank = int(np.ceil((n + 1) * (1.0 - alpha)))
         pairs.append([k, j, max(0.0, float(np.sort(E)[min(rank, n) - 1]))])
+
     if not pairs:
         raise ValueError(
             "conformalize=True needs at least one symmetric pair of quantile "
             "levels (t and 1-t both on the grid) to calibrate against; got "
             f"{list(np.round(taus, 6))}. Add symmetric levels or set "
             "conformalize=False.")
-    # Outer factor >= inner factor. The deviations from the median already
-    # grow outward, so a non-increasing factor toward the centre keeps their
-    # product monotone -- and calibration naturally lands this way, since an
+
+    # Outer factor >= inner factor. Deviations from the median already grow
+    # outward, so a factor profile that never rises toward the centre keeps
+    # their product monotone. Calibration tends to land here anyway: an
     # over-dispersed model needs the most shrinking near the median.
     for i in range(len(pairs) - 2, -1, -1):
         pairs[i][2] = max(pairs[i][2], pairs[i + 1][2])
     for k, j, sp in pairs:
         s[k] = s[j] = sp
-    # Unpaired levels (custom asymmetric grids) get a factor interpolated by
-    # their distance from the median across the paired levels' factors,
-    # clamped at the ends. Leaving them at 1.0 breaks the non-crossing
-    # guarantee: a shrunk outer pair jumps across an unshrunk inner level.
-    # Interpolation keeps the factor profile monotone outward from the
-    # centre, which is exactly the condition that preserves ordering.
+
+    # Unpaired levels (custom asymmetric grids) are interpolated as the
+    # docstring describes. Leaving them at 1.0 would break non-crossing: a
+    # shrunk outer pair jumps across an unshrunk inner level.
     paired = {k for k, _, _ in pairs} | {j for _, j, _ in pairs}
     if len(paired) < K:
         dp = np.array([0.5 - taus[k] for k, _, _ in pairs])[::-1]
@@ -180,6 +193,7 @@ def _cqr_scales(Q, y, taus, mi, mw):
         for k in range(K):
             if k not in paired:
                 s[k] = float(np.interp(abs(taus[k] - 0.5), dp, sp))
+
     return s
 
 
@@ -187,14 +201,15 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     """Gradient boosting for a whole predictive distribution at once.
 
     One booster, one tree structure per round, and a K-vector in every leaf,
-    holding one entry per level in ``quantiles``. Against fitting one quantile
-    regressor per level this is roughly K times less split-search work, and
-    the predictions cannot cross: the 30% quantile is never returned above the
-    70%. Ordering is enforced per row by monotone rearrangement of the
-    delivered scores, which is exact for every row and holds at every
-    intermediate stage of ``staged_predict`` too. Rearrangement cannot cost
-    accuracy -- sorting a crossing quantile curve never increases pinball loss
-    at any level (Chernozhukov, Fernandez-Val & Galichon 2010).
+    one entry per level in ``quantiles``. Against one quantile regressor per
+    level that is roughly K times less split-search work, and the predictions
+    cannot cross: the 30% quantile is never returned above the 70%.
+
+    Ordering is enforced per row by monotone rearrangement of the delivered
+    scores. It is exact for every row and holds at every intermediate stage of
+    ``staged_predict``. Rearrangement cannot cost accuracy -- sorting a
+    crossing quantile curve never increases pinball loss at any level
+    (Chernozhukov, Fernandez-Val & Galichon 2010).
 
     Deliberately not a ``RegressorMixin``: ``predict`` returns a matrix, so the
     inherited ``score`` (which assumes one number per row) would be wrong.
@@ -208,17 +223,16 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         Ascending, unique levels strictly inside (0, 1). Default
         0.05, 0.10, ... 0.95. Column k of ``predict`` is level k.
     split_projection : {"rotate", "sum", "gram"}
-        How the K gradient columns collapse into the single vector the tree
-        grower accepts. ``"rotate"`` cycles a location and a spread contrast,
-        two rounds of the former per round of the latter, and is the default
-        because it measured best; ``"sum"`` is the literal channel sum, which
-        is blind to spread entirely; ``"gram"`` picks the strongest contrast
-        each round and measured no better than cycling. See
-        `booster._fixed_contrasts`.
+        How split gain is scored across the quantile levels. Keep the default
+        unless you are experimenting. ``"rotate"`` alternates a location and a
+        spread contrast, two location rounds per spread round, and measured
+        best. ``"sum"`` adds the levels up, which makes it blind to a change in
+        spread. ``"gram"`` picks the strongest contrast each round and measured
+        no better than rotating.
     exact_splits : bool
-        Score splits on the exact summed-across-level gain instead of a
-        projection. More faithful, and costs K histogram channels per feature
-        instead of one -- a reference arm, not a working default.
+        Score splits exactly across every level instead of on a projection.
+        More faithful, but the fit gets slower and more memory-hungry as the
+        grid grows -- a reference setting, not one for routine use.
     conformalize : bool
         Calibrate the intervals by conformalized quantile regression. Carves
         ``calibration_fraction`` of the rows off BEFORE the early-stopping
@@ -294,6 +308,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         `ChimeraBoostRegressor.fit`."""
         cat_features = _resolve_cat_features(self, cat_features)
         cat_features = _resolve_cat_feature_names(cat_features, X)
+
         _validate_hyperparams(self)
         if self.split_projection not in ("rotate", "sum", "gram"):
             raise ValueError(
@@ -302,11 +317,13 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         if not 0.0 < self.calibration_fraction < 1.0:
             raise ValueError("calibration_fraction must be in (0, 1); got "
                              f"{self.calibration_fraction!r}.")
+
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
             _check_feature_names_match(self, eval_set[0])
+
         taus = _resolve_quantiles(self.quantiles)
         self.quantiles_ = taus
         self._median_idx_ = _median_index(taus)
@@ -329,6 +346,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                     f"{len(y)} rows at calibration_fraction="
                     f"{self.calibration_fraction}. Supply more rows or lower "
                     "the fraction.")
+
             keep, cal_idx = split
             cal = (X[cal_idx], y[cal_idx])
             X, y = X[keep], y[keep]
@@ -351,6 +369,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 X, y = X[tr], y[tr]
                 if sample_weight is not None:
                     sample_weight = sample_weight[tr]
+
         es_rounds = self.early_stopping_rounds
         if not es_active:
             es_rounds = None
@@ -360,6 +379,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         depth = 4 if self.depth is None else self.depth
         mcw = (_auto_min_child_weight(taus) if self.min_child_weight is None
                else self.min_child_weight)
+
         cat_combos = self.cat_combinations
         if cat_combos is None:
             cat_combos = _auto_cat_combinations(
@@ -380,10 +400,11 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             quantize_gradients=self.quantize_gradients,
             # Pinned to the historical flat rate. The size fade became the
             # booster default in 0.30.0 on RMSE and Brier evidence
-            # (benchmarks/SMALLDATA_PLAN.md); it was never measured against
-            # pinball loss, and inheriting it here would ship an unmeasured
-            # default change to the quantile path. Measure before flipping.
+            # (benchmarks/SMALLDATA_PLAN.md), but was never measured against
+            # pinball loss; inheriting it here would ship an unmeasured default
+            # change to the quantile path. Measure before flipping.
             adaptive_learning_rate=False)
+
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight, callbacks=callbacks)
 
@@ -392,6 +413,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             mi, mw = self._median_idx_
             self.conformal_scale_ = _cqr_scales(
                 self.model_.predict_raw(cal[0]), cal[1], taus, mi, mw)
+
         return self
 
     def _conformalize(self, Q):
@@ -399,6 +421,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         no-op (all factors 1) unless ``conformalize=True``."""
         if np.all(self.conformal_scale_ == 1.0):
             return Q
+
         mi, mw = self._median_idx_
         c = _centre(Q, mi, mw)[:, None]
         return c + self.conformal_scale_[None, :] * (Q - c)
@@ -411,20 +434,21 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
         ``kind="interval"`` returns (n_samples, 2): the central ``1 - alpha``
         interval, read off the ``alpha/2`` and ``1 - alpha/2`` levels, which
-        must both be on the grid. No interpolation -- an interval the model
-        was not fitted for is an error, not a guess.
+        must both be on the grid. No interpolation -- an interval the model was
+        not fitted for is an error, not a guess.
 
         ``kind="mean"`` returns (n_samples,), the integral of the quantile
-        function over tau: trapezoid across the grid plus flat extension of
-        the edge levels out to 0 and 1. The flat extension is the honest
-        reading of a finite grid, assuming nothing about tails the model never
-        estimated.
+        function over tau: trapezoid across the grid plus flat extension of the
+        edge levels out to 0 and 1. The flat extension is the honest reading of
+        a finite grid, assuming nothing about tails the model never estimated.
         """
         Xv = _check_predict_input(self, X)
         Q = self._conformalize(
             self.model_.predict_raw(X if Xv is None else Xv))
+
         if kind == "quantiles":
             return Q
+
         if kind == "interval":
             if alpha is None:
                 raise ValueError(
@@ -432,6 +456,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                     "alpha=0.1 for a 90% interval.")
             if not 0.0 < alpha < 1.0:
                 raise ValueError(f"alpha must be in (0, 1); got {alpha!r}.")
+
             lo, hi = alpha / 2.0, 1.0 - alpha / 2.0
             taus = self.quantiles_
             i = int(np.argmin(np.abs(taus - lo)))
@@ -442,9 +467,12 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                     "not on the fitted grid "
                     f"{np.array2string(taus, precision=4)}. Refit with those "
                     "levels in `quantiles`.")
+
             return np.column_stack([Q[:, i], Q[:, j]])
+
         if kind == "mean":
             return self._mean_from_quantiles(Q)
+
         raise ValueError(
             f'kind must be "quantiles", "interval" or "mean"; got {kind!r}.')
 
@@ -459,10 +487,11 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
     def staged_predict(self, X):
         """Yield the (n, K) quantile matrix after each successive tree. The
-        conformal rescaling, being a post-fit transform, is applied at every
-        stage so the last one equals ``predict``."""
+        conformal rescaling is a post-fit transform, so it is applied at every
+        stage and the last one equals ``predict``."""
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         for staged in self.model_.staged_predict_raw(X):
             yield self._conformalize(staged)
 

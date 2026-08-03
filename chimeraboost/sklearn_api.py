@@ -12,12 +12,15 @@ from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
 def _fit_temperature(raw, y, multiclass, sample_weight=None):
-    """Learn the scalar T > 0 minimizing validation log loss of sigmoid(raw/T)
-    (binary) or softmax(raw/T) (multiclass). Dividing logits by T is monotonic,
-    so predictions are unchanged â€” only their probabilities are recalibrated.
-    `y` is the 0/1 label (binary) or the class index (multiclass).
-    `sample_weight` weights the validation log loss, so a zero-weight holdout
-    row cannot steer the temperature (the sample_weight contract)."""
+    """Learn the scalar T > 0 that minimizes validation log loss.
+
+    The calibrated score is sigmoid(raw/T) for binary, softmax(raw/T) for
+    multiclass. Dividing by T is monotonic, so predictions are unchanged -- only
+    the probabilities are recalibrated. ``y`` is the 0/1 label (binary) or the
+    class index (multiclass). ``sample_weight`` weights the validation log loss,
+    so a zero-weight holdout row cannot steer the temperature (the sample_weight
+    contract).
+    """
     from scipy.optimize import minimize_scalar
 
     raw = np.asarray(raw, dtype=np.float64)
@@ -26,6 +29,7 @@ def _fit_temperature(raw, y, multiclass, sample_weight=None):
         w = np.asarray(sample_weight, dtype=np.float64)
         if not np.any(w > 0):
             return 1.0
+
     if multiclass:
         rows = np.arange(raw.shape[0])
 
@@ -62,34 +66,41 @@ QUALITY_NAMES = {1: "fast", 2: "balanced", 3: "accurate",
 
 
 def _quality_overrides(estimator, level):
-    """The parameters ``quality=level`` pins on this estimator."""
+    """The parameters ``quality=level`` pins on this estimator.
+
+    Rung 1 buys out the model-selection search: one booster fit instead of the
+    default's two-to-four, and no full-data refit on top. Only the regressor pins
+    linear_leaves, where None means "audition const vs linear" -- exactly the
+    search this rung declines to pay for. On the classifier None is already a
+    free auto rule (on for binary, off for multiclass, where an explicit True
+    raises), so it is left alone.
+
+    Rungs 4 and 5 sit on top of the plain defaults, NOT on top of rung 3:
+    refit_full is a deliberate no-op inside bag members (their out-of-bag rows
+    are already an eval set), so the rungs do not stack. See REFIT_PLAN.md.
+    """
     if level == 1:
-        # Buy out the model-selection search: one booster fit instead of the
-        # default's two-to-four, and skip the full-data refit on top. Only
-        # the regressor needs linear_leaves pinned -- there None means
-        # "audition const vs linear", which is precisely the search this rung
-        # declines to pay for. On the classifier None is already an auto rule
-        # (on for binary, off for multiclass, where an explicit True raises),
-        # and it costs no extra fit, so leave it alone.
         ov = {"cross_features": False, "refit_full": False}
         if estimator._QUALITY_PINS_LINEAR_LEAVES:
             ov["linear_leaves"] = True
         return ov
+
     if level == 2:
         # The search, without the full-data refit the default now performs.
         return {"refit_full": False}
+
     if level == 3:
-        # The default. "replay" rather than True: it reaches the same accuracy
-        # for about two thirds of the fit (benchmarks/REPLAY_PLAN.md). Pass
-        # refit_full=True explicitly for the from-scratch refit.
+        # The default. "replay" rather than True: same accuracy for about two
+        # thirds of the fit (benchmarks/REPLAY_PLAN.md). Pass refit_full=True
+        # for the from-scratch refit.
         return {"refit_full": "replay"}
-    # Bagging sits on top of the plain defaults, NOT on top of rung 3:
-    # refit_full is a deliberate no-op inside members (their OOB rows are
-    # already an eval set), so the rungs do not stack -- see REFIT_PLAN.md.
+
     if level == 4:
         return {"n_ensembles": 5}
+
     if level == 5:
         return {"n_ensembles": 8}
+
     return {}
 
 
@@ -110,6 +121,7 @@ def _quality_applied(estimator):
     if level is None:
         yield
         return
+
     overrides = _quality_overrides(estimator, int(level))
     clashes = {k: getattr(estimator, k) for k, v in overrides.items()
                if getattr(estimator, k) != v
@@ -122,9 +134,11 @@ def _quality_applied(estimator):
             + ", ".join(f"{k}={v}" for k, v in clashes.items())
             + " you passed is ignored. Drop quality to set these yourself.",
             UserWarning, stacklevel=3)
+
     saved = {k: getattr(estimator, k) for k in overrides}
     for k, v in overrides.items():
         setattr(estimator, k, v)
+
     try:
         yield
     finally:
@@ -135,13 +149,14 @@ def _quality_applied(estimator):
 def _validate_hyperparams(estimator):
     """Reject malformed constructor parameters with clear, named errors.
 
-    Called at the start of ``fit`` (sklearn's recommended place for parameter
-    validation -- never in ``__init__``). Without this, bad values either fail
-    cryptically deep in numba (e.g. ``depth=-1`` -> "negative shift count"),
-    silently produce a broken model (``learning_rate=-0.1`` diverges to garbage;
-    ``n_estimators=0`` builds an empty model), or OOM (``depth=30`` allocates a
-    2**30-leaf histogram). ``None`` is left to the documented per-parameter
-    default resolution and is not rejected here.
+    Called at the start of ``fit`` -- sklearn's recommended place for parameter
+    validation, never ``__init__``.
+
+    Without it, bad values fail cryptically deep in numba (``depth=-1`` ->
+    "negative shift count"), silently produce a broken model
+    (``learning_rate=-0.1`` diverges to garbage, ``n_estimators=0`` builds an
+    empty model), or OOM (``depth=30`` allocates a 2**30-leaf histogram).
+    ``None`` is left to the documented per-parameter default resolution.
     """
     p = estimator.get_params()
 
@@ -176,36 +191,44 @@ def _validate_hyperparams(estimator):
 
     _pos_int("n_estimators")
     _pos_int("cat_n_permutations")
+
     # None = the classifier's auto default (resolved to 3 at fit); the regressor
     # passes a concrete int.
     _pos_int("leaf_estimation_iterations", allow_none=True)
-    # depth: a depth-d tree allocates 2**d leaves in the histogram buffer, so an
+
+    # A depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
     v = p.get("depth")
     if v is not None and not (isinstance(v, (int, np.integer))
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")
+
     _in_range("max_bins", 2, 65534)
     _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
     _in_range("l2_leaf_reg", 0.0, np.inf)
     _in_range("subsample", 0.0, 1.0, lo_incl=False)
     _in_range("colsample", 0.0, 1.0, lo_incl=False, allow_none=True)
+
     # cat_smoothing is a Bayesian pseudocount in the ordered-TS denominator
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
     _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
+
     _in_range("linear_lambda", 0.0, np.inf)
     _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
     _in_range("early_stopping_rounds", 1, np.inf, allow_none=True)
     _in_range("selection_rounds", 1, np.inf, allow_none=True)
+
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
     _in_range("max_samples", 0.0, 1.0, lo_incl=False)
+
     v = p.get("refit_full")
     if v is not None and v != "replay" and not isinstance(v, (bool, np.bool_)):
         raise ValueError(
             f'refit_full must be True, False, "replay" or None; got {v!r}.')
+
     v = p.get("quality")
     if v is not None:
         if isinstance(v, (bool, np.bool_)) or v not in QUALITY_NAMES:
@@ -213,6 +236,7 @@ def _validate_hyperparams(estimator):
                 "quality must be None or one of "
                 + ", ".join(f"{k} ({n})" for k, n in QUALITY_NAMES.items())
                 + f"; got {v!r}.")
+
     # Regressor-only loss / alpha (the classifier picks its loss automatically).
     if "loss" in p:
         loss = p["loss"]
@@ -223,6 +247,7 @@ def _validate_hyperparams(estimator):
                 raise ValueError(
                     f"loss must be one of {known} or a custom objective "
                     f"instance; got {loss!r}.")
+
             if loss == "Quantile":
                 _in_range("alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
             if loss == "Huber":
@@ -231,9 +256,9 @@ def _validate_hyperparams(estimator):
                 _in_range("tweedie_variance_power", 1.0, 2.0,
                           lo_incl=False, hi_incl=False)
         else:
-            # Custom objective: an instance implementing the losses.py
-            # protocol (subclass chimeraboost.CustomObjective for the
-            # optional-method defaults).
+            # Custom objective: an instance implementing the losses.py protocol
+            # (subclass chimeraboost.CustomObjective for the optional-method
+            # defaults).
             missing = [a for a in ("init", "grad_hess", "eval")
                        if not callable(getattr(loss, a, None))]
             if missing:
@@ -242,6 +267,7 @@ def _validate_hyperparams(estimator):
                     f"init/grad_hess/eval (missing: {missing}); subclass "
                     "chimeraboost.CustomObjective. Got "
                     f"{loss!r}.")
+
     if p.get("eval_metric") is not None and not callable(p["eval_metric"]):
         raise ValueError(
             "eval_metric must be a callable metric(y_true, y_pred"
@@ -250,43 +276,51 @@ def _validate_hyperparams(estimator):
 
 
 def _resolve_cat_features(estimator, cat_features):
-    """Resolve the effective cat_features: the ``fit`` argument when given,
-    otherwise the ``cat_features`` constructor argument. The fit argument wins so
-    a one-off call can override, while the constructor form lets sklearn meta-
-    estimators (GridSearchCV/Pipeline) carry it -- a fit-only kwarg cannot. Never
-    mutates ``estimator.cat_features`` (sklearn forbids fit changing init params)."""
+    """The effective cat_features: the ``fit`` argument if given, else the
+    constructor argument.
+
+    The fit argument wins so a one-off call can override. The constructor form
+    exists so sklearn meta-estimators (GridSearchCV/Pipeline) can carry it, which
+    a fit-only kwarg cannot. Never mutates ``estimator.cat_features`` -- sklearn
+    forbids ``fit`` changing init params.
+    """
     if cat_features is not None:
         return cat_features
     return getattr(estimator, "cat_features", None)
 
 
 def _resolve_cat_feature_names(cat_features, X):
-    """Map any column *names* in ``cat_features`` to integer positions using X's
+    """Map column *names* in ``cat_features`` to integer positions using X's
     column metadata, leaving integer indices untouched.
 
-    Lets a user mark categoricals the same way LightGBM/CatBoost do -- either by
-    position (``cat_features=[0, 2]``) or by name (``cat_features=["city",
-    "brand"]``), or a mix. Names are resolved against the DataFrame columns at
-    fit time, so order changes are handled by the existing predict-time feature-
-    name check. Returns ``None`` unchanged; returns the original object when it
-    holds no strings (the downstream integer validation then applies)."""
+    Categoricals can be marked the way LightGBM/CatBoost allow: by position
+    (``[0, 2]``), by name (``["city", "brand"]``), or a mix. Names resolve
+    against the DataFrame columns at fit time, so a later column reordering is
+    caught by the predict-time feature-name check. ``None`` passes through
+    unchanged; a name-free sequence comes back as a plain list for downstream
+    integer validation.
+    """
     if cat_features is None:
         return None
+
     try:
         items = list(cat_features)
     except TypeError:
         return cat_features  # not iterable; let downstream validation report it
+
     if not any(isinstance(c, str) for c in items):
-        # Return the plain list, not the original object: a numpy array here
-        # would crash every downstream ``if cat_features:`` truthiness check
-        # with "ambiguous truth value" before validation can name the problem.
+        # A plain list, not the original object: a numpy array here crashes
+        # every downstream ``if cat_features:`` check with "ambiguous truth
+        # value" before validation can name the problem.
         return items
+
     names = _extract_feature_names(X)
     if names is None:
         raise ValueError(
             "cat_features contains column names (strings), but X has no column "
             "names to resolve them against; pass integer indices instead, or "
             "fit on a DataFrame.")
+
     name_to_idx = {n: i for i, n in enumerate(names)}
     resolved = []
     for c in items:
@@ -303,38 +337,42 @@ def _resolve_cat_feature_names(cat_features, X):
 
 def _check_eval_set(eval_set, n_features, classification=False):
     """Validate a user-passed ``eval_set`` up front with a named error instead of
-    a cryptic IndexError/broadcast failure deep in the booster."""
-    # 2-tuple is the documented form; a 3rd element is optional per-row
-    # validation weights (used internally for weight-aware auto-split / bagged
-    # OOB early stopping, so zero-weight rows don't score the metric).
+    a cryptic IndexError or broadcast failure deep in the booster."""
+    # A 2-tuple is the documented form. The optional 3rd element is per-row
+    # validation weights, used internally by the weight-aware auto-split and by
+    # bagged OOB early stopping so zero-weight rows don't score the metric.
     if not (isinstance(eval_set, (tuple, list)) and len(eval_set) in (2, 3)):
         raise ValueError(
             "eval_set must be a (X_val, y_val) tuple "
             "(optionally (X_val, y_val, sample_weight_val)).")
+
     Xv, yv = eval_set[0], eval_set[1]
     shape = getattr(Xv, "shape", None)
     if shape is None or len(shape) != 2:
         shape = np.asarray(Xv, dtype=object).shape
+
     nfv = shape[1] if len(shape) == 2 else None
     if nfv != n_features:
         raise ValueError(
             f"eval_set X has {nfv} features, but the training data has "
             f"{n_features}; they must match.")
+
     if len(yv) != shape[0]:
         raise ValueError(
             f"eval_set X and y have inconsistent lengths: {shape[0]} vs "
             f"{len(yv)}.")
+
     if len(eval_set) == 3 and eval_set[2] is not None \
             and len(eval_set[2]) != shape[0]:
         raise ValueError(
             f"eval_set sample_weight has length {len(eval_set[2])}, but "
             f"eval_set X has {shape[0]} rows; they must match.")
+
     if not classification:
-        # Training y is rejected on NaN/inf, but a non-finite eval y used to
-        # sail through and turn every validation score into NaN -- early
-        # stopping then silently kept round 0 and the model shipped with one
-        # tree. Classifier labels are validated by _check_eval_labels instead
-        # (string labels do not cast to float).
+        # Past bug: training y was rejected on NaN/inf but eval y was not, so a
+        # non-finite eval y turned every validation score into NaN, early
+        # stopping kept round 0, and the model shipped with one tree. Classifier
+        # labels go to _check_eval_labels instead -- strings don't cast to float.
         yv_arr = np.asarray(yv)
         if yv_arr.dtype.kind in "fc" and not np.isfinite(
                 yv_arr.astype(np.float64, copy=False)).all():
@@ -353,12 +391,14 @@ def _check_eval_labels(eval_set, y):
     """
     classes = np.unique(np.asarray(y))
     yv = np.unique(np.asarray(eval_set[1]))
+
     try:
         unseen = np.setdiff1d(yv, classes)
     except TypeError:   # mixed un-orderable label types
         seen = set(classes.tolist())
         unseen = np.array([v for v in yv.tolist() if v not in seen],
                           dtype=object)
+
     if unseen.size:
         raise ValueError(
             f"eval_set contains label(s) not present in y: {unseen.tolist()}. "
@@ -366,38 +406,46 @@ def _check_eval_labels(eval_set, y):
 
 
 def _is_numeric_dtype(dt):
-    """True if a column dtype is float-castable, across numpy / pandas /
-    polars. Bool counts: it casts to 0/1 cleanly, so a bool column must not
-    be named in the "add these to cat_features" error guidance."""
+    """True if a column dtype is float-castable, across numpy / pandas / polars.
+
+    Bool counts: it casts to 0/1 cleanly, so a bool column must not be named in
+    the "add these to cat_features" error guidance.
+    """
     try:
         npdt = np.dtype(dt)
         return bool(np.issubdtype(npdt, np.number) or npdt == np.bool_)
     except TypeError:
         pass  # not a numpy-castable dtype (e.g. a polars DataType object)
+
     is_num = getattr(dt, "is_numeric", None)  # polars DataType
     if callable(is_num):
         try:
             return bool(is_num())
         except Exception:
             pass
+
     s = str(dt).lower()
     return (any(k in s for k in ("int", "float", "uint", "double", "decimal"))
             and "object" not in s) or s in ("bool", "boolean")
 
 
 def _describe_nonnumeric_columns(X):
-    """Name the non-numeric columns of a DataFrame-like X (pandas/polars) so a
-    user who forgot ``cat_features`` gets "column 'city' (index 2)" instead of
-    a bare ``could not convert string to float: 'NYC'``. Returns [] for inputs
-    without column metadata (plain ndarrays)."""
+    """Name the non-numeric columns of a DataFrame-like X (pandas/polars).
+
+    A user who forgot ``cat_features`` then gets "column 'city' (index 2)"
+    instead of a bare ``could not convert string to float: 'NYC'``. Returns []
+    for input without column metadata (a plain ndarray).
+    """
     cols = getattr(X, "columns", None)
     dtypes = getattr(X, "dtypes", None)
     if cols is None or dtypes is None:
         return []
+
     try:
         col_list, dtype_list = list(cols), list(dtypes)
     except TypeError:
         return []
+
     return [f"'{c}' (index {i})"
             for i, (c, dt) in enumerate(zip(col_list, dtype_list))
             if not _is_numeric_dtype(dt)]
@@ -407,16 +455,20 @@ def _member_oob_eval_indices(idx, n, groups):
     """Out-of-bag row indices usable as a bag member's early-stopping eval set.
 
     Without ``groups`` that is every row outside the member's sample. With
-    ``groups`` it is further restricted to rows whose group never appears in
-    the sample -- otherwise the member's stopping signal comes from rows
-    correlated with its training rows, exactly the leakage the ``groups``
-    argument promises to prevent. Because grouped members draw whole groups
-    (``_member_sample_indices``), the excluded-for-straddling set is normally
-    just the rare-class donor's group; before group draws existed, a typical
-    80% row draw touched essentially every group and this returned zero rows
-    on real data, silently disabling OOB early stopping. May still return an
-    empty array (e.g. a cluster bootstrap that drew every group); the caller
-    then falls back to the member's own auto-split, which is group-aware."""
+    ``groups`` it is further restricted to rows whose group never appears in the
+    sample -- otherwise the member's stopping signal comes from rows correlated
+    with its training rows, exactly the leakage ``groups`` promises to prevent.
+
+    Grouped members draw whole groups (``_member_sample_indices``), so the rows
+    excluded for straddling are normally just the rare-class donor's group.
+    Before group draws existed, a typical 80% row draw touched essentially every
+    group, this returned zero rows on real data, and OOB early stopping was
+    silently disabled.
+
+    May still return an empty array (say a cluster bootstrap that drew every
+    group); the caller then falls back to the member's own auto-split, which is
+    group-aware.
+    """
     oob_mask = np.ones(n, dtype=np.bool_)
     oob_mask[idx] = False
     if groups is not None:
@@ -429,27 +481,29 @@ def _member_sample_indices(n, ms, seed, groups):
 
     Without ``groups``: ``ms`` of the ``n`` rows drawn without replacement
     ("subagging"), or a classic full-size with-replacement bootstrap at
-    ``ms >= 1.0`` -- byte-identical to the draws made before this helper
-    existed (same rng construction, same single call).
+    ``ms >= 1.0``. Byte-identical to the draws made before this helper existed
+    (same rng construction, same single call).
 
-    With ``groups``: the same recipe applied to whole groups -- ``ms`` of the
-    groups without replacement (each contributing all of its rows), or a
-    full-size cluster bootstrap of groups at ``ms >= 1.0``. Drawing rows
-    would leave essentially every group straddling the sample, which both
-    leaks group structure into the member AND empties the group-disjoint OOB
-    set `_member_oob_eval_indices` builds. At least one group is always held
-    out (the draw is capped at ``n_groups - 1``), so the OOB eval set is
-    non-empty by construction. ``ms`` counts groups, not rows, so a member's
-    row count varies with the sizes of the groups it drew. A single all-rows
-    group falls back to the row draw: there is nothing to hold out."""
+    With ``groups``: the same recipe over whole groups -- ``ms`` of the groups
+    without replacement (each contributing all of its rows), or a full-size
+    cluster bootstrap of groups at ``ms >= 1.0``. Drawing rows instead would
+    leave essentially every group straddling the sample, which leaks group
+    structure into the member AND empties the group-disjoint OOB set
+    ``_member_oob_eval_indices`` builds. The draw is capped at ``n_groups - 1``,
+    so at least one group is always held out and the OOB eval set is non-empty
+    by construction. ``ms`` counts groups, not rows, so a member's row count
+    varies with the sizes of the groups it drew. A single all-rows group falls
+    back to the row draw: there is nothing to hold out.
+    """
     rng = np.random.default_rng(seed)
+
     if groups is not None:
         ug = np.unique(groups)
         if ug.size >= 2:
             if ms >= 1.0:
-                # Cluster bootstrap: n_groups draws with replacement; a group
-                # drawn twice appears twice (duplicates are integer weights,
-                # exactly like the row bootstrap).
+                # Cluster bootstrap: n_groups draws with replacement. A group
+                # drawn twice appears twice -- duplicates are integer weights,
+                # exactly like the row bootstrap.
                 drawn = rng.integers(0, ug.size, size=ug.size)
                 order = np.argsort(groups, kind="stable")
                 sg = groups[order]
@@ -457,9 +511,11 @@ def _member_sample_indices(n, ms, seed, groups):
                 ends = np.searchsorted(sg, ug, side="right")
                 return np.concatenate(
                     [order[starts[g]:ends[g]] for g in drawn])
+
             m = max(1, min(ug.size - 1, int(round(ms * ug.size))))
             drawn = rng.choice(ug.size, size=m, replace=False)
             return np.where(np.isin(groups, ug[drawn]))[0]
+
     if ms >= 1.0:
         return rng.integers(0, n, size=n)
     m = max(1, int(round(ms * n)))
@@ -475,21 +531,22 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     ("subagging"; ``max_samples=1.0`` restores the classic full-size
     with-replacement bootstrap). With ``groups`` the same recipe draws whole
     groups instead of rows, so the held-out groups form each member's
-    group-disjoint OOB eval set (see ``_member_sample_indices``). Because a
-    member is the same estimator class,
-    all per-model machinery â€” binary/multiclass dispatch, ``cat_features``,
-    the early-stopping auto-split, temperature scaling â€” is reused unchanged,
-    and ``cat_features``/``sample_weight``/``groups`` forward naturally (which
-    a ``sklearn.ensemble.Bagging`` wrapper would not do).
+    group-disjoint OOB eval set (see ``_member_sample_indices``).
+
+    A member is the same estimator class, so every per-model machine --
+    binary/multiclass dispatch, ``cat_features``, the early-stopping auto-split,
+    temperature scaling -- is reused unchanged, and
+    ``cat_features``/``sample_weight``/``groups`` forward naturally. A
+    ``sklearn.ensemble.Bagging`` wrapper would not do that.
 
     Members are independent, so they fit across ``ensemble_n_jobs`` worker
-    processes (default -1: as many workers as the thread budget supports,
-    capped at K). The thread budget â€” ``thread_count`` if set, else numba's
-    thread count â€” is divided across the workers, so a bagged fit uses the
-    same cores a single fit would (numba's sublinear thread scaling is what
-    makes K members at budget/K threads faster than K sequential full-budget
-    fits: 1.2-2.0x wall-clock on the BAGGING_PLAN.md B4 panel, identical
-    models by construction). ``ensemble_n_jobs=1`` restores sequential fits.
+    processes (default -1: as many workers as the thread budget supports, capped
+    at K). The thread budget -- ``thread_count`` if set, else numba's thread
+    count -- is divided across the workers, so a bagged fit uses the same cores a
+    single fit would. numba's sublinear thread scaling is what makes K members at
+    budget/K threads faster than K sequential full-budget fits: 1.2-2.0x
+    wall-clock on the BAGGING_PLAN.md B4 panel, identical models by construction.
+    ``ensemble_n_jobs=1`` restores sequential fits.
     """
     from sklearn.base import clone
     from joblib import Parallel, delayed
@@ -515,12 +572,14 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         0, 2**31 - 1, size=K)
 
     # Bagged-mode member defaults (benchmarks/BAGGING_PLAN.md B3): averaging
-    # tolerates coarser, cheaper members, so params the user left on auto
-    # resolve to the tuned member values instead of the single-model ones
-    # (PMLB-tuned, holdout-confirmed, decision-suite validated: 54W-17L
-    # +0.28% pooled vs the previous bagged defaults at par fit cost).
-    # Explicit user values always win. Announced once per fit -- an opt-in
-    # bagged fit should never silently train members on different defaults.
+    # tolerates coarser, cheaper members, so params left on auto resolve to the
+    # tuned member values rather than the single-model ones. PMLB-tuned,
+    # holdout-confirmed, decision-suite validated: 54W-17L, +0.28% pooled vs the
+    # previous bagged defaults at par fit cost.
+    #
+    # Explicit user values always win, and the substitution is announced once
+    # per fit -- an opt-in bagged fit should never silently train members on
+    # different defaults.
     member_defaults = {}
     if estimator.learning_rate is None:
         member_defaults["learning_rate"] = 0.15
@@ -535,35 +594,33 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
             UserWarning, stacklevel=3)
 
     def _fit_one(seed):
-        # quality=None on members: the recipe has already been resolved on the
-        # bag itself, and rungs 4/5 set n_ensembles -- leaving quality on a
-        # member would re-apply it and recurse into another bag.
+        # quality=None on members: the recipe is already resolved on the bag
+        # itself, and rungs 4/5 set n_ensembles -- leaving quality on a member
+        # would re-apply it and recurse into another bag.
         member = clone(estimator).set_params(
             n_ensembles=None, quality=None, random_state=int(seed),
             thread_count=member_threads, **member_defaults)
+
         # Members receive internally-constructed inputs (ndarray rows, OOB eval
-        # sets), so the strict user-facing input checks that assume "the caller
-        # chose this" are relaxed for them -- see _fit_single.
+        # sets), so the strict user-facing checks that assume "the caller chose
+        # this" are relaxed for them -- see _fit_single.
         member._is_bag_member = True
-        # Member sample (benchmarks/BAGGING_PLAN.md B-samp): draw
-        # max_samples*n rows WITHOUT replacement ("subagging"). A full-size
-        # bootstrap gives a member only ~0.632n unique rows at n rows of
-        # compute (duplicates are just integer weights); 0.8n unique rows at
-        # 0.8n compute is more effective data AND less work — measured
-        # stronger and faster on both decision suites (gr 54W-5L +0.94%,
-        # Brier 23W-0L, fit 0.87x; hc Brier 8W-0L, fit 0.73x).
-        # max_samples=1.0 restores the classic full-size bootstrap. With
-        # ``groups`` the draw is over whole groups instead of rows, so the
-        # held-out groups give the member a non-empty group-disjoint OOB
-        # eval set (see _member_sample_indices).
+
+        # Member sample (benchmarks/BAGGING_PLAN.md B-samp). Why subagging beats
+        # the classic bootstrap: a full-size bootstrap leaves a member only
+        # ~0.632n unique rows at n rows of compute (duplicates are just integer
+        # weights), while 0.8n unique rows cost 0.8n compute -- more effective
+        # data and less work. Measured stronger and faster on both decision
+        # suites (gr 54W-5L +0.94%, Brier 23W-0L, fit 0.87x; hc Brier 8W-0L,
+        # fit 0.73x).
         ms = float(estimator.max_samples)
         idx = _member_sample_indices(n, ms, seed, groups)
-        # A rare class can be missed by the draw entirely, and a member cannot
-        # fit on a single class ("Need at least 2 classes" would crash the
-        # whole bag on data whose y plainly has two). Inject one row of the
-        # most frequent missing class in that case; draws that already hold
-        # two classes -- every non-crashing fit before this guard -- are
-        # byte-identical.
+
+        # The draw can miss a rare class entirely, and a member cannot fit on a
+        # single class ("Need at least 2 classes" would crash the whole bag on
+        # data whose y plainly has two). Inject one row of the most frequent
+        # missing class. Draws that already hold two classes -- every
+        # non-crashing fit before this guard -- are byte-identical.
         classes = getattr(estimator, "classes_", None)
         if classes is not None and np.unique(y[idx]).size < 2:
             patch_rng = np.random.default_rng([int(seed), 1])
@@ -579,51 +636,57 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
                 # spare: overwriting it just swaps which single class the
                 # member sees, and it crashes again. Grow to two rows instead.
                 idx = np.append(idx, donor)
+
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
-        # Use OOB rows as the early-stopping eval set when no explicit eval_set
-        # was provided. The alternative (auto-splitting the bootstrap) contaminates
-        # the validation set: ~57% of auto-split val rows are duplicates of
-        # training rows, so val loss is optimistically low, early stopping fires
-        # late, and each member builds ~38% more trees than it should.
-        # OOB rows are guaranteed unseen by the member, giving a clean signal.
+
+        # OOB rows are the member's early-stopping eval set when the caller gave
+        # no explicit one. Auto-splitting the sample instead contaminates the
+        # validation set: ~57% of auto-split val rows are duplicates of training
+        # rows, so val loss reads optimistically low, early stopping fires late,
+        # and each member builds ~38% more trees than it should. OOB rows are
+        # guaranteed unseen by the member.
         if eval_set is None:
             oob_idx = _member_oob_eval_indices(idx, n, groups)
-            # Degenerate case: every row drawn (possible for tiny n). Fall back
-            # to letting the member auto-split rather than training with no eval.
-            # Carry OOB-row weights so zero-weight rows don't score the member's
-            # early-stopping metric (H3).
+
+            # Carry the OOB rows' weights so zero-weight rows don't score the
+            # member's early-stopping metric (H3). If every row was drawn
+            # (possible for tiny n) let the member auto-split rather than train
+            # with no eval set at all.
             sw_oob = (np.asarray(sample_weight)[oob_idx]
                       if sample_weight is not None else None)
             member_eval = ((X[oob_idx], y[oob_idx], sw_oob)
                            if len(oob_idx) > 0 else None)
         else:
             member_eval = eval_set
+
         # Member-level full-data refit (benchmarks/BREAKTHROUGH_PLAN.md C1):
-        # after early stopping has used the OOB rows, replay this member's own
+        # once early stopping has used the OOB rows, replay this member's own
         # structure against gradients from EVERY row, so its leaf values stop
-        # being estimated from max_samples*n. Only the leaf values move -- the
-        # splits stay exactly as this member's bag grew them, which is the
-        # diversity the bag actually trades on. Off by default; nothing below
-        # runs and the member is byte-identical when refit_members is False.
+        # being estimated from max_samples*n. Only the leaf values move; the
+        # splits stay exactly as this member's sample grew them, which is the
+        # diversity the bag trades on. Off by default -- with refit_members
+        # False nothing here fires and the member is byte-identical.
         if getattr(estimator, "refit_members", False) and eval_set is None:
             member._bag_refit_rows_ = (X, y, sample_weight, ms)
+
         member.fit(X[idx], y[idx], cat_features=cat_features, eval_set=member_eval,
                    groups=gb, sample_weight=wb)
         member._bag_refit_rows_ = None
-        # Members train on bare ndarray rows, so they would otherwise warn
-        # "fitted without feature names" on every DataFrame predict; give them
-        # the parent's captured names so the column-order guard applies
-        # uniformly at the member level too.
+
+        # Members train on bare ndarray rows, so without this they warn "fitted
+        # without feature names" on every DataFrame predict. The parent's
+        # captured names also make the column-order guard apply per member.
         names = getattr(estimator, "feature_names_in_", None)
         if names is not None:
             member.feature_names_in_ = names
+
         # member_threads (the fit-time per-worker share of the thread budget)
         # must not outlive the fit: members predict sequentially, so a member
-        # capped at budget/K threads would walk its forest on a sliver of the
-        # machine. Restore the parent's thread setting for everything after
-        # fit. Per-row tree walks don't depend on thread count, so predictions
-        # are unchanged.
+        # left capped at budget/K threads would walk its forest on a sliver of
+        # the machine. Restore the parent's setting for everything after fit.
+        # Per-row tree walks don't depend on thread count, so predictions are
+        # unchanged.
         member.thread_count = estimator.thread_count
         member.model_.thread_count = estimator.thread_count
         return member
@@ -640,14 +703,14 @@ def _make_eval_split(X, y, validation_fraction, random_state,
     stratify : array-like or None
         Class labels for stratified splitting (pass for classification tasks).
     groups : array-like or None
-        Group membership array (e.g. ``df['subject_id']``).  When supplied,
-        groups are kept intact across the split boundary.  For classification,
-        ``StratifiedGroupKFold`` is used so class proportions are preserved;
-        for regression ``GroupShuffleSplit`` is used.
+        Group membership array (e.g. ``df['subject_id']``). When supplied,
+        groups are kept intact across the split boundary. Classification uses
+        ``StratifiedGroupKFold`` so class proportions are preserved; regression
+        uses ``GroupShuffleSplit``.
 
     Returns ``None`` when the data is too small to carve a valid validation set
-    (e.g. tiny ``n``, or a class with too few members for a stratified split).
-    The caller treats ``None`` as "train on all rows, early stopping disabled"
+    -- a tiny ``n``, or a class with too few members for a stratified split. The
+    caller treats ``None`` as "train on all rows, early stopping disabled"
     rather than crashing on a degenerate split.
     """
     from sklearn.model_selection import (
@@ -669,12 +732,12 @@ def _make_eval_split(X, y, validation_fraction, random_state,
         if groups is not None:
             groups = np.asarray(groups)
             if stratify is not None:
-                # StratifiedGroupKFold approximates the desired val fraction via
-                # n_splits = round(1 / validation_fraction). Shuffle when a
-                # random_state is given so it selects the fold like every other
-                # branch here honors the seed (unshuffled, the holdout is always
-                # the same deterministic first fold and random_state is inert);
-                # random_state=None keeps the historical unshuffled split.
+                # StratifiedGroupKFold approximates the wanted val fraction with
+                # n_splits = round(1 / validation_fraction). Shuffle only when a
+                # random_state was given, so the seed picks the fold the way
+                # every other branch here honors it. Unshuffled, the holdout is
+                # always the same first fold and random_state is inert;
+                # random_state=None keeps that historical behaviour.
                 n_splits = max(2, round(1.0 / validation_fraction))
                 splitter = StratifiedGroupKFold(
                     n_splits=n_splits,
@@ -713,14 +776,17 @@ def _make_eval_split(X, y, validation_fraction, random_state,
 
 
 def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
-    """Resolve ``early_stopping=True`` into an explicit ``eval_set`` by holding
-    out ``validation_fraction`` of the rows. Shared by the regressor
-    (``stratify=None``) and the classifier (``stratify=y``); the classifier's
-    lost-class check runs at its call site. Returns
-    ``(es_active, auto_split, X, y, sample_weight, eval_set)``; the caller
-    keeps the pre-split arrays for the optional full-data refit."""
+    """Resolve ``early_stopping=True`` into an explicit ``eval_set``, holding out
+    ``validation_fraction`` of the rows.
+
+    Shared by the regressor (``stratify=None``) and the classifier
+    (``stratify=y``); the classifier's lost-class check runs at its call site.
+    Returns ``(es_active, auto_split, X, y, sample_weight, eval_set)``. The
+    caller keeps the pre-split arrays for the optional full-data refit.
+    """
     es_active = bool(est.early_stopping)
     auto_split = False
+
     if es_active and eval_set is None:
         split = _make_eval_split(
             X, y, est.validation_fraction, est.random_state,
@@ -731,11 +797,13 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
         else:
             auto_split = True
             train_idx, val_idx = split
+
             if est.verbose and not getattr(est, "_is_bag_member", False):
                 print(f"early_stopping=True: holding out {len(val_idx)} "
                       f"of {len(X)} rows as a validation set (pass "
                       "eval_set to choose it, or early_stopping=False "
                       "to train on all rows)")
+
             # Carry the val rows' weights so zero-weight rows split off into
             # the auto holdout don't score the early-stopping metric (H3).
             sw_val = (sample_weight[val_idx]
@@ -744,26 +812,30 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
             X, y = X[train_idx], y[train_idx]
             if sample_weight is not None:
                 sample_weight = sample_weight[train_idx]
+
     return es_active, auto_split, X, y, sample_weight, eval_set
 
 
 def _extract_feature_names(X):
     """Return X's column names as a 1-D object array, or None.
 
-    Handles the trap that ``pyarrow.Table.columns`` is the column *data* (a list
-    of arrays), not names -- which would otherwise pollute ``feature_names_in_``
-    with the data itself. Prefer ``.column_names`` (pyarrow) over ``.columns``
-    (pandas/polars), and reject anything that isn't a flat sequence of scalar
-    names (e.g. arrays, or pandas MultiIndex tuples)."""
+    The trap: ``pyarrow.Table.columns`` is the column *data* (a list of arrays),
+    not the names, and would pollute ``feature_names_in_`` with the data itself.
+    So prefer ``.column_names`` (pyarrow) over ``.columns`` (pandas/polars), and
+    reject anything that isn't a flat sequence of scalar names -- arrays, or
+    pandas MultiIndex tuples.
+    """
     names = getattr(X, "column_names", None)        # pyarrow.Table
     if names is None:
         names = getattr(X, "columns", None)          # pandas / polars
     if names is None:
         return None
+
     try:
         arr = np.asarray(list(names), dtype=object)
     except Exception:
         return None
+
     if arr.ndim != 1 or any(not isinstance(v, str) and hasattr(v, "__len__")
                             for v in arr):
         return None                                  # data masquerading as names
@@ -771,9 +843,11 @@ def _extract_feature_names(X):
 
 
 def _reject_masked(X, where):
-    """Masked arrays silently drop the mask under ``np.asarray`` (the hidden
-    values are used), inverting the user's "these are missing" intent. Reject
-    with guidance instead of misbehaving silently."""
+    """Reject masked arrays with guidance.
+
+    ``np.asarray`` silently drops the mask and uses the hidden values, inverting
+    the user's "these are missing" intent.
+    """
     if np.ma.isMaskedArray(X):
         raise TypeError(
             f"Masked arrays are not supported ({where}). Convert with "
@@ -782,28 +856,33 @@ def _reject_masked(X, where):
 
 def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
                         classification):
-    """Shared fit-time input validation + feature-metadata capture.
+    """Shared fit-time input validation and feature-metadata capture.
 
     Returns the (possibly raveled) ``y`` and sets ``n_features_in_`` (and
     ``feature_names_in_`` for DataFrame input) on ``estimator``. Raises clear
     errors for the common malformed inputs rather than letting them fail
-    cryptically deep in numpy/numba. NaN in X is intentionally allowed (treated
-    as missing, routed to its own bin); inf, complex, multi-output y, and
-    scipy.sparse input are not -- see the README "scikit-learn compatibility" note.
+    cryptically deep in numpy/numba.
+
+    NaN in X is deliberately allowed -- it is treated as missing and routed to
+    its own bin. inf, complex, multi-output y and scipy.sparse input are not; see
+    the README "scikit-learn compatibility" note.
     """
     import scipy.sparse as sp
     from sklearn.exceptions import DataConversionWarning
+
     if not getattr(estimator, "_is_bag_member", False):
         # Members fit in worker processes; without this a cold bagged fit
         # would print the notice once per member.
         from .warmup import _maybe_notice_cold_compile
         _maybe_notice_cold_compile()
+
     if y is None:
         raise ValueError(
             "This estimator requires y to be passed, but the target y is None.")
     if sp.issparse(X):
         raise TypeError("Sparse input is not supported; pass a dense array.")
     _reject_masked(X, "fit")
+
     feature_names = _extract_feature_names(X)
     shape = getattr(X, "shape", None)
     Xc = None
@@ -814,6 +893,7 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
         raise ValueError(
             f"Expected a 2D array for X; got {len(shape)}D. Reshape your data, "
             "e.g. X.reshape(-1, 1) for a single feature.")
+
     n, nf = int(shape[0]), int(shape[1])
     if nf == 0:
         raise ValueError(
@@ -821,6 +901,7 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
     if n == 0:
         raise ValueError(
             f"X has 0 sample(s) (shape=(0, {nf})) while a minimum of 1 is required.")
+
     if cat_features:
         ci = np.asarray(list(cat_features))
         if ci.size:
@@ -840,24 +921,28 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
                     f"column(s): {sorted(set(ci.tolist()))}.")
             if len(set(ci.tolist())) != ci.size:
                 raise ValueError("cat_features contains duplicate indices.")
+
     if not cat_features:
-        # Check complex BEFORE the float64 cast (which would raise its own
-        # TypeError on complex input instead of our clear ValueError).
+        # Check complex BEFORE the float64 cast, which would raise its own
+        # TypeError on complex input instead of our clear ValueError.
         Xraw = Xc if Xc is not None else np.asarray(X)
         if np.iscomplexobj(Xraw):
             raise ValueError("Complex data not supported.")
+
         try:
-            # Convert from the original X (not the object-dtype Xraw) so a pandas
-            # DataFrame's nullable NA is mapped to np.nan rather than crashing the
-            # float cast as an NAType object.
+            # Convert from the original X, not the object-dtype Xraw, so a
+            # pandas DataFrame's nullable NA maps to np.nan instead of crashing
+            # the float cast as an NAType object.
             Xc = as_model_array(X if Xc is None else Xc, want_object=False)
         except (ValueError, TypeError) as e:
-            # A non-numeric column (string/category/datetime) in a DataFrame with
-            # no cat_features: name the offending columns and point at
-            # cat_features. (pandas nullable NA no longer lands here -- it maps to
-            # np.nan in as_model_array.) For bare arrays (no column metadata) keep
-            # the original numpy error -- some sklearn estimator checks rely on
-            # its exact type/message.
+            # A non-numeric column (string/category/datetime) in a DataFrame
+            # with no cat_features: name the offending columns and point at
+            # cat_features. pandas nullable NA no longer lands here -- it maps
+            # to np.nan in as_model_array.
+            #
+            # For bare arrays (no column metadata) keep the original numpy
+            # error: some sklearn estimator checks rely on its exact
+            # type/message.
             bad = _describe_nonnumeric_columns(X)
             if bad:
                 raise ValueError(
@@ -866,16 +951,17 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
                     f"positions in cat_features=[...], or encode them first."
                 ) from e
             raise
+
         if np.isinf(Xc).any():
             raise ValueError(
                 "X contains infinity. NaN is accepted (treated as missing), but "
                 "inf is not -- clip or clean it first.")
     else:
-        # cat_features present: cat columns are decoded as strings, but the
-        # remaining numeric columns must still be finite. Without this, inf in a
-        # numeric column slips silently to the missing bin (binning treats inf as
-        # NaN), contradicting the no-cat path's explicit rejection. Check only the
-        # numeric columns; the cat columns are not float-castable.
+        # Categorical columns are decoded as strings, but the remaining numeric
+        # ones must still be finite. Without this check, inf in a numeric column
+        # slips silently into the missing bin (binning treats inf as NaN),
+        # contradicting the no-cat path's explicit rejection. Only the numeric
+        # columns are checked -- the categorical ones are not float-castable.
         cat_set = set(int(c) for c in cat_features)
         num_idx = [i for i in range(nf) if i not in cat_set]
         num_block = _numeric_block(Xc if Xc is not None else X, num_idx)
@@ -883,11 +969,13 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
             raise ValueError(
                 "X contains infinity. NaN is accepted (treated as missing), "
                 "but inf is not -- clip or clean it first.")
+
     y = np.asarray(y)
     if y.shape[0] != n:
         raise ValueError(
             f"X and y have inconsistent lengths: X has {n} samples, "
             f"y has {y.shape[0]}.")
+
     # Ravel a column-vector y (n, 1) with a warning, like sklearn estimators;
     # reject genuine multi-output y.
     if y.ndim == 2:
@@ -901,6 +989,7 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
             raise ValueError(
                 "Multi-output y is not supported; pass a 1D y of shape "
                 "(n_samples,).")
+
     if classification:
         from sklearn.utils.multiclass import type_of_target
         if type_of_target(y) in ("continuous", "continuous-multioutput"):
@@ -912,14 +1001,16 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
             raise ValueError("y contains NaN or infinity.")
     elif not np.isfinite(np.asarray(y, np.float64)).all():
         raise ValueError("y contains NaN or infinity; targets must be finite.")
+
     if sample_weight is not None:
         sw = np.asarray(sample_weight, dtype=np.float64)
         if sw.ndim != 1 or sw.shape[0] != n:
             raise ValueError(
                 f"sample_weight must be 1D of length {n}; got shape {sw.shape}.")
+
         # Non-finite or negative weights, or an all-zero vector, otherwise fit
-        # without error and silently yield an all-NaN model (mean-1 weight
-        # normalization divides by the weight sum).
+        # without error and silently yield an all-NaN model: mean-1 weight
+        # normalization divides by the weight sum.
         if not np.isfinite(sw).all():
             raise ValueError("sample_weight contains NaN or infinity.")
         if (sw < 0).any():
@@ -927,16 +1018,18 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
         if sw.sum() <= 0:
             raise ValueError("sample_weight sums to zero; at least one weight "
                              "must be positive.")
+
     estimator.n_features_in_ = nf
     if feature_names is not None:
         estimator.feature_names_in_ = feature_names
     elif hasattr(estimator, "feature_names_in_"):
-        # Refitting on name-less input must not keep a previous fit's names:
-        # the stale set makes the column-order guard raise on the new fit's
-        # valid input -- and pass on stale-matching input, the exact silent
-        # wrong-prediction case it exists to stop. Mirrors sklearn's
-        # _check_feature_names, which deletes the attribute on such refits.
+        # A refit on name-less input must not keep the previous fit's names. A
+        # stale set makes the column-order guard raise on the new fit's valid
+        # input -- and pass on stale-matching input, the exact silent
+        # wrong-prediction case it exists to stop. sklearn's
+        # _check_feature_names deletes the attribute on such refits too.
         del estimator.feature_names_in_
+
     return y
 
 
@@ -947,19 +1040,24 @@ def _check_feature_names_match(estimator, X):
     otherwise yields silently-wrong predictions, since the booster consumes
     columns positionally. Mirrors sklearn: warn when names are present on only
     one side, raise when they disagree. Uses the same ``X.columns`` extraction
-    as fit-time capture so the two are directly comparable (pandas/polars)."""
+    as the fit-time capture, so the two are directly comparable (pandas/polars).
+    """
     train_names = getattr(estimator, "feature_names_in_", None)
     x_names = _extract_feature_names(X)
+
     if train_names is None and x_names is None:
         return
+
     if train_names is None:
         warnings.warn("X has feature names, but this estimator was fitted "
                       "without feature names.", UserWarning, stacklevel=3)
         return
+
     if x_names is None:
         warnings.warn("This estimator was fitted with feature names, but X was "
                       "passed without feature names.", UserWarning, stacklevel=3)
         return
+
     if not np.array_equal(np.asarray(train_names, dtype=object), x_names):
         raise ValueError(
             "The feature names of X do not match those seen during fit. "
@@ -968,10 +1066,12 @@ def _check_feature_names_match(estimator, X):
 
 
 def _assume_finite():
-    """Honor scikit-learn's global ``assume_finite`` config. When a user sets
-    ``sklearn.set_config(assume_finite=True)`` (or uses ``config_context``), the
+    """Honor scikit-learn's global ``assume_finite`` config.
+
+    Under ``sklearn.set_config(assume_finite=True)`` (or ``config_context``) the
     O(n) predict-time finiteness scan is skipped for maximum inference
-    throughput -- the same escape hatch sklearn's own ``check_array`` offers."""
+    throughput -- the same escape hatch sklearn's own ``check_array`` offers.
+    """
     try:
         from sklearn import get_config
         return bool(get_config().get("assume_finite", False))
@@ -980,13 +1080,17 @@ def _assume_finite():
 
 
 def _numeric_block(X, num_idx):
-    """The numeric columns of X (positions ``num_idx``) as a float64 array, or
-    None if they aren't float-castable. Used for the inf check when categoricals
-    are present: it selects *only* the numeric columns so the (often string-
-    heavy) categorical columns aren't dragged through an expensive object
-    conversion. Maps pandas nullable NA to np.nan like the model's own path."""
+    """The numeric columns of X (positions ``num_idx``) as float64, or None if
+    they aren't float-castable.
+
+    Used for the inf check when categoricals are present. It selects *only* the
+    numeric columns, so the often string-heavy categorical ones aren't dragged
+    through an expensive object conversion. Maps pandas nullable NA to np.nan
+    like the model's own path.
+    """
     if not num_idx:
         return None
+
     try:
         iloc = getattr(X, "iloc", None)
         if iloc is not None and hasattr(X, "dtypes"):     # pandas DataFrame
@@ -1017,36 +1121,48 @@ def _was_fit_with_cats(estimator):
 
 
 def _bag_predict_context(estimator, X):
-    """Per-call predict state shared across the members of a bagged ensemble:
-    the raw-matrix conversion and a categorical-factorization cache, computed
-    once instead of once per member. The caller has already validated ``X``
-    (``_check_predict_input``), so members skip re-validation entirely -- each
-    member's prediction is unchanged, only the redundant per-member conversion,
-    hashing, and input checks are gone."""
+    """Per-call predict state shared across the members of a bagged ensemble.
+
+    The raw-matrix conversion and a categorical-factorization cache, computed
+    once instead of once per member. The caller has already validated ``X`` via
+    ``_check_predict_input``, so members skip re-validation entirely. Each
+    member's prediction is unchanged -- only the redundant per-member
+    conversion, hashing and input checks are gone.
+    """
     Xc = as_model_array(X, _was_fit_with_cats(estimator))
     return Xc, CatTransformCache()
 
 
 def _check_predict_input(estimator, X):
-    """Raise NotFittedError if unfitted, then validate X is 2D with the same
-    number of features as training -- preventing silently-wrong predictions on
-    mismatched input. Messages match scikit-learn's wording for compatibility."""
+    """Validate X at predict time; return the converted model array, or None.
+
+    Raises NotFittedError if unfitted, then checks that X is 2D with the same
+    number of features as training -- mismatched input would otherwise give
+    silently-wrong predictions. Messages match scikit-learn's wording.
+
+    The returned array is the model-array conversion the inf check already had
+    to perform. Callers thread it through so a DataFrame is materialized once
+    per predict instead of twice. It is None when no full conversion happened:
+    under ``assume_finite``, or after a conversion failure whose descriptive
+    error the booster raises.
+    """
     from sklearn.utils.validation import check_is_fitted
     check_is_fitted(estimator)
+
     # A process that only unpickles a model and serves it never calls fit, so
     # the predict path needs its own notice.
     from .warmup import _maybe_notice_cold_compile
     _maybe_notice_cold_compile()
-    # Enforce feature-name agreement with fit (reuse sklearn's logic): a
-    # DataFrame whose columns are renamed or *reordered* relative to training
-    # otherwise produces silently-wrong predictions. Warns when names are
-    # present on only one side, raises when they disagree -- like every sklearn
-    # estimator.
+
+    # A DataFrame whose columns are renamed or *reordered* relative to training
+    # otherwise produces silently-wrong predictions.
     _check_feature_names_match(estimator, X)
+
     import scipy.sparse as sp
     if sp.issparse(X):
         raise TypeError("Sparse input is not supported; pass a dense array.")
     _reject_masked(X, "predict")
+
     shape = getattr(X, "shape", None)
     if shape is None or len(shape) != 2:
         shape = np.asarray(X, dtype=object).shape
@@ -1058,19 +1174,15 @@ def _check_predict_input(estimator, X):
         raise ValueError(
             f"X has {shape[1]} features, but {type(estimator).__name__} is "
             f"expecting {estimator.n_features_in_} features as input.")
-    # Reject inf at predict for the numeric path, mirroring fit (which rejects
-    # it). Without this, an inf serving value is silently routed to the missing
-    # bin and returns the "missing" prediction with no error. This is the only
-    # O(n) check on the hot predict path, so it is skippable via sklearn's
-    # ``assume_finite`` config for latency-critical serving.
-    #
-    # The model-array conversion the check needs is the same one the booster
-    # would redo immediately after; return it so callers thread it through
-    # (one full DataFrame materialization per predict instead of two).
-    # Returns None when no full conversion happened (assume_finite, or a
-    # conversion failure whose descriptive error the booster raises).
+
+    # Reject inf at predict for the numeric path, mirroring fit. Without it an
+    # inf serving value is silently routed to the missing bin and returns the
+    # "missing" prediction with no error. This is the only O(n) check on the hot
+    # predict path, hence the assume_finite escape hatch for latency-critical
+    # serving.
     if _assume_finite():
         return None
+
     if not _was_fit_with_cats(estimator):
         try:
             Xc = as_model_array(X, want_object=False)
@@ -1088,6 +1200,7 @@ def _check_predict_input(estimator, X):
                 "X contains infinity. NaN is accepted (treated as missing), but "
                 "inf is not -- clip or clean it first.")
         return Xc
+
     if np.isinf(Xc).any():
         raise ValueError(
             "X contains infinity. NaN is accepted (treated as missing), but "
@@ -1098,57 +1211,64 @@ def _check_predict_input(estimator, X):
 def _auto_min_child_weight(n_train):
     """Size-adaptive ``min_child_weight`` used when the classifier leaves it None.
 
-    Oblivious trees UNDERFIT large data at the historical mcw=1: the shared-split
-    veto amplifies the min-leaf constraint (one sparse leaf among 2**depth vetoes
-    the whole level), so they want a lower min-leaf than leaf-wise trees -- which
-    is why CatBoost uses min_data_in_leaf=1. But mcw~0 OVERFITS small data,
-    because (unlike CatBoost) we run plain boosting without ordered-boosting
-    regularization. So fade the veto by training size: keep the full veto below
-    ~500 rows, drop it above ~2000, linear between. The midpoint (~1250 rows ->
-    ~20 samples/leaf at depth 6) lines up with the field-standard
-    min_data_in_leaf=20.
+    Oblivious trees UNDERFIT large data at the historical mcw=1: the shared split
+    amplifies the min-leaf constraint, since one sparse leaf among 2**depth
+    vetoes the whole level. They want a lower min-leaf than leaf-wise trees --
+    which is why CatBoost uses min_data_in_leaf=1. But mcw~0 OVERFITS small data,
+    because unlike CatBoost we run plain boosting with no ordered-boosting
+    regularization.
+
+    So the veto fades with training size: full below ~500 rows, gone above ~2000,
+    linear between. The midpoint (~1250 rows, about 20 samples per leaf at depth
+    6) lines up with the field-standard min_data_in_leaf=20.
     """
     return float(np.clip((2000.0 - n_train) / 1500.0, 0.0, 1.0))
 
 
 # Pairwise categorical combinations help when the target depends on categorical
-# INTERACTIONS, but on mixed data the synthetic combo columns crowd out the
-# numeric features that want to split (sign-tested: all-categorical car/kr-vs-kp
-# gain +60%+, mixed sets regress). So the auto-default enables them ONLY when the
-# data is entirely categorical -- the precise condition under which they help
-# without a downside. The two caps below are resource guards (a wide all-cat
+# INTERACTIONS. On mixed data the synthetic combo columns crowd out the numeric
+# features that want to split: sign-tested, the all-categorical car and kr-vs-kp
+# gain +60% or more while mixed sets regress. So the auto-default turns them on
+# ONLY for entirely categorical data -- the one condition where they help with
+# no downside.
+#
+# The two caps below are resource guards, not accuracy knobs: a wide all-cat
 # dataset generates C(n_cat, 2) combo columns, each target-encoded over every
-# row), NOT accuracy knobs: above them the user can still opt in explicitly.
+# row. Above them the user can still opt in explicitly.
 _AUTO_CAT_COMBO_MAX_PAIRS = 1000        # ceiling on C(n_cat, 2) combo columns
 _AUTO_CAT_COMBO_MAX_CELLS = 5e7         # ceiling on pairs * n_samples (memory)
 
 
 def _auto_cat_combinations(cat_features, n_features, n_samples):
-    """Resolve ``cat_combinations=None``: True only for (tractable) all-categorical
-    data. ``cat_features`` is the resolved integer-index list (or None)."""
+    """Resolve ``cat_combinations=None``: True only for tractable all-categorical
+    data. ``cat_features`` is the resolved integer-index list, or None."""
     if cat_features is None or len(cat_features) == 0:
         return False
+
     n_cat = len(cat_features)
     if n_cat < 2 or n_cat != n_features:
         return False
+
     n_pairs = n_cat * (n_cat - 1) // 2
     if n_pairs > _AUTO_CAT_COMBO_MAX_PAIRS:
         return False
     if n_pairs * n_samples > _AUTO_CAT_COMBO_MAX_CELLS:
         return False
+
     return True
 
 
-# Numeric cross features: pair the CROSS_TOP_M most important numeric columns
-# of the base fit; each pair contributes a difference and a product column.
-# Selection (base vs augmented, on the ES validation split) needs enough rows
-# for the val signal to be trustworthy -- below CROSS_MIN_SAMPLES the val set
-# is too small to referee and small data overfits extra columns first.
+# Numeric cross features: pair the CROSS_TOP_M most important numeric columns of
+# the base fit; each pair contributes a difference and a product column.
+# Selection (base vs augmented, on the ES validation split) needs enough rows for
+# the validation signal to be trustworthy -- below CROSS_MIN_SAMPLES the val set
+# is too small to referee, and small data overfits extra columns first.
 CROSS_TOP_M = 6
 CROSS_MIN_SAMPLES = 2000
+
 # Group-centered (gdiff) candidates: top numerics x top categoricals. A gdiff
-# column x_i - mean(x_i | c_j) makes "above this row's own category's
-# baseline" one split -- the num x cat analog of the diff/prod staircase fix.
+# column x_i - mean(x_i | c_j) makes "above this row's own category's baseline"
+# one split -- the num x cat analog of the diff/prod staircase fix.
 CROSS_GDIFF_TOP_NUM = 4
 CROSS_GDIFF_TOP_CAT = 3
 
@@ -1156,22 +1276,27 @@ CROSS_GDIFF_TOP_CAT = 3
 def _cross_candidate_pairs(importances, cat_features, n_features):
     """Candidate (i, j, op) cross features from base-fit importances.
 
-    Oblivious trees approximate interactions with a depth-limited staircase
-    (one shared split per level); a difference column makes the ``x_i < x_j``
-    boundary one split, a product column captures multiplicative structure,
-    and a group-centered column makes a within-category deviation one split.
-    Numeric pairs are the C(m, 2) combinations of the top-m numeric features
-    by split-gain importance; gdiff pairs cross the top numerics with the top
+    Oblivious trees can only approximate an interaction with a depth-limited
+    staircase, one shared split per level. A difference column makes the
+    ``x_i < x_j`` boundary a single split, a product column captures
+    multiplicative structure, and a group-centered column makes a within-category
+    deviation a single split.
+
+    Numeric pairs are the C(m, 2) combinations of the top-m numeric features by
+    split-gain importance; gdiff pairs cross the top numerics with the top
     categoricals. Interactions among features the trees already use are the
-    plausible ones, and irrelevant crosses cost only fit time (split search
-    ignores them; the validation race referees the whole block)."""
+    plausible ones, and an irrelevant cross costs only fit time -- the split
+    search ignores it, and the validation race referees the whole block.
+    """
     cat = set(cat_features or [])
     num_idx = [i for i in range(n_features) if i not in cat]
     if not num_idx:
         return []
+
     imp = np.asarray(importances, dtype=np.float64)
     key = np.zeros(n_features)
     key[:imp.shape[0]] = imp
+
     pairs = []
     if len(num_idx) >= 2:
         top = sorted(num_idx, key=lambda i: -key[i])[:CROSS_TOP_M]
@@ -1180,10 +1305,12 @@ def _cross_candidate_pairs(importances, cat_features, n_features):
                 i, j = top[a], top[b]
                 pairs.append((i, j, "diff"))
                 pairs.append((i, j, "prod"))
+
     if cat:
         gnum = sorted(num_idx, key=lambda i: -key[i])[:CROSS_GDIFF_TOP_NUM]
         gcat = sorted(cat, key=lambda i: -key[i])[:CROSS_GDIFF_TOP_CAT]
         pairs.extend((i, j, "gdiff") for i in gnum for j in gcat)
+
     return pairs
 
 
@@ -1202,9 +1329,12 @@ def _stop_after(k):
 
 def _stop_if_behind(k, target_best):
     """Fit callback killing a challenger at round k unless its best validation
-    loss has beaten ``target_best`` by then (the raced-selection rule: the
-    winner at the shared budget continues, the loser stops). A best-so-far
-    only improves, so a challenger ahead at k is never stopped later."""
+    loss has beaten ``target_best`` by then.
+
+    The raced-selection rule: the winner at the shared budget continues, the
+    loser stops. A best-so-far only improves, so a challenger ahead at k is never
+    stopped later.
+    """
     state = {"best": np.inf}
 
     def cb(iteration, train_loss, val_loss, model):
@@ -1220,45 +1350,50 @@ def _bag_refit_rows(est):
     None when this is not a member of a refitting bag.
 
     A member trains on ``max_samples`` of the rows and early-stops on the
-    out-of-bag complement, so `auto_split` is False and the ordinary full-data
-    refit never fires: every member's leaf values come from 0.8n rows and
-    nothing reclaims the rest. REFIT_PLAN's "bag members have no data tax" is
-    true of the ENSEMBLE — every row is in some member's bag — but not of any
-    individual member.
+    out-of-bag complement, so ``auto_split`` is False and the ordinary full-data
+    refit never fires: every member's leaf values come from 0.8n rows and nothing
+    reclaims the rest. REFIT_PLAN's "bag members have no data tax" is true of the
+    ENSEMBLE -- every row is in some member's bag -- but not of any individual
+    member.
 
     Replaying the member's own structure against all-row gradients is safe for
     the ensemble because bag lift is STRUCTURAL diversity, measured in the LRE
     post-mortem ("leaf-only diversity is dead, structural diversity is the
-    value"): the structures stay exactly as each member's own bag grew them,
-    and only the leaf values change. See benchmarks/BREAKTHROUGH_PLAN.md."""
+    value"). The structures stay exactly as each member's own bag grew them, and
+    only the leaf values change. See benchmarks/BREAKTHROUGH_PLAN.md.
+    """
     return getattr(est, "_bag_refit_rows_", None)
 
 
 def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
                    loss_kwargs=None, replay=False, train_frac=None):
-    """Retrain ``winner``'s configuration on all rows (benchmarks/
-    REFIT_PLAN.md): rounds scaled by the train-size ratio, resolved learning
-    rate pinned so the early-stopped budget keeps its meaning, selected
-    linear-leaf variant and cross pairs carried over. The winner's ES curves
-    are copied so ``validation_history_`` keeps reporting the curve that
-    chose the budget. Size-adaptive autos (the classifier's min_child_weight,
-    cat_combinations) re-resolve at the full row count; user callbacks
-    observed the ES fits and are not re-run.
+    """Retrain ``winner``'s configuration on all rows (benchmarks/REFIT_PLAN.md).
 
-    ``train_frac`` is the fraction of ``X_full`` the winner actually trained
-    on, which sets how far the round budget scales up. It defaults to the
+    Rounds scale by the train-size ratio and the resolved learning rate is
+    pinned, so the early-stopped budget keeps its meaning; the selected
+    linear-leaf variant and cross pairs carry over. The winner's early-stopping
+    curves are copied so ``validation_history_`` still reports the curve that
+    chose the budget. Size-adaptive autos (the classifier's min_child_weight,
+    cat_combinations) re-resolve at the full row count. User callbacks already
+    observed the early-stopping fits and are not re-run.
+
+    ``train_frac`` is the fraction of ``X_full`` the winner actually trained on,
+    which sets how far the round budget scales up. It defaults to the
     auto-split's ``1 - validation_fraction``; a bag member passes its
     ``max_samples`` instead, since what its leaf values never saw is the
-    out-of-bag complement rather than a validation holdout."""
+    out-of-bag complement rather than a validation holdout.
+    """
     t_star = len(winner.trees_)
     frac = (1.0 - est.validation_fraction) if train_frac is None \
         else float(train_frac)
     rounds = min(int(np.ceil(t_star / max(frac, 1e-9))),
                  int(est.n_estimators))
+
     rkw = dict(kw)
     rkw["n_estimators"] = rounds
     rkw["early_stopping_rounds"] = None
     rkw["learning_rate"] = float(winner.lr_)
+
     # The classifier's auto min_child_weight is size-adaptive (the regressor
     # resolves None to a flat 1.0 before kw is built).
     if est.min_child_weight is None and loss_kwargs is None:
@@ -1267,10 +1402,11 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
         rkw["cat_combinations"] = _auto_cat_combinations(
             cat_features, est.n_features_in_, len(X_full))
     rkw.pop("linear_leaves", None)
+
     # Structure-transfer refit: replay the winner's splits against full-data
-    # gradients instead of re-growing them. The scalar booster only -- the
-    # multiclass round grows one vector-leaf tree through a separate loop, so
-    # it keeps the from-scratch refit.
+    # gradients instead of re-growing them. Scalar booster only -- the multiclass
+    # round grows one vector-leaf tree through a separate loop, so it keeps the
+    # from-scratch refit.
     multiclass = getattr(est, "_multiclass", False)
     donor = ((winner.trees_, winner.prep_)
              if (replay and not multiclass and winner.trees_) else None)
@@ -1278,6 +1414,7 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
         # The donor's preprocessor is reused verbatim, so the cross columns and
         # the encoder come with it; passing cross_pairs again would rebuild them.
         rkw["replay_donor"] = donor
+
     if loss_kwargs is not None:      # scalar regressor path
         b = GradientBoosting(loss=est.loss, loss_kwargs=loss_kwargs,
                              linear_leaves=winner.linear_leaves,
@@ -1289,9 +1426,11 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
         b = GradientBoosting(loss="Logloss",
                              linear_leaves=winner.linear_leaves,
                              cross_pairs=winner.cross_pairs, **rkw)
+
     if est.verbose:
         print(f"refit_full: retraining on all {len(X_full)} rows for "
               f"{rounds} rounds (early stopping chose {t_star})")
+
     b.fit(X_full, y_full, cat_features=cat_features, sample_weight=sw_full)
     b.train_history_ = winner.train_history_
     b.valid_history_ = winner.valid_history_
@@ -1300,7 +1439,7 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
 
 def _add_callback(callbacks, extra):
     """Compose the user callbacks argument (None, a callable, or a sequence)
-    with one internal callback; extra=None returns callbacks unchanged."""
+    with one internal callback. ``extra=None`` returns callbacks unchanged."""
     if extra is None:
         return callbacks
     base = ([] if callbacks is None else list(callbacks)
@@ -1405,7 +1544,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         quantile loss. ``None`` (the default) = validation-selected: both
         variants are fit and the one with the lower validation loss is kept
         (~2x fit time; requires an early-stopping split or ``eval_set``, RMSE
-        loss, and >= 1000 rows â€” otherwise constant leaves are used). Set
+        loss, and >= 1000 rows -- otherwise constant leaves are used). Set
         ``True``/``False`` to force one variant and skip the double fit.
     linear_lambda : float, default 1.0
         Ridge penalty on per-leaf linear slopes; larger is closer to a constant.
@@ -1465,33 +1604,35 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / calibration have used it), retrain the winning
-        configuration on 100% of the rows — rounds scaled by the train-size
-        ratio, learning rate pinned — so the final model does not pay the
+        configuration on 100% of the rows -- rounds scaled by the train-size
+        ratio, learning rate pinned -- so the final model does not pay the
         holdout data tax. Only affects fits that used the automatic split
         (an explicit ``eval_set`` or ``early_stopping=False`` is unchanged);
         ``loss="Quantile"`` ignores it to keep its conformal holdout honest.
-        ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        refitting on since 0.25.0: it is the strongest single-model setting
-        measured (benchmarks/SELECT_PLAN.md). Set ``False``, or ``quality=2``,
-        for the faster pre-0.25 behaviour.
+        ``validation_history_`` keeps the early-stopped fit's curve. Costs one
+        extra refit; on by default since 0.25.0, as the strongest single-model
+        setting measured (benchmarks/SELECT_PLAN.md). Set ``False``, or
+        ``quality=2``, for the faster pre-0.25 behaviour.
 
         **The default is** ``"replay"``, which gets the same thing for about
         two thirds of the cost. Growing trees is 83-85% of a fit and is a
         SEARCH; ``"replay"`` reuses the winner's tree structures and refits
         only the leaf values against full-data gradients, so the held-out rows
         still shape every leaf value while the split search is not paid for
-        twice. Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was
-        flat (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on
-        all 59; on high-cardinality categorical data it ran slightly behind
-        (mean −0.256%) for 17% less fit time. Pass ``True`` for the
-        from-scratch refit — marginally stronger on high-card data, and the
-        setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
-        and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
+        twice.
+
+        Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was flat
+        (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on all
+        59; on high-cardinality categorical data it ran slightly behind (mean
+        -0.256%) for 17% less fit time. Pass ``True`` for the from-scratch
+        refit -- marginally stronger on high-card data, and the setting
+        benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"`` and
+        always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
     refit_members : bool, default False
         The bagged analogue of ``refit_full``, and off by default. A bag member
         trains on ``max_samples`` of the rows and early-stops on its
         out-of-bag complement, so its leaf values never see the rows it stopped
-        on — the full-data refit that helps a single model has never fired for
+        on -- the full-data refit that helps a single model has never fired for
         it. With ``True`` each member replays its own tree structure against
         gradients from every row once early stopping is done. Only the leaf
         values move; the splits stay exactly as that member's own sample grew
@@ -1630,19 +1771,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             here overrides the constructor value. (The constructor form lets
             ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
         eval_set : (X_val, y_val) tuple or None
-            Explicit validation set.  When provided, automatic splitting is
+            Explicit validation set. When provided, automatic splitting is
             skipped regardless of the *early_stopping* setting.
         groups : array-like of shape (n_samples,) or None
-            Group labels for the samples (e.g. ``df['subject_id']``).  When
+            Group labels for the samples (e.g. ``df['subject_id']``). When
             supplied and *early_stopping* triggers an automatic split, groups
             are kept intact across the train/validation boundary using
             ``GroupShuffleSplit``.
         sample_weight : array-like of shape (n_samples,) or None
-            Per-sample weights.  Normalized to mean 1 internally.  Applied
+            Per-sample weights, normalized to mean 1 internally. Applied
             throughout: the gradient/leaf fit, the categorical target encoder,
             the quantile bin borders, and the early-stopping metric on an
             automatically split (or bagged out-of-bag) validation set, so a
-            zero-weight row never influences the model.  An explicitly passed
+            zero-weight row never influences the model. An explicitly passed
             ``eval_set`` carries no weights and is scored unweighted.
         callbacks : callable or list of callable, or None
             Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
@@ -1655,14 +1796,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
+
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
-            # A reordered/renamed eval DataFrame is consumed positionally and
-            # silently wrecks early stopping (and everything calibrated on the
-            # holdout). Bag members skip this: their eval sets are built
+
+            # A reordered or renamed eval DataFrame is consumed positionally and
+            # silently wrecks early stopping, and everything calibrated on the
+            # holdout. Bag members skip this: their eval sets are built
             # internally from already-validated parent input.
             if not getattr(self, "_is_bag_member", False):
                 _check_feature_names_match(self, eval_set[0])
+
         with _quality_applied(self):
             if self.n_ensembles and self.n_ensembles > 1:
                 if callbacks is not None:
@@ -1671,6 +1815,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 self.estimators_ = _fit_bagged(self, X, y, cat_features,
                                                eval_set, groups, sample_weight)
                 return self
+
             self.estimators_ = None
             return self._fit_single(X, y, cat_features, eval_set, groups,
                                     sample_weight, callbacks)
@@ -1692,16 +1837,18 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         y = np.asarray(y, dtype=np.float64)
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
-        # linear_leaves is silently dropped by the booster for MAE/Quantile
-        # (their leaf values are the residual median/quantile, not a Newton step
-        # a ridge slope could refine). Warn so it isn't mistaken for active.
+
+        # The booster silently drops linear_leaves for MAE/Quantile: their leaf
+        # values are the residual median or quantile, not a Newton step a ridge
+        # slope could refine. Warn so it isn't mistaken for active.
         if self.linear_leaves and self.loss in ("MAE", "Quantile"):
             warnings.warn(
                 f"linear_leaves is not supported with loss={self.loss!r} and "
                 "will be ignored.", UserWarning, stacklevel=2)
-        # Same inert-setting honesty for the other shadowed knobs: MAE/Quantile
-        # re-estimate leaf values directly (the booster's adjusts_leaves path),
-        # which owns the training step.
+
+        # Same honesty for the other knobs MAE/Quantile shadow: they re-estimate
+        # leaf values directly (the booster's adjusts_leaves path), which owns
+        # the training step.
         if self.loss in ("MAE", "Quantile"):
             if self.ordered_boosting:
                 warnings.warn(
@@ -1720,9 +1867,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             self, X, y, sample_weight, eval_set, groups, stratify=None)
 
         # Mirror the classifier's inert-setting warnings: an explicit
-        # linear_leaves=True shadows ordered boosting / leaf refinement once
-        # the booster activates it (>= LINEAR_LEAVES_MIN_SAMPLES train rows;
-        # the None auto-audition is exempt -- it decides on validation loss).
+        # linear_leaves=True shadows ordered boosting and leaf refinement once
+        # the booster activates it, at >= LINEAR_LEAVES_MIN_SAMPLES train rows.
+        # The None auto-audition is exempt -- it decides on validation loss.
         ll_shadows = (self.linear_leaves is True
                       and self.loss not in ("MAE", "Quantile")
                       and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
@@ -1737,9 +1884,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 "are active; set linear_leaves=False to use it.",
                 UserWarning, stacklevel=2)
 
-        # If early stopping is active but patience not explicitly set, use 50.
-        # 50 beat 10 on 25/34 benchmark datasets when measured (lr=0.1 keeps
-        # improving past a 10-round plateau).
+        # Default patience when early stopping is on: 50 beat 10 on 25 of 34
+        # benchmark datasets when measured, because lr=0.1 keeps improving past
+        # a 10-round plateau.
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
             es_rounds = 50
@@ -1751,45 +1898,53 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             loss_kwargs["delta"] = self.delta
         elif self.loss == "Tweedie":
             loss_kwargs["power"] = self.tweedie_variance_power
+
         kw = {k: v for k, v in self.get_params().items()
               if k not in {"loss", "alpha", "delta",
                            "tweedie_variance_power"} | _SKLEARN_ONLY}
         kw["early_stopping_rounds"] = es_rounds
-        # Resolve the loss-adaptive depth default (see the `depth` docstring):
-        # 6 for RMSE/MAE (unchanged), 4 for Quantile, where deep leaves overfit
-        # the tail quantile and predictions collapse toward the median.
+
+        # Loss-adaptive depth default (see the `depth` docstring): 6 for
+        # RMSE/MAE, 4 for Quantile, where deep leaves overfit the tail quantile
+        # and predictions collapse toward the median.
         if kw.get("depth") is None:
             kw["depth"] = 4 if self.loss == "Quantile" else 6
-        # min_child_weight is a no-op for regression in [0, 1] (a non-empty child
-        # always holds >=1 sample = hess >= 1); resolve an explicit None to 1.0.
+
+        # min_child_weight is a no-op for regression in [0, 1] -- a non-empty
+        # child always holds >= 1 sample, so hess >= 1. Resolve None to 1.0.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = 1.0
-        # The regressor default is a concrete 1, but the shared validator accepts
-        # None (the classifier's auto default); resolve an explicit None to 1.
+
+        # The regressor default is a concrete 1, but the shared validator also
+        # accepts None (the classifier's auto default); resolve that to 1.
         if kw.get("leaf_estimation_iterations") is None:
             kw["leaf_estimation_iterations"] = 1
+
         # colsample None = auto: full columns for a single model (the bagged
         # path resolves members to 0.85 before this runs; see _fit_bagged).
         if kw.get("colsample") is None:
             kw["colsample"] = 1.0
-        # Auto-resolve cat_combinations: on only for tractable all-categorical data.
+
+        # cat_combinations auto: on only for tractable all-categorical data.
         if kw.get("cat_combinations") is None:
             kw["cat_combinations"] = _auto_cat_combinations(
                 cat_features, self.n_features_in_, len(X))
-        # linear_leaves=None -> validation-selected: fit constant-leaf and
+
+        # linear_leaves=None means validation-selected: fit the constant-leaf and
         # linear-leaf variants and keep whichever reaches the lower validation
-        # loss. Full-Grinsztajn breadth showed fixed linear leaves are a wash
-        # for regression (16W/12L) with real casualties; per-dataset selection
-        # on the already-held-out ES split banks the wins without them (the
-        # same post-fit-decision pattern as temperature scaling / conformal
-        # quantiles). Selection needs a validation set, RMSE (MAE/Quantile
+        # loss. Full-Grinsztajn breadth showed fixed linear leaves are a wash for
+        # regression (16W/12L) with real casualties; per-dataset selection on the
+        # already-held-out early-stopping split banks the wins without them --
+        # the same post-fit-decision pattern as temperature scaling and conformal
+        # quantiles. Selection needs a validation set, RMSE (MAE and Quantile
         # override leaf values), and enough rows for linear leaves to engage.
         ll = kw.pop("linear_leaves")
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
-        # Cross-features applicability, decidable before any fit: pair
-        # candidates exist iff there are >= 2 numeric columns (diff/prod) or
-        # >= 1 numeric and >= 1 categorical (gdiff group-centering).
+
+        # Cross-features applicability, decidable before any fit: pair candidates
+        # exist iff there are >= 2 numeric columns (diff/prod), or >= 1 numeric
+        # and >= 1 categorical (gdiff group-centering).
         n_cats = len(cat_features) if cat_features else 0
         n_nums = X.shape[1] - n_cats
         cross_ok = (self.cross_features is not False and self.loss == "RMSE"
@@ -1815,17 +1970,20 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_leaves_selected_ = None
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
+
         if self.selection_rounds is not None and (select_ll or cross_ok):
             # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
-            # design): every selection fit runs as a short audition; the
-            # cross-augmented candidate -- which wins the full selection on
-            # the vast majority of datasets -- gets the one full fit, and the
-            # audition winner is refit in full only when the augmented model
-            # loses or cross features do not apply.
+            # design). Every selection fit runs as a short audition. The
+            # cross-augmented candidate wins the full selection on the vast
+            # majority of datasets, so it gets the one full fit; the audition
+            # winner is refit in full only when the augmented model loses or
+            # cross features do not apply.
             stop = _stop_after(self.selection_rounds)
+
             if select_ll:
                 const = _fit_booster(False, stop=stop)
                 lin = _fit_booster(True, stop=stop)
+
                 # Tie goes to constant leaves, as in the full selection.
                 self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
                 audition = lin if self.linear_leaves_selected_ else const
@@ -1833,22 +1991,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             else:
                 base_linear = bool(ll)
                 audition = _fit_booster(base_linear, stop=stop)
+
             # An audition that early-stopped on its own BEFORE the cap already
-            # IS the full fit (same config/seed/curve) -- refitting it would
-            # only re-pay for the identical model. Refit only when truncated.
+            # IS the full fit -- same config, seed and curve -- so refitting it
+            # would only re-pay for an identical model. Refit only if truncated.
             capped = len(audition.valid_history_) >= self.selection_rounds
+
             pairs = (_cross_candidate_pairs(audition.feature_importances_,
                                             cat_features, X.shape[1])
                      if cross_ok else [])
             if pairs:
-                # Symmetric race at the shared budget (the rule the step-0
-                # race sim validated): both candidates are judged on their
-                # best val loss within the first selection_rounds; a trailing
-                # augmented fit is killed at the budget, a leading one
-                # continues to its own full early stop. Comparing the
-                # augmented fit's FULL best against a capped audition would
-                # bias the selection toward it (its extra rounds are not
-                # evidence the audition couldn't have matched).
+                # Symmetric race at the shared budget, the rule the step-0 race
+                # simulation validated: both candidates are judged on their best
+                # validation loss within the first selection_rounds, a trailing
+                # augmented fit is killed at the budget, and a leading one
+                # continues to its own full early stop. Comparing the augmented
+                # fit's FULL best against a capped audition would bias selection
+                # toward it -- its extra rounds are not evidence the audition
+                # couldn't have matched.
                 base_best = _best_val(audition)
                 aug = _fit_booster(base_linear, cross_pairs=pairs,
                                    stop=_stop_if_behind(self.selection_rounds,
@@ -1868,6 +2028,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         elif select_ll:
             const = _fit_booster(False)
             lin = _fit_booster(True)
+
             # Each variant early-stops itself; compare the best validation loss
             # reached. Tie goes to constant leaves (cheaper predictions).
             best_const = min(const.valid_history_) if const.valid_history_ else np.inf
@@ -1877,15 +2038,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         else:
             self.model_ = _fit_booster(bool(ll))
 
-        # Numeric cross features (default-on auto): refit with
-        # difference/product columns for the top numeric feature pairs of the
-        # base fit and keep whichever model reaches the lower validation loss
-        # -- the same selection-on-the-ES-split pattern as linear_leaves
-        # above. Evidence and rationale: oblivious trees staircase numeric
-        # interactions (benchmarks/probe_cross_features.py; Grinsztajn A/B
-        # 51W/8L, mean +1.5%); selection dodges the variance cases. RMSE-only
-        # (the probed loss). None (auto) and True behave the same here.
-        # (Already handled above when a selection_rounds audition ran.)
+        # Numeric cross features (default-on auto): refit with difference and
+        # product columns for the top numeric feature pairs of the base fit, and
+        # keep whichever model reaches the lower validation loss -- the same
+        # selection-on-the-validation-split pattern as linear_leaves above.
+        # Oblivious trees can only staircase a numeric interaction
+        # (benchmarks/probe_cross_features.py; Grinsztajn A/B 51W/8L, mean
+        # +1.5%), and selection dodges the variance cases. RMSE only, the probed
+        # loss; None (auto) and True behave the same. A selection_rounds audition
+        # already handled this above.
         if (self.selection_rounds is None and cross_ok):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
@@ -1897,19 +2058,21 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
-        # The winner is chosen; free the cached binned matrices now rather
-        # than holding them through the conformal step below.
+
+        # The winner is chosen; free the cached binned matrices now rather than
+        # holding them through the conformal step below.
         prep_cache.clear()
 
         # Conformal quantile correction on the validation split -- the
-        # regression analog of the classifier's temperature scaling. Boosting
-        # under-disperses quantiles: each round's per-leaf quantile step is
-        # shrunk by the learning rate, so the additive model converges to the
-        # tail slowly and early stopping cuts it short (predictions collapse
-        # toward the median). The fix is the split-conformal step: shift every
-        # prediction by the k-th order statistic of the validation residuals,
-        # k = ceil((n+1) * alpha) -- the standard conformal rank, which also
-        # minimizes pinball loss over all constant shifts, so accuracy and
+        # regression analog of the classifier's temperature scaling.
+        #
+        # Boosting under-disperses quantiles: each round's per-leaf quantile step
+        # is shrunk by the learning rate, so the additive model converges to the
+        # tail slowly and early stopping cuts it short, collapsing predictions
+        # toward the median. The split-conformal fix shifts every prediction by
+        # the k-th order statistic of the validation residuals,
+        # k = ceil((n+1) * alpha). That is the standard conformal rank, and it
+        # also minimizes pinball loss over all constant shifts, so accuracy and
         # coverage improve together. Distribution-free marginal coverage on
         # exchangeable data (Romano, Patterson & Candes 2019).
         self.quantile_offset_ = 0.0
@@ -1919,6 +2082,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             w_val = (np.asarray(eval_set[2], dtype=np.float64)
                      if len(eval_set) > 2 and eval_set[2] is not None
                      else None)
+
             if w_val is None:
                 resid = np.sort(resid)
                 k = min(int(np.ceil((resid.shape[0] + 1) * self.alpha)),
@@ -1927,10 +2091,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     self.quantile_offset_ = float(resid[k - 1])
             else:
                 # Weighted conformal rank: each row contributes its weight of
-                # mass, so a zero-weight holdout row cannot set the offset
-                # (the sample_weight contract). With uniform weights the
-                # threshold is alpha*(n+1) over unit masses -- exactly the
-                # unweighted k-th order statistic above.
+                # mass, so a zero-weight holdout row cannot set the offset (the
+                # sample_weight contract). Under uniform weights the threshold is
+                # alpha*(n+1) over unit masses -- exactly the unweighted k-th
+                # order statistic above.
                 keep = w_val > 0
                 resid, w_val = resid[keep], w_val[keep]
                 if resid.shape[0] >= 1:
@@ -1943,13 +2107,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                             side="left"))
                     self.quantile_offset_ = float(resid[min(j, n_eff - 1)])
 
-        # Full-data refit (benchmarks/REFIT_PLAN.md): the auto-split holdout
-        # is a pure data tax once early stopping, selection and calibration
-        # have consumed it — retrain the winning configuration on 100% of the
-        # rows at the selected budget, rounds scaled by the train-size ratio,
-        # the resolved learning rate pinned so the budget keeps its meaning.
-        # Only the auto-split path ever paid the tax (explicit eval_set /
-        # early_stopping=False are untouched); Quantile keeps its genuine
+        # Full-data refit (benchmarks/REFIT_PLAN.md). Once early stopping,
+        # selection and calibration have consumed the auto-split holdout it is a
+        # pure data tax, so retrain the winning configuration on 100% of the rows
+        # at the selected budget: rounds scaled by the train-size ratio, the
+        # resolved learning rate pinned so the budget keeps its meaning. Only the
+        # auto-split path ever paid the tax -- an explicit eval_set or
+        # early_stopping=False is untouched -- and Quantile keeps its genuine
         # conformal holdout instead.
         if (self.refit_full and auto_split and self.loss != "Quantile"
                 and self.model_.trees_):
@@ -1962,24 +2126,28 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             self.model_ = _refit_on_full(
                 self, self.model_, bx, byy, bsw, cat_features, kw,
                 loss_kwargs=loss_kwargs, replay=True, train_frac=bfrac)
+
         return self
 
     def _transform_raw(self, raw):
-        """Map raw additive scores to predictions through the loss link --
-        identity for RMSE/MAE/Quantile/Huber (returns ``raw`` unchanged, so
-        those paths stay bit-identical), ``exp`` for Poisson/Gamma/Tweedie,
-        the custom loss's ``transform`` when it defines one."""
+        """Map raw additive scores to predictions through the loss link.
+
+        Identity for RMSE/MAE/Quantile/Huber -- ``raw`` is returned unchanged, so
+        those paths stay bit-identical. ``exp`` for Poisson/Gamma/Tweedie, and a
+        custom loss's ``transform`` when it defines one.
+        """
         tf = getattr(self.model_.loss_, "transform", None)
         return raw if tf is None else tf(raw)
 
     def predict(self, X):
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         if self.estimators_ is not None:
-            # One shared conversion + factorization cache for the whole bag;
-            # each member applies its own link + conformal offset (the bag
-            # prediction is the mean of member predictions). One thread-limit
-            # switch for the whole bag (members' re-entries are no-ops).
+            # One shared conversion and factorization cache for the whole bag,
+            # and one thread-limit switch (members' re-entries are no-ops). Each
+            # member applies its own link and conformal offset; the bag
+            # prediction is the mean of the member predictions.
             with _thread_limit(self.thread_count):
                 Xc, ctx = _bag_predict_context(self, X)
                 return np.mean(
@@ -1990,14 +2158,18 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             + self.quantile_offset_
 
     def staged_predict(self, X):
-        """Yield the prediction after each successive tree (the conformal
-        quantile offset, a post-fit constant, is included in every stage so the
-        final stage equals ``predict``)."""
+        """Yield the prediction after each successive tree.
+
+        The conformal quantile offset is a post-fit constant and is included in
+        every stage, so the final stage equals ``predict``.
+        """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         if self.estimators_ is not None:
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
+
         for staged in self.model_.staged_predict_raw(X):
             yield self._transform_raw(staged) + self.quantile_offset_
 
@@ -2009,13 +2181,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
     @property
     def validation_history_(self):
-        """Per-round validation score recorded during ``fit`` -- the training
-        loss (RMSE-space for regression), or the custom ``eval_metric`` when
-        one was set (negated when the metric declares
-        ``greater_is_better = True``, so lower is always better here). A list
-        whose length is the number of rounds run; empty when no ``eval_set`` /
-        early-stopping split was available; for a bagged model
-        (``n_ensembles > 1``) a list of the members' histories."""
+        """Per-round validation score recorded during ``fit``.
+
+        The training loss (RMSE space for regression), or the custom
+        ``eval_metric`` when one was set -- negated if the metric declares
+        ``greater_is_better = True``, so lower is always better here.
+
+        A list as long as the number of rounds run. Empty when no ``eval_set``
+        or early-stopping split was available; a list of the members' histories
+        for a bagged model (``n_ensembles > 1``).
+        """
         if self.estimators_ is not None:
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
@@ -2035,28 +2210,33 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         attribute by this call) is the mean prediction over the background. Each
         entry is a feature's signed additive contribution to the prediction;
         linear-leaf slopes are included exactly. Averaged across the bag when
-        ``n_ensembles > 1`` (the bag prediction is the members' mean, so the
-        averaged attribution stays exact). ``X_background`` overrides the
+        ``n_ensembles > 1`` -- the bag prediction is the members' mean, so the
+        averaged attribution stays exact. ``X_background`` overrides the
         reference distribution (default: a sample of the training data).
-        For the log-link losses (Poisson/Gamma/Tweedie) and custom losses
-        with a non-identity ``transform``, attributions are in raw (link)
-        space -- rows sum to the log of the prediction, the usual GBDT
-        margin-space convention."""
+
+        For the log-link losses (Poisson/Gamma/Tweedie) and custom losses with a
+        non-identity ``transform``, attributions are in raw (link) space: rows
+        sum to the log of the prediction, the usual GBDT margin-space convention.
+        """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         if X_background is not None:
             # The background matrix is consumed positionally too; a reordered
             # DataFrame would silently skew every baseline.
             bg = _check_predict_input(self, X_background)
             X_background = X_background if bg is None else bg
+
         if self.estimators_ is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in self.estimators_]
+
             # Fold each member's conformal quantile offset into the baseline so
             # rows still sum to predict(X) - expected_value_.
             self.expected_value_ = float(np.mean(
                 [b + m.quantile_offset_ for m, (_, b) in zip(self.estimators_, out)]))
             return np.mean([p for p, _ in out], axis=0)
+
         phi, base = self.model_.shap_values(X, background=X_background)
         # The conformal quantile offset is a constant shift; it belongs to the
         # baseline, keeping rows summing to predict(X) - expected_value_.
@@ -2122,10 +2302,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Extra Newton refinement steps per leaf. ``None`` is the auto default and
         resolves to 3, which helps small and categorical-heavy binary fits.
         Refinement only applies to the plain constant-leaf path: it is inert
-        while ``linear_leaves`` is active (default-on for binary ≥ ~1000 rows,
-        where the per-leaf ridge already fits the second-order-optimal leaf) and
-        is not implemented for multiclass. An explicitly-set value that will be
-        ignored on the path about to run warns.
+        while ``linear_leaves`` is active (default-on for binary at >= ~1000
+        rows, where the per-leaf ridge already fits the second-order-optimal
+        leaf) and is not implemented for multiclass. An explicitly-set value
+        that will be ignored on the path about to run warns.
     linear_leaves : bool or None, default None
         Fit a ridge linear model per leaf over the numeric split features instead
         of a constant. ``None`` enables it for binary classification and disables
@@ -2198,33 +2378,35 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     refit_full : "replay", bool, default "replay"
         After the automatic early-stopping split has chosen the tree budget
         (and model selection / temperature scaling have used it), retrain the
-        winning configuration on 100% of the rows — rounds scaled by the
-        train-size ratio, learning rate pinned — so the final model does not
+        winning configuration on 100% of the rows -- rounds scaled by the
+        train-size ratio, learning rate pinned -- so the final model does not
         pay the holdout data tax. Only affects fits that used the automatic
         split (an explicit ``eval_set`` or ``early_stopping=False`` is
         unchanged); the calibrated temperature transfers to the refit model.
-        ``validation_history_`` keeps the early-stopped fit's curve. Costs
-        refitting on since 0.25.0: it is the strongest single-model setting
-        measured (benchmarks/SELECT_PLAN.md). Set ``False``, or ``quality=2``,
-        for the faster pre-0.25 behaviour.
+        ``validation_history_`` keeps the early-stopped fit's curve. Costs one
+        extra refit; on by default since 0.25.0, as the strongest single-model
+        setting measured (benchmarks/SELECT_PLAN.md). Set ``False``, or
+        ``quality=2``, for the faster pre-0.25 behaviour.
 
         **The default is** ``"replay"``, which gets the same thing for about
         two thirds of the cost. Growing trees is 83-85% of a fit and is a
         SEARCH; ``"replay"`` reuses the winner's tree structures and refits
         only the leaf values against full-data gradients, so the held-out rows
         still shape every leaf value while the split search is not paid for
-        twice. Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was
-        flat (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on
-        all 59; on high-cardinality categorical data it ran slightly behind
-        (mean −0.256%) for 17% less fit time. Pass ``True`` for the
-        from-scratch refit — marginally stronger on high-card data, and the
-        setting benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"``
-        and always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
+        twice.
+
+        Measured against ``True`` at 3 seeds: on Grinsztajn accuracy was flat
+        (27W-32L over 59 datasets, mean +0.005%) and fit time fell 34% on all
+        59; on high-cardinality categorical data it ran slightly behind (mean
+        -0.256%) for 17% less fit time. Pass ``True`` for the from-scratch
+        refit -- marginally stronger on high-card data, and the setting
+        benchmarked in REFIT_PLAN.md. Multiclass ignores ``"replay"`` and
+        always uses the from-scratch refit (benchmarks/REPLAY_PLAN.md).
     refit_members : bool, default False
         The bagged analogue of ``refit_full``, and off by default. A bag member
         trains on ``max_samples`` of the rows and early-stops on its
         out-of-bag complement, so its leaf values never see the rows it stopped
-        on — the full-data refit that helps a single model has never fired for
+        on -- the full-data refit that helps a single model has never fired for
         it. With ``True`` each member replays its own tree structure against
         gradients from every row once early stopping is done. Only the leaf
         values move; the splits stay exactly as that member's own sample grew
@@ -2353,18 +2535,18 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             here overrides the constructor value. (The constructor form lets
             ``GridSearchCV``/``Pipeline`` carry it, which a fit-only kwarg can't.)
         eval_set : (X_val, y_val) tuple or None
-            Explicit validation set with original class labels.  When provided,
+            Explicit validation set with original class labels. When provided,
             automatic splitting is skipped.
         groups : array-like of shape (n_samples,) or None
-            Group labels (e.g. ``df['subject_id']``).  When supplied and early
+            Group labels (e.g. ``df['subject_id']``). When supplied and early
             stopping triggers an automatic split, ``StratifiedGroupKFold`` keeps
             groups intact and class proportions balanced across the split.
         sample_weight : array-like of shape (n_samples,) or None
-            Per-sample weights.  Normalized to mean 1 internally.  Applied
+            Per-sample weights, normalized to mean 1 internally. Applied
             throughout: the gradient/leaf fit, the categorical target encoder,
             the quantile bin borders, and the early-stopping metric on an
             automatically split (or bagged out-of-bag) validation set, so a
-            zero-weight row never influences the model.  An explicitly passed
+            zero-weight row never influences the model. An explicitly passed
             ``eval_set`` carries no weights and is scored unweighted.
         callbacks : callable or list of callable, or None
             Per-round fit hooks ``cb(iteration, train_loss, val_loss, model)``;
@@ -2377,21 +2559,25 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=True)
+
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_,
                             classification=True)
             if not getattr(self, "_is_bag_member", False):
                 _check_feature_names_match(self, eval_set[0])
+
             # Bag members are exempt: their OOB eval set may legitimately hold
             # a rare label their row sample missed, and the parent aligns
             # member probability columns to the global class set.
             if not getattr(self, "_is_bag_member", False):
                 _check_eval_labels(eval_set, y)
+
         with _quality_applied(self):
             if self.n_ensembles and self.n_ensembles > 1:
                 if callbacks is not None:
                     raise ValueError(
                         "callbacks are not supported with n_ensembles > 1.")
+
                 # Fix the global class set up front: a member's bootstrap may
                 # miss a rare class, and predict_proba aligns each member's
                 # columns to this.
@@ -2402,10 +2588,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     raise ValueError(
                         f"Need at least 2 classes; got {self.n_classes_} "
                         "class(es).")
+
                 self._multiclass = self.n_classes_ > 2
                 self.estimators_ = _fit_bagged(self, X, yarr, cat_features,
                                                eval_set, groups, sample_weight)
                 return self
+
             self.estimators_ = None
             return self._fit_single(X, y, cat_features, eval_set, groups,
                                     sample_weight, callbacks)
@@ -2440,14 +2628,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
             self, X, y, sample_weight, eval_set, groups,
             stratify=y)  # always stratify for classification
+
         if auto_split:
             self.classes_ = np.unique(y)
             self.n_classes_ = self.classes_.size
             lost = np.setdiff1d(all_classes, self.classes_)
             if lost.size and not getattr(self, "_is_bag_member", False):
-                # Without this, the model silently trains without the lost
-                # class and never predicts it (its eval rows are even
-                # remapped onto neighboring classes).
+                # Without this the model silently trains without the lost class
+                # and never predicts it -- its eval rows are even remapped onto
+                # neighboring classes.
                 raise ValueError(
                     f"The automatic early-stopping split left class(es) "
                     f"{lost.tolist()} entirely in the validation set, "
@@ -2463,35 +2652,41 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         kw = {k: v for k, v in self.get_params().items()
               if k not in _SKLEARN_ONLY}
         kw["early_stopping_rounds"] = es_rounds
-        # Size-adaptive min_child_weight (see _auto_min_child_weight): resolved
-        # on the FINAL training set (post early-stopping split).
+
+        # Size-adaptive min_child_weight (see _auto_min_child_weight), resolved
+        # on the FINAL training set, after the early-stopping split.
         if kw.get("min_child_weight") is None:
             kw["min_child_weight"] = _auto_min_child_weight(len(X))
+
         # An explicit depth=None resolves to the documented classifier default
         # (the regressor resolves it per loss); the booster requires an int.
         if kw.get("depth") is None:
             kw["depth"] = 6
-        # leaf_estimation_iterations None = auto -> 3. This is the classifier's
-        # long-standing effective value (it helps small/categorical binary and
-        # is inert where linear leaves take over or for multiclass); None just
-        # keeps the API from advertising a concrete count that is dead in those
-        # regimes. The booster requires an int.
+
+        # leaf_estimation_iterations None = auto -> 3, the classifier's
+        # long-standing effective value: it helps small and categorical binary
+        # fits, and is inert where linear leaves take over or for multiclass.
+        # None just keeps the API from advertising a concrete count that is dead
+        # in those regimes. The booster requires an int.
         if kw.get("leaf_estimation_iterations") is None:
             kw["leaf_estimation_iterations"] = 3
+
         # colsample None = auto: full columns for a single model (the bagged
         # path resolves members to 0.85 before this runs; see _fit_bagged).
         if kw.get("colsample") is None:
             kw["colsample"] = 1.0
-        # Auto-resolve cat_combinations: on only for tractable all-categorical data
-        # (targets the all-categorical multiclass gap, e.g. car).
+
+        # cat_combinations auto: on only for tractable all-categorical data,
+        # which targets the all-categorical multiclass gap (car and friends).
         if kw.get("cat_combinations") is None:
             kw["cat_combinations"] = _auto_cat_combinations(
                 cat_features, self.n_features_in_, len(X))
 
         self._multiclass = self.n_classes_ > 2
-        # Resolve the linear_leaves auto-default: ON for binary (a clean broad
-        # Brier win that survives bagging), OFF for multiclass (unsupported).
-        # An explicit True on multiclass is a user error -> raise; explicit
+
+        # linear_leaves auto-default: ON for binary (a clean broad Brier win that
+        # survives bagging), OFF for multiclass, where it is unsupported. An
+        # explicit True on multiclass is a user error and raises; an explicit
         # False is honored everywhere.
         if self.linear_leaves is None:
             kw["linear_leaves"] = not self._multiclass
@@ -2499,10 +2694,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+
         # Warn when an explicitly non-default setting will be silently inert on
-        # the path about to run (the auto defaults stay quiet -- the precedence
-        # is documented). The linear-leaf update owns the training step, so it
-        # shadows both ordered boosting and leaf refinement; multiclass never
+        # the path about to run. The auto defaults stay quiet -- their precedence
+        # is documented. The linear-leaf update owns the training step, so it
+        # shadows both ordered boosting and leaf refinement, and multiclass never
         # refines leaves. leaf_estimation_iterations is checked against the raw
         # attribute (None = auto, no user intent) rather than the resolved kw,
         # and a refinement count of 1 asks for nothing, so neither warns.
@@ -2524,15 +2720,16 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             warnings.warn(
                 "leaf_estimation_iterations is not implemented for multiclass "
                 "and will be ignored.", UserWarning, stacklevel=2)
-        # cross_features: None (auto default) and True run the same
-        # validation-selected race everywhere, multiclass included (M1);
-        # explicit False disables.
+
+        # cross_features: None (the auto default) and True run the same
+        # validation-selected race everywhere, multiclass included (M1); an
+        # explicit False disables it.
         cal_Xv = cal_y = cal_w = None  # validation set used to calibrate temperature
+
         # Cheap selection (benchmarks/PARETO_PLAN.md step 2): when
-        # selection_rounds is set and the cross refit will run (pair
-        # candidates exist iff >= 2 numeric columns), the base fit is only
-        # an audition -- cap it; it is refit in full below only if the
-        # augmented model loses the selection.
+        # selection_rounds is set and the cross refit will run (pair candidates
+        # exist iff >= 2 numeric columns), the base fit is only an audition, so
+        # cap it. It is refit in full below only if the augmented model loses.
         n_cats = len(cat_features) if cat_features else 0
         n_nums = X.shape[1] - n_cats
         fast = (self.selection_rounds is not None
@@ -2540,10 +2737,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
                 and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
         stop = _stop_after(self.selection_rounds) if fast else None
-        # Shared across the base fit, the cross-augmented candidate, and
-        # the possible refit below -- identical inputs, so preprocessing
-        # is computed once (see _BaseBooster._prep_matrices).
+
+        # Shared across the base fit, the cross-augmented candidate and the
+        # possible refit below: identical inputs, so preprocessing is computed
+        # once (see _BaseBooster._prep_matrices).
         prep_cache = {}
+
         if self._multiclass:
             def _make(**extra):
                 return MulticlassBoosting(**extra, **kw)
@@ -2562,23 +2761,26 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 sw_v = eval_set[2] if len(eval_set) > 2 else None
                 cal_w = sw_v
                 eval_set = (cal_Xv, cal_y, sw_v)
+
         self.model_ = _make()
         self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight,
                         callbacks=_add_callback(callbacks, stop),
                         prep_cache=prep_cache)
+
         if self._multiclass:
             self.classes_ = self.model_.classes_
             if eval_set is not None:
                 cal_y = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
 
-        # Numeric cross features (default-on auto): refit with difference/
-        # product columns for the top numeric feature pairs of the base fit
-        # and keep the lower-validation-loss model (the regressor's selection
-        # pattern; see _cross_candidate_pairs). Binary judges on binary
-        # logloss, multiclass on softmax logloss -- same raced budget.
+        # Numeric cross features (default-on auto): refit with difference and
+        # product columns for the top numeric feature pairs of the base fit, and
+        # keep the lower-validation-loss model -- the regressor's selection
+        # pattern, see _cross_candidate_pairs. Binary judges on binary log loss,
+        # multiclass on softmax log loss, at the same raced budget.
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
+
         if (self.cross_features is not False
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             pairs = _cross_candidate_pairs(
@@ -2587,7 +2789,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 aug = _make(cross_pairs=pairs)
                 if fast:
                     # Symmetric race at the shared budget (see the regressor):
-                    # judge both candidates on their first selection_rounds;
+                    # judge both candidates on their first selection_rounds and
                     # kill a trailing augmented fit at the budget.
                     base_best = _best_val(self.model_)
                     aug.fit(X, y_fit, cat_features=cat_features,
@@ -2605,13 +2807,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                             callbacks=callbacks, prep_cache=prep_cache)
                     self.cross_features_selected_ = \
                         _best_val(aug) < _best_val(self.model_)
+
                 if self.cross_features_selected_:
                     self.model_ = aug
                     self.cross_pairs_ = pairs
                 elif fast and len(self.model_.valid_history_) >= self.selection_rounds:
-                    # The incumbent audition was actually truncated by the cap
-                    # (an audition that early-stopped on its own already IS the
-                    # full fit); give the winning base variant its full fit.
+                    # The incumbent audition really was truncated by the cap, so
+                    # give the winning base variant its full fit. (An audition
+                    # that early-stopped on its own already IS the full fit.)
                     self.model_ = _make()
                     self.model_.fit(X, y_fit, cat_features=cat_features,
                                     eval_set=eval_set,
@@ -2623,7 +2826,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # holding them through temperature scaling below.
         prep_cache.clear()
 
-        # Temperature scaling on the validation set: dividing raw scores by T > 0
+        # Temperature scaling on the validation set. Dividing raw scores by T > 0
         # is monotonic, so predict() is unchanged while predict_proba() becomes
         # better calibrated (lower log loss).
         self.temperature_ = 1.0
@@ -2632,10 +2835,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass,
                                                  sample_weight=cal_w)
 
-        # Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split
-        # data tax after early stopping, selection and temperature scaling
-        # have consumed the holdout. The temperature above was calibrated on
-        # the ES winner's validation scores and transfers to the refit model.
+        # Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split data
+        # tax once early stopping, selection and temperature scaling have
+        # consumed the holdout. The temperature above was calibrated on the
+        # early-stopping winner's validation scores and transfers to the refit
+        # model.
         if self.refit_full and auto_split and self.model_.trees_:
             y_refit = (y_full if self._multiclass else
                        (y_full == self.classes_[1]).astype(np.float64))
@@ -2644,35 +2848,39 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 replay=self.refit_full == "replay")
         elif (_bag_refit_rows(self) is not None and self.model_.trees_
                 and not self._multiclass):
-            # Binary only: multiclass has no replay path (`_refit_on_full`
-            # rebuilds a vector-leaf model from scratch there), so a member
+            # Binary only. Multiclass has no replay path -- `_refit_on_full`
+            # rebuilds a vector-leaf model from scratch there -- so a member
             # refit would cost a whole extra fit per member instead of a cheap
-            # structure replay -- a different trade that this evidence does
-            # not cover. Multiclass bags are unchanged.
+            # structure replay. That is a different trade, and this evidence does
+            # not cover it, so multiclass bags are unchanged.
             bx, byy, bsw, bfrac = _bag_refit_rows(self)
             y_refit = (byy == self.classes_[1]).astype(np.float64)
             self.model_ = _refit_on_full(
                 self, self.model_, bx, y_refit, bsw, cat_features, kw,
                 replay=True, train_frac=bfrac)
+
         return self
 
     def predict_proba(self, X):
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         if self.estimators_ is not None:
-            # Soft-vote: average members' calibrated probabilities, aligning each
-            # member's class columns to the global class set (a member whose
-            # bootstrap missed a class simply contributes 0 to that column).
-            # One shared conversion + factorization cache for the whole bag,
-            # and one thread-limit switch (members' re-entries are no-ops).
+            # Soft-vote: average the members' calibrated probabilities, aligning
+            # each member's class columns to the global class set. A member whose
+            # sample missed a class simply contributes 0 to that column. One
+            # shared conversion and factorization cache for the whole bag, and
+            # one thread-limit switch (members' re-entries are no-ops).
             with _thread_limit(self.thread_count):
                 Xc, ctx = _bag_predict_context(self, X)
                 probas = [m._proba_impl(Xc, ctx) for m in self.estimators_]
+
             acc = np.zeros((probas[0].shape[0], self.n_classes_))
             for m, p in zip(self.estimators_, probas):
                 cols = np.searchsorted(self.classes_, m.classes_)
                 acc[:, cols] += p
             return acc / len(self.estimators_)
+
         return self._proba_impl(X)
 
     def _proba_impl(self, X, cat_ctx=None):
@@ -2696,10 +2904,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
 
     @property
     def validation_history_(self):
-        """Per-round validation loss recorded during ``fit`` (binary or softmax
-        log loss), as a list whose length is the number of rounds run. Empty when
-        no ``eval_set`` / early-stopping split was available; for a bagged model
-        (``n_ensembles > 1``) a list of the members' histories."""
+        """Per-round validation loss recorded during ``fit`` -- binary or softmax
+        log loss -- as a list as long as the number of rounds run.
+
+        Empty when no ``eval_set`` or early-stopping split was available; a list
+        of the members' histories for a bagged model (``n_ensembles > 1``).
+        """
         if self.estimators_ is not None:
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
@@ -2718,24 +2928,29 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with
         ``expected_value_`` set as an attribute. Each entry is a feature's signed
         contribution to the log-odds of the positive class; linear-leaf slopes are
-        included exactly. Averaged across the bag when ``n_ensembles > 1`` (an
-        additive surrogate for the soft-voted probability). Multiclass is not
-        supported yet. ``X_background`` overrides the reference distribution."""
+        included exactly. Averaged across the bag when ``n_ensembles > 1``, an
+        additive surrogate for the soft-voted probability. Multiclass is not
+        supported yet. ``X_background`` overrides the reference distribution.
+        """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
+
         if X_background is not None:
             bg = _check_predict_input(self, X_background)
             X_background = X_background if bg is None else bg
+
         members = self.estimators_ if self.estimators_ is not None else None
         if (members is not None and getattr(members[0], "_multiclass", False)) \
                 or (members is None and self._multiclass):
             raise NotImplementedError(
                 "shap_values is not supported for multiclass classification yet.")
+
         if members is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in members]
             self.expected_value_ = float(np.mean([b for _, b in out]))
             return np.mean([p for p, _ in out], axis=0)
+
         phi, base = self.model_.shap_values(X, background=X_background)
         self.expected_value_ = base
         return phi

@@ -1,17 +1,19 @@
 """Shared feature preprocessing for every ChimeraBoost estimator.
 
-Turns a raw (possibly mixed numeric/categorical, possibly object-dtype) matrix
-into integer bins ready for the tree builder, and remembers everything needed to
-reproduce the same transform at predict time.
+Turns a raw matrix -- numeric, categorical, or an object-dtype mixture -- into
+integer bins for the tree builder, and keeps everything needed to reproduce the
+same transform at predict time.
 
 Categoricals are encoded with ordered target statistics. The encoder is fit
 against a *list* of target vectors:
+
   * regression / binary -> one target (y, or the 0/1 label)
   * multiclass          -> K one-hot targets (one ordered-TS column per class)
-This is why a single categorical column can expand into K numeric columns for
-multiclass, exactly like CatBoost's per-class target statistics.
 
-`feature_map_` maps each combined-matrix column back to its original input
+So one categorical column can expand into K numeric columns for multiclass,
+exactly like CatBoost's per-class target statistics.
+
+``feature_map_`` maps each combined-matrix column back to its original input
 column index, so importances can be aggregated in the user's feature space.
 """
 
@@ -25,60 +27,64 @@ from .target_encoding import OrderedTargetEncoder, factorize
 def as_model_array(X, want_object):
     """Convert a raw feature matrix to the numpy array the model consumes.
 
-    ``want_object`` -> object dtype (categoricals present, decoded downstream);
-    otherwise -> float64. pandas nullable dtypes (Int64/Float64/boolean and the
-    ``string`` dtype) store missing values as ``pd.NA``/``NAType``, which neither
-    casts to float nor compares like ``np.nan`` -- a plain
-    ``np.asarray(df, dtype=float)`` raises a cryptic
-    "float() argument must be ... not 'NAType'". Routing through pandas'
-    ``to_numpy(na_value=np.nan)`` maps every flavor of NA to ``np.nan`` (the
-    missing value the binner/encoder already understand). Inputs without a
-    na_value-aware ``to_numpy`` (plain ndarrays, polars frames) fall back to
-    ``np.asarray`` unchanged.
+    ``want_object`` selects object dtype (categoricals present, decoded
+    downstream); otherwise float64.
+
+    pandas nullable dtypes (Int64/Float64/boolean and ``string``) store missing
+    values as ``pd.NA``/``NAType``, which neither casts to float nor compares
+    like ``np.nan``: a plain ``np.asarray(df, dtype=float)`` raises the cryptic
+    "float() argument must be ... not 'NAType'". ``to_numpy(na_value=np.nan)``
+    maps every flavor of NA to ``np.nan``, which the binner and encoder already
+    handle. Inputs with no na_value-aware ``to_numpy`` (plain ndarrays, polars
+    frames) fall back to ``np.asarray``.
     """
     dtype = object if want_object else np.float64
     to_numpy = getattr(X, "to_numpy", None)
+
     if to_numpy is not None and hasattr(X, "dtypes"):  # pandas DataFrame
         try:
             return to_numpy(dtype=dtype, na_value=np.nan)
         except TypeError:
             pass  # older pandas / polars: no na_value kwarg -> plain cast below
+
     return np.asarray(X, dtype=dtype)
 
 
 @njit(cache=True)
 def _grouped_kahan_sum(codes, vals, n_groups):
-    """Per-group Kahan-compensated sums (row order, sequential).
+    """Per-group Kahan-compensated sums, in row order, sequential.
 
-    Kahan matters for reproducibility, not just accuracy: the gdiff group
-    means were historically computed by pandas' groupby, whose kernel is
-    Kahan-compensated, and existing fitted models / identity goldens embed
-    those exact floats. A naive accumulation drifts in the last ulp on large
-    groups, so a bit-identical replacement has to compensate the same way.
+    Kahan is here for reproducibility, not just accuracy. The gdiff group means
+    used to come from pandas' groupby, whose kernel is Kahan-compensated, and
+    fitted models plus the identity goldens embed those exact floats. Naive
+    accumulation drifts in the last ulp on large groups, so a bit-identical
+    replacement has to compensate the same way.
     """
     out = np.zeros(n_groups)
     comp = np.zeros(n_groups)
+
     for i in range(codes.shape[0]):
         c = codes[i]
         y = vals[i] - comp[c]
         t = out[c] + y
         comp[c] = (t - out[c]) - y
         out[c] = t
+
     return out
 
 
 class CatTransformCache:
-    """Canonical factorizations of one input matrix's categorical columns
-    (and combo string columns), computed once per fit/predict call.
+    """Canonical factorizations of one matrix's categorical and combo columns.
 
-    Bagged members each learned their own category->code map on their own
-    bootstrap, so fit-time codes can't be shared across the bag -- but
-    hashing every row of the batch is member-independent. The bagged parent
-    passes one cache into every member's transform; the first member pays the
-    per-row factorize and each further member maps only the ~n_unique
-    canonical categories through its own dict and gathers. Callers must pass
-    one cache only across transforms of the *same* matrix ``X`` (entries are
-    keyed by column index alone).
+    Computed once per fit/predict call, then shared across a bagged ensemble.
+    Each member learns its own category->code map on its own bootstrap, so
+    fit-time codes can't be shared across the bag -- but hashing every row of
+    the batch is member-independent. The parent passes one cache to every
+    member: the first pays the per-row factorize, each later one maps only the
+    ~n_unique canonical categories through its own dict and gathers.
+
+    One cache is valid for one matrix ``X`` only -- entries are keyed by column
+    index alone.
     """
 
     def __init__(self):
@@ -95,15 +101,17 @@ class CatTransformCache:
     def combo(self, X, f_a, f_b):
         """(codes, categories) of the synthetic combo column for a pair.
 
-        A combo category is the PAIR of the parents' canonical categories,
-        not the concatenated string it used to be: "a_x_b" aliased distinct
-        pairs whose values contain the delimiter, stringified NaN to "nan"
-        (bypassing factorize's ``__nan__`` sentinel, so a real missing value
-        merged with the literal string "nan"), and split int/float spellings
-        of one value ("1" vs "1.0"). Pair codes inherit the parents'
-        factorize semantics exactly and skip the per-row string building.
-        Categories are a list of (val_a, val_b) tuples, first-appearance
-        ordered like every factorize."""
+        A combo category is the PAIR of the parents' canonical categories, not
+        the concatenated string it used to be. "a_x_b" aliased distinct pairs
+        whose values contain the delimiter, stringified NaN to "nan" (bypassing
+        factorize's ``__nan__`` sentinel, so a real missing value merged with
+        the literal string "nan"), and split int/float spellings of one value
+        ("1" vs "1.0"). Pair codes inherit the parents' factorize semantics
+        exactly and skip the per-row string building.
+
+        Categories are (val_a, val_b) tuples in first-appearance order, like
+        every factorize.
+        """
         out = self._combos.get((f_a, f_b))
         if out is None:
             ca, cats_a = self.column(X, f_a)
@@ -115,9 +123,11 @@ class CatTransformCache:
         return out
 
     def combo_str(self, X, f_a, f_b):
-        """Legacy string-concat combo factorization, kept only so models
-        pickled before the pair-code change (string-keyed ``combo_maps_``)
-        keep predicting identically."""
+        """Legacy string-concat combo factorization.
+
+        Kept only so models pickled before the pair-code change (string-keyed
+        ``combo_maps_``) keep predicting identically.
+        """
         out = self._combos.get(("str", f_a, f_b))
         if out is None:
             out = self._combos[("str", f_a, f_b)] = factorize(
@@ -127,25 +137,33 @@ class CatTransformCache:
 
 def _factorize_int(vals):
     """First-appearance factorize of an int64 array (combo pair keys).
-    Returns (codes, keys): same contract as ``factorize`` but keys stay a
-    plain list -- wrapping tuples derived from them in ``np.asarray`` would
-    build a 2-D array. Vectorized: np.unique's sorted ids are remapped onto
-    first-appearance ranks (return_index gives each value's FIRST position),
-    which is exactly the insertion order the old dict loop produced."""
+
+    Returns (codes, keys) -- the same contract as ``factorize``, except keys
+    stay a plain list, because wrapping tuples derived from them in
+    ``np.asarray`` would build a 2-D array.
+
+    Vectorized: np.unique's sorted ids are remapped onto first-appearance ranks
+    (return_index gives each value's FIRST position), which is exactly the
+    insertion order the old dict loop produced.
+    """
     su, first, inv = np.unique(vals, return_index=True, return_inverse=True)
+
     order = np.argsort(first, kind="stable")
     rank = np.empty(order.size, dtype=np.int64)
     rank[order] = np.arange(order.size, dtype=np.int64)
+
     codes = np.ascontiguousarray(rank[inv], dtype=np.int64)
     keys = [int(v) for v in su[order]]
     return codes, keys
 
 
 def _remap_codes(categories, mapping, default):
-    """Vectorize a fit-time {category value -> code/float} dict over canonical
-    categories: the returned array, gathered by canonical codes, equals the
-    row-wise dict lookup with ``default`` for unseen categories.
-    ``categories`` is an ndarray (or a plain list, for combo pair tuples)."""
+    """Vectorize a fit-time {category -> code/float} dict over canonical categories.
+
+    The returned array, gathered by canonical codes, equals the row-wise dict
+    lookup, with ``default`` for unseen categories. ``categories`` is an
+    ndarray, or a plain list for combo pair tuples.
+    """
     cats = categories if isinstance(categories, list) else categories.tolist()
     dtype = np.int64 if isinstance(default, int) else np.float64
     return np.fromiter((mapping.get(u, default) for u in cats),
@@ -155,31 +173,34 @@ def _remap_codes(categories, mapping, default):
 class FeaturePreprocessor:
     """Converts raw mixed-type input into integer bins for the tree builder.
 
-    Numeric columns are quantile-binned; categorical columns are ordered-target
-    encoded (one encoded column per target supplied to `fit_transform`) and then
-    binned alongside the numerics. The fitted state needed to reproduce the
-    transform at predict time is retained, along with `feature_map_` mapping each
-    output column back to its original input column for importances.
+    Numeric columns are quantile-binned. Categorical columns are ordered-target
+    encoded -- one encoded column per target passed to ``fit_transform`` -- and
+    then binned alongside the numerics. The state needed to reproduce the
+    transform at predict time is kept, along with ``feature_map_``, which maps
+    each output column back to its original input column for importances.
 
     cat_combinations : bool
-        When True, generate all C(n_cat, 2) pairwise categorical feature
-        combinations as additional synthetic columns (e.g. "buying_x_maint")
-        before target encoding. Mirrors CatBoost's feature combination step;
-        gives the tree access to interaction effects that individual categoricals
-        can't capture. Only active when ≥2 categorical columns are present.
+        Generate all C(n_cat, 2) pairwise categorical combinations as extra
+        synthetic columns (e.g. "buying_x_maint") before target encoding.
+        Mirrors CatBoost's feature combination step: it gives the tree the
+        interaction effects individual categoricals can't capture. Only active
+        with 2 or more categorical columns.
     cross_pairs : list[(int, int, str)] | None
-        Cross features: each (i, j, op) appends the column
-        ``X[:, i] - X[:, j]`` (op="diff"), ``X[:, i] * X[:, j]`` (op="prod"),
-        or ``X[:, i] - mean_fit(X[:, i] | X[:, j])`` (op="gdiff"), binned like
-        any numeric column. Oblivious trees can only approximate an
-        interaction with a depth-limited staircase (the same split is applied
-        to every leaf of a level); a cross column turns e.g. the ``x_i < x_j``
-        boundary -- or "above this row's own category's average" -- into a
-        single split. Indices refer to ORIGINAL input columns; for diff/prod
-        both must be numeric, for gdiff ``i`` is numeric and ``j`` is a
-        ``cat_features`` column. gdiff group means are learned from the fit
-        rows only (they use no target values, so the same map serves fit and
-        predict); unseen categories fall back to the global mean of column i.
+        Cross features. Each (i, j, op) appends one column -- ``X[:, i] -
+        X[:, j]`` (op="diff"), ``X[:, i] * X[:, j]`` (op="prod"), or
+        ``X[:, i] - mean_fit(X[:, i] | X[:, j])`` (op="gdiff") -- binned like
+        any numeric column.
+
+        Oblivious trees can only approximate an interaction with a
+        depth-limited staircase, since the same split is applied to every leaf
+        of a level. A cross column turns e.g. the ``x_i < x_j`` boundary -- or
+        "above this row's own category's average" -- into a single split.
+
+        Indices refer to ORIGINAL input columns. diff/prod need both parents
+        numeric; gdiff needs ``i`` numeric and ``j`` in ``cat_features``. gdiff
+        group means are learned from the fit rows only (they use no target
+        values, so one map serves fit and predict); unseen categories fall back
+        to the global mean of column i.
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
@@ -193,34 +214,45 @@ class FeaturePreprocessor:
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
 
     # ---- helpers -------------------------------------------------------------
+
     def _numeric_block(self, X):
-        """The numeric columns as float64. When every column is numeric (the
-        no-categoricals case) `num_features_` is exactly range(n_features), so
-        plain asarray suffices — the fancy-index gather `X[:, list]` would copy
-        the whole matrix (a large predict-time tax on wide batches)."""
+        """The numeric columns as float64.
+
+        When every column is numeric, ``num_features_`` is exactly
+        range(n_features), so a plain asarray suffices -- the fancy-index
+        gather ``X[:, list]`` would copy the whole matrix, a large predict-time
+        tax on wide batches.
+        """
         if not self.num_features_:
             return np.empty((X.shape[0], 0))
+
         if len(self.num_features_) == X.shape[1]:
             return np.asarray(X, dtype=np.float64)
+
         return np.asarray(X[:, self.num_features_], dtype=np.float64)
 
     @staticmethod
     def _combo_values(X, f_a, f_b):
         """The synthetic "val_a_x_val_b" string column for a feature pair.
-        LEGACY: only serves models pickled with string-keyed combo maps
-        (see ``CatTransformCache.combo_str``)."""
+
+        LEGACY: only serves models pickled with string-keyed combo maps (see
+        ``CatTransformCache.combo_str``).
+        """
         col_a = np.asarray(X[:, f_a], dtype=str)
         col_b = np.asarray(X[:, f_b], dtype=str)
         return np.char.add(np.char.add(col_a, "_x_"), col_b)
 
     def _split_columns_fit(self, X, cat_features, cat_ctx=None):
-        """Split input into a numeric matrix and an integer-code matrix for the
-        categorical columns, learning the category->code maps on the way.
-        When cat_combinations is True, appends combo codes after the base codes."""
+        """Split input into a numeric matrix and a categorical code matrix.
+
+        Learns the category->code maps on the way. When cat_combinations is
+        True, combo codes are appended after the base codes.
+        """
         n_features = X.shape[1]
         cat_set = set(cat_features or [])
         self.cat_features_ = sorted(cat_set)
         self.num_features_ = [f for f in range(n_features) if f not in cat_set]
+
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
 
@@ -237,13 +269,13 @@ class FeaturePreprocessor:
             codes = np.empty((X.shape[0], 0), dtype=np.int64)
             self.cat_maps_ = []
 
-        # 2-way combinations: each pair becomes a new categorical column whose
+        # 2-way combinations: each pair becomes a categorical column whose
         # categories are (val_a, val_b) pairs, target-encoded like any other
-        # cat column, so the tree sees interaction effects single columns
-        # can't express.
+        # cat column, so the tree sees interactions single columns can't hold.
         self.combo_pairs_ = []
         self.combo_maps_ = []
         n_cat = len(self.cat_features_)
+
         if self.cat_combinations and n_cat >= 2:
             combo_cols = []
             for a in range(n_cat):
@@ -253,28 +285,36 @@ class FeaturePreprocessor:
                     self.combo_pairs_.append((f_a, f_b))
                     self.combo_maps_.append({v: i for i, v in enumerate(cats)})
                     combo_cols.append(c)
+
             if combo_cols:
                 codes = np.hstack(
                     [codes, np.column_stack(combo_cols).astype(np.int64)])
+
         return num, codes
 
     def _fit_gdiff(self, X, sample_weight=None, cat_ctx=None):
-        """Learn the per-category means backing the gdiff cross columns:
-        for each (i, j, "gdiff") pair a {category value -> mean of X[:, i]}
-        map plus the global-mean fallback for categories unseen at fit.
-        Means are computed over rows with a finite X[:, i] (a NaN numeric
-        contributes nothing, mirroring the binner's quantile treatment) and,
-        when ``sample_weight`` is given, weighted by it so zero-weight rows
-        never shape another row's centering."""
+        """Learn the per-category means backing the gdiff cross columns.
+
+        For each (i, j, "gdiff") pair: a {category value -> mean of X[:, i]}
+        map, plus the global-mean fallback for categories unseen at fit.
+
+        Means use only rows with a finite X[:, i] -- a NaN numeric contributes
+        nothing, mirroring the binner's quantile treatment -- and, when
+        ``sample_weight`` is given, are weighted by it so zero-weight rows never
+        shape another row's centering.
+        """
         self.gdiff_maps_ = []
         pairs = [(i, j) for i, j, op in self.cross_pairs if op == "gdiff"]
         if not pairs:
             return
+
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+
         for i, j in pairs:
             a = np.asarray(X[:, i], dtype=np.float64)
             ok = np.isfinite(a)
+
             if ok.all():
                 codes, cats = cat_ctx.column(X, j)
                 v = a
@@ -283,43 +323,53 @@ class FeaturePreprocessor:
                 # order is first appearance among the contributing rows.
                 codes, cats = factorize(np.asarray(X[:, j], dtype=object)[ok])
                 v = a[ok]
+
             w = (np.ones(v.shape[0]) if sample_weight is None
                  else np.asarray(sample_weight, dtype=np.float64)[ok])
+
             vsum = _grouped_kahan_sum(codes, v * w, len(cats))
             wsum = _grouped_kahan_sum(codes, w, len(cats))
             tot_w = float(np.sum(wsum))
             global_mean = (float(np.sum(vsum) / tot_w) if tot_w > 0 else 0.0)
+
             with np.errstate(invalid="ignore", divide="ignore"):
                 means = vsum / wsum
             means = np.where(np.isfinite(means), means, global_mean)
+
             self.gdiff_maps_.append(
                 (dict(zip(cats.tolist(), means.tolist())), global_mean))
 
     def _cross_block(self, X, cat_ctx=None, num=None):
-        """Compute the cross-feature columns (float64) from raw input. NaN in
-        a numeric parent propagates to the cross (binned to the missing bucket
-        like any numeric NaN); gdiff maps a NaN category to its own "__nan__"
-        group and an unseen category to the global mean.
+        """Compute the cross-feature columns (float64) from raw input.
 
-        Numeric parents are read from ``num`` (the float64 numeric block;
-        pass the one already built for this matrix, else it is computed
-        here): one cast per input column instead of one per pair. On object
-        arrays (categoricals present) the per-pair element-wise casts were
-        the dominant predict-time cost of cross features."""
+        A NaN in a numeric parent propagates to the cross column and bins to
+        the missing bucket like any numeric NaN. gdiff maps a NaN category to
+        its own "__nan__" group and an unseen category to the global mean.
+
+        Numeric parents come from ``num``, the float64 numeric block -- pass the
+        one already built for this matrix, else it is built here. That is one
+        cast per input column instead of one per pair; on object arrays
+        (categoricals present) the per-pair element-wise casts were the dominant
+        predict-time cost of cross features.
+        """
         if not self.cross_pairs:
             return np.empty((X.shape[0], 0))
+
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
         if num is None:
             num = self._numeric_block(X)
+
         pos = {f: k for k, f in enumerate(self.num_features_)}
-        # Write each cross column straight into the output block: the ufunc
-        # ``out=`` forms skip both the per-pair temporary and the final
-        # column_stack copy.
+
+        # Write each cross column straight into the output block: the ``out=``
+        # ufunc form skips both the per-pair temporary and a final column_stack.
         out = np.empty((X.shape[0], len(self.cross_pairs)))
+
         g = 0
         for k, (i, j, op) in enumerate(self.cross_pairs):
             a = num[:, pos[i]]
+
             if op == "gdiff":
                 means, global_mean = self.gdiff_maps_[g]
                 g += 1
@@ -327,36 +377,45 @@ class FeaturePreprocessor:
                 np.subtract(a, _remap_codes(cats, means, global_mean)[codes],
                             out=out[:, k])
                 continue
+
             b = num[:, pos[j]]
             if op == "diff":
                 np.subtract(a, b, out=out[:, k])
             else:
                 np.multiply(a, b, out=out[:, k])
+
         return out
 
     def _codes_for_transform(self, X, cat_ctx=None):
-        """Map categorical columns to the codes learned at fit time; unseen
-        categories get -1 (the encoder then falls back to the prior). Each
+        """Map categorical columns to the codes learned at fit time.
+
+        Unseen categories get -1, and the encoder falls back to the prior. Each
         column is factorized once and only its unique values pass through the
-        fit-time dict; with a shared ``cat_ctx`` the factorization is also
-        reused across bagged members."""
+        fit-time dict; a shared ``cat_ctx`` reuses that factorization across
+        bagged members too.
+        """
         if not self.cat_features_:
             return np.empty((X.shape[0], 0), dtype=np.int64)
+
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+
         codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
         for j, f in enumerate(self.cat_features_):
             c, cats = cat_ctx.column(X, f)
             codes[:, j] = _remap_codes(cats, self.cat_maps_[j], -1)[c]
+
         return codes
 
     def _combo_codes_for_transform(self, X, cat_ctx=None):
-        """Reconstruct combination codes for transform using stored combo maps.
-        Models pickled before the pair-code change carry string-keyed maps;
-        they keep the legacy string-concat path so their predictions are
-        unchanged."""
+        """Reconstruct combination codes for transform from the stored maps.
+
+        Models pickled before the pair-code change carry string-keyed maps; they
+        stay on the legacy string-concat path so their predictions don't move.
+        """
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+
         combo_codes = np.empty((X.shape[0], len(self.combo_pairs_)), dtype=np.int64)
         for k, (f_a, f_b) in enumerate(self.combo_pairs_):
             legacy = (self.combo_maps_[k]
@@ -364,15 +423,19 @@ class FeaturePreprocessor:
             c, cats = (cat_ctx.combo_str(X, f_a, f_b) if legacy
                        else cat_ctx.combo(X, f_a, f_b))
             combo_codes[:, k] = _remap_codes(cats, self.combo_maps_[k], -1)[c]
+
         return combo_codes
 
     # ---- fit / transform -----------------------------------------------------
+
     def fit_transform(self, X, encode_targets, cat_features, sample_weight=None,
                       binner=None):
-        """encode_targets: list of 1D arrays used for ordered TS (len T).
+        """Fit on ``X`` and return the binned matrix.
 
-        ``sample_weight`` (mean-1 normalized, ``None`` == uniform) is forwarded to
-        the ordered-target encoder and the binner so zero-weight rows shape
+        ``encode_targets`` is the list of T 1-D arrays used for ordered TS.
+
+        ``sample_weight`` (mean-1 normalized, ``None`` == uniform) is forwarded
+        to the ordered-target encoder and the binner, so zero-weight rows shape
         neither the categorical statistics nor the bin borders. ``None`` is the
         unweighted path, bit-identical to before this argument existed.
 
@@ -382,9 +445,11 @@ class FeaturePreprocessor:
         on ``X``, so the returned matrix carries proper fit-time (non-leaky)
         encodings; only the bin borders are held still, because the replayed
         split thresholds are bin INDICES into them. ``None`` fits a binner as
-        before, bit-identically."""
+        before, bit-identically.
+        """
         cat_ctx = CatTransformCache()
         num, codes = self._split_columns_fit(X, cat_features, cat_ctx)
+
         self._fit_gdiff(X, sample_weight, cat_ctx)
         cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
@@ -405,9 +470,10 @@ class FeaturePreprocessor:
 
         feat = self._stack(num, encoded_blocks)
         self._build_feature_map(len(encode_targets))
+
         # Block order is [numeric | per-target TS]. Only true numeric columns
-        # carry an ordinal meaning usable by linear-leaf models; mark them so the
-        # booster can pick linear-term features (the TS blocks are excluded).
+        # carry an ordinal meaning a linear-leaf model can use, so mark them for
+        # the booster's linear-term selection; the TS blocks are excluded.
         self.is_numeric_binned_ = np.zeros(feat.shape[1], dtype=bool)
         self.is_numeric_binned_[:num.shape[1]] = True
 
@@ -417,19 +483,24 @@ class FeaturePreprocessor:
         else:
             self.binner_ = binner
             X_binned = binner.transform(feat)
+
         self.n_bins_ = self.binner_.n_bins_
         return X_binned
 
     def transform(self, X, cat_ctx=None):
-        """Apply the fitted binning + categorical encoding to new data.
+        """Apply the fitted binning and categorical encoding to new data.
+
         ``cat_ctx`` (internal) shares the per-column canonical factorizations
-        across the members of a bagged ensemble -- see CatTransformCache."""
+        across the members of a bagged ensemble -- see CatTransformCache.
+        """
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+
         num = self._numeric_block(X)
         cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross
+
         encoded_blocks = []
         if self.cat_features_:
             codes = self._codes_for_transform(X, cat_ctx)
@@ -438,30 +509,31 @@ class FeaturePreprocessor:
                 codes = np.hstack([codes, combo_codes])
             for enc in self.encoders_:
                 encoded_blocks.append(enc.transform(codes))
+
         feat = self._stack(num, encoded_blocks)
         return self.binner_.transform(feat)
 
     @classmethod
     def from_base_with_cross(cls, base, cross_pairs, X, sample_weight=None):
-        """A fitted preprocessor equal to refitting ``base``'s configuration
-        with ``cross_pairs`` added, built by reusing ``base``'s fitted state.
+        """Refit ``base``'s configuration with ``cross_pairs`` added, cheaply.
 
-        Every fit artifact is computed independently per column -- category
-        maps, TS encodings, quantile borders, bin indices -- and appending
-        cross columns leaves the base columns' inputs untouched, so the base
-        results are shared by reference and only the cross columns are
-        computed here. Bit-identical to the from-scratch fit with the same
-        ``cross_pairs``; ``base`` must itself have no cross features.
+        Every fit artifact is per-column -- category maps, TS encodings,
+        quantile borders, bin indices -- and appending cross columns leaves the
+        base columns' inputs untouched, so base results are shared by reference
+        and only the cross columns are computed here. Bit-identical to the
+        from-scratch fit with the same ``cross_pairs``; ``base`` must itself
+        have no cross features.
 
         Returns ``(prep, cross_binner, cross_binned)``: the fitted augmented
         preprocessor, the binner covering only the cross columns (for binning
         eval-set cross blocks), and the binned cross block for ``X``'s rows.
         The caller splices ``cross_binned`` into the base binned matrix at
-        column offset ``len(base.num_features_)`` (stacked column order is
-        [numeric | cross | TS blocks]).
+        column offset ``len(base.num_features_)`` -- stacked column order is
+        [numeric | cross | TS blocks].
         """
         if base.cross_pairs:
             raise ValueError("base preprocessor already has cross features")
+
         prep = cls(base.max_bins, base.cat_smoothing, base.random_state,
                    base.cat_n_permutations, base.cat_combinations, cross_pairs)
         prep.cat_features_ = base.cat_features_
@@ -475,6 +547,8 @@ class FeaturePreprocessor:
         prep._fit_gdiff(X, sample_weight, cat_ctx)
         cross = prep._cross_block(X, cat_ctx)
         cross_binner = Binner(base.max_bins).fit(cross, sample_weight)
+
+        # Splice the cross borders in between the base numeric and TS blocks.
         nb = len(base.num_features_)
         bb = base.binner_
         binner = Binner(base.max_bins)
@@ -485,14 +559,17 @@ class FeaturePreprocessor:
         binner.bin_centers_ = (bb.bin_centers_[:nb] + cross_binner.bin_centers_
                                + bb.bin_centers_[nb:])
         binner._build_flat_borders()
+
         prep.binner_ = binner
         prep.n_bins_ = binner.n_bins_
         prep.is_numeric_binned_ = np.zeros(len(binner.borders_), dtype=bool)
         prep.is_numeric_binned_[:nb + cross.shape[1]] = True
         prep._build_feature_map(max(1, len(base.encoders_)))
+
         return prep, cross_binner, cross_binner.transform(cross)
 
     # ---- internals -----------------------------------------------------------
+
     @staticmethod
     def _stack(num, encoded_blocks):
         mats = [m for m in ([num] + encoded_blocks) if m.shape[1]]
@@ -502,15 +579,19 @@ class FeaturePreprocessor:
 
     def _build_feature_map(self, n_targets):
         """Map each combined-matrix column back to its original input column.
+
         Block order is [numeric | cross | per-target (cat + combo)]. Cross and
         combo columns map to the lower-indexed feature of their pair, so their
-        split gains fold into the right importance bucket."""
+        split gains fold into the right importance bucket.
+        """
         combo_orig = [min(i, j) for i, j in self.combo_pairs_]
         fmap = list(self.num_features_)
-        # gdiff is a recentering of its numeric parent i, so its gain belongs
-        # there; diff/prod keep the established min(i, j) convention.
+
+        # gdiff recenters its numeric parent i, so its gain belongs there;
+        # diff/prod keep the established min(i, j) convention.
         fmap.extend(i if op == "gdiff" else min(i, j)
                     for i, j, op in self.cross_pairs)
+
         for _ in range(n_targets):
             fmap.extend(self.cat_features_)
             fmap.extend(combo_orig)

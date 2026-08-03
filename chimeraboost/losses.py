@@ -29,8 +29,8 @@ def _weighted_quantile(values, weights, alpha):
 
 @njit(cache=True, parallel=True)
 def _sigmoid(z):
-    # Numerically stable logistic, parallelized over rows. Branching on sign
-    # avoids overflow in exp(): exp(-|z|) is always in [0, 1].
+    # Numerically stable logistic, parallel over rows. The sign branch keeps
+    # exp() from overflowing: exp(-|z|) always lands in [0, 1].
     n = z.shape[0]
     out = np.empty(n, dtype=np.float64)
     for i in prange(n):
@@ -47,13 +47,15 @@ class _UnitHessian:
     """Constant-hessian mixin: ``grad_hess`` returns a cached all-ones buffer
     instead of allocating ``np.ones_like`` every boosting round.
 
-    The buffer is SHARED across rounds, so nothing on the fit path may write
-    into a returned hessian -- today nothing does: the weighted paths multiply
-    into fresh arrays (``hess * w``), MVS returns fresh arrays, and every tree
-    kernel only reads it. Keep it that way: in particular, never "optimize"
-    ``hess = hess * w`` into ``np.multiply(hess, w, out=hess)``. The cache is
-    dropped on pickle (``loss_`` is pickled inside fitted boosters, and n
-    floats of ones have no business in the payload)."""
+    The buffer is SHARED across rounds, so nothing on the fit path may write into
+    a returned hessian. Today nothing does: the weighted paths build fresh arrays
+    (``hess * w``), MVS returns fresh arrays, and the tree kernels only read it.
+    Keep it that way -- in particular, never "optimize" ``hess = hess * w`` into
+    ``np.multiply(hess, w, out=hess)``.
+
+    The cache is dropped on pickle: ``loss_`` rides inside fitted boosters, and n
+    floats of ones have no business in the payload.
+    """
 
     def _unit_hess(self, like):
         h = getattr(self, "_hess_cache", None)
@@ -90,7 +92,11 @@ class RMSE(_UnitHessian):
 
 
 class Logloss:
-    """Binary cross-entropy. raw = log-odds, p = sigmoid(raw)."""
+    """Binary cross-entropy. raw = log-odds, p = sigmoid(raw).
+
+    grad = p - y, hess = p * (1 - p), floored at 1e-6 so a saturated row cannot
+    blow up a leaf denominator.
+    """
 
     name = "Logloss"
     is_classification = True
@@ -116,9 +122,11 @@ class Logloss:
 
 
 class MAE(_UnitHessian):
-    """Mean absolute error. The sign gradient only picks the tree structure;
-    leaf values are set to the (weighted) median of the residuals, which is the
-    minimizer of absolute error."""
+    """Mean absolute error. grad = sign(pred - y), hess = 1.
+
+    The sign gradient only picks the tree structure. Leaf values are the
+    (weighted) median of the residuals, which is what minimizes absolute error.
+    """
 
     name = "MAE"
     is_classification = False
@@ -142,7 +150,12 @@ class MAE(_UnitHessian):
 
 
 class Quantile(_UnitHessian):
-    """Pinball loss for quantile regression at level `alpha` in (0, 1)."""
+    """Pinball loss for quantile regression at level `alpha` in (0, 1).
+
+    grad = -alpha where y sits at or above the current estimate, 1 - alpha
+    below; hess = 1. Leaf values are the weighted alpha-quantile of the
+    residuals.
+    """
 
     name = "Quantile"
     is_classification = False
@@ -171,9 +184,9 @@ class Quantile(_UnitHessian):
         return raw
 
 
-# Cap on exponent arguments in the log-link losses: exp(80) ~ 5.5e34 keeps
-# every downstream product finite in float64 while leaving the cap far outside
-# any raw score a sane fit produces (raw = log(mean prediction)).
+# Exponent cap for the log-link losses. exp(80) ~ 5.5e34 keeps every downstream
+# product finite in float64, and no sane fit gets near it: raw = log(mu), so the
+# cap sits far outside any real raw score.
 _EXP_CLIP = 80.0
 
 
@@ -182,9 +195,12 @@ def _exp(z):
 
 
 class Huber(_UnitHessian):
-    """Huber regression: quadratic within `delta` of the target, linear
-    beyond. `delta` is in y units (fixed, not quantile-adaptive), so scale it
-    to the data. hess = 1 in both regions (the standard GBDT treatment)."""
+    """Huber regression: quadratic within `delta` of the target, linear beyond.
+
+    grad = clip(pred - y, -delta, delta); hess = 1 in both regions, the standard
+    GBDT treatment. `delta` is in y units and fixed, not quantile-adaptive, so
+    scale it to the data.
+    """
 
     name = "Huber"
     is_classification = False
@@ -213,7 +229,9 @@ class Huber(_UnitHessian):
 
 class Poisson:
     """Poisson regression for counts with a log link: raw = log(mu).
-    grad = mu - y, hess = mu. Predictions (`transform`) are exp(raw) > 0."""
+
+    grad = mu - y, hess = mu. Predictions (`transform`) are exp(raw) > 0.
+    """
 
     name = "Poisson"
     is_classification = False
@@ -222,9 +240,11 @@ class Poisson:
     def init(self, y, sample_weight=None):
         if np.any(y < 0):
             raise ValueError("loss='Poisson' requires non-negative y.")
+
         mean = np.average(y, weights=sample_weight)
         if mean <= 0:
             raise ValueError("loss='Poisson' requires y with a positive mean.")
+
         return float(np.log(mean))
 
     def grad_hess(self, y, raw):
@@ -234,9 +254,11 @@ class Poisson:
     def eval(self, y, raw, sample_weight=None):
         """Mean Poisson deviance (2 * (y log(y/mu) - (y - mu)); y log y := 0 at 0)."""
         mu = _exp(raw)
+
         ylog = np.zeros_like(mu)
         nz = y > 0
         ylog[nz] = y[nz] * np.log(y[nz] / mu[nz])
+
         return float(np.average(2.0 * (ylog - (y - mu)),
                                 weights=sample_weight))
 
@@ -245,8 +267,10 @@ class Poisson:
 
 
 class Gamma:
-    """Gamma regression for positive, right-skewed targets with a log link:
-    raw = log(mu). grad = 1 - y/mu, hess = y/mu (the gamma NLL curvature)."""
+    """Gamma regression for positive, right-skewed targets. Log link: raw = log(mu).
+
+    grad = 1 - y/mu, hess = y/mu (the gamma NLL curvature).
+    """
 
     name = "Gamma"
     is_classification = False
@@ -272,9 +296,12 @@ class Gamma:
 
 
 class Tweedie:
-    """Tweedie regression (compound Poisson-gamma) with a log link, for
-    non-negative targets with exact zeros plus a long right tail (insurance
-    claims, rainfall). `power` in (1, 2) interpolates Poisson -> Gamma."""
+    """Tweedie regression (compound Poisson-gamma) with a log link: raw = log(mu).
+
+    For non-negative targets with exact zeros plus a long right tail (insurance
+    claims, rainfall). `power` p in (1, 2) interpolates Poisson -> Gamma.
+    grad = mu^(2-p) - y mu^(1-p), hess = (2-p) mu^(2-p) - (1-p) y mu^(1-p).
+    """
 
     name = "Tweedie"
     is_classification = False
@@ -290,9 +317,11 @@ class Tweedie:
     def init(self, y, sample_weight=None):
         if np.any(y < 0):
             raise ValueError("loss='Tweedie' requires non-negative y.")
+
         mean = np.average(y, weights=sample_weight)
         if mean <= 0:
             raise ValueError("loss='Tweedie' requires y with a positive mean.")
+
         return float(np.log(mean))
 
     def grad_hess(self, y, raw):
@@ -323,9 +352,11 @@ class CustomObjective:
     ``eval(y, raw, sample_weight=None)`` -> scalar (lower is better; drives
     early stopping). Optionally override ``init(y, sample_weight=None)`` (the
     starting raw score, default 0.0) and ``transform(raw)`` (raw scores ->
-    predictions, default identity). Pass an *instance* as the regressor's
-    ``loss``. Instances must be stateless across fits and picklable, so define
-    the subclass at module level: bagged members fit in worker processes.
+    predictions, default identity).
+
+    Pass an *instance* as the regressor's ``loss``. Instances must be stateless
+    across fits and picklable, so define the subclass at module level: bagged
+    members fit in worker processes.
 
     Read more in the [User Guide](https://bbstats.github.io/chimeraboost/recipes/).
     """
@@ -354,7 +385,10 @@ def _softmax(F):
 
 
 class MultiSoftmax:
-    """Multinomial logistic loss. Operates on raw scores F of shape (n, K)."""
+    """Multinomial logistic loss. Operates on raw scores F of shape (n, K).
+
+    grad = softmax(F) - Y, hess = p * (1 - p) per class, floored at 1e-6.
+    """
 
     name = "MultiClass"
     is_classification = True
@@ -384,13 +418,14 @@ class MultiSoftmax:
 class MultiQuantile(_UnitHessian):
     """Pinball loss on a shared tau grid: K quantile channels at once.
 
-    Raw scores are an (n, K) matrix, column k holding the estimate of the
-    `taus[k]` conditional quantile. Nothing here couples the channels -- each
-    column is exactly the scalar `Quantile` loss at its own alpha, and a
-    one-element grid reproduces it term for term. Columns of ``F`` may
-    therefore cross during a fit and none of the maths below cares; the
-    coupling lives in the booster, which shares one tree structure per round
-    and rearranges each row before returning it.
+    Raw scores are an (n, K) matrix; column k estimates the `taus[k]`
+    conditional quantile. Nothing here couples the channels -- each column is
+    exactly the scalar `Quantile` loss at its own alpha, and a one-element grid
+    reproduces it term for term.
+
+    Columns of ``F`` may therefore cross during a fit, and none of the maths
+    below cares. The coupling lives in the booster, which shares one tree
+    structure per round and rearranges each row before returning it.
 
     `taus` must be ascending, unique and strictly inside (0, 1); the estimator
     validates that before constructing this.
@@ -408,23 +443,29 @@ class MultiQuantile(_UnitHessian):
         """Global (weighted) quantile at each level -- a (K,) starting vector."""
         q = np.array([_weighted_quantile(y, sample_weight, a)
                       for a in self.taus])
-        # Quantiles of one sample are already monotone in alpha, so this sort
-        # is a no-op. Kept because a starting vector that is ordered costs
-        # nothing and makes the zero-tree prediction trivially well formed.
+
+        # A no-op: quantiles of one sample are already monotone in alpha. Kept
+        # because an ordered starting vector costs nothing and makes the
+        # zero-tree prediction trivially well formed.
         q.sort()
+
         return q
 
     def grad_hess(self, y, F):
         """(n, K) pinball gradient; hessian is 1 everywhere.
 
         Sign convention matches the scalar `Quantile`: -alpha where the target
-        sits at or above the current estimate, 1-alpha below."""
+        sits at or above the current estimate, 1 - alpha below.
+        """
         grad = np.where(y[:, None] >= F, -self.taus, 1.0 - self.taus)
         return grad, self._unit_hess(F)
 
     def eval(self, y, F, sample_weight=None):
-        """Mean pinball loss across the grid -- the CRPS convention used by
-        `chimeraboost.quantile_metrics.crps`, and the early-stopping metric."""
+        """Mean pinball loss across the grid.
+
+        This is the CRPS convention used by `chimeraboost.quantile_metrics.crps`,
+        and the early-stopping metric.
+        """
         r = y[:, None] - F
         pinball = np.maximum(self.taus * r, (self.taus - 1.0) * r)
         return float(np.average(pinball.mean(axis=1), weights=sample_weight))

@@ -17,37 +17,40 @@ import numpy as np
 from numba import njit, prange
 
 
-# Below this many samples, per-level work is fixed-cost bound (kernel launches,
-# empty-leaf zero/scan, strided split scans) rather than sample bound;
-# build_oblivious_tree switches to the small-n variants (occupied-leaf lists,
-# serial descend). Both sides of every dispatch are bit-identical, so the
-# threshold only affects speed. 32768 sits comfortably between the measured
-# regimes (1.7x fused win at 2k, parity at 200k).
+# Below this many samples, per-level cost is fixed overhead (kernel launches,
+# empty-leaf zero/scan, strided split scans) rather than sample count, so
+# build_oblivious_tree switches to the small-n variants: occupied-leaf lists
+# and a serial descend.
+#
+# Both sides of every dispatch are bit-identical, so this only moves speed.
+# 32768 sits between the measured regimes: 1.7x fused win at 2k, parity at 200k.
 _SMALL_N = 32768
 
 # Above this many rows, ObliviousTree.apply descends level by level with the
-# parallel `_descend_leaves` instead of the serial fused `_assign_leaves`:
-# the per-level fork/join only amortizes once the serial O(n x depth) walk
-# clearly dominates it. Both sides are bit-identical, so the threshold only
-# moves speed. Matters per boosting round: eval-set scoring and replay
-# refits assign leaves once per retained tree.
+# parallel `_descend_leaves` instead of the serial fused `_assign_leaves`. The
+# per-level fork/join only pays for itself once the serial O(n x depth) walk
+# clearly dominates it.
+#
+# Both sides are bit-identical, so this only moves speed. It matters once per
+# boosting round: eval-set scoring and replay refits assign leaves once per
+# retained tree.
 _ASSIGN_PAR_N = 32768
 
-# Placeholder passed as the fused level kernel's occupancy buffer on the
-# large-n path, where it is never touched (shared and read-only, so safe
-# across concurrent fits).
+# Passed as the fused level kernel's occupancy buffer on the large-n path,
+# where it is never touched. Shared and read-only, so safe across concurrent
+# fits.
 _EMPTY_I64 = np.empty(0, dtype=np.int64)
 
 
 # --- MVS gradient row sampling -------------------------------------------
-# These run once per boosting round, before any tree work. They are here
+# These run once per boosting round, before any tree work. They live here
 # rather than in booster.py because booster.py holds no kernels: it imports
 # every one of them from this module.
 #
-# The tree build is numba-parallel across every core while this step was
-# single-threaded numpy allocating ~10 full-length temporaries per round, so
-# at 200k rows subsampling cost more than the trees it fed: measured at 61%
-# of a subsample=0.7 fit. Whole-fit effect of the port, 12 threads, best of 2
+# The tree build is numba-parallel across every core, while this step used to
+# be single-threaded numpy allocating ~10 full-length temporaries per round.
+# At 200k rows subsampling therefore cost more than the trees it fed: 61% of
+# a subsample=0.7 fit. Whole-fit effect of the port, 12 threads, best of 2
 # (2026-07-30):
 #
 #                             case   subsample     base      new
@@ -57,24 +60,24 @@ _EMPTY_I64 = np.empty(0, dtype=np.int64)
 #     binary     200k x 20, 200 trees      0.7    3.96 s   3.00 s   1.32x
 #     multiclass 200k x 20, 100 trees      0.7    5.02 s   4.63 s   1.08x
 #
-# Multiclass gains least: its vector-leaf round does K channels of work
-# around one shared row draw, so sampling is a smaller slice to begin with.
-# What is left is dominated by the np.sort, which stays in numpy on purpose
-# (see _mvs_lambda_scan) and which numpy 2.x vectorizes better than we could.
+# Multiclass gains least: its vector-leaf round does K channels of work around
+# one shared row draw, so sampling is a smaller slice to begin with. What is
+# left is dominated by the np.sort, which stays in numpy on purpose (see
+# _mvs_lambda_scan) and which numpy 2.x vectorizes better than we could.
 
 
 @njit(cache=True)
 def _mvs_lambda_scan(sorted_g, total, target):
     """MVS threshold: the first k where sorted_g[k] <= suffix[k]/remaining[k].
 
-    `sorted_g` is |grad| sorted DESCENDING and `total` is its sum; both are
-    computed by the caller in numpy and must stay there -- they are the only
-    two operations in the MVS path that use numpy's pairwise summation, so
-    reproducing them here is what would move lambda in the last ulp, and a
-    moved lambda changes which rows the mask keeps and therefore the model.
+    `sorted_g` is |grad| sorted DESCENDING and `total` is its sum. The caller
+    computes both in numpy and they MUST stay there: they are the only two
+    operations in the MVS path that rely on numpy's pairwise summation. Redoing
+    them here would move lambda in the last ulp, and a moved lambda changes which
+    rows the mask keeps -- so it changes the model.
 
-    Everything else is exact, which is why this loop is bit-identical to the
-    vectorized form it replaces:
+    Everything else is exact, so this loop is bit-identical to the vectorized
+    form it replaces:
 
       * `prefix` reproduces `np.cumsum(sorted_g[:-1])` exactly -- cumsum is
         `add.accumulate`, sequential by definition, so there is no summation
@@ -82,25 +85,29 @@ def _mvs_lambda_scan(sorted_g, total, target):
       * `remaining` equals `target - np.arange(n)[k]` exactly for n < 2**53.
       * the comparison and the final divide are single IEEE-754 double
         operations on the same operands as the vectorized form. No fastmath
-        anywhere in this module, and no `a*b + c` shape here, so nothing can
-        be contracted into an FMA.
+        anywhere in this module, and no `a*b + c` shape here, so nothing can be
+        contracted into an FMA.
 
-    Fusing also buys an early exit and drops six full-length temporaries
-    (prefix, suffix, remaining, the product, the boolean cond, its argmax).
-    Once `remaining` hits zero every later k fails the test too, so bailing
-    there matches `cond.any() == False` -> lambda 0, the "all rows forced"
-    signal the caller reads as "use the uniform fallback".
+    Fusing also buys an early exit and drops six full-length temporaries (prefix,
+    suffix, remaining, the product, the boolean cond, its argmax). Once
+    `remaining` hits zero every later k fails too, so bailing there matches
+    `cond.any() == False` -> lambda 0, the "all rows forced" signal the caller
+    reads as "use the uniform fallback".
     """
     n = sorted_g.shape[0]
     prefix = 0.0
+
     for k in range(n):
         remaining = target - np.float64(k)
         if remaining <= 0.0:
             return 0.0
+
         suffix = total - prefix
         if sorted_g[k] * remaining <= suffix:
             return suffix / remaining
+
         prefix += sorted_g[k]
+
     return 0.0
 
 
@@ -108,17 +115,16 @@ def _mvs_lambda_scan(sorted_g, total, target):
 def _mvs_weights(grad, u, lam, max_w):
     """Per-row MVS importance weights: 1/p where the row survives, else 0.
 
-    Replaces seven numpy passes and their temporaries (`np.abs`, the divide,
-    `np.minimum`, the mask compare, `np.maximum`, the cap `np.minimum`, and
-    `np.where`) with one fused pass. Every one of those is elementwise, so
-    evaluating them per row reproduces the vectorized result exactly --
-    including the NaN corners, where `p > 1.0` is False so `p` stays NaN,
-    `u < NaN` is False, and the row lands on the zero branch just as
-    `np.where(mask, ..., 0.0)` puts it.
+    One fused pass replaces seven numpy passes and their temporaries (`np.abs`,
+    the divide, `np.minimum`, the mask compare, `np.maximum`, the cap
+    `np.minimum`, `np.where`). All of those are elementwise, so evaluating them
+    per row reproduces the vectorized result exactly -- including the NaN
+    corners, where `p > 1.0` is False so `p` stays NaN, `u < NaN` is False, and
+    the row lands on the zero branch just as `np.where(mask, ..., 0.0)` puts it.
 
-    `u` is the caller's `rng.random(n)` draw, passed in rather than generated
-    here: that draw is one call on the booster's numpy Generator and the
-    stream position is golden-frozen.
+    `u` is the caller's `rng.random(n)` draw rather than one generated here:
+    that draw is a single call on the booster's numpy Generator and the stream
+    position is golden-frozen.
 
     The cap `max_w = 1/subsample` bounds the reweighting of near-zero-gradient
     rows, whose effective contribution g_i/p_i is lambda regardless.
@@ -141,8 +147,11 @@ def _mvs_weights(grad, u, lam, max_w):
 @njit(cache=True)
 def _mvs_weights_serial(grad, u, lam, max_w):
     """Serial twin of `_mvs_weights` for small n, where the parallel fork/join
-    costs more than the pass. Every write is independent, so the two are
-    bit-identical; the booster dispatches on `_SMALL_N`."""
+    costs more than the pass itself.
+
+    Every write is independent, so the two are bit-identical; the booster
+    dispatches on `_SMALL_N`.
+    """
     n = grad.shape[0]
     w = np.empty(n, dtype=np.float64)
     for i in range(n):
@@ -162,33 +171,36 @@ def _mvs_weights_serial(grad, u, lam, max_w):
 def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
     """Fill per-feature gradient/hessian histograms into a pre-allocated buffer.
 
-    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`; this
+    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`. This
     is kept (with `_best_split`) as the plainly-readable equivalence oracle for
     tests/test_tree_kernels.py.
 
     `Xb` is feature-major (n_features, n_samples), so `Xb[f]` is a contiguous
-    row and the inner sample loop reads bins, grads, and hessians sequentially.
+    row and the inner sample loop reads bins, grads and hessians sequentially.
 
-    `hist` has shape (n_features, max_leaves, max_bins, 2): grad and hess for a
-    bin are interleaved on the last axis so each scatter write touches a single
-    cache line instead of two separate arrays. Reused across every tree and
-    level; we zero only the (n_leaves) slice we are about to write. Parallelized
-    over features so each thread owns a disjoint slice -- no write races.
+    `hist` has shape (n_features, max_leaves, max_bins, 2). Grad and hess for a
+    bin are interleaved on the last axis so each scatter write touches one cache
+    line instead of two arrays. The buffer is reused across every tree and level,
+    and we zero only the (n_leaves) slice we are about to write. Parallel over
+    features, so each thread owns a disjoint slice -- no races.
 
-    Features with feat_mask[f] == 0 (column subsampling) are skipped entirely:
-    `_best_split` never reads their slice (it honors the same mask), so the
-    stale data left there is harmless and the whole scan is saved. At
-    colsample=c that removes a (1-c) fraction of histogram work.
+    Features with feat_mask[f] == 0 (column subsampling) are skipped entirely.
+    `_best_split` honors the same mask and never reads their slice, so the stale
+    data left there is harmless and the whole scan is saved. At colsample=c that
+    removes a (1-c) fraction of histogram work.
     """
     n_features, n_samples = Xb.shape
     max_bins = hist.shape[2]
+
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
+
         for l in range(n_leaves):
             for b in range(max_bins):
                 hist[f, l, b, 0] = 0.0
                 hist[f, l, b, 1] = 0.0
+
         Xf = Xb[f]
         for i in range(n_samples):
             l = leaf[i]
@@ -201,16 +213,16 @@ def _build_histograms_into(Xb, grad, hess, leaf, n_leaves, hist, feat_mask):
 def _descend_leaves(leaf, Xf, t):
     """Push every sample one level deeper, in place: leaf = (leaf<<1) + (Xf > t).
 
-    The fit path descends inside `_build_split_descend`; this kernel is the
-    large-n arm of `ObliviousTree.apply` (per-round eval scoring, replay
-    refits) and the descend oracle for tests/test_tree_kernels.py.
+    The fit path descends inside `_build_split_descend`. This kernel is the
+    large-n arm of `ObliviousTree.apply` (per-round eval scoring, replay refits)
+    and the descend oracle for tests/test_tree_kernels.py.
 
-    Replaces the per-level numpy expression
-    ``leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)`` which allocated several
-    n-sample temporaries (the bool mask, its int64 cast, the shifted array, the
-    sum) on every one of the (max_depth x n_trees) level steps — measured at ~⅓
-    of total fit time. One parallel pass over the contiguous feature row, no
-    temporaries; bit-identical bucketing.
+    It replaces the numpy expression
+    ``leaf = (leaf << 1) + (Xb[f] > t).astype(np.int64)``, which allocated
+    several n-sample temporaries (the bool mask, its int64 cast, the shifted
+    array, the sum) on every one of the (max_depth x n_trees) level steps —
+    measured at ~⅓ of total fit time. One parallel pass over the contiguous
+    feature row, no temporaries, bit-identical bucketing.
     """
     for i in prange(leaf.shape[0]):
         leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > t else 0)
@@ -220,8 +232,10 @@ def _descend_leaves(leaf, Xf, t):
 def _descend_leaves_serial(leaf, Xf, t):
     """Serial twin of `_descend_leaves` for small n, where the parallel
     fork/join costs more than the pass itself (~4.7us vs 0.9us at n=2k).
+
     Every write is independent, so serial and parallel are bit-identical;
-    `build_oblivious_tree` dispatches on `_SMALL_N`."""
+    `build_oblivious_tree` dispatches on `_SMALL_N`.
+    """
     for i in range(leaf.shape[0]):
         leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > t else 0)
 
@@ -229,37 +243,35 @@ def _descend_leaves_serial(leaf, Xf, t):
 @njit(cache=True, parallel=True)
 def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
                      n_bins_per_feature, l2, min_child_weight):
-    """Fused histogram build + best-split search: one parallel launch per
-    level instead of two, and the split scan runs on the hist slice the same
-    thread just wrote (cache-hot).
+    """Fused histogram build + best-split search: one parallel launch per level
+    instead of two, with the split scan reading the hist slice the same thread
+    just wrote (cache-hot).
 
-    REFERENCE KERNEL: the fit path now runs `_build_split_descend` (this
-    kernel's search plus the level's descend/occupancy in the same launch);
-    this is retained as its split-search oracle for
-    tests/test_tree_kernels.py.
+    REFERENCE KERNEL: the fit path runs `_build_split_descend`, which adds the
+    level's descend and occupancy to this search. Kept as that kernel's
+    split-search oracle for tests/test_tree_kernels.py.
 
-    Produces EXACTLY the outputs of `_build_histograms_into` followed by
-    `_best_split` (the retained reference kernels in this module) — verified
-    by an exact-equality test — while cutting the small-n fixed cost three
-    ways:
+    Output is EXACTLY `_build_histograms_into` followed by `_best_split` --
+    checked by an exact-equality test -- while cutting the small-n fixed cost
+    three ways:
 
-      * `active` lists the leaf rows that actually contain samples (callers
-        may pass any superset, e.g. arange(n_leaves) when counting isn't
-        worth it). Empty leaves are all-zero histogram rows: skipping them
-        skips zeroing and scanning cells that contribute nothing. Occupancy
-        is feature-independent, so one list serves every feature.
-      * Only bins [0, n_bins_[f]) are zeroed and scanned per feature — the
-        scatter never writes past a feature's actual bin count.
-      * The split scan is transposed (leaf-outer, bin-inner): the prefix and
-        gain passes stream each hist row sequentially instead of striding
-        across leaf rows per threshold. gain[t] still accumulates leaves in
-        ascending order, so every floating-point sum matches the reference
-        `_best_split` bit for bit; the parent term gl*gl/(ht+l2) is computed
-        once per leaf (identical value, one divide instead of nb-1).
+      * `active` lists the leaf rows that hold samples (any superset works, e.g.
+        arange(n_leaves) when counting isn't worth it). Empty leaves are all-zero
+        rows, so skipping them skips zeroing and scanning cells that contribute
+        nothing. Occupancy is feature-independent, so one list serves every
+        feature.
+      * Only bins [0, n_bins_[f]) are zeroed and scanned — the scatter never
+        writes past a feature's actual bin count.
+      * The scan is transposed (leaf-outer, bin-inner), so the prefix and gain
+        passes stream each hist row instead of striding across leaf rows per
+        threshold. gain[t] still accumulates leaves in ascending order, so every
+        float sum matches `_best_split` bit for bit. The parent term
+        gt*gt/(ht+l2) is computed once per leaf: same value, one divide instead
+        of nb-1.
 
-    Legality (`min_child_weight`) matches the reference: a threshold dies if
-    ANY contributing leaf would gain a sparse non-empty child; leaves with no
-    hessian mass contribute neither gain nor legality vetoes.
+    Legality (`min_child_weight`) matches the reference: a threshold dies if ANY
+    contributing leaf would gain a sparse non-empty child. Leaves with no hessian
+    mass cast neither gain nor veto.
     """
     n_features, n_samples = Xb.shape
     max_bins = hist.shape[2]
@@ -270,12 +282,15 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
+
+        # Zero this feature's leaf rows, then scatter the samples in.
         nb = n_bins_per_feature[f]
         for k in range(n_active):
             l = active[k]
             for b in range(nb):
                 hist[f, l, b, 0] = 0.0
                 hist[f, l, b, 1] = 0.0
+
         Xf = Xb[f]
         for i in range(n_samples):
             l = leaf[i]
@@ -283,8 +298,10 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
             hist[f, l, b, 0] += grad[i]
             hist[f, l, b, 1] += hess[i]
 
+        # Score every threshold, summing gain across the leaves.
         gain = np.zeros(max_bins)
         legal = np.ones(max_bins, dtype=np.uint8)
+
         for k in range(n_active):
             l = active[k]
             gt = 0.0
@@ -292,11 +309,14 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
             for b in range(nb):
                 gt += hist[f, l, b, 0]
                 ht += hist[f, l, b, 1]
+
             if ht <= 0.0:
                 continue
+
             par = gt * gt / (ht + l2)
             gl = 0.0
             hl = 0.0
+
             for t in range(nb - 1):
                 gl += hist[f, l, t, 0]
                 hl += hist[f, l, t, 1]
@@ -316,15 +336,18 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
             if legal[t] and gain[t] > best_g:
                 best_g = gain[t]
                 best_t = t
+
         feat_gain[f] = best_g
         feat_thr[f] = best_t
 
+    # Best feature overall.
     best_f = 0
     best_gain = -np.inf
     for f in range(n_features):
         if feat_gain[f] > best_gain:
             best_gain = feat_gain[f]
             best_f = f
+
     return best_f, feat_thr[best_f], best_gain
 
 
@@ -332,31 +355,35 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
 def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
                          n_bins_per_feature, l2, min_child_weight, min_gain,
                          small, n_leaves_next, next_active):
-    """`_build_and_split` plus the level's follow-up work in the same launch:
-    when the found split is usable (legal threshold, gain > min_gain) the
+    """`_build_and_split` plus the level's follow-up work in the same launch.
+
+    When the split it finds is usable (legal threshold, gain > min_gain) this
     kernel also pushes every sample one level deeper, and on the small-n path
     emits the next level's occupied-leaf list.
 
-    Replaces, per level: one split launch + one descend launch + a
-    bincount/flatnonzero numpy pair. At small n the per-level cost is
-    launch/fixed-cost bound (GROW_PLAN.md Phase 0: per-tree Python residue
-    8-15% of fit on Grinsztajn-sized sets) — that fixed cost is what this
-    removes; the arithmetic is unchanged.
+    Per level it replaces one split launch, one descend launch and a
+    bincount/flatnonzero numpy pair. At small n the per-level cost is fixed
+    overhead, not arithmetic (GROW_PLAN.md Phase 0: per-tree Python residue is
+    8-15% of fit on Grinsztajn-sized sets). That overhead is what this removes.
 
-    Bit-identity: the split search is `_build_and_split`'s code verbatim
-    (that kernel is retained as this one's oracle, itself oracle-tested
-    against `_build_histograms_into` + `_best_split`); the descend is
-    `_descend_leaves(_serial)`'s integer update, fused with an integer
-    occupancy count (exact in any order); the occupancy list is ascending
-    nonzero-count indices — exactly flatnonzero(bincount(leaf,
-    n_leaves_next)). The descend fires iff the caller's continue-predicate
-    holds (NOT (gain <= min_gain or t < 0)), so a rejected level leaves
-    `leaf` untouched, like the old Python-side break did.
+    Bit-identity, piece by piece:
 
-    Returns (best_f, best_t, best_gain, n_next); n_next is the occupancy
-    list length, or -1 when no list was built (large n, or no descend).
-    `next_active` needs room for n_leaves_next entries on the small-n path;
-    it is never touched otherwise.
+      * the split search is `_build_and_split`'s code verbatim (that kernel is
+        this one's oracle, and is itself oracle-tested against
+        `_build_histograms_into` + `_best_split`);
+      * the descend is `_descend_leaves(_serial)`'s integer update, fused with
+        an integer occupancy count, exact in any order;
+      * the occupancy list is ascending nonzero-count indices — exactly
+        flatnonzero(bincount(leaf, n_leaves_next)).
+
+    The descend fires iff the caller's continue-predicate holds (NOT (gain <=
+    min_gain or t < 0)), so a rejected level leaves `leaf` untouched, the way
+    the old Python-side break did.
+
+    Returns (best_f, best_t, best_gain, n_next). n_next is the occupancy list
+    length, or -1 when no list was built (large n, or no descend).
+    `next_active` needs room for n_leaves_next entries on the small-n path; it
+    is never touched otherwise.
     """
     n_features, n_samples = Xb.shape
     max_bins = hist.shape[2]
@@ -367,12 +394,15 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
+
+        # Zero this feature's leaf rows, then scatter the samples in.
         nb = n_bins_per_feature[f]
         for k in range(n_active):
             l = active[k]
             for b in range(nb):
                 hist[f, l, b, 0] = 0.0
                 hist[f, l, b, 1] = 0.0
+
         Xf = Xb[f]
         for i in range(n_samples):
             l = leaf[i]
@@ -380,8 +410,10 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
             hist[f, l, b, 0] += grad[i]
             hist[f, l, b, 1] += hess[i]
 
+        # Score every threshold, summing gain across the leaves.
         gain = np.zeros(max_bins)
         legal = np.ones(max_bins, dtype=np.uint8)
+
         for k in range(n_active):
             l = active[k]
             gt = 0.0
@@ -389,11 +421,14 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
             for b in range(nb):
                 gt += hist[f, l, b, 0]
                 ht += hist[f, l, b, 1]
+
             if ht <= 0.0:
                 continue
+
             par = gt * gt / (ht + l2)
             gl = 0.0
             hl = 0.0
+
             for t in range(nb - 1):
                 gl += hist[f, l, t, 0]
                 hl += hist[f, l, t, 1]
@@ -413,9 +448,11 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
             if legal[t] and gain[t] > best_g:
                 best_g = gain[t]
                 best_t = t
+
         feat_gain[f] = best_g
         feat_thr[f] = best_t
 
+    # Best feature overall.
     best_f = 0
     best_gain = -np.inf
     for f in range(n_features):
@@ -424,6 +461,8 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
             best_f = f
     best_t = feat_thr[best_f]
 
+    # Descend one level. At small n, list the leaves that are now occupied so
+    # the next level can skip the empty rows.
     n_next = -1
     if best_t >= 0 and best_gain > min_gain:
         Xf = Xb[best_f]
@@ -433,6 +472,7 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
                 nl = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
                 leaf[i] = nl
                 counts[nl] += 1
+
             n_next = 0
             for l in range(n_leaves_next):
                 if counts[l] > 0:
@@ -441,24 +481,28 @@ def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
         else:
             for i in prange(n_samples):
                 leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+
     return best_f, best_t, best_gain, n_next
 
 
-# Quantized-gradient histograms (QUANT_PLAN.md, LightGBM-4-style adaptation):
+# Quantized-gradient histograms (QUANT_PLAN.md, a LightGBM-4-style adaptation).
 # grad/hess are quantized per tree to integers and packed into ONE int64 per
-# sample, so the histogram scatter does a single integer RMW per (sample,
-# feature) instead of two float64 RMWs, and the buffer footprint halves.
-# _QMAX_CAP bounds the quantized range at 15 bits; build_oblivious_tree
-# shrinks it further for huge n so that any cell/prefix sum keeps
-# |sum qg| <= n*qmax < 2**31 and 0 <= sum qh < 2**32 — the packed halves can
-# then never bleed into each other and shift/mask unpacking is exact.
+# sample, so the histogram scatter does a single integer read-modify-write per
+# (sample, feature) instead of two float64 ones, and the buffer footprint halves.
+#
+# _QMAX_CAP bounds the quantized range at 15 bits. build_oblivious_tree shrinks
+# it further for huge n so that any cell or prefix sum keeps
+# |sum qg| <= n*qmax < 2**31 and 0 <= sum qh < 2**32. The packed halves can then
+# never bleed into each other and shift/mask unpacking is exact.
 _QMAX_CAP = 32767
 
 
 @njit(cache=True, parallel=True)
 def _gh_absmax(grad, hess):
-    """Fused (max |grad|, max hess) reduction — the quantization scales —
-    without numpy temporaries (np.abs(grad).max() would allocate n floats)."""
+    """Fused (max |grad|, max hess) reduction — the quantization scales.
+
+    Avoids numpy temporaries: np.abs(grad).max() would allocate n floats.
+    """
     gmax = 0.0
     hmax = 0.0
     for i in prange(grad.shape[0]):
@@ -472,23 +516,28 @@ def _gh_absmax(grad, hess):
 def _quantize_pack(grad, hess, inv_dg, inv_dh, qmax, qseed, out):
     """out[i] = (qg << 32) + qh with stochastic rounding qX = floor(x*inv + u).
 
-    The uniform pair u comes from counter-based splitmix64(qseed + i):
-    deterministic given the seed (reproducible models, no RNG state threaded
-    through numba), unbiased rounding (round-to-nearest would bias every
-    histogram cell the same way; stochastic errors cancel by sqrt(n) — the
-    LightGBM quantized-training result). qg lands in [-qmax, qmax] and qh in
-    [0, qmax] by construction of the scales; the clamps only guard the edge
-    where gmax * (qmax/gmax) rounds a hair above qmax, keeping the caller's
-    overflow bound exact. Hessians are non-negative for every library loss,
-    so qh's lower clamp is defensive only."""
+    The uniform pair u comes from a counter-based splitmix64(qseed + i), which
+    buys two things. It is deterministic given the seed, so models stay
+    reproducible without threading RNG state through numba. And the rounding is
+    unbiased: round-to-nearest would bias every histogram cell the same way,
+    whereas stochastic errors cancel by sqrt(n) — the LightGBM
+    quantized-training result.
+
+    The scales put qg in [-qmax, qmax] and qh in [0, qmax] by construction. The
+    clamps only guard the edge where gmax * (qmax/gmax) rounds a hair above qmax,
+    which keeps the caller's overflow bound exact. Hessians are non-negative for
+    every library loss, so qh's lower clamp is defensive only.
+    """
     n = grad.shape[0]
     for i in prange(n):
+        # splitmix64 of the row index, split into two uniforms.
         z = (qseed + np.uint64(i)) * np.uint64(0x9E3779B97F4A7C15)
         z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
         z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
         z = z ^ (z >> np.uint64(31))
         u1 = (z & np.uint64(0xFFFFFFFF)) * (1.0 / 4294967296.0)
         u2 = (z >> np.uint64(32)) * (1.0 / 4294967296.0)
+
         qg = np.int64(np.floor(grad[i] * inv_dg + u1))
         qh = np.int64(np.floor(hess[i] * inv_dh + u2))
         qg = min(max(qg, -qmax), qmax)
@@ -502,17 +551,18 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
                            min_gain, small, n_leaves_next, next_active):
     """Packed-int64 twin of `_build_split_descend` for quantized training.
 
-    Structure is that kernel's verbatim except the histogram: `histq` is
-    int64 (n_features, max_leaves, max_bins), the scatter adds the packed
-    sample value once, and the scan runs packed-integer prefix sums (exact —
-    see _QMAX_CAP) that are unpacked (arithmetic shift / mask) and
-    dequantized with dg/dh only where the float gain formula needs them.
+    The structure is that kernel's verbatim except for the histogram. `histq` is
+    int64 (n_features, max_leaves, max_bins), the scatter adds the packed sample
+    value once, and the scan runs packed-integer prefix sums (exact — see
+    _QMAX_CAP) that are unpacked by arithmetic shift and mask, then dequantized
+    with dg/dh only where the float gain formula needs them.
+
     On exactly-representable grad/hess (integer multiples of power-of-two
-    scales) this reproduces the float kernel bit for bit — that is the
-    oracle test in tests/test_tree_kernels.py; on real data it differs from
-    the float kernel only by the quantization noise. hr = ht - hl is
-    computed in float like the reference; multiplication by a positive
-    scale is monotone, so hr never goes negative."""
+    scales) this reproduces the float kernel bit for bit — the oracle test in
+    tests/test_tree_kernels.py. On real data it differs only by the quantization
+    noise. hr = ht - hl is computed in float like the reference; multiplying by
+    a positive scale is monotone, so hr never goes negative.
+    """
     n_features, n_samples = Xb.shape
     max_bins = histq.shape[2]
     n_active = active.shape[0]
@@ -522,28 +572,36 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
+
+        # Zero this feature's leaf rows, then scatter the samples in.
         nb = n_bins_per_feature[f]
         for k in range(n_active):
             l = active[k]
             for b in range(nb):
                 histq[f, l, b] = 0
+
         Xf = Xb[f]
         for i in range(n_samples):
             histq[f, leaf[i], Xf[i]] += q[i]
 
+        # Score every threshold, unpacking each integer prefix sum as it goes.
         gain = np.zeros(max_bins)
         legal = np.ones(max_bins, dtype=np.uint8)
+
         for k in range(n_active):
             l = active[k]
             tot = np.int64(0)
             for b in range(nb):
                 tot += histq[f, l, b]
+
             ht = (tot & 0xFFFFFFFF) * dh
             gt = (tot >> 32) * dg
             if ht <= 0.0:
                 continue
+
             par = gt * gt / (ht + l2)
             acc = np.int64(0)
+
             for t in range(nb - 1):
                 acc += histq[f, l, t]
                 hl = (acc & 0xFFFFFFFF) * dh
@@ -564,9 +622,11 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
             if legal[t] and gain[t] > best_g:
                 best_g = gain[t]
                 best_t = t
+
         feat_gain[f] = best_g
         feat_thr[f] = best_t
 
+    # Best feature overall.
     best_f = 0
     best_gain = -np.inf
     for f in range(n_features):
@@ -575,6 +635,8 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
             best_f = f
     best_t = feat_thr[best_f]
 
+    # Descend one level. At small n, list the leaves that are now occupied so
+    # the next level can skip the empty rows.
     n_next = -1
     if best_t >= 0 and best_gain > min_gain:
         Xf = Xb[best_f]
@@ -584,6 +646,7 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
                 nl = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
                 leaf[i] = nl
                 counts[nl] += 1
+
             n_next = 0
             for l in range(n_leaves_next):
                 if counts[l] > 0:
@@ -592,6 +655,7 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
         else:
             for i in prange(n_samples):
                 leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+
     return best_f, best_t, best_gain, n_next
 
 
@@ -600,23 +664,23 @@ def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
                 n_leaves):
     """Find the (feature, threshold) with the highest total gain.
 
-    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`; kept
-    as the equivalence oracle for tests/test_tree_kernels.py.
+    REFERENCE KERNEL: the fit path now uses the fused `_build_and_split`. This
+    is kept as the equivalence oracle for tests/test_tree_kernels.py.
 
     `hist` is the interleaved (n_features, max_leaves, max_bins, 2) buffer:
-    [..., 0] is grad, [..., 1] is hess. `n_leaves` says how many leaf rows are
-    actually active at this level, so we only read those.
+    [..., 0] is grad, [..., 1] is hess. `n_leaves` is how many leaf rows are
+    active at this level, so we read only those.
 
     For a candidate threshold t, bins <= t go left and bins > t go right, the
     same way in every current leaf. Gain is summed across leaves. Features with
     feat_mask[f] == 0 are skipped (column subsampling).
 
     A threshold is legal unless some leaf would gain a *sparse non-empty* child
-    (0 < hessian mass < min_child_weight) -- that is the sparse-leaf overfit risk,
+    (0 < hessian mass < min_child_weight). That is the sparse-leaf overfit risk,
     and since the split is shared it is rejected for the whole level. Children
     that come out EMPTY (a leaf whose samples all go one way) are exempt: pure
-    leaves are normal in an oblivious tree and must not block the shared split,
-    or effective depth caps far below what the data supports.
+    leaves are normal in an oblivious tree, and blocking the shared split on them
+    caps effective depth far below what the data supports.
     """
     n_features = hist.shape[0]
     feat_gain = np.full(n_features, -np.inf)
@@ -625,8 +689,9 @@ def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
-        nb = n_bins_per_feature[f]
+
         # Totals per leaf for this feature (same regardless of threshold).
+        nb = n_bins_per_feature[f]
         Gt = np.zeros(n_leaves)
         Ht = np.zeros(n_leaves)
         for l in range(n_leaves):
@@ -638,28 +703,30 @@ def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
         HL = np.zeros(n_leaves)
         best_g = -np.inf
         best_t = -1
+
         # Threshold t means "left = bins [0..t]". Last bin can't be a threshold.
         for t in range(nb - 1):
-            # Pass 1: Advance running prefix sums for all leaves unconditionally
-            # so GL/HL carry correctly into the next threshold.
+            # Pass 1: advance the running prefix sums for all leaves
+            # unconditionally, so GL/HL carry into the next threshold.
             for l in range(n_leaves):
                 GL[l] += hist[f, l, t, 0]
                 HL[l] += hist[f, l, t, 1]
 
-            # Pass 2: gain of this threshold, and its legality (see docstring:
-            # only a sparse non-empty child vetoes the shared split).
+            # Pass 2: gain of this threshold, and its legality. Only a sparse
+            # non-empty child vetoes the shared split (see the docstring).
             gain = 0.0
             legal = True
             for l in range(n_leaves):
                 if Ht[l] > 0.0:
                     hl = HL[l]
                     hr = Ht[l] - hl
-                    # Empty child (hl==0 or hr==0) is exempt; only 0 < mass <
-                    # min_child_weight is illegal.
+
+                    # An empty child (hl == 0 or hr == 0) is exempt.
                     if (hl > 0.0 and hl < min_child_weight) or \
                        (hr > 0.0 and hr < min_child_weight):
                         legal = False
                         break
+
                     gl = GL[l]
                     gr = Gt[l] - gl
                     gain += (
@@ -675,12 +742,14 @@ def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
         feat_gain[f] = best_g
         feat_thr[f] = best_t
 
+    # Best feature overall.
     best_f = 0
     best_gain = -np.inf
     for f in range(n_features):
         if feat_gain[f] > best_gain:
             best_gain = feat_gain[f]
             best_f = f
+
     return best_f, feat_thr[best_f], best_gain
 
 
@@ -707,6 +776,7 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
     for i in range(leaf.shape[0]):
         G[leaf[i]] += grad[i]
         H[leaf[i]] += hess[i]
+
     values = np.zeros(n_leaves)
     for l in range(n_leaves):
         if H[l] > 0.0:
@@ -719,17 +789,20 @@ def _solve_small(A, b):
     """Solve ``A x = b`` for a small dense system via LU with partial pivoting.
 
     Drop-in replacement for ``np.linalg.solve`` on the tiny (d x d, d <= depth+1)
-    per-leaf normal equations. Same algorithm family as LAPACK's gesv (LU with
-    partial pivoting) but hand-rolled, which avoids instantiating numba's LAPACK
-    bindings: those alone account for several seconds of JIT compile time on the
-    first fit in a fresh environment. ``A`` and ``b`` are modified in place.
-    Returns the solution, or a vector of NaN if a pivot underflows (the caller
-    then falls back to the constant Newton leaf value; with the ridge + jitter
-    on the diagonal this cannot trigger in practice).
+    per-leaf normal equations. Same algorithm family as LAPACK's gesv, but
+    hand-rolled to avoid instantiating numba's LAPACK bindings: those alone cost
+    several seconds of JIT compile time on the first fit in a fresh environment.
+
+    ``A`` and ``b`` are modified in place. Returns the solution, or a vector of
+    NaN if a pivot underflows -- the caller then falls back to the constant
+    Newton leaf value. With the ridge and jitter on the diagonal, that cannot
+    trigger in practice.
     """
     d = A.shape[0]
     x = np.empty(d)
+
     for c in range(d):
+        # Pick the pivot row.
         p = c
         amax = abs(A[c, c])
         for r in range(c + 1, d):
@@ -737,10 +810,12 @@ def _solve_small(A, b):
             if ar > amax:
                 amax = ar
                 p = r
+
         if amax < 1e-300:
             for j in range(d):
                 x[j] = np.nan
             return x
+
         if p != c:
             for j in range(d):
                 tmp = A[c, j]
@@ -749,6 +824,8 @@ def _solve_small(A, b):
             tmp = b[c]
             b[c] = b[p]
             b[p] = tmp
+
+        # Eliminate below the pivot.
         inv = 1.0 / A[c, c]
         for r in range(c + 1, d):
             f = A[r, c] * inv
@@ -757,11 +834,14 @@ def _solve_small(A, b):
                 for j in range(c + 1, d):
                     A[r, j] -= f * A[c, j]
                 b[r] -= f * b[c]
+
+    # Back substitution.
     for r in range(d - 1, -1, -1):
         s = b[r]
         for j in range(r + 1, d):
             s -= A[r, j] * x[j]
         x[r] = s / A[r, r]
+
     return x
 
 
@@ -770,31 +850,38 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
                      l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
 
-    For samples in a leaf we solve the second-order objective
+    For the samples in a leaf we solve the second-order objective
+
         min_beta  sum_i [ g_i f_i + 1/2 h_i f_i^2 ] + 1/2 ( l2*b^2 + lin*||w||^2 )
+
     with f_i = b + w . x_std_i over the leaf's numeric split features -- i.e. the
     normal equations  (A^T diag(h) A + Lambda) beta = -A^T g,  A = [1, x_std],
-    accumulated directly (no per-leaf design matrix). The fitted output is
-    `lr * beta`. Leaves with too few samples to support the slope (or empty
-    leaves) fall back to the plain constant Newton value, so the linear model
-    only ever ADDS local slope where the data supports it. Returns `lin_coef` of
-    shape (n_leaves, 1 + len(lin_feats)) (column 0 = intercept).
+    accumulated directly, with no per-leaf design matrix. The output is
+    `lr * beta`.
 
-    `centers_std` is the per-feature table of standardized bin-center values;
-    NaN (missing) bins are treated as 0 (= the feature mean).
+    Leaves too small to support a slope, and empty leaves, fall back to the plain
+    constant Newton value, so the linear model only ever ADDS slope where the
+    data supports it. Returns `lin_coef` of shape (n_leaves, 1 + len(lin_feats));
+    column 0 is the intercept. `centers_std` is the per-feature table of
+    standardized bin-center values, with NaN (missing) bins treated as 0, the
+    feature mean.
 
-    Parallel over leaves, bit-identically to the old serial global scan: a
-    stable counting sort groups sample indices by leaf in original order, so
-    each leaf's normal equations accumulate in exactly the same float-add
-    sequence the serial version used (a leaf only ever saw its own samples,
-    in increasing i). Thread-count invariant for the same reason. The
-    standardized design values are gathered per sample inside the leaf loop
-    (no (k, n) scratch matrix, and a single parallel region keeps the JIT
-    compile cost down)."""
+    Notes
+    -----
+    Parallel over leaves and bit-identical to the old serial global scan. A
+    stable counting sort groups sample indices by leaf in original order, so each
+    leaf accumulates in exactly the float-add sequence the serial version used --
+    a leaf only ever saw its own samples, in increasing i. Thread-count invariant
+    for the same reason.
+
+    Design values are gathered per sample inside the leaf loop: no (k, n) scratch
+    matrix, and one parallel region holds the JIT compile cost down.
+    """
     n = leaf.shape[0]
     k = lin_feats.shape[0]
     d = 1 + k
     coef = np.zeros((n_leaves, d))
+
     # Per-leaf grad/hess totals (for the constant fallback) and counts.
     counts = np.zeros(n_leaves, dtype=np.int64)
     Gtot = np.zeros(n_leaves)
@@ -804,37 +891,45 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
         counts[l] += 1
         Gtot[l] += grad[i]
         Htot[l] += hess[i]
+
     # Stable counting sort: order[start[l]:start[l+1]] = leaf-l samples in
     # increasing original index.
     start = np.zeros(n_leaves + 1, dtype=np.int64)
     for l in range(n_leaves):
         start[l + 1] = start[l] + counts[l]
+
     pos = start[:n_leaves].copy()
     order = np.empty(n, dtype=np.int64)
     for i in range(n):
         l = leaf[i]
         order[pos[l]] = i
         pos[l] += 1
+
     # Per-leaf normal equations + solve; leaves are independent.
     for l in prange(n_leaves):
         if counts[l] == 0:
             continue
+
         if counts[l] < 2 * d or k == 0:
             if Htot[l] > 0.0:
                 coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
             continue
+
         Ml = np.zeros((d, d))
         rl = np.zeros(d)
         xrow = np.empty(k)
+
         for q in range(start[l], start[l + 1]):
             i = order[q]
             h = hess[i]
             g = grad[i]
+
             # Standardized design values for this sample; missing bins -> 0.
             for j in range(k):
                 f = lin_feats[j]
                 v = centers_std[f, Xb[f, i]]
                 xrow[j] = v if np.isfinite(v) else 0.0
+
             Ml[0, 0] += h
             rl[0] += -g
             for j in range(k):
@@ -844,11 +939,13 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
                 rl[1 + j] += -g * xj
                 for jj in range(k):
                     Ml[1 + j, 1 + jj] += h * xj * xrow[jj]
+
         Ml[0, 0] += l2_intercept
         for j in range(1, d):
             Ml[j, j] += lin_lambda
         for j in range(d):
             Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
+
         beta = _solve_small(Ml, rl)
         if np.isnan(beta[0]):
             # Singular pivot (unreachable given the diagonal ridge + jitter):
@@ -856,8 +953,10 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
             if Htot[l] > 0.0:
                 coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
             continue
+
         for j in range(d):
             coef[l, j] = lr * beta[j]
+
     return coef
 
 
@@ -865,8 +964,9 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
 def _linear_predict(leaf, lin_feats, lin_coef, centers_std, Xb):
     """Per-sample output of a linear-leaf tree: intercept + slope . x_std.
 
-    Parallel over samples; each out[i] is independent, so bit-identical to
-    the serial loop."""
+    Parallel over samples. Each out[i] is independent, so this is bit-identical
+    to the serial loop.
+    """
     n = leaf.shape[0]
     k = lin_feats.shape[0]
     out = np.empty(n)
@@ -886,13 +986,16 @@ def _linear_predict(leaf, lin_feats, lin_coef, centers_std, Xb):
 def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
     """Vector (K-output) Newton leaf values on ONE shared leaf partition.
 
-    ``grad``/``hess`` are the (n, K) per-class softmax gradient/hessian
-    matrices; ``coupling`` is the softmax rank correction ((K-1)/K), applied
-    to the hessian exactly as the per-class-tree path applies it before its
-    scalar `_leaf_values` call. Column k of the result is what
-    `_leaf_values(leaf, grad[:, k], hess[:, k] * coupling, ...)` returns —
-    the same Newton formula, K columns per leaf instead of K separate trees.
-    That equivalence is the oracle test in tests/test_vector_leaf.py."""
+    ``grad``/``hess`` are the (n, K) per-class softmax gradient/hessian matrices.
+    ``coupling`` is the softmax rank correction ((K-1)/K), applied to the hessian
+    exactly as the per-class-tree path applies it before its scalar
+    `_leaf_values` call.
+
+    Column k of the result is what
+    `_leaf_values(leaf, grad[:, k], hess[:, k] * coupling, ...)` returns — the
+    same Newton formula, K columns per leaf instead of K separate trees. That
+    equivalence is the oracle test in tests/test_vector_leaf.py.
+    """
     n, K = grad.shape
     G = np.zeros((n_leaves, K))
     H = np.zeros((n_leaves, K))
@@ -900,10 +1003,11 @@ def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
         l = leaf[i]
         for k in range(K):
             G[l, k] += grad[i, k]
-            # Couple per element, BEFORE the sum, exactly like the scalar
-            # path's `hess[:, k] * coupling` argument — keeps the oracle
-            # equivalence bit-exact (c*Σh ≠ Σ(c*h) in floats).
+            # Couple per element, BEFORE the sum, exactly like the scalar path's
+            # `hess[:, k] * coupling` argument. Keeps the oracle equivalence
+            # bit-exact: c*Σh ≠ Σ(c*h) in floats.
             H[l, k] += hess[i, k] * coupling
+
     values = np.zeros((n_leaves, K))
     for l in range(n_leaves):
         for k in range(K):
@@ -916,10 +1020,12 @@ def _leaf_values_vec(leaf, grad, hess, coupling, n_leaves, l2, lr):
 # Multi-quantile vector leaves (benchmarks/QUANTILE_PLAN.md).
 #
 # The quantile head's leaf value is not a Newton step but the exact empirical
-# quantile of the leaf's residuals, one per tau -- the same override the
+# quantile of the leaf's residuals, one per tau. It is the same override the
 # scalar MAE/Quantile path applies in `booster._correct_leaves`, widened to K
-# channels. The channels are not constrained against one another here; ordering
-# is imposed per row on delivered predictions (`booster.MultiQuantileBoosting`).
+# channels.
+#
+# The channels are not constrained against one another here; ordering is imposed
+# per row on delivered predictions (`booster.MultiQuantileBoosting`).
 # ---------------------------------------------------------------------------
 
 
@@ -933,20 +1039,23 @@ def _project_pinball(y, F, c, cdot, w, out):
         g_i = sum over {k : F_ik > y_i} of c_k, minus dot(c, taus)
 
     which is one accumulating pass over the row instead of a K-element dot
-    product against a materialized (n, K) gradient. Not building that matrix is
-    the whole reason a K-level head can cost about what a 1-level one costs per
-    round outside the leaf refit.
+    product against a materialized (n, K) gradient. Skipping that matrix is why
+    a K-level head costs about what a 1-level one costs per round, outside the
+    leaf refit.
 
-    An earlier version read the sum straight out of a precomputed suffix table
-    by binary-searching the row's PIT rank, which is valid only while ``F_i`` is
-    non-decreasing. Leaf vectors are no longer constrained against one another
-    (ordering is imposed per row on delivered predictions instead), so a row's
-    channels may cross during training and ``{k : F_ik > y_i}`` need not be a
-    suffix. The scan below makes no ordering assumption at all; it costs K
-    comparisons rather than log K over the same cache lines.
+    ``w`` is a per-row weight array, ones when unweighted -- multiplying by
+    exactly 1.0 is bit-exact, so the unweighted path is unchanged.
 
-    ``w`` is a per-row weight array (ones when unweighted -- multiplying by
-    exactly 1.0 is bit-exact, so the unweighted path is unchanged).
+    Notes
+    -----
+    TRAP, and the reason this is a plain scan: an earlier version read the sum
+    out of a precomputed suffix table by binary-searching the row's PIT rank,
+    which is only valid while ``F_i`` is non-decreasing. Leaf vectors are no
+    longer constrained against one another (ordering is imposed per row on
+    delivered predictions instead), so a row's channels may cross during training
+    and ``{k : F_ik > y_i}`` need not be a suffix. The scan below assumes no
+    ordering at all, costing K comparisons rather than log K over the same cache
+    lines.
     """
     n, K = F.shape
     for i in prange(n):
@@ -960,8 +1069,10 @@ def _project_pinball(y, F, c, cdot, w, out):
 
 @njit(cache=True, parallel=True)
 def _add_leaf_values(F, values, leaf):
-    """``F += values[leaf]`` in place, without materializing the (n, K) gather
-    that fancy indexing would allocate every round."""
+    """``F += values[leaf]`` in place.
+
+    Avoids the (n, K) gather that fancy indexing would allocate every round.
+    """
     n, K = F.shape
     for i in prange(n):
         l = leaf[i]
@@ -973,10 +1084,11 @@ def _add_leaf_values(F, values, leaf):
 def _lerp_np(a, b, t):
     """NumPy's `_lerp` (numpy/lib/function_base.py), branch included.
 
-    The obvious ``a + (b - a) * t`` disagrees with `np.quantile` on roughly 7%
-    of random inputs; reproducing the ``t >= 0.5`` branch makes the leaf
-    quantile bit-identical to the scalar path's `np.quantile` call, which is
-    what lets tests/test_quantile_head.py assert exact equality."""
+    The obvious ``a + (b - a) * t`` disagrees with `np.quantile` on roughly 7% of
+    random inputs. Reproducing the ``t >= 0.5`` branch makes the leaf quantile
+    bit-identical to the scalar path's `np.quantile` call, which is what lets
+    tests/test_quantile_head.py assert exact equality.
+    """
     diff = b - a
     out = a + diff * t
     if t >= 0.5:
@@ -987,13 +1099,18 @@ def _lerp_np(a, b, t):
 @njit(cache=True)
 def _select_kth(buf, lo, hi, k):
     """Quickselect: reorder ``buf[lo:hi]`` so ``buf[k]`` is its (k-lo)-th
-    smallest element, everything left of k no greater, everything right no
-    smaller. Median-of-three pivot. O(m) expected, versus O(m log m) for a
-    full sort -- and the leaf refit runs this K times per leaf per round, so
-    the difference is the head's dominant per-round cost."""
+    smallest element, everything left of k no greater and everything right no
+    smaller. Median-of-three pivot.
+
+    O(m) expected versus O(m log m) for a full sort -- and the leaf refit runs
+    this K times per leaf per round, so that difference is the head's dominant
+    per-round cost.
+    """
     left = lo
     right = hi - 1
+
     while left < right:
+        # Median-of-three pivot.
         mid = (left + right) // 2
         x = buf[left]
         y = buf[mid]
@@ -1005,6 +1122,7 @@ def _select_kth(buf, lo, hi, k):
         if x > y:
             y = x
         pivot = y
+
         i = left
         j = right
         while i <= j:
@@ -1016,6 +1134,8 @@ def _select_kth(buf, lo, hi, k):
                 buf[i], buf[j] = buf[j], buf[i]
                 i += 1
                 j -= 1
+
+        # Keep narrowing onto the side that holds k.
         if k <= j:
             right = j
         elif k >= i:
@@ -1026,18 +1146,21 @@ def _select_kth(buf, lo, hi, k):
 
 @njit(cache=True)
 def _quantile_slice(buf, lo, hi, alpha):
-    """The ``alpha`` quantile of ``buf[lo:hi]``, matching `np.quantile`'s
-    default ('linear') method bit for bit. Reorders the slice in place."""
+    """The ``alpha`` quantile of ``buf[lo:hi]``, matching `np.quantile`'s default
+    ('linear') method bit for bit. Reorders the slice in place.
+    """
     m = hi - lo
     if m <= 0:
         return 0.0
     if m == 1:
         return buf[lo]
+
     pos = alpha * (m - 1)
     j = int(np.floor(pos))
     if j >= m - 1:          # alpha == 1.0: the maximum, nothing to interpolate
         _select_kth(buf, lo, hi, hi - 1)
         return buf[hi - 1]
+
     frac = pos - j
     _select_kth(buf, lo, hi, lo + j)
     a = buf[lo + j]
@@ -1054,8 +1177,10 @@ def _quantile_slice(buf, lo, hi, alpha):
 
 @njit(cache=True)
 def _sort_pairs(buf, wbuf, lo, hi, wlo):
-    """Sort ``buf[lo:hi]`` ascending, carrying ``wbuf`` along. Insertion sort:
-    only the weighted path uses it, and leaves are small."""
+    """Sort ``buf[lo:hi]`` ascending, carrying ``wbuf`` along.
+
+    Insertion sort: only the weighted path uses it, and leaves are small.
+    """
     for i in range(1, hi - lo):
         v = buf[lo + i]
         wv = wbuf[wlo + i]
@@ -1071,16 +1196,21 @@ def _sort_pairs(buf, wbuf, lo, hi, wlo):
 @njit(cache=True)
 def _weighted_quantile_slice(buf, wbuf, lo, hi, alpha, wlo):
     """Nearest-rank weighted quantile of ``buf[lo:hi]``, reproducing
-    `losses._weighted_quantile`: sort by value, walk the cumulative weight,
-    take the first element whose running total reaches ``alpha`` of the whole.
-    Reorders both slices in place."""
+    `losses._weighted_quantile`.
+
+    Sort by value, walk the cumulative weight, take the first element whose
+    running total reaches ``alpha`` of the whole. Reorders both slices in place.
+    """
     m = hi - lo
     if m <= 0:
         return 0.0
+
     _sort_pairs(buf, wbuf, lo, hi, wlo)
+
     total = 0.0
     for i in range(m):
         total += wbuf[wlo + i]
+
     target = total * alpha
     run = 0.0
     for i in range(m):
@@ -1095,16 +1225,19 @@ def _leaf_row_index(leaf, n_leaves):
     """Group rows by leaf into contiguous, disjoint slices.
 
     Returns ``(off, rows)`` where leaf l owns ``rows[off[l]:off[l+1]]``, rows
-    listed in ascending order within each leaf (the same grouping
-    `booster._correct_leaves` gets from a stable argsort). Disjointness is what
-    makes the `prange` over leaves race-free: each leaf writes only its own
-    slice of the shared scratch buffer."""
+    listed in ascending order within each leaf -- the same grouping
+    `booster._correct_leaves` gets from a stable argsort.
+
+    Disjointness is what makes the `prange` over leaves race-free: each leaf
+    writes only its own slice of the shared scratch buffer.
+    """
     n = leaf.shape[0]
     off = np.zeros(n_leaves + 1, dtype=np.int64)
     for i in range(n):
         off[leaf[i] + 1] += 1
     for l in range(n_leaves):
         off[l + 1] += off[l]
+
     fill = off.copy()
     rows = np.empty(n, dtype=np.int64)
     for i in range(n):
@@ -1126,27 +1259,30 @@ def _leaf_quantiles_vec(leaf, y, F, taus, n_leaves, lr):
     tests/test_quantile_head.py.
 
     Each channel is an independent step and nothing constrains them against one
-    another here; ordering is imposed on delivered predictions instead, per row
+    another here; ordering is imposed per row on delivered predictions instead
     (see `booster.MultiQuantileBoosting`). `lr` multiplies from the outside,
-    matching `_correct_leaves`."""
+    matching `_correct_leaves`.
+    """
     n = leaf.shape[0]
     K = taus.shape[0]
     off, rows = _leaf_row_index(leaf, n_leaves)
     values = np.zeros((n_leaves, K))
+
     # One scratch run per (leaf, channel). Costs an (n, K) buffer -- the same
     # footprint as the score matrix itself -- and buys load balance: a real
     # oblivious tree's leaves are badly uneven, so a prange over leaves alone
     # leaves most threads idle waiting on the biggest one. Leaf l owns
     # buf[off[l]*K : off[l+1]*K], so the runs stay disjoint.
     buf = np.empty(n * K, dtype=np.float64)
+
     for t in prange(n_leaves * K):
         l = t // K
         k = t - l * K
         lo = off[l]
         m = off[l + 1] - lo
         if m > 0:
-            # Forward strided scan of one F column, contiguous write. The
-            # leaf's rows are ascending so the prefetcher tracks it. Gathering
+            # Forward strided scan of one F column, contiguous write. The leaf's
+            # rows are ascending so the prefetcher tracks it. Gathering
             # channel-major in one pass was measured SLOWER -- it trades these
             # reads for a transposing write that costs more than it saves.
             st = lo * K + k * m
@@ -1160,13 +1296,17 @@ def _leaf_quantiles_vec(leaf, y, F, taus, n_leaves, lr):
 @njit(cache=True)
 def _leaf_quantiles_vec_serial(leaf, y, F, taus, n_leaves, lr):
     """Serial twin of `_leaf_quantiles_vec` for small n, where the parallel
-    fork/join costs more than the pass. Every write is to a disjoint slice, so
-    the two are bit-identical; the booster dispatches on `_SMALL_N`."""
+    fork/join costs more than the pass.
+
+    Every write is to a disjoint slice, so the two are bit-identical; the booster
+    dispatches on `_SMALL_N`.
+    """
     n = leaf.shape[0]
     K = taus.shape[0]
     off, rows = _leaf_row_index(leaf, n_leaves)
     values = np.zeros((n_leaves, K))
     buf = np.empty(n, dtype=np.float64)
+
     for l in range(n_leaves):
         lo = off[l]
         hi = off[l + 1]
@@ -1186,19 +1326,23 @@ def _leaf_quantiles_vec_serial(leaf, y, F, taus, n_leaves, lr):
 
 @njit(cache=True, parallel=True)
 def _leaf_quantiles_vec_w(leaf, y, F, w, taus, n_leaves, lr):
-    """Weighted `_leaf_quantiles_vec`. Reproduces `losses._weighted_quantile`
-    (nearest rank on cumulative weight), which is the rule the scalar weighted
-    quantile path already uses. Rows carrying zero weight -- MVS drops, or a
-    user's zero sample weights -- contribute nothing, so the leaf value sees
-    exactly the rows the split search saw."""
+    """Weighted `_leaf_quantiles_vec`.
+
+    Reproduces `losses._weighted_quantile` (nearest rank on cumulative weight),
+    the rule the scalar weighted quantile path already uses. Rows carrying zero
+    weight -- MVS drops, or a user's zero sample weights -- contribute nothing,
+    so the leaf value sees exactly the rows the split search saw.
+    """
     n = leaf.shape[0]
     K = taus.shape[0]
     off, rows = _leaf_row_index(leaf, n_leaves)
     values = np.zeros((n_leaves, K))
-    # Per-(leaf, channel) runs, as in the unweighted twin. The weights need
-    # their own copy per run because the paired sort reorders them.
+
+    # Per-(leaf, channel) runs, as in the unweighted twin. The weights need their
+    # own copy per run because the paired sort reorders them.
     buf = np.empty(n * K, dtype=np.float64)
     wbuf = np.empty(n * K, dtype=np.float64)
+
     for t in prange(n_leaves * K):
         l = t // K
         k = t - l * K
@@ -1224,6 +1368,7 @@ def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, n_leaves, lr):
     values = np.zeros((n_leaves, K))
     buf = np.empty(n, dtype=np.float64)
     wbuf = np.empty(n, dtype=np.float64)
+
     for l in range(n_leaves):
         lo = off[l]
         hi = off[l + 1]
@@ -1242,10 +1387,11 @@ def _leaf_quantiles_vec_w_serial(leaf, y, F, w, taus, n_leaves, lr):
 def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
     """Leave-one-out training step for every row, fused into two passes.
 
-    First pass scatters per-leaf grad/hess totals; second pass gathers each
+    The first pass scatters per-leaf grad/hess totals. The second gathers each
     row's totals, removes the row's own contribution, and forms the shrunk
     Newton step. Replaces two np.bincount calls plus several NumPy temporaries
-    with one scatter and one compute loop over `leaf`."""
+    with one scatter and one compute loop over `leaf`.
+    """
     G = np.zeros(n_leaves)
     H = np.zeros(n_leaves)
     n = leaf.shape[0]
@@ -1253,6 +1399,7 @@ def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
         l = leaf[i]
         G[l] += grad[i]
         H[l] += hess[i]
+
     out = np.empty(n, dtype=np.float64)
     for i in range(n):
         l = leaf[i]
@@ -1261,9 +1408,9 @@ def _loo_leaf_step(leaf, grad, hess, n_leaves, l2, lr):
             denom = 0.0
         if denom + l2 <= 0.0:
             # Singleton leaf (or all co-leaf rows subsampled away) with
-            # l2_leaf_reg=0: no curvature left once the row's own
-            # contribution is removed, so there is no leave-one-out step to
-            # take. Mirrors the H[l] > 0 guard in _leaf_values.
+            # l2_leaf_reg=0: no curvature left once the row's own contribution
+            # is removed, so there is no leave-one-out step to take. Mirrors the
+            # H[l] > 0 guard in _leaf_values.
             out[i] = 0.0
         else:
             out[i] = -lr * (G[l] - grad[i]) / (denom + l2)
@@ -1284,18 +1431,20 @@ def _predict_tree(Xb, splits_feat, splits_thr, values):
 def _predict_forest(Xb, feats, thrs, depths, vals, voff, init):
     """Sum a whole ensemble of oblivious trees in one parallel pass over samples.
 
-    Parameters are the trees packed into flat arrays (see `pack_forest`):
-    `feats`/`thrs` are (n_trees, max_depth) split tables, `depths[t]` the real
-    depth of tree t, and `vals`/`voff` a ragged leaf-value table (tree t's leaf
-    values live at vals[voff[t] : voff[t+1]]).
+    The trees arrive packed into flat arrays (see `pack_forest`): `feats`/`thrs`
+    are (n_trees, max_depth) split tables, `depths[t]` is the real depth of tree
+    t, and `vals`/`voff` form a ragged leaf-value table where tree t's values
+    live at vals[voff[t] : voff[t+1]].
 
-    Parallelizing over samples (not trees) means each sample loads its handful
-    of feature bins once and keeps them hot in cache while walking every tree.
-    The per-sample accumulation runs init + tree0 + tree1 + ... in tree order,
-    matching the serial `F += tree.predict(Xb)` loop bit-for-bit."""
+    Parallelizing over samples rather than trees lets each sample load its
+    handful of feature bins once and keep them hot while walking every tree. The
+    per-sample accumulation runs init + tree0 + tree1 + ... in tree order,
+    matching the serial `F += tree.predict(Xb)` loop bit for bit.
+    """
     n = Xb.shape[1]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
+
     for i in prange(n):
         acc = init
         for t in range(n_trees):
@@ -1303,6 +1452,7 @@ def _predict_forest(Xb, feats, thrs, depths, vals, voff, init):
             # contributes nothing (its lone leaf value is never applied).
             if depths[t] == 0:
                 continue
+
             leaf = 0
             for d in range(depths[t]):
                 if Xb[feats[t, d], i] > thrs[t, d]:
@@ -1318,14 +1468,16 @@ def _predict_forest(Xb, feats, thrs, depths, vals, voff, init):
 def _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init):
     """`_predict_forest` for a row-major (n_samples, n_features) binned matrix.
 
-    Predict-time binning produces row-major output; consuming it directly
-    keeps each sample's feature bins in one or two cache lines for the whole
-    forest walk and skips the feature-major transpose copy entirely. Same
-    arithmetic and per-sample accumulation order as `_predict_forest`, so the
-    two are bit-identical."""
+    Predict-time binning produces row-major output. Consuming it directly keeps
+    each sample's feature bins in one or two cache lines for the whole forest
+    walk, and skips the feature-major transpose copy entirely. Same arithmetic
+    and per-sample accumulation order as `_predict_forest`, so the two are
+    bit-identical.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
+
     for i in prange(n):
         acc = init
         for t in range(n_trees):
@@ -1333,6 +1485,7 @@ def _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init):
             # contributes nothing (its lone leaf value is never applied).
             if depths[t] == 0:
                 continue
+
             leaf = 0
             for d in range(depths[t]):
                 if Xb[i, feats[t, d]] > thrs[t, d]:
@@ -1346,11 +1499,13 @@ def _predict_forest_rm(Xb, feats, thrs, depths, vals, voff, init):
 
 @njit(cache=True)
 def _predict_forest_rm_serial(Xb, feats, thrs, depths, vals, voff, init):
-    """Serial twin of `_predict_forest_rm` for tiny batches: the OpenMP
-    fork/join (~20us on 12 threads) exceeds the whole 1-row walk, and the
-    parallel kernel only overtakes serial around n~5. Bit-identical
+    """Serial twin of `_predict_forest_rm` for tiny batches.
+
+    The OpenMP fork/join (~20us on 12 threads) exceeds the whole 1-row walk, and
+    the parallel kernel only overtakes serial around n~5. Bit-identical
     (independent per-row writes); the booster dispatches on
-    `binning._SERIAL_PREDICT_N`."""
+    `binning._SERIAL_PREDICT_N`.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
@@ -1373,20 +1528,23 @@ def _predict_forest_rm_serial(Xb, feats, thrs, depths, vals, voff, init):
 def pack_forest(trees, max_depth):
     """Flatten a list of ObliviousTrees into the arrays `_predict_forest` wants.
 
-    Returns (feats, thrs, depths, vals, voff). Cached by the booster after fit
-    so repeated predict calls skip the rebuild."""
+    Returns (feats, thrs, depths, vals, voff). The booster caches this after fit
+    so repeated predict calls skip the rebuild.
+    """
     n_trees = len(trees)
     feats = np.zeros((n_trees, max_depth), dtype=np.int64)
     thrs = np.zeros((n_trees, max_depth), dtype=np.int64)
     depths = np.empty(n_trees, dtype=np.int64)
     voff = np.empty(n_trees + 1, dtype=np.int64)
     voff[0] = 0
+
     for t, tree in enumerate(trees):
         d = tree.depth
         depths[t] = d
         feats[t, :d] = tree.splits_feat
         thrs[t, :d] = tree.splits_thr
         voff[t + 1] = voff[t] + tree.values.shape[0]
+
     vals = np.empty(voff[-1], dtype=np.float64)
     for t, tree in enumerate(trees):
         vals[voff[t]:voff[t + 1]] = tree.values
@@ -1397,9 +1555,10 @@ def pack_forest_vec(trees, max_depth):
     """Flatten a forest of vector-leaf (K-output) oblivious trees for
     `_predict_forest_vec_rm`.
 
-    Same layout as `pack_forest` except tree t's leaf-value block is
+    Same layout as `pack_forest` except that tree t's leaf-value block is
     leaf-major (n_leaves, K) flattened: class k of leaf l lives at
-    vals[voff[t] + l*K + k]. Returns (feats, thrs, depths, vals, voff, K)."""
+    vals[voff[t] + l*K + k]. Returns (feats, thrs, depths, vals, voff, K).
+    """
     n_trees = len(trees)
     K = trees[0].values.shape[1]
     feats = np.zeros((n_trees, max_depth), dtype=np.int64)
@@ -1407,12 +1566,14 @@ def pack_forest_vec(trees, max_depth):
     depths = np.empty(n_trees, dtype=np.int64)
     voff = np.empty(n_trees + 1, dtype=np.int64)
     voff[0] = 0
+
     for t, tree in enumerate(trees):
         d = tree.depth
         depths[t] = d
         feats[t, :d] = tree.splits_feat
         thrs[t, :d] = tree.splits_thr
         voff[t + 1] = voff[t] + tree.values.shape[0] * K
+
     vals = np.empty(voff[-1], dtype=np.float64)
     for t, tree in enumerate(trees):
         vals[voff[t]:voff[t + 1]] = tree.values.reshape(-1)
@@ -1421,22 +1582,27 @@ def pack_forest_vec(trees, max_depth):
 
 @njit(cache=True, parallel=True)
 def _predict_forest_vec_rm(Xb, feats, thrs, depths, vals, voff, K, init):
-    """Sum a forest of vector-leaf oblivious trees in one parallel pass over
-    a row-major (n_samples, n_features) binned matrix — the K-output
-    analogue of `_predict_forest_rm`. One tree walk serves all K classes
-    (the per-class-forest path walked the same rows K times). Per-sample
-    accumulation runs init + tree0 + tree1 + ... in tree order per class,
-    matching the fit loop's `F += tree.values[leaf]` bit for bit."""
+    """Sum a forest of vector-leaf oblivious trees in one parallel pass over a
+    row-major (n_samples, n_features) binned matrix — the K-output analogue of
+    `_predict_forest_rm`.
+
+    One tree walk serves all K classes; the per-class-forest path walked the same
+    rows K times. Per-sample accumulation runs init + tree0 + tree1 + ... in tree
+    order per class, matching the fit loop's `F += tree.values[leaf]` bit for bit.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty((n, K), dtype=np.float64)
+
     for i in prange(n):
         for k in range(K):
             out[i, k] = init[k]
+
         for t in range(n_trees):
             # A depth-0 tree found no legal split; it contributes nothing.
             if depths[t] == 0:
                 continue
+
             leaf = 0
             for d in range(depths[t]):
                 if Xb[i, feats[t, d]] > thrs[t, d]:
@@ -1453,8 +1619,11 @@ def _predict_forest_vec_rm(Xb, feats, thrs, depths, vals, voff, K, init):
 def _predict_forest_vec_rm_serial(Xb, feats, thrs, depths, vals, voff, K,
                                   init):
     """Serial twin of `_predict_forest_vec_rm` for tiny batches — see
-    `_predict_forest_rm_serial`. Bit-identical (independent per-row
-    writes); the booster dispatches on `binning._SERIAL_PREDICT_N`."""
+    `_predict_forest_rm_serial`.
+
+    Bit-identical (independent per-row writes); the booster dispatches on
+    `binning._SERIAL_PREDICT_N`.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty((n, K), dtype=np.float64)
@@ -1479,11 +1648,13 @@ def _predict_forest_vec_rm_serial(Xb, feats, thrs, depths, vals, voff, K,
 def pack_forest_linear(trees, max_depth):
     """Flatten a forest of (possibly) linear-leaf trees for `_predict_forest_linear`.
 
-    A constant-leaf tree is just a linear tree with k=0 features (its coef block
-    is the leaf intercepts), so one packed layout + kernel serves both. Per tree:
-    `lin_k[t]` linear features at `lin_feat_idx[featoff[t]:featoff[t+1]]`, and a
-    leaf-major coef block at `coef[coefoff[t]:coefoff[t+1]]` of shape
-    (n_leaves, 1 + lin_k[t]) flattened (column 0 = intercept)."""
+    A constant-leaf tree is just a linear tree with k=0 features -- its coef
+    block is the leaf intercepts -- so one packed layout and one kernel serve
+    both. Per tree: `lin_k[t]` linear features at
+    `lin_feat_idx[featoff[t]:featoff[t+1]]`, and a leaf-major coef block at
+    `coef[coefoff[t]:coefoff[t+1]]` of shape (n_leaves, 1 + lin_k[t]) flattened,
+    column 0 being the intercept.
+    """
     n_trees = len(trees)
     feats = np.zeros((n_trees, max_depth), dtype=np.int64)
     thrs = np.zeros((n_trees, max_depth), dtype=np.int64)
@@ -1493,6 +1664,7 @@ def pack_forest_linear(trees, max_depth):
     coefoff = np.empty(n_trees + 1, dtype=np.int64)
     featoff[0] = 0
     coefoff[0] = 0
+
     for t, tree in enumerate(trees):
         d = tree.depth
         depths[t] = d
@@ -1503,8 +1675,10 @@ def pack_forest_linear(trees, max_depth):
         lin_k[t] = k
         featoff[t + 1] = featoff[t] + k
         coefoff[t + 1] = coefoff[t] + n_leaves * (1 + k)
+
     lin_feat_idx = np.empty(featoff[-1], dtype=np.int64)
     coef = np.empty(coefoff[-1], dtype=np.float64)
+
     for t, tree in enumerate(trees):
         if lin_k[t] > 0:
             lin_feat_idx[featoff[t]:featoff[t + 1]] = tree.lin_feats
@@ -1521,23 +1695,27 @@ def _predict_forest_linear(Xb, feats, thrs, depths, lin_k, featoff,
     parallel pass over samples -- the linear-leaf analogue of `_predict_forest`.
 
     Each leaf contributes intercept + sum_j slope_j * centers_std[feat_j, bin],
-    matching `_linear_predict`/`ObliviousTree.predict` so the fused path agrees
-    with the per-tree path bit-for-bit (same accumulation order)."""
+    matching `_linear_predict`/`ObliviousTree.predict`, so the fused path agrees
+    with the per-tree path bit for bit (same accumulation order).
+    """
     n = Xb.shape[1]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
+
     for i in prange(n):
         acc = init
         for t in range(n_trees):
             d = depths[t]
             if d == 0:
                 continue
+
             leaf = 0
             for dd in range(d):
                 if Xb[feats[t, dd], i] > thrs[t, dd]:
                     leaf = leaf * 2 + 1
                 else:
                     leaf = leaf * 2
+
             k = lin_k[t]
             row = coefoff[t] + leaf * (1 + k)
             val = coef[row]                      # intercept
@@ -1556,23 +1734,29 @@ def _predict_forest_linear(Xb, feats, thrs, depths, lin_k, featoff,
 def _predict_forest_linear_rm(Xb, feats, thrs, depths, lin_k, featoff,
                               lin_feat_idx, coefoff, coef, centers_std, init):
     """`_predict_forest_linear` for a row-major (n_samples, n_features) binned
-    matrix — see `_predict_forest_rm` for why. Bit-identical to the
-    feature-major kernel (same arithmetic, same accumulation order)."""
+    matrix — see `_predict_forest_rm` for why.
+
+    Bit-identical to the feature-major kernel: same arithmetic, same
+    accumulation order.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
+
     for i in prange(n):
         acc = init
         for t in range(n_trees):
             d = depths[t]
             if d == 0:
                 continue
+
             leaf = 0
             for dd in range(d):
                 if Xb[i, feats[t, dd]] > thrs[t, dd]:
                     leaf = leaf * 2 + 1
                 else:
                     leaf = leaf * 2
+
             k = lin_k[t]
             row = coefoff[t] + leaf * (1 + k)
             val = coef[row]                      # intercept
@@ -1592,22 +1776,26 @@ def _predict_forest_linear_rm_serial(Xb, feats, thrs, depths, lin_k, featoff,
                                      lin_feat_idx, coefoff, coef, centers_std,
                                      init):
     """Serial twin of `_predict_forest_linear_rm` for tiny batches — see
-    `_predict_forest_rm_serial`."""
+    `_predict_forest_rm_serial`.
+    """
     n = Xb.shape[0]
     n_trees = feats.shape[0]
     out = np.empty(n, dtype=np.float64)
+
     for i in range(n):
         acc = init
         for t in range(n_trees):
             d = depths[t]
             if d == 0:
                 continue
+
             leaf = 0
             for dd in range(d):
                 if Xb[i, feats[t, dd]] > thrs[t, dd]:
                     leaf = leaf * 2 + 1
                 else:
                     leaf = leaf * 2
+
             k = lin_k[t]
             row = coefoff[t] + leaf * (1 + k)
             val = coef[row]                      # intercept
@@ -1629,38 +1817,44 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
     """Exact interventional TreeSHAP for a forest of oblivious (linear-leaf or
     constant, k=0) trees, returned in the user's ORIGINAL feature space.
 
-    For each instance x (column of Xb) and background reference r (column of Rb)
-    the per-tree Shapley values are computed by exact enumeration over subsets of
-    the distinct ORIGINAL features the tree uses. This is tractable precisely
+    For each instance x (a column of Xb) and background reference r (a column of
+    Rb), the per-tree Shapley values come from exact enumeration over subsets of
+    the distinct ORIGINAL features the tree uses. That is tractable precisely
     because the trees are oblivious: a depth-D tree touches at most D distinct
     features, so the coalition game has at most D players (<=2**D subsets), not
-    one per input column. A feature in coalition S takes its value from x, the
-    rest from r; the leaf -- and any linear-leaf slope term -- is evaluated under
-    that mix, so the linear leaves are explained faithfully rather than ignored.
+    one per input column. A feature in coalition S takes its value from x and the
+    rest from r; the leaf -- and any linear-leaf slope -- is evaluated under that
+    mix, so linear leaves are explained faithfully rather than ignored.
 
     Contributions are averaged over the background and summed over trees, giving
-    for every instance the Shapley-efficiency identity (to float tolerance)
+    every instance the Shapley-efficiency identity (to float tolerance)
+
         sum_orig phi[i, orig] == predict_trees(x_i) - mean_r predict_trees(r).
-    Two internal columns mapping to the same original feature (categorical combos
-    / multi-target encodings) are treated as ONE player, so the attribution lands
-    directly in input-feature space. `fact[s]` is s! (precomputed up to depth).
-    Parallelized over instances; each thread owns a disjoint row of `phi`."""
+
+    Two internal columns mapping to the same original feature (categorical
+    combos, multi-target encodings) count as ONE player, so the attribution lands
+    directly in input-feature space. `fact[s]` is s!, precomputed up to depth.
+    Parallel over instances; each thread owns a disjoint row of `phi`.
+    """
     n = Xb.shape[1]
     nbg = Rb.shape[1]
     n_trees = feats.shape[0]
     phi = np.zeros((n, n_orig))
     inv_nbg = 1.0 / nbg
+
     for i in prange(n):
         for t in range(n_trees):
             d = depths[t]
             if d == 0:
                 continue
+
             k = lin_k[t]
             fb = featoff[t]
             cb = coefoff[t]
-            # Distinct original features used by this tree = coalition players U;
-            # level_u[dd] is the U-slot of level dd's feature (features reused
-            # across levels share a slot, so they move together in a coalition).
+
+            # The distinct original features this tree uses are the coalition
+            # players U. level_u[dd] is the U-slot of level dd's feature, so a
+            # feature reused across levels moves as one player.
             U = np.empty(d, dtype=np.int64)
             level_u = np.empty(d, dtype=np.int64)
             u = 0
@@ -1676,6 +1870,7 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
                     idx = u
                     u += 1
                 level_u[dd] = idx
+
             lin_u = np.empty(k, dtype=np.int64)
             for j in range(k):
                 o = feat_orig[lin_feat_idx[fb + j]]
@@ -1683,19 +1878,25 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
                     if U[q] == o:
                         lin_u[j] = q
                         break
+
             nsub = 1 << u
-            # x-side: level bits and standardized linear values (ref-independent).
+
+            # x-side level bits and standardized linear values; both are
+            # independent of the reference, so they are computed once.
             xbit = np.empty(d, dtype=np.int64)
             for dd in range(d):
                 xbit[dd] = 1 if Xb[feats[t, dd], i] > thrs[t, dd] else 0
+
             xval = np.empty(k)
             for j in range(k):
                 f = lin_feat_idx[fb + j]
                 v = centers_std[f, Xb[f, i]]
                 xval[j] = v if np.isfinite(v) else 0.0
+
             fval = np.empty(nsub)
             rbit = np.empty(d, dtype=np.int64)
             rval = np.empty(k)
+
             for b in range(nbg):
                 for dd in range(d):
                     rbit[dd] = 1 if Rb[feats[t, dd], b] > thrs[t, dd] else 0
@@ -1703,8 +1904,9 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
                     f = lin_feat_idx[fb + j]
                     vv = centers_std[f, Rb[f, b]]
                     rval[j] = vv if np.isfinite(vv) else 0.0
-                # Output of every coalition: bits/linear-values follow x inside S,
-                # r outside it.
+
+                # Output of every coalition: bits and linear values follow x
+                # inside S, r outside it.
                 for mask in range(nsub):
                     leaf = 0
                     for dd in range(d):
@@ -1719,8 +1921,9 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
                         vv = xval[j] if (mask >> lin_u[j]) & 1 else rval[j]
                         val += coef[row + 1 + j] * vv
                     fval[mask] = val
-                # Shapley value of each player: weighted marginal over every
-                # coalition that excludes it.
+
+                # Shapley value of each player: the weighted marginal over
+                # every coalition that excludes it.
                 for ui in range(u):
                     bit_ui = 1 << ui
                     contrib = 0.0
@@ -1734,15 +1937,18 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
                             mm >>= 1
                         w = fact[s] * fact[u - s - 1] / fact[u]
                         contrib += w * (fval[mask | bit_ui] - fval[mask])
+
                     phi[i, U[ui]] += contrib * inv_nbg
+
     return phi
 
 
 class ObliviousTree:
     """A single symmetric tree. Stores its splits and leaf values.
 
-    Its `apply`/`predict` take a feature-major binned matrix (n_features,
-    n_samples) -- the same layout the builder consumes."""
+    `apply` and `predict` take a feature-major binned matrix
+    (n_features, n_samples) -- the same layout the builder consumes.
+    """
 
     __slots__ = ("splits_feat", "splits_thr", "values", "gains", "depth",
                  "lin_feats", "lin_coef", "centers_std")
@@ -1754,6 +1960,7 @@ class ObliviousTree:
         self.values = values
         self.gains = gains if gains is not None else np.zeros(len(splits_feat))
         self.depth = len(splits_feat)
+
         # Optional linear-leaf models (None => plain constant leaves).
         self.lin_feats = lin_feats
         self.lin_coef = lin_coef
@@ -1763,6 +1970,7 @@ class ObliviousTree:
         """Return the leaf index of each sample."""
         if self.depth == 0:
             return np.zeros(Xb.shape[1], dtype=np.int64)
+
         n = Xb.shape[1]
         if n > _ASSIGN_PAR_N:
             # Level-by-level parallel descend; each Xb[f] is a contiguous
@@ -1772,17 +1980,21 @@ class ObliviousTree:
                 _descend_leaves(leaf, Xb[self.splits_feat[d]],
                                 self.splits_thr[d])
             return leaf
+
         return _assign_leaves(Xb, self.splits_feat, self.splits_thr)
 
     def predict(self, Xb):
         if self.depth == 0:
             return np.zeros(Xb.shape[1], dtype=np.float64)
+
         if self.lin_coef is not None:
             leaf = self.apply(Xb)
             return _linear_predict(leaf, self.lin_feats, self.lin_coef,
                                    self.centers_std, Xb)
+
         if Xb.shape[1] > _ASSIGN_PAR_N:
             return self.values[self.apply(Xb)]
+
         return _predict_tree(Xb, self.splits_feat, self.splits_thr, self.values)
 
 
@@ -1791,34 +2003,37 @@ def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
     """Refit one tree's LEAF VALUES on new data, reusing ``donor``'s splits.
 
     The split search is what makes growing expensive -- a histogram pass over
-    every feature at every level. Given a structure that is already known to be
-    good, the leaf values follow from a single leaf assignment plus a scatter-add
-    of the gradients, which is O(n * depth) instead of O(n * features * depth).
+    every feature at every level. Given a structure already known to be good, the
+    leaf values follow from one leaf assignment plus a scatter-add of the
+    gradients: O(n * depth) instead of O(n * features * depth).
 
-    Used by the full-data refit (``refit_full="replay"``): the early-stopping
-    winner's structures are replayed round by round against gradients computed
-    on ALL rows, so the held-out validation rows reach the leaf estimates
-    without re-paying for the split search. Returns ``(tree, leaf)``, matching
+    Used by the full-data refit (``refit_full="replay"``). The early-stopping
+    winner's structures are replayed round by round against gradients computed on
+    ALL rows, so the held-out validation rows reach the leaf estimates without
+    re-paying for the split search. Returns ``(tree, leaf)``, matching
     ``build_oblivious_tree``.
 
-    ``Xb`` must be binned by the DONOR's binner -- ``splits_thr`` are bin
-    indices, so a re-fitted binner would silently move every threshold.
+    ``Xb`` must be binned by the DONOR's binner: ``splits_thr`` are bin indices,
+    so a re-fitted binner would silently move every threshold.
     """
     sf, st = donor.splits_feat, donor.splits_thr
     if len(sf) == 0:                       # degenerate donor; caller stops
         return (ObliviousTree(sf, st, np.zeros(1), np.zeros(0)),
                 np.zeros(Xb.shape[1], dtype=np.int64))
+
     leaf = _assign_leaves(Xb, sf, st)
     n_leaves = 1 << len(sf)
     values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
-    lin_feats = lin_coef = None
-    # Linear leaves are refit too -- same features the donor split on, new
+
+    # Linear leaves are refit too: same features the donor split on, new
     # coefficients from the full-data gradients.
+    lin_feats = lin_coef = None
     if (linear_leaves and centers_std is not None
             and donor.lin_feats is not None):
         lin_feats = donor.lin_feats
         lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
                                     centers_std, Xb, l2, linear_lambda, lr)
+
     # Carry the donor's split gains: the structure IS the donor's, so its gains
     # are the honest attribution for it. Zeroing them would leave
     # ``feature_importances_`` summing only the trailing grown trees.
@@ -1843,13 +2058,13 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
         sum_k [Gl_k²/(Hl+l2) + Gr_k²/(Hr+l2) - Gt_k²/(Ht+l2)]
           = ‖Gl‖²/(Hl+l2) + ‖Gr‖²/(Hr+l2) - ‖Gt‖²/(Ht+l2)
 
-    which is basis-free -- the identity that makes the default path's single
+    which is basis-free. That identity is what makes the default path's single
     projection an honest rank-1 truncation of this quantity rather than a
-    different algorithm. Costs K histogram channels per feature instead of
+    different algorithm. It costs K histogram channels per feature instead of
     one, which is exactly why it is the reference arm and not the default.
 
-    Simplified relative to the scalar kernel: no occupancy list and no
-    small-n path (level d always scans leaves 0..n_active-1). Both are speed
+    Simplified relative to the scalar kernel: no occupancy list and no small-n
+    path (level d always scans leaves 0..n_active-1). Both are speed
     optimizations, and this kernel is not on the fast path.
     """
     n_features, n_samples = Xb.shape
@@ -1861,12 +2076,15 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
     for f in prange(n_features):
         if feat_mask[f] == 0:
             continue
+
+        # Zero this feature's leaf rows, then scatter the samples in.
         nb = n_bins_per_feature[f]
         for l in range(n_active):
             for b in range(nb):
                 histw[f, l, b] = 0.0
                 for k in range(K):
                     hist[f, l, b, k] = 0.0
+
         Xf = Xb[f]
         for i in range(n_samples):
             l = leaf[i]
@@ -1875,10 +2093,12 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
             for k in range(K):
                 hist[f, l, b, k] += grad[i, k]
 
+        # Score every threshold on the summed-across-channel gain.
         gain = np.zeros(max_bins)
         legal = np.ones(max_bins, dtype=np.uint8)
         gt = np.empty(K)
         gl = np.empty(K)
+
         for l in range(n_active):
             ht = 0.0
             for k in range(K):
@@ -1887,15 +2107,19 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
                 ht += histw[f, l, b]
                 for k in range(K):
                     gt[k] += hist[f, l, b, k]
+
             if ht <= 0.0:
                 continue
+
             sq = 0.0
             for k in range(K):
                 sq += gt[k] * gt[k]
             par = sq / (ht + l2)
+
             hl = 0.0
             for k in range(K):
                 gl[k] = 0.0
+
             for t in range(nb - 1):
                 hl += histw[f, l, t]
                 for k in range(K):
@@ -1919,9 +2143,11 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
             if legal[t] and gain[t] > best_g:
                 best_g = gain[t]
                 best_t = t
+
         feat_gain[f] = best_g
         feat_thr[f] = best_t
 
+    # Best feature overall, then descend one level if the split is usable.
     best_f = 0
     best_gain = -np.inf
     for f in range(n_features):
@@ -1934,16 +2160,18 @@ def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
         Xf = Xb[best_f]
         for i in prange(n_samples):
             leaf[i] = (leaf[i] << 1) + (1 if Xf[i] > best_t else 0)
+
     return best_f, best_t, best_gain
 
 
 def alloc_exact_hist(n_features, max_depth, n_bins_per_feature, K):
     """Buffers for `build_oblivious_tree_exact`, allocated once per fit.
 
-    Sized (n_features, 2**max_depth, max_bins, K) plus a shared weight
-    histogram. This is K times the default path's footprint -- at depth 6, 50
-    features, 128 bins and K=19 it is roughly 62 MB -- which is the honest
-    price of the exact gain and another reason it is not the default."""
+    Sized (n_features, 2**max_depth, max_bins, K) plus a shared weight histogram.
+    That is K times the default path's footprint -- at depth 6, 50 features, 128
+    bins and K=19 it is roughly 62 MB. The honest price of the exact gain, and
+    another reason it is not the default.
+    """
     max_bins = n_features and int(n_bins_per_feature.max())
     max_leaves = 1 << max_depth
     return (np.zeros((n_features, max_leaves, max_bins, K)),
@@ -1959,34 +2187,38 @@ def build_oblivious_tree_exact(Xb, grad, n_bins_per_feature, max_depth, l2,
     The reference arm for the multi-quantile head's split search (see
     `_build_split_descend_vec`). Returns ``(tree, train_leaf)`` like
     `build_oblivious_tree`, but leaf values are left as zeros: the quantile
-    booster overwrites them with the exact per-tau residual quantiles either
-    way, so computing a Newton step here would be wasted work.
+    booster overwrites them with the exact per-tau residual quantiles either way,
+    so computing a Newton step here would be wasted work.
 
-    ``row_weight`` is the per-row weight (sample weights times any MVS
-    importance weight); None means uniform. It plays the hessian's role, one
-    total shared by every channel.
+    ``row_weight`` is the per-row weight (sample weights times any MVS importance
+    weight); None means uniform. It plays the hessian's role, one total shared by
+    every channel.
     """
     n_features, n_samples = Xb.shape
     if feature_mask is None:
         feature_mask = np.ones(n_features, dtype=np.int64)
+
     K = grad.shape[1]
     if hist_buffers is None:
         hist, histw = alloc_exact_hist(n_features, max_depth,
                                        n_bins_per_feature, K)
     else:
         hist, histw = hist_buffers
+
     rw = np.ones(n_samples) if row_weight is None else row_weight
     splits_feat = []
     splits_thr = []
     splits_gain = []
     leaf = np.zeros(n_samples, dtype=np.int64)
     n_active = 1
+
     for d in range(max_depth):
         f, t, gain = _build_split_descend_vec(
             Xb, grad, rw, leaf, n_active, hist, histw, feature_mask,
             n_bins_per_feature, l2, min_child_weight, min_gain)
         if gain <= min_gain or t < 0:
             break
+
         splits_feat.append(f)
         splits_thr.append(t)
         splits_gain.append(gain)
@@ -2006,46 +2238,58 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          linear_leaves=False, centers_std=None, is_numeric=None,
                          linear_lambda=1.0, quantize=False, qbuf=None,
                          qseed=0):
-    """Grow one oblivious tree level by level. Returns (tree, train_leaf), where
-    train_leaf is the tree's leaf index for every training sample.
+    """Grow one oblivious tree level by level.
 
-    Xb: feature-major binned matrix (n_features, n_samples).
-    feature_mask: optional 0/1 array over features; 0 disables a feature for
-    this tree (column subsampling). None means all features are eligible.
-    min_child_weight: minimum hessian mass each side of a split must retain in
-    every non-empty leaf. Stops the tree growing once no legal split remains,
-    which prevents sparse-leaf overfitting at higher depth.
-    hist_buffers: optional buffer reused across trees to avoid per-level
-    allocation: interleaved (n_features, 2**max_depth, max_bins, 2) float64,
-    or with quantize=True int64 (n_features, 2**max_depth, max_bins). If
-    None, it is allocated here (for one-off calls and tests).
-    linear_leaves: when True, attach a per-leaf ridge linear model over the
-    tree's numeric split features (`centers_std`/`is_numeric` required;
-    `linear_lambda` is the slope penalty). Low-count leaves fall back to the
-    constant Newton value. The split search is unaffected.
-    quantize: run the SPLIT SEARCH on packed-int64 quantized grad/hess
-    (QUANT_PLAN.md) — one integer RMW per scatter write, half the histogram
-    footprint. Leaf values (and the linear-leaf ridge) still use the
-    original float64 grad/hess, so quantization noise touches only the
-    structure choice. `qbuf` is an optional reusable int64 (n_samples)
-    scratch for the packed values; `qseed` seeds the stochastic rounding
-    (pass a fresh draw per tree for decorrelated rounding noise).
+    Returns (tree, train_leaf), where train_leaf is the tree's leaf index for
+    every training sample.
+
+    Parameters
+    ----------
+    Xb : feature-major binned matrix (n_features, n_samples).
+
+    feature_mask : 0/1 array over features; 0 disables a feature for this tree
+        (column subsampling). None means every feature is eligible.
+
+    min_child_weight : minimum hessian mass each side of a split must retain in
+        every non-empty leaf. Growth stops once no legal split remains, which
+        prevents sparse-leaf overfitting at higher depth.
+
+    hist_buffers : buffer reused across trees to avoid per-level allocation.
+        Interleaved (n_features, 2**max_depth, max_bins, 2) float64, or with
+        quantize=True int64 (n_features, 2**max_depth, max_bins). If None it is
+        allocated here, for one-off calls and tests.
+
+    linear_leaves : when True, attach a per-leaf ridge linear model over the
+        tree's numeric split features. Requires `centers_std` and `is_numeric`;
+        `linear_lambda` is the slope penalty. Low-count leaves fall back to the
+        constant Newton value. The split search is unaffected.
+
+    quantize : run the SPLIT SEARCH on packed-int64 quantized grad/hess
+        (QUANT_PLAN.md) — one integer read-modify-write per scatter, half the
+        histogram footprint. Leaf values and the linear-leaf ridge still use the
+        original float64 grad/hess, so quantization noise touches only the
+        structure choice. `qbuf` is an optional reusable int64 (n_samples)
+        scratch for the packed values. `qseed` seeds the stochastic rounding;
+        pass a fresh draw per tree for decorrelated rounding noise.
     """
     n_features, n_samples = Xb.shape
     max_bins = n_features and int(n_bins_per_feature.max())
     if feature_mask is None:
         feature_mask = np.ones(n_features, dtype=np.int64)
+
     if hist_buffers is None:
         hist = (np.zeros((n_features, 1 << max_depth, max_bins),
                          dtype=np.int64) if quantize
                 else np.zeros((n_features, 1 << max_depth, max_bins, 2)))
     else:
         hist = hist_buffers
+
     if quantize:
-        # qmax keeps every packed cell/prefix sum overflow-safe (see _QMAX_CAP
-        # comment); scales map the observed grad/hess range onto [-qmax, qmax]
-        # and [0, qmax]. All-zero grad or hess degenerates to qg/qh = 0, which
-        # yields zero gains — the same no-split outcome as the float kernel.
+        # qmax keeps every packed cell and prefix sum overflow-safe (see the
+        # _QMAX_CAP comment); the scales map the observed grad/hess range onto
+        # [-qmax, qmax] and [0, qmax]. All-zero grad or hess degenerates to
+        # qg/qh = 0, which yields zero gains — the same no-split outcome as the
+        # float kernel.
         qmax = min(_QMAX_CAP, (2 ** 31 - 1) // max(n_samples, 1))
         gmax, hmax = _gh_absmax(grad, hess)
         inv_dg = qmax / gmax if gmax > 0.0 else 0.0
@@ -2054,24 +2298,27 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
         dh = hmax / qmax if hmax > 0.0 else 0.0
         if qbuf is None:
             qbuf = np.empty(n_samples, dtype=np.int64)
+
         _quantize_pack(grad, hess, inv_dg, inv_dh, np.int64(qmax),
                        np.uint64(qseed), qbuf)
+
     splits_feat = []
     splits_thr = []
     splits_gain = []
     leaf = np.zeros(n_samples, dtype=np.int64)
 
+    # One fused launch per level: split search, descend, and at small n the next
+    # level's occupied-leaf list, which lets the kernel skip zeroing and scanning
+    # empty leaf rows. Any superset of the occupied rows is exact (empty rows are
+    # all-zero once zeroed), so at large n we pass all rows — there the scatter
+    # dominates and the trim is noise. The two occupancy buffers ping-pong so the
+    # kernel never writes the buffer `active` currently views.
     small = n_samples < _SMALL_N
-    # One fused launch per level: split search + descend + (small n) the next
-    # level's occupied-leaf list, which lets the kernel skip zeroing/scanning
-    # empty leaf rows. Any superset is exact (empty rows are all-zero once
-    # zeroed), so at large n we pass all rows — there the scatter dominates
-    # and the trim is noise. Occupancy buffers ping-pong so the kernel never
-    # writes the buffer `active` currently views.
     act_w = np.empty(1 << max_depth, dtype=np.int64) if small else _EMPTY_I64
     act_r = np.empty(1 << max_depth, dtype=np.int64) if small else _EMPTY_I64
     active = np.arange(1, dtype=np.int64)            # level 0: the root
     n_leaves_next = 2
+
     for d in range(max_depth):
         if quantize:
             f, t, gain, n_next = _build_split_descend_q(
@@ -2085,9 +2332,11 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                 n_leaves_next, act_w)
         if gain <= min_gain or t < 0:
             break
+
         splits_feat.append(f)
         splits_thr.append(t)
         splits_gain.append(gain)
+
         if small:
             active = act_w[:n_next]
             act_w, act_r = act_r, act_w
@@ -2099,6 +2348,7 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
     st = np.array(splits_thr, dtype=np.int64)
     n_leaves = 1 << len(splits_feat)
     values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
+
     lin_feats = lin_coef = None
     if linear_leaves and len(splits_feat) > 0 and centers_std is not None:
         # Linear term uses the NUMERIC features the tree actually split on.
@@ -2106,13 +2356,16 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
         for f in splits_feat:
             if is_numeric[f] and f not in seen:
                 seen.append(f)
+
         if seen:
             lin_feats = np.array(seen, dtype=np.int64)
             lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
                                         centers_std, Xb, l2, linear_lambda, lr)
+
     tree = ObliviousTree(sf, st, values, np.array(splits_gain, dtype=np.float64),
                          lin_feats=lin_feats, lin_coef=lin_coef,
                          centers_std=centers_std if lin_coef is not None else None)
+
     # `leaf` is the training-set assignment, returned so callers (LOO update,
     # leaf correction) reuse it instead of recomputing tree.apply(Xb).
     return tree, leaf
