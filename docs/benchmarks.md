@@ -29,22 +29,29 @@ Datasets are picked on data properties alone: row counts, cardinality, missingne
 type. No benchmark result is allowed to influence which datasets are in a suite, or it
 would be cherry-picked from birth.
 
-## Running these yourself
+## Running them yourself
+
+Run either one, then open an issue or PR with the JSON.
 
 ```
 pip install -e ".[bench,competitors]"
-python benchmarks/run_benchmarks.py --public --seeds 3 --save --models ChimeraBoost ChimeraBoostEns5 CatBoost LightGBM
-python benchmarks/make_public_pareto.py benchmarks/results/<stamp>.json
+
+python benchmarks/run_benchmarks.py --synth --seeds 3 --save     # quick, synthetic
+python benchmarks/run_benchmarks.py --decide --seeds 3 --save    # slower, 103 real datasets
 ```
 
-The library has to be installed, not just checked out. The first run downloads
-several gigabytes into `benchmarks/data_cache/`; set `BENCH_DATA_HOME` to put
-that somewhere else.
+Each writes `benchmarks/results/<timestamp>.json`:
 
-If you want to benchmark a *change* rather than reproduce the chart, the full
-protocol — which suite decides, why the sign test is run per stratum and never
-pooled, and what a submission needs to contain — is in
-[benchmarks/CONTRIBUTING_BENCHMARKS.md](https://github.com/bbstats/chimeraboost/blob/main/benchmarks/CONTRIBUTING_BENCHMARKS.md).
-It is the same protocol we hold ourselves to.
+```json
+{
+  "provenance": {"chimeraboost": "0.30.0", "platform": "Linux-6.1", "cpu_count": 12,
+                 "libraries": {"catboost": "1.2.10", "lightgbm": "4.6.0"}},
+  "records": [
+    {"dataset": "diabetes", "model": "ChimeraBoost", "seed": 0,
+     "metrics": {"primary": -59.82, "rmse": 59.82}, "fit_time": 0.23}
+  ]
+}
+```
 
-`benchmarks/PUBLIC_PLAN.md` records every dataset and why it is in the suite.
+That file is all we need. The first run downloads a few gigabytes into
+`benchmarks/data_cache/`; set `BENCH_DATA_HOME` to put it elsewhere.
