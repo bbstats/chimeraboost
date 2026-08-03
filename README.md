@@ -21,13 +21,12 @@ pip install chimeraboost
 ```python
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
-# classification. quality picks the speed/accuracy trade-off: 1 fastest .. 5 strongest,
+# quality picks the speed/accuracy trade-off: 1 is fastest - 5 is strongest,
 # default is 3.
 clf = ChimeraBoostClassifier(quality=4)
 clf.fit(X, y, cat_features=[0, 1], sample_weight=w)
 proba = clf.predict_proba(X_test)
 
-# regression (RMSE, MAE, Quantile, Huber, Poisson, Gamma, Tweedie, or your own)
 reg = ChimeraBoostRegressor()
 reg.fit(X, y)
 ```
