@@ -23,7 +23,7 @@ splits, which matters on clean, high-signal data. Raising `depth` and enabling
 
 Numeric features are bucketed into at most `max_bins` (default 128) bins once, up
 front. Splits are searched over bin edges rather than raw values, which is what makes
-the histogram pass fast — the approach LightGBM introduced. Missing values route to
+the histogram pass fast — the approach LightGBM is built around. Missing values route to
 their own bin, so NaNs are handled directly at fit and predict time, with no imputation.
 
 ## Categorical features

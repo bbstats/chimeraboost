@@ -67,10 +67,11 @@ listed next to them, not by us. **[Where the ideas come from](https://bbstats.gi
 maps this out feature by feature, including the short list of what actually originated
 here. If a credit is missing or wrong, please open an issue.
 
-* **Gradient boosting**, Friedman, *Annals of Statistics* 2001 (and *Stochastic Gradient Boosting*, 2002). The algorithm itself, shrinkage, and the terminal-node override used for MAE and quantile losses.
-* **CatBoost**, Prokhorenkova et al., *NeurIPS* 2018. Oblivious trees, ordered target statistics, feature combinations, ordered boosting, and the size-dependent automatic learning rate (`adaptive_learning_rate`).
-* **XGBoost**, Chen & Guestrin, *KDD* 2016. Regularized objective, second-order split gain, Newton leaf estimation, `min_child_weight`, column subsampling.
-* **LightGBM**, Ke et al., *NeurIPS* 2017. Histogram-based split finding.
+* **Gradient boosting**, Friedman, *Annals of Statistics* 2001, and *Stochastic Gradient Boosting*, *Computational Statistics & Data Analysis* 2002. The algorithm itself, shrinkage, row subsampling, and the terminal-node override used for MAE and quantile losses.
+* **CatBoost**, Prokhorenkova et al., *NeurIPS* 2018. Oblivious trees (the tree type itself from Kohavi & Li, *IJCAI* 1995), ordered target statistics, feature combinations, ordered boosting, and the size-dependent automatic learning rate (`adaptive_learning_rate`).
+* **XGBoost**, Chen & Guestrin, *KDD* 2016. Regularized objective, second-order split gain, Newton leaf estimation, `min_child_weight`.
+* **Column subsampling** (`colsample`), Breiman, *Random Forests*, 2001; random subspaces, Ho, *IEEE TPAMI* 1998. The XGBoost paper credits these rather than claiming it, and so do we.
+* **LightGBM**, Ke et al., *NeurIPS* 2017. Histogram-based split finding, which that paper itself treats as prior art (McRank, Li et al. 2007; pGBRT, Tyree et al. 2011).
 * **Minimum Variance Sampling**, Ibragimov & Gusev, *NeurIPS* 2019. Gradient-weighted row sampling (`subsample`).
 * **Quantized GBDT training**, Shi, Ke et al., *NeurIPS* 2022. Integer gradient histograms (`quantize_gradients`).
 * **SketchBoost**, Iosipoi & Vakhrushev, *NeurIPS* 2022, and **GBDT-MO**, Zhang & Jung. Vector leaves and the projected gradient used for multiclass and multi-quantile splits.
@@ -78,6 +79,8 @@ here. If a credit is missing or wrong, please open an issue.
 * **TreeSHAP**, Lundberg et al., *Nature Machine Intelligence* 2020 (orig. SHAP, *NeurIPS* 2017). Exact additive feature attributions (`shap_values`).
 * **OpenFE**, Zhang et al., *ICML* 2023 (arXiv:2211.12507). Automated pairwise feature generation (`cross_features`).
 * **Pinball loss**, Koenker & Bassett, *Econometrica* 1978, and **monotone rearrangement**, Chernozhukov, Fernández-Val & Galichon, *Econometrica* 2010. Quantile regression and its non-crossing guarantee.
+* **Quantile regression forests**, Meinshausen, *JMLR* 2006, and **generalized random forests**, Athey, Tibshirani & Wager, *Annals of Statistics* 2019. One fitted model serving every quantile level, and labelling each row by the grid bucket it falls in.
+* **L-moments**, Hosking, *JRSS-B* 1990, and **gamboostLSS**, Mayr et al., *JRSS-C* 2012. The shifted-Legendre location/spread/skew contrasts the quantile split search projects on, and cycling updates through them.
 * **Conformal prediction**, Papadopoulos et al. 2002 and Vovk et al. 2005; **conformalized quantile regression**, Romano, Patterson & Candès, *NeurIPS* 2019. Distribution-free interval calibration (`conformalize`).
 * **Temperature scaling**, Guo et al., *ICML* 2017 (Platt 1999 lineage). Probability calibration.
 * **Bagging and out-of-bag estimation**, Breiman 1996; **subagging**, Bühlmann & Yu, *Annals of Statistics* 2002. The `n_ensembles` path.
