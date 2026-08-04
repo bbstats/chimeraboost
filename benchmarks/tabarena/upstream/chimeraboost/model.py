@@ -14,20 +14,6 @@ from typing import TYPE_CHECKING
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 
-# Import at module top: this runs before the benchmark's fit timer starts, so a
-# lazy import inside _fit would charge ~1s of import cost to every job's train time.
-import chimeraboost
-from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
-
-# Pre-compile the numba kernels at import time for the same reason. Each fresh
-# worker process otherwise pays the JIT inside the timed sections: ~5-15s in its
-# first fit and ~0.2-2s in its first predict — on TabArena's small median task
-# that dwarfs the actual model work (measured 9.3s -> 0.10s timed fit and
-# 1.8 -> 0.001 s/1K timed predict on a 2K-row task with a cold kernel cache).
-# One-time environment setup, equivalent to the C++ boosters' ahead-of-time
-# compilation at package build. Requires chimeraboost >= 0.14.1.
-chimeraboost.warmup()
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -66,8 +52,12 @@ class ChimeraBoostModel(AbstractModel):
     ):
         start_time = time.time()
         if self.problem_type in ["regression"]:
+            from chimeraboost import ChimeraBoostRegressor
+
             model_cls = ChimeraBoostRegressor
         else:  # 'binary' and 'multiclass'
+            from chimeraboost import ChimeraBoostClassifier
+
             model_cls = ChimeraBoostClassifier
 
         X = self.preprocess(X, is_train=True)
@@ -120,6 +110,13 @@ class ChimeraBoostModel(AbstractModel):
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
+
+    @classmethod
+    def warmup(cls, **kwargs) -> None:
+        """Pre-compile the numba kernels (~10s cold start, then disk-cached per environment)."""
+        import chimeraboost
+
+        chimeraboost.warmup()  # requires chimeraboost>=0.14.1 (the pinned extra)
 
     def _get_default_resources(self) -> tuple[int, int]:
         # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.

@@ -1,14 +1,20 @@
-# TabArena-Lite integration
+# TabArena integration
 
-Scripts to run ChimeraBoost on [TabArena](https://tabarena.ai) (Lite protocol)
-and produce an Elo leaderboard entry. **TabArena is a sealed holdout: results
-are report-only and must never feed back into source or default choices.**
+Scripts to run ChimeraBoost on [TabArena](https://tabarena.ai) locally and
+produce an Elo leaderboard entry. **TabArena is a sealed holdout: results are
+report-only and must never feed back into source or default choices.**
+
+The published leaderboard rows are not produced here — ChimeraBoost is a model
+in upstream TabArena and the maintainers run it. See [`UPSTREAM.md`](UPSTREAM.md)
+for that status and for the checks to run before asking for a rerun.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `chimeraboost_tabarena_model.py` | AutoGluon `AbstractModel` wrapper (native `cat_features` passed through) + config generators. Must stay a separate file — TabArena pickles the class. |
+| `UPSTREAM.md` | Upstream status: the merged model package, the warm-up rerun, and the pre-rerun compatibility checklist. |
+| `upstream/chimeraboost/` | Verbatim mirror of the upstream model package, for diffing after a release. Never edited locally. |
+| `chimeraboost_tabarena_model.py` | AutoGluon `AbstractModel` wrapper (native `cat_features` passed through) + config generators, for our local runs. Must stay a separate file — TabArena pickles the class. |
 | `run_chimera_lite.py` / `run_chimera_eval.py` | Default-config entry (1 config, 51 tasks) + Elo eval. |
 | `run_chimera_e10.py` / `run_chimera_e10_eval.py` | `n_ensembles=10` variant as a separate entry. |
 | `run_chimera_tuned_lite.py` / `run_chimera_tuned_lite_eval.py` | Tuned entry: default + 200 random configs (TabArena convention). Search space = core capacity/regularization knobs + surviving categorical/leaf knobs (`cat_smoothing`, `cat_n_permutations`, `linear_leaves`/`linear_lambda`, `ordered_boosting`). The 8 default-off research flags were removed from the model in the June de-slop pass, so they are no longer searchable. |

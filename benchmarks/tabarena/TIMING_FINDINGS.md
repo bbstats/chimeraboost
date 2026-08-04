@@ -1,8 +1,10 @@
 # Why the leaderboard shows ChimeraBoost as slow — and the fix
 
-*Diagnosed 2026-07-07. Upstream engagement deferred; this file is the draft
-material for a PR #358 follow-up comment / tabarena PR whenever we choose to
-send it.*
+*Diagnosed 2026-07-07. **Resolved upstream 2026-07-13**: the maintainers
+accepted the finding, built a general warm-up API into TabArena rather than
+taking our wrapper-level PR (#436), and reran ChimeraBoost with it (#442) — the
+first model on the board to use one. This file is kept as the diagnosis; see
+[`UPSTREAM.md`](UPSTREAM.md) for the resulting state.*
 
 ## The discrepancy
 
@@ -61,15 +63,17 @@ site-packages is read-only (`UserWideCacheLocator`), so no cache-dir
 workaround is needed in the library; ephemeral workers simply never share a
 cache, which warmup sidesteps entirely.
 
-## Relation to the 2026-07-06 draft PR (import hoist + 0.13.1 pin)
+## How it landed upstream
 
-`upstream_pr/PR_DESCRIPTION_0.13.1.md` (+ the .patch and verification notes
-alongside it) drafted the first half of this fix: hoisting the import out of
-the fit timer and pinning 0.13.1's LAPACK-free solver (~25% off cold-start
-JIT). Today's measurements show the remaining in-timer JIT is the dominant
-term, so any upstream PR should combine that draft with the `warmup()` call
-and a `chimeraboost>=0.14.1` pin — treat the draft as superseded input, not
-a separate PR.
+An earlier draft (2026-07-06) proposed only the first half of the fix: hoisting
+the import out of the fit timer and pinning 0.13.1's LAPACK-free solver, worth
+about 25% of the cold-start JIT. The measurements above showed the remaining
+in-timer JIT was the dominant term, so the PR we opened (#436) combined the
+hoist with a `warmup()` call and a `chimeraboost>=0.14.1` pin. The maintainers
+closed it and generalised it instead: TabArena now has a warm-up API that any
+model can implement, ChimeraBoost implements it as a `warmup()` classmethod,
+and they reran the model with it in #442. The draft's own files have been
+deleted; this section is what they said.
 
 ## Repro scripts
 
