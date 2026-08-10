@@ -89,7 +89,7 @@ rather than a clear one. Rules:
 - `docs/` user docs — keep terse, no slop, no tuning-priority claims (defaults are Grinsztajn-tuned)
 
 ## Skills
-`/bench` progress+table · `/experiment` A/B gate protocol · `/pareto` refresh headline chart · `/tabarena` holdout run recipe · `/release` cut a release
+`/bench` progress+table · `/experiment` A/B gate protocol · `/pareto` refresh headline chart · `/tabarena` holdout run recipe · `/release` cut a release · `/handoff` write the next-session context message
 
 ## Output language (final step, non-negotiable)
 You may think, draft, or reason internally in whatever form is most efficient for you — including shorthand, symbols, or non-English fragments. That is fine and expected.
