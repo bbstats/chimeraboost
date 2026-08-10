@@ -652,6 +652,47 @@ step 1 measures the headroom itself before anything is built to chase it.
 3. Tier-2 `--decide --seeds 3 --save` per stratum, plus a within-run ladder
    field (rung-1X, OneLin, NoRefit, default, LightGBM) for the bars.
 
+### Step 1 result (2026-08-10): PASS on the pre-authorized narrow retry
+
+`probe_cross_pairs.py`, 12 sets x 3 seeds = 36 fits, resumable JSONLs in
+`results/probe-cross-pairs-e2*.jsonl` (git-ignored). At the production block
+width (`CROSS_TOP_M=6`): headroom PASS (oracle median +2.200%), fidelity PASS
+(paired probe-minus-oracle median +0.000%), **cost FAIL** (median aug/plain
+ratio 1.74 vs the 1.5 bar). The registered retry — the forced block narrowed
+to the top-4 numerics, no new mechanism — re-run on the same panel:
+
+| bar | statistic | m=6 | m=4 | verdict at m=4 |
+|---|---|--:|--:|---|
+| 1 headroom | oracle median over plain, 36 fits | +2.200% | +2.577% | PASS (bar +0.3%) |
+| 2 fidelity | paired probe-minus-oracle median | +0.000% | +0.000% | PASS |
+| 3 cost | median aug/plain fit ratio, probe incl. | 1.74 | **1.39** | PASS (bar 1.5) |
+
+- Narrowing the block six-to-four **cost nothing on strength** — the oracle
+  median went up, because the dropped columns were mostly noise the split
+  search paid to ignore. The forced mode therefore ships with its own
+  narrower numeric block (top-4); the racing default keeps `CROSS_TOP_M=6`
+  untouched.
+- The 25-round probe's share of arm time is 2-17% (median ~5%) — B12 priced.
+- **Fidelity caveat, recorded**: where the probe's pair set diverges from the
+  oracle's (Jaccard <= 0.35, concentrated on `gr:reg_cat` sets with many
+  gdiff candidates), the probe arm gives back 2-3 points of the oracle's
+  gain (`reg_cat/nyc`: +1.69% vs +4.12%). Not a bar fail — the paired median
+  is exactly zero — but the gdiff ranking is the weak joint if tier 2 reads
+  soft on reg_cat.
+- **The dodged-losses worry is live**: `analcatdata_supreme` s0 reads −9.4%
+  forced (the race would have refereed it away), `cpu_act` s2 −11.8%. Single
+  seeds on a dev panel; the per-fit variance is wild (`cpu_act` spans −11.8%
+  to +24.2% across seeds). The decide tier's sign tests own this.
+- Mean cost (1.92) sits far from the median (1.39): three seeds where cross
+  keeps improving so ES runs long (Brazilian s2 10.5x, sulfur s2 7.8x) — the
+  same fits with the biggest strength gains (+17.9%, +20.9%). Per
+  GATE_ROBUSTNESS #3 the registered median carries the bar; the tail is
+  real wall-clock and the within-run A' bar will price it honestly.
+
+**Consequence: E2 proceeds to step 2** — implement `cross_features="always"`
+(regressor; forced block top-4, probe 25 rounds, all applicability gates
+kept), tier-1 synth screen with `--expect-inert`.
+
 ### Bars
 
 - **A'** (cost): rung-1X mean fit-time multiple <=3.0x within-run AND <=0.65x
@@ -724,3 +765,12 @@ the same change.
   run. Forecast registered on both axes. Nothing has run; step 1 is a
   zero-library-change dev-panel probe with three kill bars (headroom first —
   the E1 magnitude lesson applied prospectively).
+- 2026-08-10 (E2, later): **step 1 PASS on the pre-authorized retry.**
+  Headroom is real and large (+2.6% median over plain rung 1 on a
+  stress-weighted panel), the 25-round probe picks near-oracle pairs at 2-17%
+  of arm time, and the cost bar passes only at the narrowed top-4 block
+  (1.39 vs 1.74 at top-6 — the narrowing was free on strength). New
+  instrument: `probe_cross_pairs.py` (`--top-m N` for the block width).
+  Recorded caveats: gdiff pair ranking is the fidelity weak joint on
+  `reg_cat`; forced mode eats occasional large per-seed losses the race used
+  to referee away. Next: step 2, the knob.
