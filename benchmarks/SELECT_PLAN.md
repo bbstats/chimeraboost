@@ -379,6 +379,146 @@ one `--models` flag.
   (`sklearn_api.py:1443`). A forced-on mode could give a stronger rung 1
   at the same one-fit cost. Untested.
 
+## E1 — pre-registered 2026-08-10: the rule, not the budget
+
+**Status: pre-registration only. Nothing has run at the decision tier, and the
+step below that must run first is an attribution run, not a decide run.**
+
+### Why this reopens a closed knob
+
+The "per-leg budget" recorded above as sel25's live sub-question is **empty**, and
+the argument is from source rather than from a run: the augmented candidate wins
+20 of 21 selections and `_stop_if_behind` lets a leading augmented fit run to its
+own early stop, so shortening the cross leg saves nothing on 20 of 21 datasets;
+and lengthening it past `k_ll` reintroduces the asymmetry the symmetric-budget
+rule exists to remove (`sklearn_api.py:2004-2011`). Full reasoning in
+`PARETO_PLAN.md`, "The dual re-read", D1.
+
+What is *not* empty is the decision rule. `benchmarks/probe_audition_rule.py`
+replays rules against the full validation curves in `results/pareto-step0.json`
+(zero benchmark cost; it reproduces the recorded 4/12 mispicks at k=100 exactly,
+which is its self-check). It finds a dead flat plateau from k=50 to k=200 under
+every rule shape tried, near-zero regret where mispicks happen — and one
+exception: at **k=25** the shipped best-so-far rule mispicks
+`gr:reg_cat/nyc-taxi-green-dec-2016` at 1.452% validation regret, while a
+**tail-mean** rule over the same budget reads 4/12 at 0.511%, matching the
+shipped rule's fidelity at k=100 for a quarter of the budget.
+
+That dataset is the one this file already names as sel25's cheapest repro. So the
+kill has a mechanism now: it was the rule that failed at k=25, not the budget.
+
+### The arm
+
+`selection_rounds=25` with the const-vs-linear decision taken on the **mean of
+the last 20 audition rounds** instead of the best value seen. Tie still goes to
+constant leaves. The cross race is untouched, and so is every non-regression path.
+
+### Forecast (both axes, recorded before the run)
+
+- **Cost**: −8 to −10% Grinsztajn fit time, i.e. sel25's measured 8.9%. High
+  confidence; this is arithmetic on the audition, not a new mechanism.
+- **Strength**: flat on Grinsztajn regression, ±0.15% median. This is the whole
+  bet, and the honest prior on it is weak — the evidence is one race flipping at
+  n=12.
+- **Where I expect to be wrong**: that the tail-mean advantage is one dataset's
+  noise and does not survive a wider curve corpus. That is what step 1 tests.
+
+### Steps, in order
+
+1. **Widen the curve corpus first — an attribution run, not a decide run.**
+   `profile_fit.py --attribution` over more regression datasets, then re-run
+   `probe_audition_rule.py`. n=12 races on 4 datasets is a pointer and cannot
+   gate anything (`GATE_ROBUSTNESS.md` #2). **Kill here** if tail-mean's edge at
+   k=25 does not survive: median regret at k=25 must be no worse than the shipped
+   rule at k=100, on at least 30 races. **DONE 2026-08-10 — PASS, see "Step 1
+   result" below.**
+2. Tier-1 synth screen. Note B1: below 1000/2000 rows no audition runs at all, so
+   the small-n slice is structurally inert and must read as exact ties — pass
+   `--expect-inert`, and treat engagement there as a bug report.
+3. Tier-2 `--decide --seeds 3 --save`, judged at `refit_full=True` (B2 — rung 2
+   would flatter it, as it flattered sel25).
+
+### Step 1 result (2026-08-10): 12 → 48 races — bar PASSES; the finding replicates
+
+New corpus: `results/audition-corpus-e1.json` (git-ignored, like step-0) — 12
+regression dataset-variants x 3 seeds not already in step-0, deliberately
+including the sel25 kill's worst losers (both `Brazilian_houses` variants, the
+numeric taxi variant), so the widening is stress-weighted *against* the rule.
+Command: `profile_fit.py --attribution --seeds 3 --uncapped-auditions
+--datasets ... --out audition-corpus-e1`; replay:
+`probe_audition_rule.py --k 25 50 100 200 --corpus
+results/audition-corpus-e1.json` (self-check 4/12 intact).
+
+Two instrument traps found and fixed on the way, worth knowing for any future
+corpus widening:
+
+- **A capped attribution run is circular for this probe.** Under today's
+  `selection_rounds=100` default the recorded curves *stop at the cap*, so the
+  replayed "full-curve truth" is the k=100 decision itself — the first attempt
+  read a trivially perfect 36/36 agreement at k≥100. `profile_fit.py
+  --attribution` now takes `--uncapped-auditions` (`selection_rounds=None`,
+  the conditions step-0 was recorded under); the probe's corpus must come from
+  such a run.
+- **The rung-3 replay refit clobbers audition labels.** It appends a fourth
+  booster-fit record that reuses the winner's label with an empty
+  `valid_history` (it has no validation loop); the probe's last-wins label
+  dict silently dropped 15 of 36 races. The loader now keeps the first fit
+  per label — step-0 output byte-identical before/after, self-check still
+  4/12.
+
+The registered bar — tail-mean@25 median regret no worse than shipped@100 on
+≥30 races — **passes on n=48** (0.000% vs 0.000%). Honest caveat: *every*
+rule/k median in the table is 0.000%, so the registered statistic turned out
+to be nearly vacuous. The sharper paired reading over the same 48 races:
+
+| candidate | mispicks | mean regret | total regret | worst regret |
+|---|--:|--:|--:|--:|
+| shipped@25 | 14/48 | 0.299% | 14.33% | 4.33% |
+| **tail@25** | **12/48** | **0.262%** | **12.58%** | 4.33% |
+| shipped@100 (today) | 12/48 | 0.194% | 9.31% | 3.09% |
+| tail@100 | 15/48 | 0.195% | 9.38% | 3.09% |
+
+- **The pointer survived widening.** tail@25 strictly dominates shipped@25:
+  it fixes both taxi mispicks (`gr:reg_cat` s2 at 1.452%, and a new one,
+  `gr:reg_num` s1 at 0.299%) and pays nothing extra on any other race. The
+  forecast's "where I expect to be wrong" (one dataset's noise) did not
+  materialize.
+- **tail@25 vs shipped@100 is a wash on mispicks** (12 = 12). The mean-regret
+  gap (0.262% vs 0.194%) is entirely ONE dataset — `analcatdata_supreme`
+  (3,039 train rows, the panel's smallest): its s1 race costs tail@25 4.331%
+  while its s0 race costs shipped@100 1.063%, opposite directions on
+  different seeds of the same data. Per GATE_ROBUSTNESS #3, a mean moved by
+  one dataset is not evidence either way.
+- **The tail rule is k=25-specific, not a general upgrade**: at k=100 it is
+  *worse* than the shipped rule (15 vs 12 mispicks). E1's arm stays exactly
+  as registered — k=25 + tail-mean — and no one should "improve" the k=100
+  default rule off this table.
+
+**Consequence: E1 proceeds to step 2.** The arm needs a library knob that does
+not exist yet (the const-vs-linear decision is hard-coded best-so-far in
+`sklearn_api.py`); implementing it is a source change owned by the /experiment
+protocol on its own branch, with the forecast above already registered.
+
+### Barriers this owes an argument about
+
+- **B1** (audition knobs inert on small data) — accepted, not contested; it is
+  why the small-n strata are a control here rather than evidence.
+- **B2** (the refit amplifies a bad audition) — this arm is *aimed* at that
+  finding: it cuts the budget only after making the decision more robust.
+- **B12** (price auditions against the short-fit case) — a 25-round audition is
+  cheap even against a ~100-round multiclass fit, so this one is cleared rather
+  than argued.
+- **B14** (no margin rule separates the race at k=100) — not contested. The probe
+  extends it: at k=100 *no* rule shape separates them. The claim here is only
+  about k=25, where the curves do still differ.
+
+### Kill clause
+
+Registered before the run: fails step 1's bar, or any decisive per-stratum sign
+test against it at tier 2, and `selection_rounds` stays 100 permanently — the
+budget axis is then closed from below as well as above, and B14 gets a line
+saying so.
+
 ## Log
 
 - 2026-07-25: pre-registered.
@@ -393,3 +533,24 @@ one `--models` flag.
   amplifies it**: the same knob reads 10W-16L-10T, p=0.327, mean +0.409% at
   rung 2, so the 07-25 parity finding was a valid rung-2 result invalidated
   by the default flip rather than a bad measurement.
+- 2026-08-10: dual re-read of this kill (`PARETO_PLAN.md`, D1). The per-leg
+  budget recorded above as the live sub-question is **empty** — argued from
+  source and the 20/21 cross flip rate, no run spent. The replacement,
+  **E1**, is pre-registered above: the decision RULE at k=25, not the
+  budget. New instrument: `benchmarks/probe_audition_rule.py`, which
+  reproduces the recorded 4/12 mispicks at k=100 and then explains this
+  kill — at k=25 the shipped rule mispicks `nyc-taxi-green-dec-2016`
+  (this file's own cheapest repro) at 1.452% validation regret, which the
+  rung-3 refit amplifies. Nothing has run at the decision tier.
+- 2026-08-10 (later): **E1 step 1 PASS** — corpus widened 12 → 48 races
+  (`audition-corpus-e1`, uncapped auditions), self-check intact at 4/12.
+  tail@25 replicates its edge (strictly dominates shipped@25, fixes both taxi
+  mispicks) and matches shipped@100 on mispicks 12 = 12; the residual
+  mean-regret gap is one dataset (`analcatdata_supreme`), swinging both ways
+  across seeds. Registered median bar passes but proved nearly vacuous (all
+  medians 0.000%) — recorded so the next pre-registration picks a sharper
+  statistic. Two instrument fixes: `--uncapped-auditions` on the attribution
+  runner (capped curves make the replay circular) and first-fit-per-label in
+  the probe loader (the rung-3 replay refit's empty record was clobbering
+  audition curves). Next: step 2 tier-1 synth, which first needs the arm
+  implemented behind a knob (/experiment territory, separate branch).

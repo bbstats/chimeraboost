@@ -270,3 +270,123 @@ sanity). CatBoost swept all 4 hc multiclass sets (Brier AND F1).
       path (`_build_split_descend`). Nothing is left on a side branch.
 - [x] Memory + CLAUDE.md updated with verdicts (wins AND kills) — ongoing per
       program close; algorithm-history memory current through M1
+
+---
+
+## The dual re-read (2026-08-10) — reopening Track 1
+
+**Why this section exists.** The north star is a frontier with two coordinates,
+but every kill in this project's ledger was recorded against one of them. A
+change that is flat on strength and cheaper pushes the frontier exactly as far as
+one that is cost-neutral and stronger, and we have never gone back to read the
+"flat" verdicts that way. This is a one-pass re-read of the recorded kills asking,
+for each, what it says on the axis it was **not** judged on. It cost no benchmark
+time. The rule it comes from is now in the `/experiment` skill: every verdict
+states both axes.
+
+Two of the kills turn out to have been read on both axes already and are properly
+closed — subsample (faster after the MVS numba work, but Brier 31W-55L median
+−0.730%, so the trade is measured and bad) and the grow kernels (bit-identical by
+construction, so strength cannot move; killed at their measured ceilings). The
+rest divide as follows.
+
+### D1 — The audition: per-leg budget is empty, the decision RULE is not
+
+Sel25 died on strength (gr regression 6W-20L-10T, p=0.009 at the rung-3 default)
+while measuring **8.9%** of total Grinsztajn fit on the cost axis, and its own
+record named a **per-leg** budget as the way back in — long `k` for the
+const-vs-linear race, short for the cross race. Two cheap checks, both costing no
+benchmark time, say that direction is empty and name a better one.
+
+**The per-leg budget is empty, from source plus the recorded flip rate.** The
+cross race is not symmetric with the const-vs-linear race. `_stop_if_behind` kills
+a *trailing* augmented fit at the budget but lets a *leading* one run to its own
+early stop — and the augmented candidate wins 20 of 21 selections (step-0
+pre-registration above). So on 20 of 21 datasets the augmented fit runs full
+whatever `k_cf` is, and shortening it saves almost nothing. Lengthening it is
+barred in the other direction: the cross comparison comes from
+`min(aug.valid_history_[:k]) < base_best`, where `base_best` is the *capped*
+audition's best, so raising `k_cf` above `k_ll` reintroduces exactly the bias the
+symmetric-budget rule was written to remove (`sklearn_api.py:2004-2011`). A
+per-leg budget can therefore only make the cheap leg cheaper, which it is not.
+
+**The rule shape is where the room is** — `benchmarks/probe_audition_rule.py`,
+which replays decision rules against the full validation curves recorded in
+`results/pareto-step0.json`. It reproduces the recorded 4/12 mispicks at k=100
+exactly, so the replay matches the estimator. Findings:
+
+| k | shipped rule | worst validation regret | dataset carrying it |
+|--:|---|--:|---|
+| 25 | 5/12 mispicks | **1.452%** | `gr:reg_cat/nyc-taxi-green-dec-2016` |
+| 50–200 | 4/12 | 0.511% | `gr:reg_num/cpu_act` |
+| 300 | 3/12 | 0.511% | |
+| 500 | 0/12 | 0.000% | |
+
+Three things fall out.
+
+1. **The k=100 plateau is real and flat.** From 50 to 200 nothing changes at all —
+   not the mispick count, not the regret, and not under any of the four rule
+   shapes tried (best-so-far, last value, tail mean, slope-extrapolated). At
+   k=100 the information simply is not in the curves, which generalises B14 from
+   margin rules to every rule of this family.
+2. **The mispicks cost almost nothing where they happen.** Median regret is
+   0.000% and the worst single case is 0.511%. The 4/12 rate reads like a
+   fidelity problem and mostly is not one.
+3. **The exception is exactly the dataset that killed sel25.** At k=25 the worst
+   regret triples to 1.452% on `nyc-taxi-green-dec-2016` — the dataset sel25's
+   own record names as its cheapest repro, losing in all four of its appearances
+   (−1.70% / −4.18% / −1.92% @sus25 / −2.94% @sus50). The offline replay fingers
+   the same dataset the decide-tier run did, and supplies the mechanism: a
+   short-audition mispick that the rung-3 refit then amplifies (B2).
+
+And the opening: at k=25 the **tail-mean** rule reads 4/12 at 0.511% worst regret
+— the same fidelity as the shipped rule at k=100, at a quarter of the budget. If
+that holds up, sel25's 8.9% is available after all, and it was the rule rather
+than the budget that was wrong. One race carries the whole difference at n=12, so
+this is a pointer and nothing more (`GATE_ROBUSTNESS.md` #2).
+
+Queued as E1 in `SELECT_PLAN.md`, **with a curve-corpus widening first** — raising
+n from 12 costs one attribution run, not a decide run, and this is far too thin to
+gate on. Barriers it owes an argument about: B1, B2, B12, B14.
+
+### D2 — Cheapening the audition revives everything killed on audition cost
+
+A2 passed every strength bar and failed only on cost: oracle ceiling +2.587%,
+validation-selected +0.522% at a 70% win rate (21W-9L-6T, p=0.043), and a
+projected **1.90×** fit multiple against a 1.35× bar. Its stated reason —
+"a k=100 audition is nearly a whole fit whenever the full fit is short" — is a
+statement about audition *pricing*, not about config portfolios.
+
+So D1 and A2 are coupled, and the coupling is the point: the audition cost model
+is a shared denominator under several dead ideas. If D1 lands, A2's kill is worth
+re-deriving at the new price rather than re-running blind. **Do not re-run A2
+before D1 reports** — that is the ordering the dual read buys us.
+
+### D3 — The patience default's rationale is stale below 20k rows
+
+`early_stopping_rounds=50` was chosen because "50 beat 10 on 25 of 34 datasets…
+because lr=0.1 keeps improving past a 10-round plateau" (`sklearn_api.py`), and
+the synth backtest records patience 300 as flat. So the axis reads: 10 loses, 50
+ships, 300 is flat.
+
+Since 0.30.0 the small-data learning rate is no longer 0.1 — it fades to 0.07
+below 20k rows. A lower rate improves for *longer*, so the measurement behind the
+default no longer describes the regime where the rate now differs. This is not a
+speed lever (it points at more patience, not less); it is an unmeasured default
+whose stated justification has expired. Open question, not a queued run.
+
+### D4 — Replay is a screening instrument in search of a use
+
+LEAFTUNE killed `tune_leaves`, but the mechanism it built round-trips
+bit-identically and costs a median **5.2× less per configuration** than
+re-growing. Its fidelity failure (agreed with an exact grid on 2 of 8 datasets;
+gave up 6.8% on the one set where the parameter mattered) makes it unfit to
+*select*, and it does not touch the shipped fit path either way — so this is
+research-tooling speed, not product Pareto. Worth remembering the next time a
+study needs a wide sweep; not worth a program.
+
+### What this leaves
+
+D1 is the only queued run. D2 is a scheduling constraint on a future one, D3 an
+open question with no owner, D4 a note. The barriers each of these must clear are
+in `benchmarks/BARRIERS.md`.

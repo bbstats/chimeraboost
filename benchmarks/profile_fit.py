@@ -28,6 +28,9 @@ validation curve so a raced selector can be simulated offline.
 
 Writes benchmarks/results/<out>.json (full records incl. val curves) and
 benchmarks/results/<out>.md (the report tables), and prints the tables.
+Pass --uncapped-auditions when the output feeds probe_audition_rule.py: under
+the capped selection_rounds default the recorded curves stop at the cap, which
+makes the probe's replayed "full-curve truth" circular.
 
 Bagged attribution mode (BAGGING_PLAN.md Phase 0): fit the DEFAULT single
 estimator AND an n_ensembles=K bag on the same split, and attribute the bag's
@@ -461,9 +464,12 @@ def run_attribution(args):
                 X, y, test_size=0.25, random_state=seed, stratify=strat)
             Est = (ChimeraBoostRegressor if task == "regression"
                    else ChimeraBoostClassifier)
+            kw = {}
+            if args.uncapped_auditions:
+                kw["selection_rounds"] = None
             _ATTR["fits"] = []
             t0 = time.perf_counter()
-            m = Est(random_state=0).fit(Xtr, ytr, cat_features=cat)
+            m = Est(random_state=0, **kw).fit(Xtr, ytr, cat_features=cat)
             total = time.perf_counter() - t0
             fits, _ATTR["fits"] = _ATTR["fits"], None
             rec = {
@@ -632,6 +638,13 @@ def main():
     ap.add_argument("--datasets", nargs="*", default=None,
                     help="attribution mode: run_benchmarks DATASETS keys "
                          "(default: the frozen 9-set panel)")
+    ap.add_argument("--uncapped-auditions", action="store_true",
+                    help="attribution mode: fit with selection_rounds=None so "
+                         "every selection leg runs to its own early stop. "
+                         "REQUIRED when the output will feed "
+                         "probe_audition_rule.py -- under the capped default "
+                         "the recorded curves stop at the cap, which makes "
+                         "the replayed 'full-curve truth' circular.")
     ap.add_argument("--out", default="pareto-step0",
                     help="attribution mode: results/<out>.json|.md")
     args = ap.parse_args()

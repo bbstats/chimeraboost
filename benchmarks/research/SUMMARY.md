@@ -44,20 +44,36 @@ on-permutations machinery operating together, not any single transplantable part
 make it +6% to +27% worse). Its ordered-TS encoding is already near-perfect (Brier
 ~0.024), so any added categorical structure just injects variance it overfits.
 That single dataset is the clearest evidence the defaults are at a good optimum.
-It went with the OpenML registry and the current T0 has no all-categorical
-near-solved set to play the same role; anyone reviving this line should expect to
-find the canary somewhere else before trusting a categorical win.
+It went with the OpenML registry when that was retired.
+
+**Replacement named 2026-08-10: `hc:cjs`.** Same role, and on the numbers a
+sharper version of it — categorical (`has_cats=True`, 34 features, 2097 training
+rows) and saturated past anything kr-vs-kp reached: ChimeraBoost solves it to
+Brier ~1e-51 at F1 1.0. Any categorical lever that "improves" it is chasing
+numerical noise, and any that hurts it is injecting variance into a set that was
+already solved. It is already a member of T0, so it costs nothing to watch.
+
+One limitation, stated so it is not discovered later: cjs is **multiclass**, and
+multiclass is locked out of some levers (cross features raise, linear leaves fall
+back to constant). It is a control for categorical levers, not a drop-in
+all-categorical binary set. Anyone reviving this line on a binary-only lever
+still owes a canary of their own.
 
 ## Engine notes
 - One fit = whole `validation_history_` curve; paired same-split deltas; shared
   baseline cache → each verdict reached in ~25–60s (T0) for ~0 marginal cost.
 - Post-fit ideas (G1) are invisible to the per-round curve → routed straight to
   the promotion tier (`post_fit=True`).
-- `cascade.py --selftest` FAILS as of 2026-08-02: its `linear_leaves` anchor
-  assumes that flag is off by default, and the regressor now auditions it and
-  picks it (bit-identical curves on `pol`). Library drift, not the tier swap —
-  `pol` was in the OpenML-era T0 too. Needs new anchors in `ideas.py`; details in
-  the `selftest` docstring.
+- `cascade.py --selftest` **PASSES again as of 2026-08-10**. It had failed since
+  2026-08-02 on library drift: the `linear_leaves` anchor assumed that flag was
+  off by default and the regressor had begun auditioning and picking it, and
+  `patience300` turned out not to be inert under `early_stopping=False` either.
+  Both anchors were replaced with drift-proof ones — `crossfeat_off` (removing a
+  shipped default; covertype degrades 5.38% at dominance 0.00) and `noop` (no
+  overrides at all; bit-identical on all 8 T0 datasets). The design rule behind
+  the swap is in the `selftest` docstring: an anchor whose premise is "this flag
+  is currently off" expires the moment a default moves, and a self-test that
+  expires silently is worse than none.
 
 ## Queue complete
 Every pre-registered lever has been run (C1, C3, C4, G1, G2, G3, G4) or deferred

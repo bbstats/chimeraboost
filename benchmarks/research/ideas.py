@@ -11,33 +11,48 @@ here as the pre-registered agenda; each flips to implemented as its default-off
 flag lands (one change at a time).
 
 Two ideas with KNOWN outcomes are kept for the engine self-test:
-  * ``linear_leaves``  -- a known POSITIVE (binary-Brier win).
-  * ``patience300``    -- a known NEGATIVE/FLAT (rejected; defaults optimal).
-The harness must re-confirm both, proving it discriminates.
+  * ``crossfeat_off``  -- a known LARGE SIGNAL (removing a shipped default must
+    visibly hurt on the numeric sets where cross features apply).
+  * ``noop``           -- an exact no-op (no overrides at all), which must come
+    back bit-identical.
+The harness must re-confirm both, proving it discriminates a real effect from
+nothing.
+
+Both anchors are chosen to be **drift-proof**, because the previous pair was not
+(see cascade.selftest): ``linear_leaves`` stopped being off-by-default when the
+regressor began auditioning it, and ``patience300`` turned out not to be inert
+under ``early_stopping=False``. An anchor whose premise is "this flag is
+currently off" expires the moment a default moves. These two cannot: one removes
+a default that would have to be un-shipped for the anchor to go stale, and the
+other overrides nothing at all.
 """
 
 # direction: "lower_better" means the variant should DECREASE the primary
 # loss/metric (RMSE/Brier/val-loss) where the hypothesis says it helps.
 IDEAS = {
     # --- self-test anchors (known truths) ----------------------------------
-    "linear_leaves": dict(
-        params={"linear_leaves": True},
+    "crossfeat_off": dict(
+        params={"cross_features": False},
         category="selftest",
         implemented=True,
-        direction="lower_better",
-        hypothesis="Per-leaf ridge slopes lower validation logloss on binary "
-                   "classification (a known broad Brier win); neutral-to-helpful "
-                   "on regression. Self-test anchor: must re-confirm POSITIVE.",
+        direction="higher_worse",
+        hypothesis="Cross features ship on by default and are worth ~1.5% on "
+                   "Grinsztajn (51W/8L when added). Removing them must visibly "
+                   "HURT on the numeric sets where pairs exist, and be inert "
+                   "where they do not. Self-test anchor: must re-confirm a LARGE "
+                   "SIGNAL. Drift-proof: going stale would mean cross features "
+                   "had been un-shipped.",
     ),
-    "patience300": dict(
-        params={"early_stopping_rounds": 300},
+    "noop": dict(
+        params={},
         category="selftest",
         implemented=True,
-        direction="lower_better",
-        hypothesis="Patience only changes WHERE early stopping picks, not the "
-                   "validation trajectory; with early_stopping disabled on the "
-                   "fast tier the curve is IDENTICAL to baseline. Self-test "
-                   "anchor: must re-confirm FLAT/NEGATIVE (rejected).",
+        direction="none",
+        hypothesis="No overrides at all, so the variant IS the baseline. Every "
+                   "curve must come back bit-identical. Self-test anchor: must "
+                   "re-confirm EXACT FLATNESS -- this is the harness's own "
+                   "reproducibility control, and the one anchor no library "
+                   "change can invalidate.",
     ),
 
     # --- C: categorical levers (lead the queue) ----------------------------
