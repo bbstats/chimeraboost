@@ -78,6 +78,21 @@ suite, so its tie count grows with the quality of its gating.
 - Record both in plan files. "6W-0L-8T, bar FAIL" is honest; "FAIL" alone is
   not.
 
+**Turn it around: the inert slice is a control, not a penalty.** An exact tie
+where a gated change *cannot* engage is positive evidence — the change did what
+it claims and nothing else. That is the one control this project's decision tier
+otherwise lacks; the synthetic suite has had one for a year
+(`synthgen/backtest.py`, the saturated-and-cat-bearing canary slice that must not
+go positive) and `--decide` had none.
+
+- **Guard added**: `compare_runs.py` prints a `control (inert slice)` line on
+  every comparison — the exact-tie count, plus an **engaged-only** sign test.
+  Nothing above it changes; the bar is still over all datasets.
+- Pass `--expect-inert` when the change is conditionally gated. The control then
+  fails loudly if it engaged everywhere, which means either the gate is not doing
+  what it claims or the arm is misconfigured. A change that should be inert
+  somewhere and isn't is a bug report, not a benchmark result.
+
 ## 5. Cross-program comparisons that mix statistics
 
 Plan files record means and medians inconsistently. A candidate was **killed**

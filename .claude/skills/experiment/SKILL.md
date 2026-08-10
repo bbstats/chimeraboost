@@ -5,6 +5,18 @@ description: Run the validated A/B experiment protocol for a proposed library ch
 
 The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_features; skipping tiers shipped nothing):
 
+0. **Barriers and a forecast** (minutes, before any run):
+   - `python benchmarks/barrier_check.py "<the idea in a sentence>"` — prints which
+     of the closures in `benchmarks/BARRIERS.md` this idea's family already owes an
+     argument about. A match is not a veto; it means the plan file must say which
+     finding is wrong or why it does not apply, **written before the run**. No match
+     is not a clearance either — read `BARRIERS.md` yourself and add tags if the
+     family turns out to be closed.
+   - Write a one-line **forecast** into the plan file's pre-registration: predicted
+     direction and rough effect size on **both** Pareto axes (strength and fit
+     time). The verdict scores it hit or miss. This costs nothing and is the only
+     way we learn which classes of idea we misjudge.
+
 1. **Mechanism probe** (cheap): the SynthGen screen —
    `python benchmarks/run_benchmarks.py --synth --seeds 3 --save` (182 frozen prior-sampled
    datasets, ~30 min) vs the newest synth baseline, then
@@ -36,6 +48,11 @@ The validated 3-tier methodology (it shipped mcw-auto, linear-leaves, cross_feat
      will cover without downloading anything.
    - **Sequential only** — never two benchmarks at once (HC's CatBoost fits run
      50–240 s on card 7k–15k). Progress: `python benchmarks/bench_status.py`.
+   - **Control**: `compare_runs` prints a `control (inert slice)` line — the
+     exact-tie count read as evidence the change engaged only where it claims to,
+     plus an engaged-only sign test. Add `--expect-inert` whenever the change is
+     conditionally gated (size-, feature- or dtype-gated); the control then fails
+     loudly if it engaged everywhere, which is a bug report rather than a result.
    - Sign-test: `python benchmarks/compare_runs.py BASE.json NEW.json --by-suite`
      → one INDEPENDENT test per stratum. **Never pool them.** The suites answer
      different questions, and a variant reuses its parent's rows, so a pooled bar
@@ -78,6 +95,11 @@ Ship rules:
 A/B trap (cost an hour once): editable install means `python script.py` runs **repo** code from any
 CWD. For worktree baselines set `PYTHONPATH=<worktree>` and print `chimeraboost.__file__` in both arms.
 
+Two companion files, and they answer different questions. `benchmarks/BARRIERS.md`
+is about **ideas** — what this project has already closed, so a run is not spent
+re-deriving it. `benchmarks/GATE_ROBUSTNESS.md` is about **readings** — how our own
+numbers have looked like evidence and weren't.
+
 **Before letting any number decide a ship, read `benchmarks/GATE_ROBUSTNESS.md`** — the eight ways
 this process has produced numbers that looked like evidence and weren't, each with the incident that
 proved it. The four questions it ends on, in short: how many INDEPENDENT things is this actually;
@@ -87,8 +109,24 @@ capped at 3 rolling origins so extra seeds duplicate (the harness now warns); a 
 decided datasets is a pointer, not a gate; ties count against the change, so a conditionally-gated
 change reads FAIL at 6W-0L; and a mean far from its median is one dataset (compare_runs now names it).
 
+Recording a verdict — three things beyond the numbers:
+
+- **Both axes, always.** The north star is a frontier with two coordinates, so a
+  kill states its reading on *both*: "flat on strength" is only half a verdict, and
+  a change that is flat on strength and cheaper is a frontier push of exactly equal
+  value. Symmetrically, an idea killed on cost stays live if the same gain can be
+  bought cheaper. Most of this project's "flat" kills have never had their other
+  half read.
+- **Two confidences, not one.** State separately how sure you are that the
+  *mechanism* is real on the decision suites, and how sure you are that it
+  *transfers* to real user data. They are different numbers, and conflating them is
+  how a decision-suite result turns into a leaderboard claim in a later retelling.
+- **Score the forecast** from step 0, hit or miss.
+
 After a ship: update CHANGELOG [Unreleased], regenerate the Pareto (`/pareto`), and record the
-verdict (win or kill — kills are valuable) in memory's algorithm history.
+verdict (win or kill — kills are valuable) in memory's algorithm history. If the kill is
+**general** — a reason that will recur for a whole family of ideas — add it to
+`benchmarks/BARRIERS.md` in the same change, with the incident that proved it.
 
 Sealed holdouts are NEVER part of this loop: TabArena (`/tabarena`) and the
 `pub:` public suite (`benchmarks/PUBLIC_PLAN.md`) are report-only. Never read

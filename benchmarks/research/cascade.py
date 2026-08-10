@@ -229,49 +229,59 @@ def cascade(idea_name, tiers, seed, threads, jobs):
 
 def selftest(seed, threads, jobs):
     """Reproduce two known truths on T0, proving the harness discriminates a real
-    win from a no-op:
+    effect from nothing:
 
-      * linear_leaves -- a clear POSITIVE where it is OFF by default. (NOTE: it is
-        already the auto-default for *binary* classification, so it is correctly
-        flat there; the off-by-default win shows on regression -- e.g. pol.) The
-        anchor: at least one dataset improves strongly (min best-val delta well
-        below 0) with high pointwise dominance.
-      * patience300 -- a NO-OP on the fast tier (early stopping is disabled, so
-        patience cannot move the curve): the trajectory is IDENTICAL to baseline.
+      * crossfeat_off -- removing a shipped default that is worth ~1.5% on
+        Grinsztajn. At least one dataset must get visibly WORSE.
+      * noop -- no overrides at all, so the variant IS the baseline. Every curve
+        must come back bit-identical.
 
-    BOTH ANCHORS ARE STALE AND THIS SELF-TEST FAILS TODAY (checked 2026-08-02).
-    The cause is library drift, not the tier: the regressor's linear_leaves=None
-    default now auditions constant-leaf against linear-leaf and keeps the winner,
-    and on pol it picks linear -- so linear_leaves=True is bit-identical to the
-    baseline curve, and the "off by default" premise is simply no longer true
-    anywhere the fast tier can see it (binary auto-enables it, multiclass raises
-    on an explicit True). pol was a member of the OpenML-era T0 too, so this
-    predates the 2026-08-02 tier swap. Separately, early_stopping_rounds is not
-    inert under early_stopping=False -- on hc:kick the patience300 curve reaches
-    0.3208 against the baseline's 0.3230.
+    Anchor history, because it matters for the next person choosing one. The
+    original pair (linear_leaves as a positive, patience300 as a no-op) went
+    stale and this self-test failed from 2026-08-02 to 2026-08-10, on library
+    drift rather than on anything wrong with the engine: the regressor's
+    linear_leaves=None default began auditioning constant against linear and
+    keeping the winner, so on pol the "off by default" premise stopped being
+    true; and early_stopping_rounds turned out not to be inert under
+    early_stopping=False (on hc:kick patience300 reached 0.3208 against the
+    baseline's 0.3230).
 
-    Fixing it means choosing anchors that are still genuinely off-by-default,
-    which is an edit to ideas.py, not here. The thresholds below are deliberately
-    left alone: relaxing them until they pass would destroy the only thing this
-    function is for.
+    The lesson is about anchor DESIGN. An anchor whose premise is "this flag is
+    currently off" expires the moment a default moves, and a self-test that
+    expires silently is worse than none. The pair above cannot expire: one
+    removes a shipped default -- going stale would require un-shipping cross
+    features -- and the other overrides nothing at all, which no library change
+    can invalidate.
+
+    The thresholds stay strict on purpose: relaxing them until they pass would
+    destroy the only thing this function is for.
     """
     print("=== ENGINE SELF-TEST (T0) ===", flush=True)
-    pos = run_fast_tier(ideas.get("linear_leaves")["params"], seed, threads, jobs)
-    print(report.fast_tier(pos, label="linear_leaves (expect a strong "
-                           "off-by-default win, e.g. regression pol)"),
+    sig = run_fast_tier(ideas.get("crossfeat_off")["params"], seed, threads, jobs)
+    print(report.fast_tier(sig, label="crossfeat_off (expect a clear "
+                           "DEGRADATION where cross pairs exist)"),
           flush=True)
-    flat = run_fast_tier(ideas.get("patience300")["params"], seed, threads, jobs)
-    print(report.fast_tier(flat, label="patience300 (expect FLAT / no-op)"),
+    flat = run_fast_tier(ideas.get("noop")["params"], seed, threads, jobs)
+    print(report.fast_tier(flat, label="noop (expect EXACT flatness)"),
           flush=True)
-    min_delta = min((r["best_val_delta_pct"] for r in pos["rows"]), default=0.0)
-    ok_pos = (pos["favorable"] >= 1 and min_delta < -0.01
-              and pos["mean_dominance"] > 0.5)
-    ok_flat = abs(flat["mean_best_delta_pct"]) < 1e-6
-    print(f"\nSELF-TEST: linear_leaves discriminates (min bestD "
-          f"{100*min_delta:+.2f}%, favorable={pos['favorable']})={ok_pos} | "
-          f"patience300 flat={ok_flat} | "
-          f"{'PASS' if ok_pos and ok_flat else 'FAIL'}", flush=True)
-    return ok_pos and ok_flat
+
+    # Signal: some dataset must move materially in the direction removing a
+    # shipped default should move it (worse = positive delta on a
+    # lower-is-better metric).
+    max_delta = max((r["best_val_delta_pct"] for r in sig["rows"]), default=0.0)
+    ok_sig = max_delta > 0.01
+
+    # Flatness: not "small on average" but exactly zero on every row. A mean
+    # near zero can hide two rows cancelling, which is precisely the reading
+    # this control exists to rule out.
+    deltas = [abs(r["best_val_delta_pct"]) for r in flat["rows"]]
+    ok_flat = bool(deltas) and max(deltas) < 1e-12
+
+    print(f"\nSELF-TEST: crossfeat_off discriminates (max bestD "
+          f"{100*max_delta:+.2f}%)={ok_sig} | "
+          f"noop bit-identical on {len(deltas)} datasets={ok_flat} | "
+          f"{'PASS' if ok_sig and ok_flat else 'FAIL'}", flush=True)
+    return ok_sig and ok_flat
 
 
 def main():

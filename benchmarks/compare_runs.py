@@ -30,6 +30,17 @@ blends every model's records into the per-dataset mean (fine when both runs
 hold the other models fixed, but the deltas are diluted).
 --model-new names the NEW run's records when they differ (e.g. baseline
 ChimeraBoost vs an arm's ChimeraBoostEns2).
+--expect-inert declares that the change is conditionally gated and must be inert
+somewhere; see THE INERT SLICE IS A CONTROL below.
+
+THE INERT SLICE IS A CONTROL
+----------------------------
+The sign-test bar counts ties against the change, so a conditionally-gated
+change reads worse the better its gating -- that is how a 6W-0L result once read
+FAIL (GATE_ROBUSTNESS.md #4). Every comparison therefore also prints the tie
+count as a CONTROL (an exact tie where the change cannot engage is positive
+evidence that it did what it claims and nothing else) and an engaged-only sign
+test, which answers "when this engaged, did it help?". Neither changes the bar.
 
 NEAR-SOLVED DATASETS
 --------------------
@@ -166,6 +177,10 @@ def main():
     ap.add_argument("--keep-near-solved", action="store_true",
                     help="do NOT exclude near-solved datasets from the mean "
                          "(reproduces pre-fix numbers quoted in older plans).")
+    ap.add_argument("--expect-inert", action="store_true",
+                    help="declare that this change is conditionally gated and "
+                         "MUST be inert on part of the suite; the control line "
+                         "then fails loudly if it engaged everywhere.")
     ap.add_argument("--by-suite", action="store_true",
                     help="report an independent sign test per stratum (suite x "
                          "variant) instead of one over the union -- mandatory "
@@ -288,6 +303,49 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
         note = "" if k_verdict == verdict else "   <-- DISAGREES with the bar above"
         print(f"  (excluding near-solved: {kw} wins / {kl} losses / {kt} ties, "
               f"bar {k_need}+ = {k_verdict}){note}")
+
+    _control_line(shared, all_pairs, ties, args)
+
+
+def _control_line(shared, all_pairs, ties, args):
+    """Read the exact ties as a CONTROL rather than as a penalty.
+
+    A conditionally-gated change (size-gated, feature-gated, dtype-gated) is
+    deliberately inert on part of the suite. The bar above counts those ties
+    against it, so the better a change's gating the worse it reads -- that is
+    how a 6W-0L result read FAIL (GATE_ROBUSTNESS.md #4).
+
+    Read the other way round, an exact tie where the change cannot engage is
+    POSITIVE evidence: it did what it claims and nothing else. Two readings
+    follow from that, and both are printed here:
+
+      - the inert slice, which is the control; and
+      - the engaged-only sign test, which answers "when this engaged, did it
+        help?" -- the question the all-dataset bar cannot answer.
+
+    Print-only. No verdict above changes, and the exit code stays 0.
+    """
+    engaged = [(ds, p) for ds, p in zip(shared, all_pairs)
+               if abs(p[1] - p[0]) > 1e-9]
+
+    if ties:
+        print(f"control (inert slice): {ties} of {len(shared)} datasets are exact "
+              f"ties -- the change did not engage there.")
+    else:
+        print(f"control (inert slice): none -- the change engaged on all "
+              f"{len(shared)} datasets.")
+        if args.expect_inert:
+            print("  !! CONTROL FAIL: --expect-inert was declared and nothing "
+                  "was inert. Either the gate is not doing what it claims, or "
+                  "the arm is misconfigured. Find out before reading the bar.")
+
+    if engaged and ties:
+        ew, el, et = _sign_counts([p for _, p in engaged])
+        e_need = len(engaged) // 2 + 1
+        e_verdict = "PASS" if ew >= e_need else "FAIL"
+        plural = "dataset" if len(engaged) == 1 else "datasets"
+        print(f"  engaged only ({len(engaged)} {plural}): {ew} wins / {el} losses, "
+              f"bar {e_need}+ = {e_verdict}   <-- 'when it engaged, did it help?'")
 
 
 if __name__ == "__main__":
