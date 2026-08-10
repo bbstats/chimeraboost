@@ -381,8 +381,12 @@ one `--models` flag.
 
 ## E1 — pre-registered 2026-08-10: the rule, not the budget
 
-**Status: pre-registration only. Nothing has run at the decision tier, and the
-step below that must run first is an attribution run, not a decide run.**
+**Status: KILLED 2026-08-10 at tier 1 (step 2 below). The premise — that the
+decision rule, not the budget, caused the Sel25 kill — is falsified by a
+paired decomposition on the synth screen plus arithmetic step 1's own corpus
+already contained. `selection_rounds` stays 100 permanently; the budget axis
+is closed from both ends (B14). No source change shipped; the knob branch was
+deleted unmerged.**
 
 ### Why this reopens a closed knob
 
@@ -434,9 +438,10 @@ constant leaves. The cross race is untouched, and so is every non-regression pat
    result" below.**
 2. Tier-1 synth screen. Note B1: below 1000/2000 rows no audition runs at all, so
    the small-n slice is structurally inert and must read as exact ties — pass
-   `--expect-inert`, and treat engagement there as a bug report.
+   `--expect-inert`, and treat engagement there as a bug report. **DONE
+   2026-08-10 — FAIL, killed here; see "Step 2 result" below.**
 3. Tier-2 `--decide --seeds 3 --save`, judged at `refit_full=True` (B2 — rung 2
-   would flatter it, as it flattered sel25).
+   would flatter it, as it flattered sel25). **Never run — killed at step 2.**
 
 ### Step 1 result (2026-08-10): 12 → 48 races — bar PASSES; the finding replicates
 
@@ -519,6 +524,51 @@ test against it at tier 2, and `selection_rounds` stays 100 permanently — the
 budget axis is then closed from below as well as above, and B14 gets a line
 saying so.
 
+### Step 2 result (2026-08-10): tier-1 FAIL — KILLED; the budget was the harm all along
+
+The arm was implemented as registered (`selection_rule="tail_mean"` on the
+regressor, window 20, tie to constant, cross race untouched; harness arm
+`ChimeraBoostSel25Tail` = k=25 + tail at class defaults). 943 tests green,
+default rule byte-identical. Two synth screens, both arms paired against the
+in-run default, cross-run pairing validated by 136/136 exact ties on the
+default arm:
+
+| pairing | engaged W-L | ties | regression slice |
+|---|--:|--:|---|
+| default vs k25+tail | 20W-33L | 83 | 7W-17L, mean −0.326%, p=0.064 |
+| default vs k25+best (plain Sel25) | 20W-33L | 81 | same signature |
+| k25+best vs k25+tail | 0W-2L | 134 | flips only syn:v2/019 (−0.23%), 921 (−0.37%) |
+
+- **Controls clean**: n<2000 all ties but one, canary 0-0-3 exact — the knob
+  engaged only where it claims to. This is a reading, not a bug.
+- **The decomposition falsifies the premise.** The E1 arm loses to the default
+  exactly like plain Sel25; the rule itself changes 2 picks in 136 datasets,
+  both losses. The budget cut, not the decision rule, is the whole effect.
+- **Step 1's corpus already contained the refutation.** Shipped@25's pick
+  fidelity was barely worse than shipped@100 (14 vs 12 mispicks of 48; total
+  regret 14.33% vs 9.31%), yet Sel25's decide-tier kill was 6W-20L at p=0.009.
+  Pick fidelity was never large enough to explain the harm, so no pick rule can
+  buy back the budget. The harm lives in the truncation itself, cross race
+  included. Step 1 measured the wrong quantity and passed on it.
+- **Synth caveat, stated**: synth targets run shallow, so late-crossing races
+  (where tail wins on real curves) are under-represented; the rule's 2-flip
+  inertness here is weak evidence about real data. The kill does not rest on
+  it — it rests on the decomposition plus the corpus arithmetic above.
+- **Both axes**: cost — the arm is genuinely cheaper (synth speed ×0.86,
+  consistent with the −8-10% forecast; synth speed ratios are not
+  decision-grade). Strength — not flat: the mechanism slice reads against at
+  the same signature as the Sel25 kill. The Pareto case required flat
+  strength; it fails, and B14 now records that no rule shape reopens it.
+- **Forecast scored**: cost HIT (direction and rough size). Strength MISS —
+  the registered statistic (gr regression median ±0.15%) was never bought
+  because the screen killed first, but the screen's mechanism slice read
+  against, and the median bar repeats step 1's lesson: a median of a
+  mostly-tie distribution (24/48 ties) would have passed vacuously anyway.
+- **Two confidences**: that the arm fails at rung 3 on the decision suites —
+  high (Sel25 precedent + same synth signature + the corpus arithmetic). That
+  the tail rule is harmful on real data — low; it is merely useless here, and
+  at k=100 step 1 already showed it is worse than shipped.
+
 ## Log
 
 - 2026-07-25: pre-registered.
@@ -554,3 +604,13 @@ saying so.
   the probe loader (the rung-3 replay refit's empty record was clobbering
   audition curves). Next: step 2 tier-1 synth, which first needs the arm
   implemented behind a knob (/experiment territory, separate branch).
+- 2026-08-10 (later still): **E1 KILLED at tier 1.** The knob was implemented
+  and screened; the paired decomposition (default / k25+best / k25+tail, one
+  synth suite, cross-run pairing exact) showed the rule changes 2 picks in 136
+  datasets (both losses) while the budget cut reproduces the Sel25 kill
+  signature on the regression slice (7W-17L, −0.326%). Step 1's corpus had the
+  refutation in it: 14-vs-12 mispicks cannot explain 6W-20L, so the harm was
+  never the pick. `selection_rounds` stays 100 permanently; budget axis closed
+  from both ends; B14 updated; knob branch deleted unmerged. Tier 2 never run
+  — spending it would have re-bought the Sel25 kill. Runs:
+  `results/20260810-150735.json`, `results/20260810-151216.json`.

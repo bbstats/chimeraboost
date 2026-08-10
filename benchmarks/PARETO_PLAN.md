@@ -348,6 +348,11 @@ this is a pointer and nothing more (`GATE_ROBUSTNESS.md` #2).
 Queued as E1 in `SELECT_PLAN.md`, **with a curve-corpus widening first** — raising
 n from 12 costs one attribution run, not a decide run, and this is far too thin to
 gate on. Barriers it owes an argument about: B1, B2, B12, B14.
+**Resolved 2026-08-10: E1 KILLED at tier 1** — the rule flips almost nothing
+(2/136 datasets on the synth screen, both losses) while the budget cut alone
+reproduces the Sel25 kill signature; pick fidelity was never the harm
+(14-vs-12 mispicks cannot explain 6W-20L). `selection_rounds` stays 100; the
+budget axis is closed from both ends (B14; `SELECT_PLAN.md` E1 step 2).
 
 ### D2 — Cheapening the audition revives everything killed on audition cost
 
