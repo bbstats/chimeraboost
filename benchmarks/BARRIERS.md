@@ -188,19 +188,29 @@ in any future version.
 
 *Incident*: LEAFTUNE, 2026-07-28.
 
-### B14 — No margin rule separates the const-vs-linear race at k=100
-tags: audition, const-vs-linear, linear_leaves, margin, race, selection_rounds, early-exit, budget
+### B14 — The audition budget axis is closed from both ends; no decision rule buys back k<100
+tags: audition, const-vs-linear, linear_leaves, margin, race, selection_rounds, early-exit, budget, tail-mean, rule
 
 The const-versus-linear validation race genuinely crosses late on about a third of
 regression selections, and on the step-0 curves the two arms' overlap is total —
 no margin or early-exit rule at k=100 separates them. `k_ll=500` restores fidelity
 but collapses the 1.50× audition speedup to a projected 1.11×.
 
-Consequence: an early-exit rule on this race owes a measurement against those
-curves. A *per-leg* budget is the untested direction, because the cross race and
-the const-vs-linear race have different crossing behaviour.
+From below (E1, 2026-08-10): a better pick rule cannot buy back a shorter
+budget, because pick fidelity was never the harm. Shipped@25 mispicks barely
+more than shipped@100 (14 vs 12 of 48 real races) while Sel25's decide-tier
+kill was a rout (6W-20L, p=0.009) — the damage lives in the truncation itself
+(cross race included), not in the const-vs-linear pick. Confirmed on the synth
+screen: k=25 + tail-mean reproduces plain Sel25's losing signature vs the
+default (regression 7W-17L, mean −0.326%, concentrated in shallow/linear/
+cross-scope slices) while the rule itself flips only 2 picks in 136 datasets,
+both losses. The *per-leg* budget direction is empty too, argued from source
+(`PARETO_PLAN.md` D1): the augmented candidate wins 20 of 21 selections and a
+leading augmented fit already runs to its own early stop. `selection_rounds`
+stays 100.
 
-*Incident*: `PARETO_PLAN.md`, "Known residual"; Sel25's re-open condition.
+*Incident*: `PARETO_PLAN.md`, "Known residual"; Sel25 kill 2026-07-31; E1 kill
+2026-08-10 (`SELECT_PLAN.md` E1).
 
 ---
 
