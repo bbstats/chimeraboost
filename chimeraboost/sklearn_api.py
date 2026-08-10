@@ -229,6 +229,16 @@ def _validate_hyperparams(estimator):
         raise ValueError(
             f'refit_full must be True, False, "replay" or None; got {v!r}.')
 
+    v = p.get("cross_features")
+    if v is not None and v != "always" and not isinstance(v, (bool, np.bool_)):
+        raise ValueError(
+            f'cross_features must be True, False, "always" or None; got {v!r}.')
+    if v == "always" and not getattr(estimator, "_FORCED_CROSS_OK", False):
+        raise ValueError(
+            'cross_features="always" is only supported on the regressor; '
+            "the classifier's cross features are validation-raced "
+            "(cross_features=None or True).")
+
     v = p.get("quality")
     if v is not None:
         if isinstance(v, (bool, np.bool_)) or v not in QUALITY_NAMES:
@@ -1272,8 +1282,16 @@ CROSS_MIN_SAMPLES = 2000
 CROSS_GDIFF_TOP_NUM = 4
 CROSS_GDIFF_TOP_CAT = 3
 
+# Forced mode (cross_features="always", regressor only): no race referees the
+# block, so it must be leaner than the raced default. benchmarks/SELECT_PLAN.md
+# E2 step 1: top-6 costs 1.74x a plain fit (bar 1.5), top-4 costs 1.39x with no
+# strength loss (oracle median +2.6% either way). The importance probe only
+# ranks features -- 25 rounds picks near-oracle pairs at 2-17% of fit time.
+FORCED_CROSS_TOP_M = 4
+FORCED_CROSS_PROBE_ROUNDS = 25
 
-def _cross_candidate_pairs(importances, cat_features, n_features):
+
+def _cross_candidate_pairs(importances, cat_features, n_features, top_m=None):
     """Candidate (i, j, op) cross features from base-fit importances.
 
     Oblivious trees can only approximate an interaction with a depth-limited
@@ -1287,6 +1305,9 @@ def _cross_candidate_pairs(importances, cat_features, n_features):
     categoricals. Interactions among features the trees already use are the
     plausible ones, and an irrelevant cross costs only fit time -- the split
     search ignores it, and the validation race referees the whole block.
+
+    ``top_m`` overrides the numeric block width (None = ``CROSS_TOP_M``, read
+    at call time); the unrefereed forced mode passes ``FORCED_CROSS_TOP_M``.
     """
     cat = set(cat_features or [])
     num_idx = [i for i in range(n_features) if i not in cat]
@@ -1299,7 +1320,9 @@ def _cross_candidate_pairs(importances, cat_features, n_features):
 
     pairs = []
     if len(num_idx) >= 2:
-        top = sorted(num_idx, key=lambda i: -key[i])[:CROSS_TOP_M]
+        top = sorted(num_idx,
+                     key=lambda i: -key[i])[:(CROSS_TOP_M if top_m is None
+                                              else top_m)]
         for a in range(len(top)):
             for b in range(a + 1, len(top)):
                 i, j = top[a], top[b]
@@ -1555,7 +1578,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         use the exact float gradients; the rounding noise touches only
         split selection and is deterministic for a fixed ``random_state``.
         ``False`` restores exact float64 histograms.
-    cross_features : bool or None, default None
+    cross_features : bool, "always" or None, default None
         Numeric interaction columns. ``None`` (the default) and ``True`` refit
         with difference and product columns for the pairs of the top numeric
         features of the base fit and keep whichever model reaches the lower
@@ -1564,7 +1587,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         rows and >= 2 numeric features, and is skipped otherwise. ``False``
         turns it off. Oblivious trees can only staircase a numeric interaction
         such as ``x_i < x_j``; a cross column makes it a single split. Costs
-        up to ~2x fit time when the refit runs.
+        up to ~2x fit time when the refit runs. ``"always"`` skips the
+        validation race and keeps the cross columns unconditionally (a
+        narrower top-4 block, ranked by a short importance probe): one full
+        fit instead of the race, for the fast one-fit operating point
+        (``quality=1``-style configs). Same applicability gates; inert where
+        they fail.
     selection_rounds : int or None, default 100
         Round budget for the internal selection fits. The constant/linear-leaf
         variants and the pre-cross base fit run at most this many rounds
@@ -1696,6 +1724,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         With ``linear_leaves=None``, whether the linear-leaf variant won the
         validation selection. ``None`` when no selection took place.
     """
+
+    # cross_features="always" (the unrefereed forced mode) is regressor-only:
+    # the evidence behind it (SELECT_PLAN.md E2) is regression-only, and the
+    # classifier's race has no measured forced counterpart.
+    _FORCED_CROSS_OK = True
 
     # quality=1 pins linear leaves here: on the regressor, linear_leaves=None
     # means "audition const vs linear", the search the fast rung declines.
@@ -1971,7 +2004,43 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
 
-        if self.selection_rounds is not None and (select_ll or cross_ok):
+        forced_cross = self.cross_features == "always" and cross_ok
+        if forced_cross:
+            # Forced cross features (benchmarks/SELECT_PLAN.md E2): keep the
+            # block unconditionally instead of racing it -- the race picks the
+            # augmented candidate on 20 of 21 selections, so at the one-fit
+            # operating point it is mostly a fee for a known answer. No
+            # decision is taken on any validation curve; the only short fit
+            # here is an importance probe whose sole output is the pair
+            # ranking (a slightly wrong ranking costs fit time, not a model
+            # pick). The block is the narrower FORCED_CROSS_TOP_M because no
+            # referee dodges the variance cases (see the constants above).
+            if select_ll:
+                # The const-vs-linear audition is orthogonal and stays; its
+                # winner doubles as the importance probe.
+                stop = (_stop_after(self.selection_rounds)
+                        if self.selection_rounds is not None else None)
+                const = _fit_booster(False, stop=stop)
+                lin = _fit_booster(True, stop=stop)
+                self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
+                probe = lin if self.linear_leaves_selected_ else const
+                base_linear = self.linear_leaves_selected_
+            else:
+                base_linear = bool(ll)
+                probe = _fit_booster(
+                    base_linear, stop=_stop_after(FORCED_CROSS_PROBE_ROUNDS))
+
+            pairs = _cross_candidate_pairs(probe.feature_importances_,
+                                           cat_features, X.shape[1],
+                                           top_m=FORCED_CROSS_TOP_M)
+            if pairs:
+                self.model_ = _fit_booster(base_linear, cross_pairs=pairs)
+                self.cross_features_selected_ = True
+                self.cross_pairs_ = pairs
+            else:
+                # cross_ok guarantees candidates exist; this is a safety net.
+                self.model_ = _fit_booster(base_linear)
+        elif self.selection_rounds is not None and (select_ll or cross_ok):
             # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
             # design). Every selection fit runs as a short audition. The
             # cross-augmented candidate wins the full selection on the vast
@@ -2047,7 +2116,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # +1.5%), and selection dodges the variance cases. RMSE only, the probed
         # loss; None (auto) and True behave the same. A selection_rounds audition
         # already handled this above.
-        if (self.selection_rounds is None and cross_ok):
+        if (self.selection_rounds is None and cross_ok and not forced_cross):
             pairs = _cross_candidate_pairs(
                 self.model_.feature_importances_, cat_features, X.shape[1])
             if pairs:

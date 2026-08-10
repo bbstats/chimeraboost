@@ -1085,9 +1085,14 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
             kw["linear_leaves"] = True
             kw["linear_lambda"] = linear_lambda
     # "off" forces cross_features off (ablation arm vs the shipped default
-    # None = on where applicable, multiclass included since M1).
+    # None = on where applicable, multiclass included since M1). "always" is
+    # the forced regressor-only mode (SELECT_PLAN.md E2); classification falls
+    # back to "off" so the arm matches the rung-1 classifier (cross pinned
+    # off) and its classification rows read as exact ties against OneLin.
     if cross_features == "off":
         kw["cross_features"] = False
+    elif cross_features == "always":
+        kw["cross_features"] = "always" if task == "regression" else False
     elif cross_features:
         kw["cross_features"] = True
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
@@ -1202,6 +1207,19 @@ def _run_chimera_one_lin(task, Xtr, ytr, Xte, yte, cat, threads):
     """Rung 1 (quality=1): one booster fit, linear leaves pinned, no refit."""
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
                         linear_leaves=True, cross_features="off",
+                        refit_full="off")
+
+
+def _run_chimera_one_lin_x(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung-1X (SELECT_PLAN.md E2): rung 1 plus the forced cross block.
+
+    One full fit on the top-4 cross-augmented matrix, pairs ranked by a
+    25-round importance probe, no race. Classification is byte-identical to
+    ChimeraBoostOneLin (the forced mode is regressor-only), so those rows are
+    the in-run control and must read as exact ties.
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves=True, cross_features="always",
                         refit_full="off")
 
 
@@ -1403,6 +1421,7 @@ RUNNERS = {
     "ChimeraBoostEns3RM": _run_chimera_ens3_rm,
     "ChimeraBoostOne": _run_chimera_one,
     "ChimeraBoostOneLin": _run_chimera_one_lin,
+    "ChimeraBoostOneLinX": _run_chimera_one_lin_x,
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
     "ChimeraBoostFlatLR": _run_chimera_flatlr,
@@ -1423,6 +1442,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8RM", "ChimeraBoostEns5RM",
                    "ChimeraBoostEns3RM",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
+                   "ChimeraBoostOneLinX",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
                    "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")

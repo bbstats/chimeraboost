@@ -2,9 +2,11 @@
 difference/product columns for top numeric feature pairs."""
 
 import numpy as np
+import pytest
 
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 from chimeraboost.booster import GradientBoosting, MulticlassBoosting
+from chimeraboost.sklearn_api import FORCED_CROSS_TOP_M
 
 
 def _interaction_reg(n=4000, seed=0):
@@ -241,6 +243,84 @@ def test_crosses_skip_categorical_columns():
             assert i != 3
             assert j != 3 or op == "gdiff"
     assert m.predict(X[:10]).shape == (10,)
+
+
+# ---- forced mode (cross_features="always", SELECT_PLAN.md E2) -------------
+
+def test_always_forces_crosses_on_rung1_config():
+    X, y = _interaction_reg()
+    m = ChimeraBoostRegressor(n_estimators=200, random_state=0,
+                              linear_leaves=True, refit_full=False,
+                              cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is True
+    assert m.cross_pairs_
+    base = ChimeraBoostRegressor(n_estimators=200, random_state=0,
+                                 linear_leaves=True, refit_full=False,
+                                 cross_features=False).fit(X, y)
+    Xte, yte = _interaction_reg(seed=1)
+    rmse = lambda mm: np.sqrt(np.mean((yte - mm.predict(Xte)) ** 2))
+    assert rmse(m) < rmse(base)
+
+
+def test_always_uses_the_narrow_block():
+    # 8 numerics: the raced default would pair the top 6; the forced mode must
+    # pair at most FORCED_CROSS_TOP_M (4) -- the width step 1 priced.
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((4000, 8))
+    y = (3.0 * (X[:, 0] > X[:, 1]) + X[:, 2] * X[:, 3]
+         + 0.1 * rng.standard_normal(4000))
+    m = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                              linear_leaves=True,
+                              cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is True
+    arith = {f for i, j, op in m.cross_pairs_ if op != "gdiff"
+             for f in (i, j)}
+    assert len(arith) <= FORCED_CROSS_TOP_M
+    n_arith = sum(op != "gdiff" for _, _, op in m.cross_pairs_)
+    assert n_arith <= FORCED_CROSS_TOP_M * (FORCED_CROSS_TOP_M - 1)
+
+
+def test_always_keeps_the_linear_leaves_audition():
+    X, y = _interaction_reg()
+    m = ChimeraBoostRegressor(n_estimators=100, random_state=0,
+                              cross_features="always").fit(X, y)
+    assert m.linear_leaves_selected_ in (True, False)
+    assert m.cross_features_selected_ is True
+    assert m.predict(X[:5]).shape == (5,)
+
+
+def test_always_inert_where_gates_fail():
+    # Below CROSS_MIN_SAMPLES, without a validation split, and for MAE the
+    # forced mode must be exactly as inert as True is (B1: gates stay).
+    X, y = _interaction_reg(n=900)
+    m = ChimeraBoostRegressor(n_estimators=60, random_state=0,
+                              cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is None
+
+    X, y = _interaction_reg(n=3000)
+    m = ChimeraBoostRegressor(n_estimators=60, random_state=0,
+                              cross_features="always",
+                              early_stopping=False).fit(X, y)
+    assert m.cross_features_selected_ is None
+
+    X, y = _interaction_reg()
+    m = ChimeraBoostRegressor(n_estimators=60, random_state=0, loss="MAE",
+                              cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is None
+
+
+def test_always_rejected_on_classifier():
+    X, y = _interaction_clf(n=2500)
+    with pytest.raises(ValueError, match="always"):
+        ChimeraBoostClassifier(n_estimators=30,
+                               cross_features="always").fit(X, y)
+
+
+def test_cross_features_bad_value_rejected():
+    X, y = _interaction_reg(n=2500)
+    with pytest.raises(ValueError, match="cross_features"):
+        ChimeraBoostRegressor(n_estimators=30,
+                              cross_features="sometimes").fit(X, y)
 
 
 def test_shap_stays_in_original_feature_space():
