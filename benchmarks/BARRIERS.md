@@ -233,6 +233,36 @@ histogram working set stays in cache. Reopen only if that premise breaks:
 corroborated `GPU_PLAN.md:56`. Nearly re-proposed 2026-08-16 during campaign
 intake — this entry exists so that cannot happen again.
 
+### B16 — Pre-screening the cross-feature candidate block trades picks for time, at every k
+tags: cross, cross_features, cross-column, candidate, screen, prescreen, top-k, prune, residual, correlation, split-gain, importance, augmented, diff, prod, gdiff
+
+The cross-audition leg is 40–58% of the default's fit where it engages, and
+carrying ~42 candidate columns into the augmented fit looks like obvious waste.
+It is not waste that can be safely removed by ranking the candidates first.
+Measured 2026-08-16 (`cross_top_columns`, synth, both arms in one run): ranking
+candidates by the best single-split variance reduction they achieve on the base
+fit's validation residuals and keeping the top k cost regression **4W-14L at
+k=6** (p=0.031, mean −0.574%) and **6W-12L at k=12**, while saving only −13.2%
+and −11.6% of engaged fit respectively.
+
+Two facts make this general rather than a bad choice of k. The saving is nearly
+flat in k (doubling the block back cost 1.6 points of speed), so the time comes
+off the tail of the ranking, not the head — while the harm barely moved, so it
+comes from misranking near the head. And the statistic is not the weak link
+either: plain |correlation| was tried first and is strictly worse, blind by
+construction to comparison interactions (the residual a staircase leaves around
+an `x_i < x_j` boundary is not linear in `x_i - x_j`), which is half of what
+cross features are for. A screen good enough to rank these columns is a screen
+that already knows the answer the augmented fit is being run to find.
+
+Consequence: do not propose ranking-then-trimming the cross candidate set.
+Cheapening this leg has to come from making the augmented fit cheaper per
+column, not from carrying fewer columns. B14 separately closes the round-budget
+axis, so both "do less of the audition" doors are now shut.
+
+*Incident*: `CAMPAIGN_PLAN.md` F1, entries I005–I008 (2026-08-16); runs
+`results/campaign-f1s2-20260816.json`, `results/campaign-f1s2b-20260816.json`.
+
 ---
 
 ## Adding an entry

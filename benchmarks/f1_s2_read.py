@@ -6,7 +6,8 @@ sign test on each. Judge metric matches the harness summary: RMSE for
 regression, Brier for classification. Speed on synth is directional only, never
 decision-grade (project_synthgen).
 
-    python benchmarks/f1_s2_read.py benchmarks/results/campaign-f1s2-20260816.json
+    python benchmarks/f1_s2_read.py results/campaign-f1s2-20260816.json
+    python benchmarks/f1_s2_read.py results/campaign-f1s2b-20260816.json ChimeraBoostXTop12
 """
 import json
 import sys
@@ -73,4 +74,6 @@ def main(path):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2:
+        NEW = sys.argv[2]
     main(sys.argv[1])
