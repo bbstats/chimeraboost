@@ -68,19 +68,25 @@ QUALITY_NAMES = {1: "fast", 2: "balanced", 3: "accurate",
 def _quality_overrides(estimator, level):
     """The parameters ``quality=level`` pins on this estimator.
 
-    Rung 1 buys out the model-selection search: one booster fit instead of the
-    default's two-to-four, and no full-data refit on top. Only the regressor pins
-    linear_leaves, where None means "audition const vs linear" -- exactly the
-    search this rung declines to pay for. On the classifier None is already a
-    free auto rule (on for binary, off for multiclass, where an explicit True
-    raises), so it is left alone.
+    Rung 1 buys out the model-selection search: one full booster fit instead of
+    the default's two-to-four, and no full-data refit on top. Only the regressor
+    pins linear_leaves, where None means "audition const vs linear" -- exactly
+    the search this rung declines to pay for. On the classifier None is already
+    a free auto rule (on for binary, off for multiclass, where an explicit True
+    raises), so it is left alone. On the regressor the rung keeps cross features
+    without their race (cross_features="always", the forced top-4 block): the
+    race picks the augmented candidate on 20 of 21 selections, and forced-on
+    passed the full gate at 2.7x within-run (benchmarks/SELECT_PLAN.md E2). The
+    classifier has no forced mode, so it pins cross off as before.
 
     Rungs 4 and 5 sit on top of the plain defaults, NOT on top of rung 3:
     refit_full is a deliberate no-op inside bag members (their out-of-bag rows
     are already an eval set), so the rungs do not stack. See REFIT_PLAN.md.
     """
     if level == 1:
-        ov = {"cross_features": False, "refit_full": False}
+        forced_ok = getattr(estimator, "_FORCED_CROSS_OK", False)
+        ov = {"cross_features": "always" if forced_ok else False,
+              "refit_full": False}
         if estimator._QUALITY_PINS_LINEAR_LEAVES:
             ov["linear_leaves"] = True
         return ov
@@ -1590,9 +1596,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         up to ~2x fit time when the refit runs. ``"always"`` skips the
         validation race and keeps the cross columns unconditionally (a
         narrower top-4 block, ranked by a short importance probe): one full
-        fit instead of the race, for the fast one-fit operating point
-        (``quality=1``-style configs). Same applicability gates; inert where
-        they fail.
+        fit instead of the race, for the fast one-fit operating point.
+        ``quality=1`` pins this on the regressor. Same applicability gates;
+        inert where they fail.
     selection_rounds : int or None, default 100
         Round budget for the internal selection fits. The constant/linear-leaf
         variants and the pre-cross base fit run at most this many rounds

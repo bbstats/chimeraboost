@@ -89,9 +89,11 @@ def test_fast_rung_pins_the_search_off():
     X, y = _reg_data()
     m = ChimeraBoostRegressor(n_estimators=80, quality=1,
                               random_state=0).fit(X, y)
-    # One booster fit: nothing was auditioned, so no selection was recorded.
-    assert m.cross_features_selected_ is None
+    # No audition ran: the leaf choice is pinned, and the cross block is kept
+    # by the forced mode (SELECT_PLAN.md E2) rather than won in a race.
     assert m.linear_leaves_selected_ is None
+    assert m.cross_features_selected_ is True
+    assert m.cross_pairs_
 
 
 def test_fit_does_not_rewrite_constructor_params():
@@ -122,18 +124,28 @@ def test_clash_warns_and_the_recipe_wins():
                                   cross_features=True, random_state=0).fit(X, y)
     msgs = [str(w.message) for w in caught if "quality=1" in str(w.message)]
     assert msgs, "a clash must warn"
-    assert "cross_features=False" in msgs[0]
-    # The recipe won: the search was skipped despite cross_features=True.
-    assert m.cross_features_selected_ is None
+    assert "cross_features=always" in msgs[0]
+    # The recipe won: no race ran despite cross_features=True asking for one.
+    assert m.cross_features_selected_ is True
+    assert m.linear_leaves_selected_ is None
 
 
 def test_no_warning_when_the_user_agrees_with_the_recipe():
     X, y = _reg_data()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        ChimeraBoostRegressor(n_estimators=80, quality=1, cross_features=False,
+        ChimeraBoostRegressor(n_estimators=80, quality=1,
+                              cross_features="always",
                               random_state=0).fit(X, y)
     assert not [w for w in caught if "quality=1" in str(w.message)]
+
+
+def test_fast_rung_keeps_cross_off_on_the_classifier():
+    """The forced mode is regressor-only; rung 1 must not trip the guard."""
+    X, y = _clf_data()
+    m = ChimeraBoostClassifier(n_estimators=80, quality=1,
+                               random_state=0).fit(X, y)
+    assert m.cross_features_selected_ is None
 
 
 def test_bagged_rungs_do_not_recurse():

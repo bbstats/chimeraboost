@@ -33,7 +33,7 @@ reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 
 | `quality` | name | fit time | sets |
 |---|---|--:|---|
-| `1` | fast | **1.9x** | `linear_leaves=True`, `cross_features=False`, `refit_full=False` |
+| `1` | fast | **2.7x** | `linear_leaves=True`, `cross_features="always"` (regressor; `False` on the classifier), `refit_full=False` |
 | `2` | balanced | 5.3x | `refit_full=False` |
 | `3` | accurate *(= default)* | 6.9x | nothing (these are the defaults) |
 | `4` | ensemble | 18.1x | `n_ensembles=5` |
@@ -50,11 +50,16 @@ instead of re-growing them.
 
 **What rung 1 gives up.** By default ChimeraBoost auditions its own configuration:
 constant leaves against linear leaves, plain features against cross features. That
-costs two to four boosting fits. `quality=1` pins both decisions and fits once.
-Reach for it on numeric-heavy data and large parameter sweeps. Prefer `quality=2`
-when categorical columns dominate, where the saving is smaller (categorical
-preprocessing is a fixed cost that skipping auditions cannot touch) and the accuracy
-loss is larger.
+costs two to four boosting fits. `quality=1` pins both decisions and pays for one
+full fit. On the regressor it keeps cross features without the audition
+(`cross_features="always"`): the audition picks the cross-augmented model almost
+every time it runs, so rung 1 skips straight to it — a narrower feature block,
+chosen by a short probe that adds a few percent of fit time. Occasionally the
+audition would have rejected cross features and rung 1 eats a loss the default
+would have dodged; that is part of the rung's discount. Reach for rung 1 on
+numeric-heavy data and large parameter sweeps. Prefer `quality=2` when categorical
+columns dominate, where the saving is smaller (categorical preprocessing is a fixed
+cost that skipping auditions cannot touch) and the accuracy loss is larger.
 
 **Rungs 4 and 5 do not build on rung 3.** `refit_full` does nothing inside bagged
 members, since their out-of-bag rows already act as an eval set, so the ensemble

@@ -3,6 +3,29 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **`cross_features="always"` (regressor): cross features without the
+  audition.** The default path auditions plain features against
+  cross-augmented ones, and the augmented candidate wins 20 of 21 of those
+  races — so at a one-fit operating point the race is mostly a fee for a
+  known answer. The forced mode skips it: a short importance probe (~25
+  rounds, a few percent of fit time) ranks features, then one full fit keeps
+  a narrower top-4 cross block unconditionally. Same applicability gates as
+  the raced mode (2000-row floor, RMSE-only, enough numeric/categorical
+  columns), inert wherever they fail; the classifier rejects the value. The
+  raced default path is byte-identical to before.
+
+### Changed
+- **`quality=1` (regressor) now pins `cross_features="always"`.** The fast
+  rung previously dropped cross features entirely because keeping them
+  meant paying for the race. Forced-on passed the full decision gate: 2.7×
+  within-run fit time (between rungs 1 and 2, at 0.57× of rung 2), 7.9
+  points above the LightGBM-to-default frontier chord, beats the old rung 1
+  wherever it engages (28W–8L on Grinsztajn, engaged median +0.5%) and
+  still beats LightGBM head-to-head (43W–16L). The classifier's rung 1 is
+  unchanged. Evidence: benchmarks/SELECT_PLAN.md E2.
+
 ## [0.30.0] - 2026-08-02
 ### Changed
 - **The automatic `learning_rate` now depends on how much data it has, and this
