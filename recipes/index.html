@@ -1572,8 +1572,8 @@ exactly the shipped defaults.</p>
 <tr>
 <td><code>1</code></td>
 <td>fast</td>
-<td style="text-align: right;"><strong>1.9x</strong></td>
-<td><code>linear_leaves=True</code>, <code>cross_features=False</code>, <code>refit_full=False</code></td>
+<td style="text-align: right;"><strong>2.7x</strong></td>
+<td><code>linear_leaves=True</code>, <code>cross_features="always"</code> (regressor; <code>False</code> on the classifier), <code>refit_full=False</code></td>
 </tr>
 <tr>
 <td><code>2</code></td>
@@ -1610,11 +1610,16 @@ the gap suggests, because the default now does that refit by replaying tree stru
 instead of re-growing them.</p>
 <p><strong>What rung 1 gives up.</strong> By default ChimeraBoost auditions its own configuration:
 constant leaves against linear leaves, plain features against cross features. That
-costs two to four boosting fits. <code>quality=1</code> pins both decisions and fits once.
-Reach for it on numeric-heavy data and large parameter sweeps. Prefer <code>quality=2</code>
-when categorical columns dominate, where the saving is smaller (categorical
-preprocessing is a fixed cost that skipping auditions cannot touch) and the accuracy
-loss is larger.</p>
+costs two to four boosting fits. <code>quality=1</code> pins both decisions and pays for one
+full fit. On the regressor it keeps cross features without the audition
+(<code>cross_features="always"</code>): the audition picks the cross-augmented model almost
+every time it runs, so rung 1 skips straight to it — a narrower feature block,
+chosen by a short probe that adds a few percent of fit time. Occasionally the
+audition would have rejected cross features and rung 1 eats a loss the default
+would have dodged; that is part of the rung's discount. Reach for rung 1 on
+numeric-heavy data and large parameter sweeps. Prefer <code>quality=2</code> when categorical
+columns dominate, where the saving is smaller (categorical preprocessing is a fixed
+cost that skipping auditions cannot touch) and the accuracy loss is larger.</p>
 <p><strong>Rungs 4 and 5 do not build on rung 3.</strong> <code>refit_full</code> does nothing inside bagged
 members, since their out-of-bag rows already act as an eval set, so the ensemble
 rungs start from the plain defaults.</p>

@@ -1255,8 +1255,12 @@
 <center>
 <img width="532" height="428" alt="image" src="https://github.com/user-attachments/assets/1778b56f-e05e-4dfb-be93-1f0b66f15d98" />
 
-</center>
 
+
+**#2 On TabArena GBDT Elo (Defaults)**
+<img width="1312" height="464" alt="image" src="https://github.com/user-attachments/assets/e1d26498-88f4-4ad9-bc76-05b7778054e5" />
+<br><br>
+</center>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install chimeraboost
 </code></pre></div>
@@ -1287,8 +1291,6 @@
 <li>Gradient-matrix free multi-quantile split search</li>
 <li>numba is very fast</li>
 </ul>
-<p><a href="https://github.com/bbstats/chimeraboost/blob/main/images/public_pareto.png"><img src="https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png" width="500" alt="Average rank vs fit-time slowdown on the public suite" /></a></p>
-
 <h2 id="why">Why?<a class="headerlink" href="#why" title="Permanent link">&para;</a></h2>
 <ul>
 <li>I want to be able to modify my GBDT library at will</li>
@@ -1319,7 +1321,6 @@
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">]</span>
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
 </code></pre></div>
-<p>That file is all we need.</p>
 <h2 id="inspirations-citations">Inspirations / Citations<a class="headerlink" href="#inspirations-citations" title="Permanent link">&para;</a></h2>
 <p>Most ideas in ChimeraBoost were someone else's.</p>
 <ul>
@@ -1332,9 +1333,6 @@
 <li><strong>Linear-leaf trees</strong>, Shi, Li &amp; Li, <em>IJCAI</em> 2019 (arXiv:1802.05640). Piece-wise-linear regression trees (<code>linear_leaves</code>); model trees back to Quinlan's M5, 1992.</li>
 <li><strong>TreeSHAP</strong>, Lundberg et al., <em>Nature Machine Intelligence</em> 2020 (orig. SHAP, <em>NeurIPS</em> 2017). Exact additive feature attributions (<code>shap_values</code>).</li>
 <li><strong>OpenFE</strong>, Zhang et al., <em>ICML</em> 2023 (arXiv:2211.12507). Automated pairwise feature generation (<code>cross_features</code>).</li>
-<li><strong>Conformal prediction</strong>, Papadopoulos et al. 2002 and Vovk et al. 2005; <strong>conformalized quantile regression</strong>, Romano, Patterson &amp; Candès, <em>NeurIPS</em> 2019. Distribution-free interval calibration (<code>conformalize</code>).</li>
-<li><strong>Temperature scaling</strong>, Guo et al., <em>ICML</em> 2017 (Platt 1999 lineage). Probability calibration.</li>
-<li><strong>Bagging and out-of-bag estimation</strong>, Breiman 1996; <strong>subagging</strong>, Bühlmann &amp; Yu, <em>Annals of Statistics</em> 2002; column subsampling from <em>Random Forests</em> 2001 and random subspaces, Ho, <em>IEEE TPAMI</em> 1998. The <code>n_ensembles</code> path and <code>colsample</code>.</li>
 </ul>
 
 
