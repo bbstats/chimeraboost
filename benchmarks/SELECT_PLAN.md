@@ -374,10 +374,9 @@ one `--models` flag.
 
 ## Still open
 
-- **A "use cross features without auditioning" mode.** Rung 1 currently
-  drops cross features entirely because `cross_features=True` still races
-  (`sklearn_api.py:1443`). A forced-on mode could give a stronger rung 1
-  at the same one-fit cost. Untested.
+Nothing. The last item — a "use cross features without auditioning" mode —
+was pre-registered 2026-08-10 as E2 below and **SHIPPED 2026-08-16** (PR #91):
+`cross_features="always"` on the regressor, and `quality=1` pins it.
 
 ## E1 — pre-registered 2026-08-10: the rule, not the budget
 
@@ -569,6 +568,215 @@ default arm:
   the tail rule is harmful on real data — low; it is merely useless here, and
   at k=100 step 1 already showed it is worse than shipped.
 
+## E2 — pre-registered 2026-08-10: rung-1 cross features without the race
+
+### The idea
+
+A `cross_features="always"` mode: include the cross-feature block without the
+validation race, so rung 1 (`quality=1`) can have cross features near one-fit
+cost. Today `quality=1` pins `cross_features=False` because `True` still races
+(`sklearn_api.py:1950-2027`), and rung 1's Phase-0 weakness is strength (52.0%
+@ 1.98x; high-card 1W-6L vs the default). The race's verdict is nearly
+constant — the augmented candidate wins 20 of 21 selections (`PARETO_PLAN.md`
+D1) and the racing A/B read 51W-8L, mean +1.5% on Grinsztajn — so at rung 1
+the race is mostly a fee for a known answer.
+
+Design: pairs need base-fit importances (`_cross_candidate_pairs`,
+`sklearn_api.py:1276`). The mode runs a short importance probe (~25 rounds,
+plain matrix) solely to rank features, then ONE full fit on the augmented
+matrix. No decision is taken on any validation curve. The applicability gates
+(`CROSS_MIN_SAMPLES=2000`, RMSE-only, >=2 numerics or 1 numeric + 1 cat) stay.
+
+### Barrier arguments (barrier_check matched B1, B2, B12, B14)
+
+- **B1** — not contested. The mode keeps the 2000-row floor, so small-data
+  strata are structural controls; every screen runs `--expect-inert`.
+- **B2** — the amplification needs a mispick to propagate, and this path makes
+  no pick. `quality=1` pins `refit_full=False` besides. The default path is
+  untouched — byte-identical, goldens must stay green.
+- **B12** — the mode REMOVES a race and adds a ~25-round plain-matrix probe.
+  Priced against the short-fit case: cross is RMSE-only, so the ~100-round
+  multiclass fits are out of scope by construction; step 1 reports the probe's
+  share of total fit time and the cost bar owns it.
+- **B14** — does not apply, and the 25-round probe is not a k=25 audition: no
+  validation-curve decision is made at any budget. The only truncated quantity
+  is the importance RANKING feeding pair choice, whose failure mode is a
+  slightly different pair set (an irrelevant cross costs fit time — the split
+  search ignores it — not a model-class mispick), and whose fidelity step 1
+  measures directly. If anything B14 argues FOR the design: the Sel25/E1 harm
+  lived in truncated race decisions, and this mode removes the decision.
+
+### Forecast (both axes, before any run)
+
+- **Cost** — honest wide uncertainty: the real cost is not the race, it is the
+  augmented matrix (up to 30 pair + 12 gdiff columns on often-narrow
+  Grinsztajn sets). Predicted rung-1X at 2.5-4.0x within-run vs OneLin's
+  ~2.0x; the probe adds only 5-10%. Step 1 times the augmented/plain fit
+  ratio directly before any knob is written.
+- **Strength** (the bet): vs plain rung 1 on the engaged slice (Grinsztajn
+  regression, >=2000 rows), decisive sign test, engaged median +0.3 to +1.0%.
+  Prior: the racing A/B's +1.5% mean is the ceiling; forced-on keeps most of
+  it since the race picks the augmented fit 20 of 21 times, but eats the
+  losses selection used to dodge. Classification and sub-2000-row slices:
+  exact ties.
+- **Where I expect to be wrong**: the referee's dodged losses may be
+  individually large (Brazilian_houses-class), dragging the engaged median
+  toward zero, especially on HC; and the matrix widening may price the mode
+  out of the fast niche entirely, killing the Pareto case at positive
+  strength.
+
+Statistic note (E1's lesson, twice over): every strength bar reads the
+ENGAGED-only sign test and engaged median — an all-rows median over a
+mostly-tie distribution passes vacuously. And the magnitude check comes first:
+step 1 measures the headroom itself before anything is built to chase it.
+
+### Steps, in order
+
+1. **Zero-library-change dev-panel probe** (`probe_cross_pairs.py`, ~12
+   engaged Grinsztajn regression sets x 3 seeds, inner `GradientBoosting`
+   with `cross_pairs` passed directly): fit (i) rung-1 plain, (ii) rung-1 +
+   cross with pairs from a 25-round probe's importances, (iii) rung-1 + cross
+   with pairs from a full fit's importances (the oracle). Kill bars, in
+   order: **headroom** — if (iii) does not clear +0.3% median over (i) on
+   >=30 fits, the effect being chased is too small, stop before writing any
+   knob; **fidelity** — (ii) must hold the oracle's headroom within noise;
+   **cost** — if the median augmented/plain fit-time ratio exceeds 1.5, the
+   fast niche is unreachable (predicted within-run ~= ratio x 2.0x + probe),
+   stop. One retry is pre-authorized on a cost kill only: a narrower forced
+   block (`CROSS_TOP_M=4`), re-priced on the same panel, no new mechanism.
+2. Implement `cross_features="always"` (/experiment branch); tier-1 synth
+   screen with `--expect-inert`; `synth_report` must concentrate the gain in
+   the interaction-depth>=2 numeric slices — the validated cross signature
+   (8/9 backtest). Kill if the mechanism story does not show up.
+3. Tier-2 `--decide --seeds 3 --save` per stratum, plus a within-run ladder
+   field (rung-1X, OneLin, NoRefit, default, LightGBM) for the bars.
+
+### Step 1 result (2026-08-10): PASS on the pre-authorized narrow retry
+
+`probe_cross_pairs.py`, 12 sets x 3 seeds = 36 fits, resumable JSONLs in
+`results/probe-cross-pairs-e2*.jsonl` (git-ignored). At the production block
+width (`CROSS_TOP_M=6`): headroom PASS (oracle median +2.200%), fidelity PASS
+(paired probe-minus-oracle median +0.000%), **cost FAIL** (median aug/plain
+ratio 1.74 vs the 1.5 bar). The registered retry — the forced block narrowed
+to the top-4 numerics, no new mechanism — re-run on the same panel:
+
+| bar | statistic | m=6 | m=4 | verdict at m=4 |
+|---|---|--:|--:|---|
+| 1 headroom | oracle median over plain, 36 fits | +2.200% | +2.577% | PASS (bar +0.3%) |
+| 2 fidelity | paired probe-minus-oracle median | +0.000% | +0.000% | PASS |
+| 3 cost | median aug/plain fit ratio, probe incl. | 1.74 | **1.39** | PASS (bar 1.5) |
+
+- Narrowing the block six-to-four **cost nothing on strength** — the oracle
+  median went up, because the dropped columns were mostly noise the split
+  search paid to ignore. The forced mode therefore ships with its own
+  narrower numeric block (top-4); the racing default keeps `CROSS_TOP_M=6`
+  untouched.
+- The 25-round probe's share of arm time is 2-17% (median ~5%) — B12 priced.
+- **Fidelity caveat, recorded**: where the probe's pair set diverges from the
+  oracle's (Jaccard <= 0.35, concentrated on `gr:reg_cat` sets with many
+  gdiff candidates), the probe arm gives back 2-3 points of the oracle's
+  gain (`reg_cat/nyc`: +1.69% vs +4.12%). Not a bar fail — the paired median
+  is exactly zero — but the gdiff ranking is the weak joint if tier 2 reads
+  soft on reg_cat.
+- **The dodged-losses worry is live**: `analcatdata_supreme` s0 reads −9.4%
+  forced (the race would have refereed it away), `cpu_act` s2 −11.8%. Single
+  seeds on a dev panel; the per-fit variance is wild (`cpu_act` spans −11.8%
+  to +24.2% across seeds). The decide tier's sign tests own this.
+- Mean cost (1.92) sits far from the median (1.39): three seeds where cross
+  keeps improving so ES runs long (Brazilian s2 10.5x, sulfur s2 7.8x) — the
+  same fits with the biggest strength gains (+17.9%, +20.9%). Per
+  GATE_ROBUSTNESS #3 the registered median carries the bar; the tail is
+  real wall-clock and the within-run A' bar will price it honestly.
+
+**Consequence: E2 proceeds to step 2** — implement `cross_features="always"`
+(regressor; forced block top-4, probe 25 rounds, all applicability gates
+kept), tier-1 synth screen with `--expect-inert`.
+
+### Step 2 result (run 2026-08-10, verdict recorded 2026-08-15): tier-1 PASS
+
+Knob implemented on `e2/forced-cross-features`: regressor-only
+`cross_features="always"` — 25-round importance probe, forced top-4 block,
+all applicability gates kept; the classifier rejects the value with a clear
+error; the raced default path is untouched (goldens green). Tier-1 screen:
+ONE run, three arms (`results/20260810-161742.json`); the default
+`ChimeraBoost` arm reproduces the E1 baselines exactly, validating pairing.
+
+- `--expect-inert`: 116/136 exact ties. Every structural control is clean —
+  classification 0W-0L-88T, `n<2000` 0-0-48, canary&cats 0-0-3, saturated
+  0-0-17. The gates hold exactly where they must.
+- Engaged (20 datasets): **11W-9L, bar 11+ PASS**; engaged mean +2.29%,
+  engaged median +0.44%. Worst engaged loss −2.93% (`syn:v2/553`); no slice
+  sign-tests negative.
+- **Mechanism (the registered kill bar): PASS.** The printed `depth<=2`
+  slice mixes depth-1 with depth-2, so the bar was read from a per-dataset
+  join of engaged deltas against generator metadata: 19/20 engaged sets are
+  `interaction_depth>=2`; every gain above +3% sits at depth 2–4 (+14.6%,
+  +11.7%, +9.5% at the top); additive (depth-1) sets are near-universally
+  exact ties — the design claim that an irrelevant cross block costs fit
+  time, not accuracy, holds. One depth-1 engager won +3.1% (n=1, noted).
+- The 11W-9L margin is a screen read, not a strength verdict — p=0.82. The
+  decide tier owns strength, per the bars below.
+
+**Consequence: E2 proceeds to step 3** — tier-2 `--decide --seeds 3 --save`
+with the within-run ladder field (rung-1X, OneLin, NoRefit, default,
+LightGBM), judged on A'/B'/C'.
+
+### Bars
+
+- **A'** (cost): rung-1X mean fit-time multiple <=3.0x within-run AND <=0.65x
+  of the same-run rung-2 (NoRefit) arm — it must sit clearly between rungs 1
+  and 2 or it is rung 2 minus the referee, which is pointless.
+- **B'** (frontier): strictly above the LightGBM-to-default chord at its own
+  slowdown, all quantities from the same run.
+- **C'** (strength): beats plain rung 1 on the engaged sign test with positive
+  engaged median, AND still beats LightGBM on the primary sign test. HC is
+  sign-tested separately; an HC regression is a documented caveat (rung 1 is
+  numeric-heavy territory) unless decisive.
+
+### Ship target and kill clause
+
+Two-tier ship, decided by A': at <=3.0x, the knob ships AND `quality=1`
+(regressor) pins `cross_features="always"` — a released-preset change, hence
+this full gate. At 3.0-4.0x with B'/C' passing, knob-only, documented in
+`docs/recipes.md`, `quality=1` unchanged. Kill = B' or C' fails, or step 1
+kills: the mode does not ship, the rung-1 open item closes as "cross features
+need the referee", and if the reason generalises it goes to `BARRIERS.md` in
+the same change.
+
+### Step 3 result (2026-08-16): tier-2 PASS on all three bars — SHIPPED
+
+Decide run `results/20260815-235543.json` — Grinsztajn + high-card +
+variants, 3 seeds, five arms in ONE run (default / OneLin / OneLinX /
+NoRefit / LightGBM), all bar quantities within-run. Suite green before the
+run (940 passed, 1 pre-existing skip).
+
+| bar | requirement | measured | verdict |
+|---|---|---|---|
+| A' cost | <=3.0x within-run AND <=0.65x of rung 2 | 2.7x; 2.7/4.7 = 0.57x | PASS |
+| B' frontier | strictly above the LightGBM→default chord | 49.5% vs 41.7% needed at 2.7x (+7.9 pts) | PASS |
+| C' strength | engaged sign test vs OneLin + beats LightGBM | gr engaged 28W-8L, engaged median +0.60% (n=34 excl. near-solved); LightGBM 43W-16L, median +0.41% | PASS |
+
+- A' hit the <=3.0x tier, so the FULL ship applies: knob + `quality=1`
+  (regressor) pins `cross_features="always"`. PR #91.
+- The forecast band held: engaged median +0.60% vs registered +0.3 to +1.0%.
+  Cost 2.7x vs predicted 2.5-4.0x, at the good end — the top-4 narrowing
+  from step 1's retry is what bought it.
+- Engaged-only reads positive on every stratum that engaged (gr 28W-8L,
+  hc 3W-1L, gr@sus25 3W-1L, gr@sus50 3W-1L, hc@sus50 1W-0L, hc@time 1W-0L);
+  inert slices are exact ties throughout (`--expect-inert` clean). Small
+  strata read as pointers, not gates (GATE_ROBUSTNESS #2).
+- **Pre-registered caveat confirmed, on record**: HC vs LightGBM is 7W-6L —
+  a coin flip, not a regression; rung 1 is numeric-heavy territory. And the
+  dodged-losses worry materialised at tolerable size: worst engaged loss
+  −6.0% (`gr:reg_num/cpu_act`), `analcatdata_supreme` −3.5% — the race used
+  to referee these away; the sign tests absorbed them.
+- Default-is-best-non-ensembling-rung re-check (standing rule): unchanged —
+  the default reads 91.5% @ 6.1x in this field vs rung-1X's 49.5% @ 2.7x;
+  rung 3 stays the default.
+- Post-merge: delete the code branch, refresh `images/pareto.png` +
+  `public_pareto.png` on the next canonical run (`docs/PROJECT_STATUS.md`
+  carries a dated note until then).
+
 ## Log
 
 - 2026-07-25: pre-registered.
@@ -614,3 +822,30 @@ default arm:
   from both ends; B14 updated; knob branch deleted unmerged. Tier 2 never run
   — spending it would have re-bought the Sel25 kill. Runs:
   `results/20260810-150735.json`, `results/20260810-151216.json`.
+- 2026-08-10 (E2): the rung-1 forced-cross open item pre-registered as **E2**
+  above. `barrier_check` matched B1/B2/B12/B14; arguments recorded before any
+  run. Forecast registered on both axes. Nothing has run; step 1 is a
+  zero-library-change dev-panel probe with three kill bars (headroom first —
+  the E1 magnitude lesson applied prospectively).
+- 2026-08-10 (E2, later): **step 1 PASS on the pre-authorized retry.**
+  Headroom is real and large (+2.6% median over plain rung 1 on a
+  stress-weighted panel), the 25-round probe picks near-oracle pairs at 2-17%
+  of arm time, and the cost bar passes only at the narrowed top-4 block
+  (1.39 vs 1.74 at top-6 — the narrowing was free on strength). New
+  instrument: `probe_cross_pairs.py` (`--top-m N` for the block width).
+  Recorded caveats: gdiff pair ranking is the fidelity weak joint on
+  `reg_cat`; forced mode eats occasional large per-seed losses the race used
+  to referee away. Next: step 2, the knob.
+- 2026-08-15 (E2): **tier-1 synth PASS** (run 2026-08-10; the session died
+  before the verdict was recorded). Engaged 11W-9L (bar 11+), inert controls
+  exact-tie clean, and the registered mechanism bar holds: the gain
+  concentrates on `interaction_depth>=2` (19/20 engaged sets; every big win
+  at depth 2–4; additive sets tie). Run `results/20260810-161742.json`,
+  knob on `e2/forced-cross-features`. Next: tier-2 decide with the ladder
+  field.
+- 2026-08-16 (E2): **tier-2 PASS on all three bars — SHIPPED** (step 3
+  above). A' 2.7x / 0.57x-of-rung-2, B' +7.9 points over the chord, C'
+  28W-8L engaged at median +0.60% plus LightGBM 43W-16L. The <=3.0x tier
+  applies: PR #91 ships the knob AND flips `quality=1` (regressor) to
+  `cross_features="always"`. HC-vs-LightGBM coin flip (7W-6L) recorded as
+  the pre-registered caveat. **E2 closed; no SELECT items remain open.**
