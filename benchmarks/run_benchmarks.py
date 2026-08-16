@@ -1027,7 +1027,7 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
                  cat_smoothing=None, selection_rounds=None, quantize=False,
-                 refit_full=False, adaptive_lr=False):
+                 refit_full=False, adaptive_lr=False, cross_top_columns=None):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -1095,6 +1095,10 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         kw["cross_features"] = "always" if task == "regression" else False
     elif cross_features:
         kw["cross_features"] = True
+    # None = the class default (carry every candidate cross column). An int caps
+    # the block to the top-k by residual split gain (CAMPAIGN_PLAN.md F1).
+    if cross_top_columns is not None:
+        kw["cross_top_columns"] = cross_top_columns
     # IMPORTANT: this measures OUT-OF-BOX DEFAULT behavior. We call fit(Xtr, ytr)
     # with NO explicit eval_set, so ChimeraBoost performs its own internal
     # early-stopping split (early_stopping=True, validation_fraction default) —
@@ -1221,6 +1225,27 @@ def _run_chimera_one_lin_x(task, Xtr, ytr, Xte, yte, cat, threads):
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
                         linear_leaves=True, cross_features="always",
                         refit_full="off")
+
+
+# --- CAMPAIGN F1: cross-column screen ---------------------------------------
+# The DEFAULT with cross_top_columns set: same rung 3, same search, same refit,
+# only a narrower cross block in the augmented fit. Paired against plain
+# ChimeraBoost in ONE run, so the read is free of machine-condition drift (B2).
+# Datasets where cross features never engage are the in-run inert control and
+# must read as exact ties.
+
+
+def _run_chimera_xtop6(task, Xtr, ytr, Xte, yte, cat, threads):
+    """The default, carrying only the top-6 cross columns."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        cross_top_columns=6)
+
+
+def _run_chimera_xtop12(task, Xtr, ytr, Xte, yte, cat, threads):
+    """The default, carrying only the top-12 cross columns (the wider cut, in
+    case k=6 trades away picks the race would have kept)."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        cross_top_columns=12)
 
 
 def _run_chimera_norefit(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -1427,6 +1452,8 @@ RUNNERS = {
     "ChimeraBoostFlatLR": _run_chimera_flatlr,
     "ChimeraBoostNoRefit": _run_chimera_norefit,
     "ChimeraBoostNoRefitSel25": _run_chimera_norefit_sel25,
+    "ChimeraBoostXTop6": _run_chimera_xtop6,
+    "ChimeraBoostXTop12": _run_chimera_xtop12,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -1445,7 +1472,8 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostOneLinX",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
                    "ChimeraBoostFlatLR",
-                   "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25")
+                   "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
+                   "ChimeraBoostXTop6", "ChimeraBoostXTop12")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 

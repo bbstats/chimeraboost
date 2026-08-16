@@ -54,6 +54,7 @@ def _fit_temperature(raw, y, multiclass, sample_weight=None):
 _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "n_ensembles", "ensemble_n_jobs", "max_samples",
                            "cat_features", "cross_features",
+                           "cross_top_columns",
                            "selection_rounds", "refit_full", "refit_members",
                            "quality"})
 
@@ -225,6 +226,7 @@ def _validate_hyperparams(estimator):
     _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
     _in_range("early_stopping_rounds", 1, np.inf, allow_none=True)
     _in_range("selection_rounds", 1, np.inf, allow_none=True)
+    _pos_int("cross_top_columns", allow_none=True)
 
     if p.get("n_ensembles") is not None:
         _pos_int("n_ensembles")
@@ -1343,6 +1345,167 @@ def _cross_candidate_pairs(importances, cat_features, n_features, top_m=None):
     return pairs
 
 
+# --- cross_top_columns: screen the candidate block before the augmented fit ---
+# The candidate set above is up to 30 numeric-pair columns plus 12 gdiff ones,
+# and the augmented fit bins and split-searches every one of them in every
+# round -- the leg that costs 40-58% of the default's fit on the datasets where
+# cross features engage (benchmarks/CAMPAIGN_PLAN.md F1). ``cross_top_columns=k``
+# ranks the candidates by how well each explains what the base fit got wrong,
+# and carries only the best k into the augmented fit. Ranking on the
+# early-stopping split is the same selection-on-validation pattern as
+# linear_leaves and the cross race itself; a wrong ranking costs fit time, not a
+# model pick, because the race still referees the block that survives.
+#
+# The ranking statistic is the best single-split variance reduction the column
+# achieves on those residuals -- the criterion the augmented fit itself applies
+# to the column, one round in. Plain |correlation| was the first design and is
+# wrong here: it scores a product interaction fine but is blind to a comparison
+# one, because the residual a staircase leaves around an ``x_i < x_j`` boundary
+# is not linear in ``x_i - x_j``. A diff column exists precisely to make that
+# threshold a single split, so a screen that cannot see thresholds drops the
+# candidate the whole mechanism was built for (CAMPAIGN_PLAN.md I006).
+#
+# None -- the default -- keeps every candidate, and returns before computing
+# anything at all, so every unscreened path stays bit-identical.
+
+# Bins for the screen's split scan. The screen only has to rank columns, so it
+# reads a coarse grid off the validation rows rather than the fit-time binner's
+# full resolution.
+CROSS_SCREEN_BINS = 16
+
+
+def _val_residuals(model, X_val, y_val):
+    """What the base fit left unexplained on the validation rows.
+
+    Squared-error losses give the plain ``y - yhat``; a probabilistic loss gives
+    the gradient-shaped label-minus-probability residual, one column per class
+    for multiclass.
+    """
+    raw = np.asarray(model.predict_raw(X_val), dtype=np.float64)
+
+    if isinstance(model, MulticlassBoosting):
+        z = raw - raw.max(axis=1, keepdims=True)
+        p = np.exp(z)
+        p /= p.sum(axis=1, keepdims=True)
+        r = -p
+        r[np.arange(r.shape[0]), np.asarray(y_val, dtype=np.intp)] += 1.0
+        return r
+
+    y = np.asarray(y_val, dtype=np.float64)
+    if getattr(model, "loss", None) == "Logloss":
+        # tanh form of the sigmoid: no exp overflow on a confident logit.
+        return y - 0.5 * (1.0 + np.tanh(0.5 * raw))
+    return y - raw
+
+
+def _cross_screen_column(X, i, j, op, cat_ctx):
+    """One candidate cross column's values on the given rows.
+
+    The gdiff group means are taken from these rows rather than from the
+    training rows the fit will use. That is deliberate: this column exists only
+    to be correlation-ranked, and re-deriving the fit-time maps would cost more
+    than the screen saves.
+    """
+    a = np.asarray(X[:, i], dtype=np.float64)
+
+    if op == "gdiff":
+        codes, cats = cat_ctx.column(X, j)
+        ok = np.isfinite(a)
+        vsum = np.bincount(codes, weights=np.where(ok, a, 0.0),
+                           minlength=len(cats))
+        wsum = np.bincount(codes, weights=ok.astype(np.float64),
+                           minlength=len(cats))
+        tot = float(wsum.sum())
+        gmean = float(vsum.sum() / tot) if tot > 0 else 0.0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            means = vsum / wsum
+        return a - np.where(np.isfinite(means), means, gmean)[codes]
+
+    b = np.asarray(X[:, j], dtype=np.float64)
+    return a - b if op == "diff" else a * b
+
+
+def _cross_screen_bins(col):
+    """Quantile-bin one candidate column into ``CROSS_SCREEN_BINS`` groups.
+
+    Non-finite values -- a NaN parent, or a product that overflowed float64 --
+    get their own trailing group, as the fit-time binner gives missing values
+    their own bucket. Tied quantiles collapse into fewer effective groups, which
+    is exactly what a near-constant column deserves.
+    """
+    ok = np.isfinite(col)
+    codes = np.full(col.shape[0], CROSS_SCREEN_BINS, dtype=np.intp)
+    if not ok.any():
+        return codes, ok
+
+    q = np.linspace(0.0, 1.0, CROSS_SCREEN_BINS + 1)[1:-1]
+    edges = np.quantile(col[ok], q)
+    codes[ok] = np.searchsorted(edges, col[ok], side="right")
+    return codes, ok
+
+
+def _cross_screen_scores(pairs, X_val, resid, cat_ctx):
+    """How much of the base fit's residual each candidate column could remove
+    with ONE split, as a fraction of the residual's total sum of squares.
+
+    This is the split-gain criterion the booster applies to any column, read on
+    the validation rows one round in: for centered residuals the left and right
+    sums are equal and opposite, so a cut leaving ``nL`` rows on the left with
+    residual sum ``sL`` gains ``sL**2 * n / (nL * (n - nL))``. The best cut over
+    the bin grid scores the column; the largest score over the classes scores a
+    per-class residual matrix.
+    """
+    R = np.asarray(resid, dtype=np.float64)
+    if R.ndim == 1:
+        R = R[:, None]
+    R = R - R.mean(axis=0)
+    sst = np.einsum("ij,ij->j", R, R)
+    if not np.any(sst > 0.0):
+        return np.zeros(len(pairs))   # nothing left to explain
+    sst[sst <= 0.0] = np.inf
+
+    n = R.shape[0]
+    scores = np.zeros(len(pairs))
+    for k, (i, j, op) in enumerate(pairs):
+        with np.errstate(over="ignore", invalid="ignore"):
+            col = _cross_screen_column(X_val, i, j, op, cat_ctx)
+        codes, ok = _cross_screen_bins(col)
+        if not ok.any():
+            continue
+
+        # Cumulative left-side counts and residual sums over the bin grid; the
+        # last cut takes every row and is dropped as no split at all.
+        cnt = np.bincount(codes, minlength=CROSS_SCREEN_BINS + 1)
+        left_n = np.cumsum(cnt)[:-1].astype(np.float64)
+        left_s = np.stack([np.cumsum(np.bincount(codes, weights=R[:, c],
+                                                 minlength=CROSS_SCREEN_BINS + 1))[:-1]
+                           for c in range(R.shape[1])])
+
+        cut = (left_n > 0.0) & (left_n < n)
+        if not cut.any():
+            continue
+        gain = (left_s[:, cut] ** 2) * (n / (left_n[cut] * (n - left_n[cut])))
+        scores[k] = float(np.max(gain.max(axis=1) / sst))
+
+    return scores
+
+
+def _screened_cross_pairs(pairs, top_k, model, X_val, y_val):
+    """``pairs`` trimmed to the ``top_k`` candidates that best explain ``model``'s
+    validation residuals, in the original candidate order.
+
+    ``top_k=None`` returns ``pairs`` untouched without so much as a predict call.
+    """
+    if top_k is None or len(pairs) <= top_k:
+        return pairs
+
+    scores = _cross_screen_scores(pairs, X_val,
+                                  _val_residuals(model, X_val, y_val),
+                                  CatTransformCache())
+    keep = set(np.argsort(-scores, kind="stable")[:top_k].tolist())
+    return [p for k, p in enumerate(pairs) if k in keep]
+
+
 def _best_val(booster):
     """Best validation loss a fitted booster reached (inf when no history)."""
     return min(booster.valid_history_) if booster.valid_history_ else np.inf
@@ -1599,6 +1762,14 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         fit instead of the race, for the fast one-fit operating point.
         ``quality=1`` pins this on the regressor. Same applicability gates;
         inert where they fail.
+    cross_top_columns : int or None, default None
+        Cap on how many candidate cross columns the augmented fit carries.
+        ``None`` (the default) carries all of them. An integer ``k`` keeps only
+        the ``k`` candidates whose values correlate most strongly with the base
+        fit's validation residuals, which cuts the augmented fit's per-round
+        cost; the validation race still decides whether the surviving block is
+        used at all (under ``cross_features="always"`` it trims the forced block
+        instead). Inert wherever cross features do not apply.
     selection_rounds : int or None, default 100
         Round budget for the internal selection fits. The constant/linear-leaf
         variants and the pre-cross base fit run at most this many rounds
@@ -1748,7 +1919,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  random_state=None, verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=1,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
-                 selection_rounds=100,
+                 cross_top_columns=None, selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
@@ -1781,6 +1952,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.cross_top_columns = cross_top_columns
         self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
@@ -2006,6 +2178,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                   prep_cache=prep_cache)
             return b
 
+        def _screen(pairs, base):
+            # Every caller below is guarded by cross_ok, which requires an
+            # eval set, so the validation rows are always there to rank on.
+            return _screened_cross_pairs(pairs, self.cross_top_columns, base,
+                                         eval_set[0], eval_set[1])
+
         self.linear_leaves_selected_ = None
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
@@ -2036,9 +2214,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 probe = _fit_booster(
                     base_linear, stop=_stop_after(FORCED_CROSS_PROBE_ROUNDS))
 
-            pairs = _cross_candidate_pairs(probe.feature_importances_,
-                                           cat_features, X.shape[1],
-                                           top_m=FORCED_CROSS_TOP_M)
+            pairs = _screen(
+                _cross_candidate_pairs(probe.feature_importances_,
+                                       cat_features, X.shape[1],
+                                       top_m=FORCED_CROSS_TOP_M), probe)
             if pairs:
                 self.model_ = _fit_booster(base_linear, cross_pairs=pairs)
                 self.cross_features_selected_ = True
@@ -2072,9 +2251,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             # would only re-pay for an identical model. Refit only if truncated.
             capped = len(audition.valid_history_) >= self.selection_rounds
 
-            pairs = (_cross_candidate_pairs(audition.feature_importances_,
-                                            cat_features, X.shape[1])
-                     if cross_ok else [])
+            pairs = (_screen(_cross_candidate_pairs(
+                audition.feature_importances_, cat_features, X.shape[1]),
+                audition) if cross_ok else [])
             if pairs:
                 # Symmetric race at the shared budget, the rule the step-0 race
                 # simulation validated: both candidates are judged on their best
@@ -2123,8 +2302,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # loss; None (auto) and True behave the same. A selection_rounds audition
         # already handled this above.
         if (self.selection_rounds is None and cross_ok and not forced_cross):
-            pairs = _cross_candidate_pairs(
-                self.model_.feature_importances_, cat_features, X.shape[1])
+            pairs = _screen(_cross_candidate_pairs(
+                self.model_.feature_importances_, cat_features, X.shape[1]),
+                self.model_)
             if pairs:
                 base_linear = (self.linear_leaves_selected_
                                if select_ll else bool(ll))
@@ -2415,6 +2595,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         numeric features. Binary judges on binary log loss, multiclass on
         softmax log loss. ``False`` turns it off. Costs up to ~2x fit time
         when the refit runs.
+    cross_top_columns : int or None, default None
+        Cap on how many candidate cross columns the augmented fit carries.
+        ``None`` (the default) carries all of them. An integer ``k`` keeps only
+        the ``k`` candidates whose values correlate most strongly with the base
+        fit's validation residuals, which cuts the augmented fit's per-round
+        cost; the validation race still decides whether the surviving block is
+        used at all. Inert wherever cross features do not apply.
     selection_rounds : int or None, default 100
         Round budget for the pre-cross base fit when the cross-features refit
         will run. The base fit is an audition capped at this many rounds;
@@ -2553,7 +2740,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  verbose=False, ordered_boosting=False,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
-                 selection_rounds=100,
+                 cross_top_columns=None, selection_rounds=100,
                  early_stopping=True, validation_fraction=0.2,
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
@@ -2581,6 +2768,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.linear_leaves = linear_leaves
         self.linear_lambda = linear_lambda
         self.cross_features = cross_features
+        self.cross_top_columns = cross_top_columns
         self.selection_rounds = selection_rounds
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
@@ -2858,8 +3046,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
 
         if (self.cross_features is not False
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
-            pairs = _cross_candidate_pairs(
-                self.model_.feature_importances_, cat_features, X.shape[1])
+            pairs = _screened_cross_pairs(
+                _cross_candidate_pairs(self.model_.feature_importances_,
+                                       cat_features, X.shape[1]),
+                self.cross_top_columns, self.model_, eval_set[0], cal_y)
             if pairs:
                 aug = _make(cross_pairs=pairs)
                 if fast:
