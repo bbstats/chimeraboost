@@ -693,6 +693,35 @@ to the top-4 numerics, no new mechanism — re-run on the same panel:
 (regressor; forced block top-4, probe 25 rounds, all applicability gates
 kept), tier-1 synth screen with `--expect-inert`.
 
+### Step 2 result (run 2026-08-10, verdict recorded 2026-08-15): tier-1 PASS
+
+Knob implemented on `e2/forced-cross-features`: regressor-only
+`cross_features="always"` — 25-round importance probe, forced top-4 block,
+all applicability gates kept; the classifier rejects the value with a clear
+error; the raced default path is untouched (goldens green). Tier-1 screen:
+ONE run, three arms (`results/20260810-161742.json`); the default
+`ChimeraBoost` arm reproduces the E1 baselines exactly, validating pairing.
+
+- `--expect-inert`: 116/136 exact ties. Every structural control is clean —
+  classification 0W-0L-88T, `n<2000` 0-0-48, canary&cats 0-0-3, saturated
+  0-0-17. The gates hold exactly where they must.
+- Engaged (20 datasets): **11W-9L, bar 11+ PASS**; engaged mean +2.29%,
+  engaged median +0.44%. Worst engaged loss −2.93% (`syn:v2/553`); no slice
+  sign-tests negative.
+- **Mechanism (the registered kill bar): PASS.** The printed `depth<=2`
+  slice mixes depth-1 with depth-2, so the bar was read from a per-dataset
+  join of engaged deltas against generator metadata: 19/20 engaged sets are
+  `interaction_depth>=2`; every gain above +3% sits at depth 2–4 (+14.6%,
+  +11.7%, +9.5% at the top); additive (depth-1) sets are near-universally
+  exact ties — the design claim that an irrelevant cross block costs fit
+  time, not accuracy, holds. One depth-1 engager won +3.1% (n=1, noted).
+- The 11W-9L margin is a screen read, not a strength verdict — p=0.82. The
+  decide tier owns strength, per the bars below.
+
+**Consequence: E2 proceeds to step 3** — tier-2 `--decide --seeds 3 --save`
+with the within-run ladder field (rung-1X, OneLin, NoRefit, default,
+LightGBM), judged on A'/B'/C'.
+
 ### Bars
 
 - **A'** (cost): rung-1X mean fit-time multiple <=3.0x within-run AND <=0.65x
@@ -774,3 +803,10 @@ the same change.
   Recorded caveats: gdiff pair ranking is the fidelity weak joint on
   `reg_cat`; forced mode eats occasional large per-seed losses the race used
   to referee away. Next: step 2, the knob.
+- 2026-08-15 (E2): **tier-1 synth PASS** (run 2026-08-10; the session died
+  before the verdict was recorded). Engaged 11W-9L (bar 11+), inert controls
+  exact-tie clean, and the registered mechanism bar holds: the gain
+  concentrates on `interaction_depth>=2` (19/20 engaged sets; every big win
+  at depth 2–4; additive sets tie). Run `results/20260810-161742.json`,
+  knob on `e2/forced-cross-features`. Next: tier-2 decide with the ladder
+  field.
