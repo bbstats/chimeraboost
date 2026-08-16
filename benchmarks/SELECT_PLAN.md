@@ -374,10 +374,9 @@ one `--models` flag.
 
 ## Still open
 
-- **A "use cross features without auditioning" mode.** Rung 1 currently
-  drops cross features entirely because `cross_features=True` still races.
-  A forced-on mode could give a stronger rung 1 near one-fit cost.
-  **Pre-registered 2026-08-10 as E2 below.**
+Nothing. The last item — a "use cross features without auditioning" mode —
+was pre-registered 2026-08-10 as E2 below and **SHIPPED 2026-08-16** (PR #91):
+`cross_features="always"` on the regressor, and `quality=1` pins it.
 
 ## E1 — pre-registered 2026-08-10: the rule, not the budget
 
@@ -744,6 +743,40 @@ kills: the mode does not ship, the rung-1 open item closes as "cross features
 need the referee", and if the reason generalises it goes to `BARRIERS.md` in
 the same change.
 
+### Step 3 result (2026-08-16): tier-2 PASS on all three bars — SHIPPED
+
+Decide run `results/20260815-235543.json` — Grinsztajn + high-card +
+variants, 3 seeds, five arms in ONE run (default / OneLin / OneLinX /
+NoRefit / LightGBM), all bar quantities within-run. Suite green before the
+run (940 passed, 1 pre-existing skip).
+
+| bar | requirement | measured | verdict |
+|---|---|---|---|
+| A' cost | <=3.0x within-run AND <=0.65x of rung 2 | 2.7x; 2.7/4.7 = 0.57x | PASS |
+| B' frontier | strictly above the LightGBM→default chord | 49.5% vs 41.7% needed at 2.7x (+7.9 pts) | PASS |
+| C' strength | engaged sign test vs OneLin + beats LightGBM | gr engaged 28W-8L, engaged median +0.60% (n=34 excl. near-solved); LightGBM 43W-16L, median +0.41% | PASS |
+
+- A' hit the <=3.0x tier, so the FULL ship applies: knob + `quality=1`
+  (regressor) pins `cross_features="always"`. PR #91.
+- The forecast band held: engaged median +0.60% vs registered +0.3 to +1.0%.
+  Cost 2.7x vs predicted 2.5-4.0x, at the good end — the top-4 narrowing
+  from step 1's retry is what bought it.
+- Engaged-only reads positive on every stratum that engaged (gr 28W-8L,
+  hc 3W-1L, gr@sus25 3W-1L, gr@sus50 3W-1L, hc@sus50 1W-0L, hc@time 1W-0L);
+  inert slices are exact ties throughout (`--expect-inert` clean). Small
+  strata read as pointers, not gates (GATE_ROBUSTNESS #2).
+- **Pre-registered caveat confirmed, on record**: HC vs LightGBM is 7W-6L —
+  a coin flip, not a regression; rung 1 is numeric-heavy territory. And the
+  dodged-losses worry materialised at tolerable size: worst engaged loss
+  −6.0% (`gr:reg_num/cpu_act`), `analcatdata_supreme` −3.5% — the race used
+  to referee these away; the sign tests absorbed them.
+- Default-is-best-non-ensembling-rung re-check (standing rule): unchanged —
+  the default reads 91.5% @ 6.1x in this field vs rung-1X's 49.5% @ 2.7x;
+  rung 3 stays the default.
+- Post-merge: delete the code branch, refresh `images/pareto.png` +
+  `public_pareto.png` on the next canonical run (`docs/PROJECT_STATUS.md`
+  carries a dated note until then).
+
 ## Log
 
 - 2026-07-25: pre-registered.
@@ -810,3 +843,9 @@ the same change.
   at depth 2–4; additive sets tie). Run `results/20260810-161742.json`,
   knob on `e2/forced-cross-features`. Next: tier-2 decide with the ladder
   field.
+- 2026-08-16 (E2): **tier-2 PASS on all three bars — SHIPPED** (step 3
+  above). A' 2.7x / 0.57x-of-rung-2, B' +7.9 points over the chord, C'
+  28W-8L engaged at median +0.60% plus LightGBM 43W-16L. The <=3.0x tier
+  applies: PR #91 ships the knob AND flips `quality=1` (regressor) to
+  `cross_features="always"`. HC-vs-LightGBM coin flip (7W-6L) recorded as
+  the pre-registered caveat. **E2 closed; no SELECT items remain open.**
