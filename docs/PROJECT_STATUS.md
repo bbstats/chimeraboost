@@ -119,6 +119,12 @@ models, all co-run so the columns share one field:
 | LightGBM | — | 20.8% | [16.8, 25.1] | 1.1× | yes |
 | sklearn_HGB | — | 13.5% | [8.5, 19.0] | 4.7× | — |
 
+*(2026-08-16: rung 1's composition changed — the regressor now keeps cross
+features without their audition, `cross_features="always"`, moving it to
+49.5% @ 2.7× in the E2 decide run's own five-arm field. The table above
+predates that and will be refreshed with the next chart run; see
+benchmarks/SELECT_PLAN.md E2.)*
+
 **Every ChimeraBoost rung is on the frontier**, which now runs from 2.1× to
 26.8×; LightGBM holds only the extreme-left corner. The default beats CatBoost
 on 46 of 57 scored datasets while fitting ~2.6× faster than it, leaving
