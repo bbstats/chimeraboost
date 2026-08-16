@@ -212,6 +212,27 @@ stays 100.
 *Incident*: `PARETO_PLAN.md`, "Known residual"; Sel25 kill 2026-07-31; E1 kill
 2026-08-10 (`SELECT_PLAN.md` E1).
 
+### B15 — Histogram sibling-subtraction is closed while histograms stay cache-resident
+tags: histogram, subtraction, sibling, scatter, scan, quantize, grow-kernel, hist, parent-minus-sibling, speed
+
+Deriving the sibling histogram as parent − child looked like the last
+double-digit fit-speed object twice, and both doors are shut. In the float
+domain it is FP-drift class (`GROW_PLAN.md`). In the quantized integer domain
+it is exact — and it was built and measured 2026-07-18 at **0.49–0.57×, a ~2×
+regression**, with its correctness oracle green. Quantization and subtraction
+are SUBSTITUTES, not complements: the packed int64 histogram slice (64 KB per
+feature at 128 bins) is L2-resident, so the random read-modify-writes that
+subtraction saves are cheaper than the 50/50 `leaf & 1` branch mispredicts it
+adds.
+
+Consequence: do not propose histogram subtraction in any domain while the
+histogram working set stays in cache. Reopen only if that premise breaks:
+`max_bins` ≫ 128, much deeper trees, or a GPU backend.
+
+*Incident*: `QUANT_PLAN.md:263-272` (its SUBTRACT_PLAN.md was never committed);
+corroborated `GPU_PLAN.md:56`. Nearly re-proposed 2026-08-16 during campaign
+intake — this entry exists so that cannot happen again.
+
 ---
 
 ## Adding an entry
