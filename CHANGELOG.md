@@ -4,6 +4,23 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Changed
+- **String categorical columns factorize ~40% faster; predictions are
+  bit-identical.** Columns whose entries are not all numbers — every string
+  categorical — fell through to a per-row Python dict loop, which on a
+  17-string-column dataset ran 1.6 million `dict.get` calls and took 18% of
+  the profiled fit. The loop's dictionary is now driven from C rather than
+  from Python bytecode: `map(dict.setdefault, values, count())` assigns each
+  new category the row index of its first appearance, and one scatter turns
+  those indices into codes, with no sort. Keeping the same dictionary is
+  deliberate — it is what defines which values count as the same category,
+  including across types (`True`, `1` and `1.0` are one category; `"1.5"` and
+  `1.5` are two), so equivalence is structural rather than re-audited. 0.57×
+  the old loop over 35 real string columns; 4–7% off end-to-end fit time on
+  string-heavy datasets, nothing on datasets without string categoricals.
+  Anything the vectorized path cannot express — a value that raises on
+  comparison, an unhashable one — still takes the original loop.
+
 ### Added
 - **`cross_features="always"` (regressor): cross features without the
   audition.** The default path auditions plain features against

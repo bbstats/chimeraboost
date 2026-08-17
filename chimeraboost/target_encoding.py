@@ -18,6 +18,8 @@ At prediction time there is no "before", so we use the full training totals:
 Unseen categories fall back to the prior.
 """
 
+from itertools import count
+
 import numpy as np
 from numba import njit
 
@@ -204,6 +206,59 @@ def _factorize_numeric(col):
     return codes, cat_ids[order]
 
 
+def _factorize_hashed(col):
+    """The general `factorize` loop with the same dict, driven from C instead of
+    from Python bytecode; returns None when the missing mask cannot be computed
+    safely, and the caller falls back to the loop.
+
+    This is the path string categoricals take, and they are not rare: a
+    17-column string set (hc:okcupid-stem) spent 18% of its fit in the loop,
+    1.6M `dict.get` calls, because the numeric fast path refuses every one of
+    its columns.
+
+    Keeping the dict is the whole design. The dict is what DEFINES the loop's
+    ==/hash classes, and they span types: `True`, `1` and `1.0` are one
+    category, while `"1.5"` and `1.5` are two. Any path that re-derives
+    categories from a cast -- to float, or to fixed-width unicode -- has to
+    re-litigate every one of those, and eats a sort besides. Measured on the 35
+    real string columns of hc:okcupid-stem + hc:kick (50-73K rows,
+    `benchmarks/f4_c2_micro.py`): this is 0.57x the loop and wins on every
+    column, where a `np.unique`-over-`U`-strings design came out 2.05x. Sorting
+    wide strings costs more than hashing them once -- which is what the loop was
+    already doing, so the loop's data structure was never the problem.
+
+    `mapping.setdefault(v, i)` gives each new category the ROW INDEX of its
+    first appearance, so `mapping.values()` holds both the category order and
+    the raw codes; scattering ranks into a lookup converts them to 0..K-1 in one
+    pass, with no sort anywhere.
+
+    The one thing that is not structural is the missing mask. The loop treats
+    None, anything unequal to itself, and anything that RAISES on `!=` as
+    missing. The first two vectorize; the third cannot, so a raise -- or a
+    comparison that does not come back as plain bools -- sends the column to the
+    loop rather than guessing."""
+    n = col.shape[0]
+    try:
+        miss = np.not_equal(col, col) | np.equal(col, None)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(miss, np.ndarray) or miss.dtype != np.bool_:
+        return None
+    if miss.any():
+        col = col.copy()
+        col[miss] = "__nan__"
+    mapping = {}
+    try:
+        raw = np.fromiter(map(mapping.setdefault, col.tolist(), count()),
+                          dtype=np.int64, count=n)
+    except TypeError:
+        return None                   # unhashable: let the loop raise as before
+    first = np.fromiter(mapping.values(), dtype=np.int64, count=len(mapping))
+    lookup = np.empty(n, dtype=np.int64)
+    lookup[first] = np.arange(first.size, dtype=np.int64)
+    return lookup[raw], np.asarray(list(mapping), dtype=object)
+
+
 def factorize(column):
     """Map an arbitrary 1D column to integer codes in [0, K), in first-appearance
     order. NaN / None map to a dedicated "__nan__" category. Returns
@@ -214,12 +269,16 @@ def factorize(column):
     unequal to itself), or refusing self-comparison (pandas' NA scalar raises on
     ``bool``) -- the same set ``pd.isna`` recognizes, without needing pandas.
 
-    All-numeric columns take a vectorized path (`_factorize_numeric`); the
-    loop below is the general case, the fallback, and the fast path's oracle
-    in tests/test_bitident_refactors.py.
+    All-numeric columns take a vectorized path (`_factorize_numeric`) and
+    everything else tries `_factorize_hashed`, which is this same loop driven
+    from C; the loop below is the definition both are checked against, and the
+    fallback whenever either refuses (tests/test_bitident_refactors.py).
     """
     col = np.asarray(column, dtype=object)
     fast = _factorize_numeric(col)
+    if fast is not None:
+        return fast
+    fast = _factorize_hashed(col)
     if fast is not None:
         return fast
     codes = np.empty(col.shape[0], dtype=np.int64)

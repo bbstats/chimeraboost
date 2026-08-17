@@ -13,7 +13,8 @@ from chimeraboost import ChimeraBoostRegressor
 from chimeraboost.booster import GradientBoosting
 from chimeraboost.losses import MAE, RMSE, Huber, MultiQuantile, Quantile
 from chimeraboost.preprocessing import _factorize_int
-from chimeraboost.target_encoding import _factorize_numeric, factorize
+from chimeraboost.target_encoding import (_factorize_hashed,
+                                          _factorize_numeric, factorize)
 from chimeraboost.tree import _SMALL_N
 
 
@@ -109,10 +110,11 @@ def test_scalar_correct_leaves_matches_reference(loss, weighted, n):
 
 
 # ---------------------------------------------------------------------------
-# factorize: the vectorized numeric fast path must group and order exactly
-# like the dict loop, and must REFUSE anything the audit can't prove numeric
-# (numeric-looking strings are the killer: astype parses "1.5" happily).
-# The reference below is the old loop, verbatim.
+# factorize: both fast paths must group and order exactly like the dict loop.
+# The numeric one must REFUSE anything the audit can't prove numeric (numeric-
+# looking strings are the killer: astype parses "1.5" happily); the hashed one
+# keeps the dict itself, so it need only refuse what its missing-value mask
+# cannot see. The reference below is the old loop, verbatim.
 # ---------------------------------------------------------------------------
 
 def _factorize_reference(column):
@@ -137,6 +139,20 @@ def _factorize_reference(column):
     return codes, np.asarray(cats, dtype=object)
 
 
+class _RaisesOnCompare:
+    """The loop's third missing-value class: `!=` raises, so the loop calls it
+    missing. No vectorized mask can see that, so the fast path must refuse."""
+
+    def __eq__(self, other):
+        raise ValueError("no comparison here")
+
+    def __ne__(self, other):
+        raise ValueError("no comparison here")
+
+    def __hash__(self):
+        return 0
+
+
 FACTORIZE_CASES = [
     [3.5, 1.0, 3.5, np.nan, 2.0, None, 1.0],
     [1, 2, 3, 1, 2],
@@ -153,6 +169,16 @@ FACTORIZE_CASES = [
     ["nan", "nan"],                     # the string "nan" is a real category
     ["__nan__", None],                  # sentinel-collision quirk preserved
     [2 ** 53 + 1, 2 ** 53 + 2],         # past float53 -> must not merge
+    ["x", np.nan, "y", "x", None],      # strings + both flavours of missing
+    ["b", "a", "b", "c", "a"],          # first-appearance order != sorted order
+    ["", "", "a"],                      # the empty string is a category
+    ["a\x00", "a"],                     # a NUL is part of the string, not padding
+    ["e", "é", "e"],               # non-ASCII stays distinct
+    [np.str_("a"), "a"],                # str subclass: one ==/hash class
+    ["a", 1.5, "a"],                    # mixed types keep the dict's classes
+    ["a", b"a"],                        # bytes never equal str
+    ["a", True, 1, "a"],                # bool/int merge, string does not
+    [_RaisesOnCompare(), "a"],          # raises on != -> counts as missing
 ]
 
 
@@ -177,6 +203,25 @@ def test_factorize_fast_path_refuses_non_numeric():
                  ["__nan__", None], [2 ** 53 + 1, 2 ** 53 + 2], [b"x"]):
         col = np.asarray(case, dtype=object)
         assert _factorize_numeric(col) is None, case
+
+
+def test_factorize_hashed_refuses_what_it_cannot_vectorize():
+    # The mask is the only non-structural step: an element that raises on `!=`
+    # is missing to the loop and invisible to any mask, and an unhashable one
+    # must reach the loop so it raises there, as it always did.
+    for case in ([_RaisesOnCompare()], ["a", _RaisesOnCompare()],
+                 [["unhashable"], "a"]):
+        col = np.asarray(case, dtype=object)
+        assert _factorize_hashed(col) is None, case
+
+
+def test_factorize_hashed_engages_on_the_case_it_exists_for():
+    # String columns are why this path exists (18% of the hc:okcupid-stem fit);
+    # they must not reach the loop, with or without missing values.
+    for case in (["a", "b", "a"], ["x", None, "y"], ["x", np.nan],
+                 ["", "a"], ["__nan__", None], ["1.5", "2"], ["a", 1.5]):
+        col = np.asarray(case, dtype=object)
+        assert _factorize_hashed(col) is not None, case
 
 
 def test_factorize_int_matches_reference():
