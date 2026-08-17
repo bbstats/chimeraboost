@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **Multiclass fits are ~40% faster; predictions are bit-identical.** The
+  softmax that turns raw scores into probabilities every boosting round was
+  the largest single cost in a multiclass fit — 45% of it on a three-class,
+  38K-row dataset — and almost none of that was the arithmetic. It ran two
+  numpy reductions across the class axis, so for three classes numpy paid its
+  per-row reduction machinery 38,000 times to compare three numbers; the
+  exponential itself was only a fifth of the cost. It is now one fused numba
+  kernel per row, the same treatment the binary logistic path already had.
+  33× faster on the softmax itself, which is 37–44% off end-to-end fit time
+  across the multiclass datasets measured, and nothing at all on binary or
+  regression data, where this code never ran. Above seven classes the original
+  numpy path is kept: numpy sums a short axis left to right but switches to
+  pairwise blocking from eight elements, and past that point a fused kernel
+  would no longer agree with it in the last bit. Bit-identity is a gate here,
+  not a hope — the exact-output snapshot passes 89 of 89 configurations.
 - **String categorical columns factorize ~40% faster; predictions are
   bit-identical.** Columns whose entries are not all numbers — every string
   categorical — fell through to a per-row Python dict loop, which on a

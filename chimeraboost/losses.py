@@ -378,10 +378,58 @@ class CustomObjective:
         return raw
 
 
-def _softmax(F):
+# Largest class count for which the fused kernel below is bit-identical to
+# `_softmax_numpy`. The limit is numpy's, not ours: a reduction over a short
+# inner axis is summed left to right, but from length 8 numpy switches to
+# pairwise blocking, and a row-at-a-time accumulator stops agreeing in the last
+# bit. Measured over K = 2..50 -- the first disagreement is exactly at K = 8
+# (`benchmarks/f4_c1_walltime.py`). Above the limit we keep numpy's own path
+# rather than ship an answer that is merely close.
+_SOFTMAX_MAX_K = 7
+
+
+@njit(cache=True, parallel=True)
+def _softmax_kernel(F):
+    # Row-wise softmax in one pass per row, the multiclass twin of `_sigmoid`
+    # above. Subtracting the row max before exp() is the same overflow guard
+    # the numpy version uses.
+    #
+    # The final loop DIVIDES by the sum. Hoisting `inv = 1.0 / s` out and
+    # multiplying is the obvious micro-optimization, costs nothing measurable,
+    # and breaks bit-identity at every K -- a reciprocal followed by a multiply
+    # does not round like a divide. Leave it as a divide.
+    n, K = F.shape
+    out = np.empty((n, K), dtype=np.float64)
+    for i in prange(n):
+        m = F[i, 0]
+        for k in range(1, K):
+            if F[i, k] > m:
+                m = F[i, k]
+        s = 0.0
+        for k in range(K):
+            e = np.exp(F[i, k] - m)
+            out[i, k] = e
+            s += e
+        for k in range(K):
+            out[i, k] = out[i, k] / s
+    return out
+
+
+def _softmax_numpy(F):
+    """The reference implementation, and the live path for K > 7.
+
+    Kept as a named function because it is also the oracle the tests check the
+    kernel against -- the bit-identity claim is only meaningful against the
+    code that used to run."""
     z = F - F.max(axis=1, keepdims=True)
     ez = np.exp(z)
     return ez / ez.sum(axis=1, keepdims=True)
+
+
+def _softmax(F):
+    if F.dtype == np.float64 and 0 < F.shape[1] <= _SOFTMAX_MAX_K:
+        return _softmax_kernel(F)
+    return _softmax_numpy(F)
 
 
 class MultiSoftmax:

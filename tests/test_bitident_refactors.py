@@ -11,7 +11,9 @@ import pytest
 
 from chimeraboost import ChimeraBoostRegressor
 from chimeraboost.booster import GradientBoosting
-from chimeraboost.losses import MAE, RMSE, Huber, MultiQuantile, Quantile
+from chimeraboost.losses import (MAE, RMSE, Huber, MultiQuantile, MultiSoftmax,
+                                 Quantile, _SOFTMAX_MAX_K, _softmax,
+                                 _softmax_numpy)
 from chimeraboost.preprocessing import _factorize_int
 from chimeraboost.target_encoding import (_factorize_hashed,
                                           _factorize_numeric, factorize)
@@ -284,3 +286,73 @@ def test_custom_adjusts_leaves_loss_keeps_generic_path():
     gb._correct_leaves(tree, leaf, y, F, None)
     ref = _correct_leaves_reference(loss, 0.1, n_leaves, leaf, y, F, None)
     np.testing.assert_array_equal(tree.values, ref)
+
+
+# ---------------------------------------------------------------------------
+# _softmax fused kernel (F4 C1): bit-identical to the numpy path it replaced,
+# for every class count it is allowed to run on. The oracle is the OLD code
+# (`_softmax_numpy`), not a re-derivation of what softmax ought to be.
+# ---------------------------------------------------------------------------
+
+def test_softmax_kernel_is_bit_identical_up_to_the_guard():
+    rng = np.random.default_rng(0)
+    for K in range(2, _SOFTMAX_MAX_K + 1):
+        for scale in (1e-3, 1.0, 30.0):    # tiny, ordinary and near-overflow
+            F = rng.normal(scale=scale, size=(4000, K))
+            np.testing.assert_array_equal(_softmax(F), _softmax_numpy(F))
+
+
+def test_softmax_above_the_guard_uses_numpy_untouched():
+    # K >= 8 is where a row-at-a-time sum stops matching numpy's pairwise
+    # blocking, so the kernel must not run there at all -- exercised through
+    # the public entry point, since that dispatch IS the guarantee.
+    rng = np.random.default_rng(1)
+    for K in (_SOFTMAX_MAX_K + 1, 12, 26):
+        F = rng.normal(size=(2000, K))
+        np.testing.assert_array_equal(_softmax(F), _softmax_numpy(F))
+
+
+def test_softmax_kernel_matches_numpy_on_degenerate_rows():
+    # Constant rows, huge negatives (every exp underflows but the max),
+    # duplicate maxima, and a single-column matrix.
+    cases = [np.zeros((5, 3)),
+             np.full((4, 3), -1e5),
+             np.array([[800.0, 800.0, -800.0], [-1e300, 1e-300, 0.0]]),
+             np.array([[1.0], [2.0]]),
+             np.repeat(np.array([[3.0, 3.0, 3.0]]), 7, axis=0)]
+    for F in cases:
+        np.testing.assert_array_equal(_softmax(F), _softmax_numpy(F))
+
+
+def test_softmax_non_float64_falls_back_to_numpy():
+    # The kernel writes a float64 out-array; anything else must take the
+    # numpy path rather than be silently upcast.
+    F = np.random.default_rng(2).normal(size=(64, 3)).astype(np.float32)
+    out = _softmax(F)
+    np.testing.assert_array_equal(out, _softmax_numpy(F))
+    assert out.dtype == np.float32
+
+
+def test_softmax_rows_sum_to_one_and_probabilities_are_valid():
+    F = np.random.default_rng(3).normal(scale=5.0, size=(1000, 5))
+    P = _softmax(F)
+    assert np.all((P >= 0.0) & (P <= 1.0))
+    np.testing.assert_allclose(P.sum(axis=1), 1.0, rtol=0, atol=1e-12)
+
+
+def test_multiclass_grad_hess_and_eval_go_through_the_kernel():
+    # The callers, not just the helper: grad_hess is 40% of a multiclass fit
+    # and eval another 5%, so both are pinned against the numpy oracle.
+    rng = np.random.default_rng(4)
+    n, K = 800, 4
+    F = rng.normal(size=(n, K))
+    Y = np.eye(K)[rng.integers(0, K, n)]
+    loss = MultiSoftmax(K)
+    P = _softmax_numpy(F)
+    grad, hess = loss.grad_hess(Y, F)
+    np.testing.assert_array_equal(grad, P - Y)
+    np.testing.assert_array_equal(hess, np.maximum(P * (1.0 - P), 1e-6))
+    ref_eval = float(np.average(-np.sum(
+        Y * np.log(np.clip(P, 1e-12, 1.0)), axis=1)))
+    assert loss.eval(Y, F) == ref_eval
+    np.testing.assert_array_equal(loss.transform(F), P)
