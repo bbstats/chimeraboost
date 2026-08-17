@@ -75,6 +75,7 @@ fact: 2026-08-16 | test suite on 1d68f07 = 952 passed, 1 skipped, 113 s (941 + t
 fact: 2026-08-16 | F4 C2 SHIPPED (`_factorize_hashed`): bit-identical 89/89, fit −4.0% okcupid-stem / −6.8% kick / −1.0% Grinsztajn control on zero calls; column-level 0.57× the loop over 35 real string columns (`results/campaign-f4c2-{micro,speed}-20260816.txt`)
 fact: 2026-08-16 | same-process alternating-fit A/B noise = ~1% (the zero-`factorize`-call control read −1.0%); this is the tighter instrument, the ~2% floor is for cross-run reads
 fact: 2026-08-16 | a cProfile percentage on a PYTHON-LEVEL loop is an upper bound: `factorize`'s profiled 18% of the okcupid-stem fit was 8% by wall clock, because per-call overhead is charged on 1.6M `dict.get` calls
+fact: 2026-08-16 | after C1, `grad_hess` fell from 40.0% to 5.9% of an okcupid-stem fit (11.8% on cjs); C1b's own object (`P−Y` + `max(P(1−P),1e-6)`) is 4.4% / 7.5% — measured post-ship by a second instrument, which independently confirms C1's win
 fact: 2026-08-16 | F4 C1 SHIPPED (`_softmax_kernel`, guarded K ≤ 7): bit-identical 89/89, multiclass fit −44.2% okcupid-stem / −37.2% Traffic_violations / −40.5% cjs, binary control −0.6% on zero calls (`results/campaign-f4c1-speed-20260816.txt`); softmax leg 1.70s → 0.05s
 fact: 2026-08-16 | the fused softmax kernel is 6.9–11.0× faster PARALLEL than serial at every real shape — `prange` earns its thread setup even on 3-wide rows
 fact: 2026-08-16 | all 8 multiclass rows in `--decide` are K ∈ {3,5,6} (okcupid-stem, Traffic_violations, cjs, eucalyptus + variants) — every one under the K ≤ 7 guard; **Grinsztajn contains no multiclass task at all**, so multiclass work cannot move the headline stratum
@@ -89,7 +90,7 @@ fact: 2026-08-16 | attribution on 7684655 (`results/campaign-attr-20260816.{json
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 shipped) | C1 SHIPPED (I012/I013): fused softmax kernel, bit-identical, multiclass fit −37 to −44%. Next = C1b (`grad_hess` fusion), S0 owes a fresh wall-clock read now that softmax is 0.05s |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 shipped) | C1 SHIPPED (I012/I013): fused softmax kernel, bit-identical, multiclass fit −37 to −44%. C1b measured and PARKED (I014): ceiling 4.4–7.5%, cheap but hc-only — Nathan's call vs F2 |
 | F2 | Sub-gate cross via CV-averaged race | ACTIVE | S1 probe script (S0 re-scoped it, I002) |
 | F3 | Classifier forced-cross | ACTIVE | S1 probe of classifier pair fidelity (S0 done, I004); behind F4/F2 |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
@@ -142,11 +143,10 @@ The wall-clock rule now has evidence on both sides and should be stated as the
 symmetric thing it is: cProfile OVERSTATES many-tiny-calls objects (C2, 18%
 profiled → 8% real) and UNDERSTATES few-fat-calls ones (C1, 39% profiled → 45.4%
 real). Neither direction is safe to forecast from; measure.
-Next unit = **C1b**, fusing `grad_hess`'s remaining `P - Y` and
-`max(P*(1-P), 1e-6)` passes into the kernel that now exists. Its S0 owes a fresh
-wall-clock read, because C1 changed the very number C1b would be justified by —
-the honest prior is that the remaining share is now small, and the unit should
-die cheaply at S0 if it is.
+C1b (fusing `grad_hess`'s remaining `P - Y` and `max(P*(1-P), 1e-6)` passes into
+the kernel that now exists) was measured at S0 and PARKED (I014): ceiling
+4.4–7.5% of a multiclass fit, cheap and bit-identical, but hc-only. It is on the
+record so it need not be re-derived; taking it is an ordering call against F2.
 
 ### F5 — hc-Brier gap vs CatBoost
 status: BLOCKED(needs B3-clearing mechanism from lens L3)
@@ -157,6 +157,37 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I014 2026-08-16 F4 S0 (candidate C1b — grad_hess fusion; ceiling measured, PARKED)
+forecast: n/a in the strength sense (measurement). The stated prior in I013 was
+"the remaining share is now small, and the unit should die cheaply at S0 if it
+is" — this entry is that check, run before any code was written, and the prior
+was roughly right.
+ran: `benchmarks/f4_c1b_walltime.py` (new) — wraps `MultiSoftmax.grad_hess` and
+`_softmax` in a real fit and splits the first by the second, so what is reported
+is the arithmetic C1b would actually absorb, not the whole method.
+result: **the object shrank with C1 and is now a single-digit ceiling.**
+`grad_hess` is 5.9% of an hc:okcupid-stem fit and 11.8% of hc:cjs; strip out the
+fused softmax inside it and C1b's own object — `P - Y` plus
+`max(P*(1-P), 1e-6)` — is **4.4% and 7.5%** respectively. Note the shape of the
+change: `grad_hess` was 40.0% of fit before C1 and is 5.9% after, which is the
+clearest possible confirmation that C1's win was real and not a measurement
+artifact, since it was read by a different instrument on a different day's code.
+verdict: **PASS on the ceiling, PARKED on priority** — and the distinction is
+the point. 4.4–7.5% clears the band B10 killed things at (0.9–3%), the change
+would stay bit-identical (both ops are elementwise, so order cannot matter, and
+the existing K ≤ 7 guard already covers it), and the kernel it would extend is
+already written — so this is a genuinely cheap unit, not a speculative one.
+What it is NOT is default-moving: it reaches 8 hc rows and 0 Grinsztajn rows,
+and realistic recovery is a fraction of the ceiling, since the fused kernel still
+has to write the two arrays it saves passes over. Call it 2–4% of multiclass fit.
+That is worth one unit of somebody's time, and it is worth less than F2, which
+aims at the default's strength.
+next: **Nathan's ordering call, and the only open item this session leaves.**
+Either take C1b as one cheap unit, or leave it parked and spend the next unit on
+F2's S1 probe (CV-averaged race on sub-gate sets, I002). Recommendation: F2
+first — C1b will still be a 20-minute unit whenever it is wanted, and its
+ceiling is measured and on the record so it need not be re-derived.
 
 #### I013 2026-08-16 F4 S1 (candidate C1 — implemented, measured, SHIPPED)
 forecast: as pre-registered in I012 — hc:okcupid-stem fit −25 to −40% against a
