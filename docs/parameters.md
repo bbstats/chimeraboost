@@ -155,7 +155,7 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 | `classes_` *(classifier)* | Label values, in `predict_proba` column order. |
 | `temperature_` *(classifier)* | Calibration temperature. Above 1 means the raw scores were over-confident. |
 | `quantile_offset_` *(regressor)* | Split-conformal correction added to `loss="Quantile"` predictions, fitted on the validation split. 0.0 for other losses or without a split. |
-| `expected_value_` | SHAP baseline; set after `shap_values` (see [SHAP](shap.md)). |
+| `expected_value_` | SHAP baseline in the same additive space as `shap_values`; for identity-link regression it is the mean prediction, otherwise it is the mean raw score. |
 | `estimators_` | Fitted members when `n_ensembles > 1`, otherwise `None`. |
 | `validation_history_` | Per-round validation loss recorded during fit. Empty without a validation split, and a list of member histories when bagged. |
 | `linear_leaves_selected_` *(regressor)* | Which leaf variant the audition kept (`True` means linear leaves won on validation). |

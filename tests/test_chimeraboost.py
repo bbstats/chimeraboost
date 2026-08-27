@@ -8,7 +8,7 @@ from sklearn.datasets import load_diabetes, load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, mean_squared_error
 
-from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
+from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier, CustomObjective
 
 
 def test_descend_leaves_matches_numpy_reference():
@@ -1273,6 +1273,26 @@ def test_sklearn_check_estimator_compliance(Est):
 
 # ---- SHAP (exact interventional TreeSHAP) -----------------------------------
 
+class _BinaryCrossEntropy(CustomObjective):
+    """Binary cross-entropy through the regressor's custom-objective hook."""
+
+    def init(self, y, sample_weight=None):
+        p = np.clip(np.average(y, weights=sample_weight), 1e-6, 1.0 - 1e-6)
+        return float(np.log(p / (1.0 - p)))
+
+    def grad_hess(self, y, raw):
+        p = 1.0 / (1.0 + np.exp(-raw))
+        return p - y, np.maximum(p * (1.0 - p), 1e-6)
+
+    def eval(self, y, raw, sample_weight=None):
+        p = np.clip(1.0 / (1.0 + np.exp(-raw)), 1e-9, 1.0 - 1e-9)
+        ce = -(y * np.log(p) + (1.0 - y) * np.log(1.0 - p))
+        return float(np.average(ce, weights=sample_weight))
+
+    def transform(self, raw):
+        return 1.0 / (1.0 + np.exp(-raw))
+
+
 def _shap_efficiency_err(model_pred, phi, expected_value):
     """Max |sum_features(phi) + expected_value - prediction| over rows."""
     return np.abs(phi.sum(axis=1) + expected_value - model_pred).max()
@@ -1361,8 +1381,51 @@ def test_shap_custom_background():
     assert _shap_efficiency_err(m.predict(X[:30]), phi, m.expected_value_) < 1e-6
 
 
-def test_shap_multiclass_raises():
+def test_shap_custom_transform_reconstructs_raw_score():
     rng = np.random.default_rng(7)
+    X = rng.normal(size=(1200, 5))
+    score = 2 * X[:, 0] - 1.5 * X[:, 1] + 0.5 * X[:, 2]
+    y = (score + 0.4 * rng.normal(size=1200) > 0).astype(float)
+    m = ChimeraBoostRegressor(loss=_BinaryCrossEntropy(), n_estimators=80,
+                              depth=4, random_state=0).fit(X, y)
+    bg = X[:120]
+    rows = X[120:150]
+    phi = m.shap_values(rows, X_background=bg)
+    assert abs(m.expected_value_ - m.predict_raw(bg).mean()) < 1e-6
+    assert _shap_efficiency_err(m.predict_raw(rows), phi, m.expected_value_) < 1e-6
+
+
+def test_shap_poisson_reconstructs_raw_score():
+    rng = np.random.default_rng(9)
+    X = rng.normal(size=(1200, 5))
+    mu = np.exp(0.8 * X[:, 0] - 0.5 * X[:, 1])
+    y = rng.poisson(mu).astype(float)
+    m = ChimeraBoostRegressor(loss="Poisson", n_estimators=60, depth=4,
+                              random_state=0).fit(X, y)
+    rows = X[:30]
+    phi = m.shap_values(rows)
+    # Log link: rows sum to the pre-link score, and predict is its exp.
+    assert _shap_efficiency_err(m.predict_raw(rows), phi, m.expected_value_) < 1e-6
+    np.testing.assert_allclose(m.predict(rows), np.exp(m.predict_raw(rows)),
+                               rtol=1e-12)
+
+
+def test_predict_raw_identity_losses_and_bagged():
+    rng = np.random.default_rng(10)
+    X = rng.normal(size=(900, 5))
+    y = 1.2 * X[:, 0] - X[:, 2] + 0.3 * rng.normal(size=900)
+    m = ChimeraBoostRegressor(n_estimators=40, depth=4, random_state=0).fit(X, y)
+    np.testing.assert_array_equal(m.predict_raw(X[:50]), m.predict(X[:50]))
+
+    bag = ChimeraBoostRegressor(n_estimators=40, depth=4, n_ensembles=3,
+                                random_state=0).fit(X, y)
+    assert bag.estimators_ is not None
+    np.testing.assert_allclose(bag.predict_raw(X[:50]), bag.predict(X[:50]),
+                               rtol=1e-12)
+
+
+def test_shap_multiclass_raises():
+    rng = np.random.default_rng(8)
     X = rng.normal(size=(300, 4))
     y = rng.integers(0, 3, size=300)
     m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)

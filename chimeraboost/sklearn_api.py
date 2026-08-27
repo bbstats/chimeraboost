@@ -1883,7 +1883,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     best_iteration_ : int
         Number of trees retained after early stopping.
     expected_value_ : float
-        SHAP baseline (mean prediction over the background); set after calling
+        SHAP baseline in the same additive space as ``shap_values``. For the
+        identity-link losses it is the mean prediction over the background
+        (with the conformal quantile offset folded in when present); for the
+        log-link losses and custom losses with a non-identity ``transform`` it
+        is the mean raw score over the background. Set after calling
         ``shap_values``.
     estimators_ : list or None
         Fitted members when ``n_ensembles > 1``, otherwise ``None``.
@@ -2394,6 +2398,26 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         tf = getattr(self.model_.loss_, "transform", None)
         return raw if tf is None else tf(raw)
 
+    def predict_raw(self, X):
+        """Raw additive score before the loss link and conformal quantile offset.
+
+        For the identity-link losses (RMSE/MAE/Huber) this equals ``predict``;
+        for ``loss="Quantile"`` it is ``predict`` minus the fitted
+        ``quantile_offset_``. For the log-link losses (Poisson/Gamma/Tweedie)
+        and custom losses with a non-identity ``transform`` it is the pre-link
+        score -- the space ``shap_values`` reconstructs exactly. Averaged across
+        the bag when ``n_ensembles > 1``, mirroring ``predict``.
+        """
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
+
+        if self.estimators_ is not None:
+            with _thread_limit(self.thread_count):
+                Xc, ctx = _bag_predict_context(self, X)
+                return np.mean([m.model_.predict_raw(Xc, ctx)
+                                for m in self.estimators_], axis=0)
+        return self.model_.predict_raw(X)
+
     def predict(self, X):
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
@@ -2458,20 +2482,23 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         return self.model_.feature_importances_
 
     def shap_values(self, X, X_background=None):
-        """Exact interventional TreeSHAP contributions to the predicted target.
+        """Exact interventional TreeSHAP contributions in the model's additive space.
 
         Returns an array of shape ``(n_samples, n_features)`` whose rows sum to
-        ``predict(X) - expected_value_``, where ``expected_value_`` (set as an
-        attribute by this call) is the mean prediction over the background. Each
-        entry is a feature's signed additive contribution to the prediction;
-        linear-leaf slopes are included exactly. Averaged across the bag when
-        ``n_ensembles > 1`` -- the bag prediction is the members' mean, so the
-        averaged attribution stays exact. ``X_background`` overrides the
-        reference distribution (default: a sample of the training data).
-
-        For the log-link losses (Poisson/Gamma/Tweedie) and custom losses with a
-        non-identity ``transform``, attributions are in raw (link) space: rows
-        sum to the log of the prediction, the usual GBDT margin-space convention.
+        the model's additive score minus ``expected_value_``. For the identity-
+        link losses this is ``predict(X) - expected_value_``; for
+        ``loss="Quantile"`` the fitted conformal offset is folded into
+        ``expected_value_`` too, so the rows still sum to ``predict(X) -
+        expected_value_``. For the log-link losses (Poisson/Gamma/Tweedie) and
+        custom losses with a non-identity ``transform``, attributions stay in raw
+        (link) space and rows sum to ``predict_raw(X) - expected_value_``.
+        ``expected_value_`` (set as an attribute by this call) is the mean
+        additive score over the background. Each entry is a feature's signed
+        additive contribution; linear-leaf slopes are included exactly. Averaged
+        across the bag when ``n_ensembles > 1`` -- the bag prediction is the
+        members' mean, so the averaged attribution stays exact. ``X_background``
+        overrides the reference distribution (default: a sample of the training
+        data).
         """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv

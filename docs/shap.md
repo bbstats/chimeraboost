@@ -1,7 +1,8 @@
 # SHAP explanations
 
-`model.shap_values(X)` returns exact SHAP feature attributions: an additive
-decomposition of each prediction into per-feature contributions.
+`model.shap_values(X)` returns exact SHAP feature attributions in the model's
+additive-score space: an additive decomposition of each prediction before any
+final nonlinear link.
 
 ```python
 reg = ChimeraBoostRegressor(random_state=0).fit(X_train, y_train)
@@ -22,8 +23,8 @@ sampling approximation to configure.
 
 ## Efficiency
 
-Contributions plus the baseline reconstruct the prediction, to floating-point
-tolerance:
+For the default identity-link regressor losses, contributions plus the baseline
+reconstruct the prediction, to floating-point tolerance:
 
 ```python
 i = 0
@@ -39,10 +40,18 @@ prediction.
 
 ## What the numbers mean
 
-`phi[i, j]` is feature `j`'s signed contribution to the raw score of row `i`, measured
-against `expected_value_` (the mean raw score over the background):
+`phi[i, j]` is feature `j`'s signed contribution to the model's additive score
+for row `i`, measured against `expected_value_` (the mean additive score over the
+background):
 
-- Regressor: contributions to the predicted target.
+- Regressor with the identity-link losses (`"RMSE"`, `"MAE"`, `"Quantile"`,
+  `"Huber"`): contributions to the predicted target. For `loss="Quantile"`, the
+  fitted conformal offset is folded into `expected_value_`, so `phi.sum() +
+  expected_value_` still reconstructs `predict(X)`.
+- Regressor with the log-link losses (`"Poisson"`, `"Gamma"`, `"Tweedie"`) or a
+  custom loss with a non-identity `transform`: contributions to the raw score
+  before the link. In those cases `phi.sum() + expected_value_` reconstructs
+  `predict_raw(X)`, and `predict(X)` is the linked version of that raw score.
 - Binary classifier: contributions to the pre-temperature log-odds of the positive
   class. Probabilities are a nonlinear squash of the margin, so the attribution lives
   in margin space, as it does in the wider SHAP ecosystem.
@@ -83,9 +92,10 @@ of the training data captured at fit. Override it to explain against a specific 
 phi = clf.shap_values(X_test, X_background=X_reference)
 ```
 
-`expected_value_` is the mean prediction over whichever background is used. Cost scales
-linearly with background size; the default sample keeps it around 3 ms per row at
-depth 6 with 200 background rows.
+`expected_value_` is the mean additive score over whichever background is used.
+For the default identity-link regressor losses, that is also the mean prediction.
+Cost scales linearly with background size; the default sample keeps it around 3 ms
+per row at depth 6 with 200 background rows.
 
 ## Bagged models
 
@@ -96,7 +106,7 @@ For classification it is an additive surrogate for the soft-voted probability.
 ## Limits
 
 - Binary classification and regression only. Multiclass raises `NotImplementedError`.
-- Attributions live in raw-score / log-odds space, rather than probability space.
+- Attributions live in additive-score / log-odds space, rather than probability space.
 - They explain this model's behavior. They are not causal effects.
 
 ## Compared with `feature_importances_`

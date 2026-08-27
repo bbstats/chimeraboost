@@ -73,8 +73,10 @@ The probabilities are temperature-scaled on the validation split:
 [(8, 0.438), (2, 0.252), (3, 0.107)]
 ```
 
-For a faithful, per-prediction explanation, use SHAP. The contributions plus the
-baseline reconstruct each prediction exactly (see [SHAP](shap.md)):
+For a faithful, per-prediction explanation, use SHAP. With the default
+identity-link regressor losses, the contributions plus the baseline reconstruct
+each prediction exactly (see [SHAP](shap.md) for the raw-score caveat on
+transformed losses):
 
 ```pycon
 >>> phi = reg.shap_values(X_test)
