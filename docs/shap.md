@@ -53,14 +53,22 @@ Per-leaf linear models are included exactly. A leaf that predicts
 
 ## Global importance
 
-Average the absolute contributions for a prediction-faithful global ranking:
+`shap_importances` averages the absolute contributions for a
+prediction-faithful global ranking — this is `mean(abs(shap_values(X)))`,
+sorted descending:
 
 ```python
-import numpy as np
-global_importance = np.abs(phi).mean(axis=0)
-for j in np.argsort(global_importance)[::-1][:10]:
-    print(f"feature {j}: {global_importance[j]:.4f}")
+reg.shap_importances(X_test, n_features=10)
+# structured array of (feature, importance) rows
+
+reg.shap_importances(X_test, n_features=10, prettified=True)
+# {feature: importance} dict, CatBoost-style
 ```
+
+`feature` holds names when the model was fit on a DataFrame (or when you pass
+`feature_names=...`), otherwise column indices. The SHAP pass is cached by
+data content, so repeated calls on the same X — with any formatting options —
+compute it once; the cache is dropped on refit.
 
 ## Explaining one prediction
 
