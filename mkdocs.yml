@@ -39,6 +39,7 @@ theme:
 markdown_extensions:
   - admonition
   - attr_list
+  - md_in_html            # render markdown inside the README's centered HTML block
   - tables
   - pymdownx.details
   - pymdownx.inlinehilite
