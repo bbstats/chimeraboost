@@ -1354,6 +1354,95 @@ def test_shap_null_feature_is_negligible():
     assert imp[5] < 0.1 * imp[0]
 
 
+def test_shap_importances_with_feature_names_prettified():
+    rng = np.random.default_rng(41)
+    X = rng.normal(size=(900, 6))
+    y = 2 * X[:, 0] - X[:, 1] + 0.3 * rng.normal(size=900)
+    m = ChimeraBoostRegressor(n_estimators=50, depth=4, random_state=0).fit(X, y)
+    names = [f"f{i}" for i in range(X.shape[1])]
+    Xq = X[:120]
+
+    out = m.shap_importances(Xq, feature_names=names, n_features=3, prettified=True)
+    imp = np.abs(m.shap_values(Xq)).mean(axis=0)
+    top = np.argsort(imp)[::-1][:3]
+
+    assert isinstance(out, dict)
+    assert list(out.keys()) == [names[i] for i in top]
+    np.testing.assert_allclose(list(out.values()), imp[top])
+
+
+def test_shap_importances_index_path():
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(900, 5))
+    y = 1.5 * X[:, 0] + 0.8 * X[:, 2] + 0.2 * rng.normal(size=900)
+    m = ChimeraBoostRegressor(n_estimators=50, depth=4, random_state=0).fit(X, y)
+    Xq = X[:120]
+
+    out = m.shap_importances(Xq, n_features=99)
+    imp = np.abs(m.shap_values(Xq)).mean(axis=0)
+    top = np.argsort(imp)[::-1]
+
+    assert out.dtype.names == ("feature", "importance")
+    assert len(out) == X.shape[1]
+    np.testing.assert_array_equal(out["feature"], top)
+    np.testing.assert_allclose(out["importance"], imp[top])
+
+    pretty = m.shap_importances(Xq, n_features=2, prettified=True)
+    assert list(pretty.keys()) == [int(i) for i in top[:2]]
+    np.testing.assert_allclose(list(pretty.values()), imp[top[:2]])
+
+    with pytest.raises(ValueError, match="feature_names has 3 entries"):
+        m.shap_importances(Xq, feature_names=["a", "b", "c"])
+
+
+def test_shap_importances_cache_by_content_and_refit():
+    rng = np.random.default_rng(44)
+    X = rng.normal(size=(700, 5))
+    y = 1.5 * X[:, 0] + 0.8 * X[:, 2] + 0.2 * rng.normal(size=700)
+    m = ChimeraBoostRegressor(n_estimators=40, depth=4, random_state=0).fit(X, y)
+    Xq = X[:100].copy()
+
+    calls = {"n": 0}
+    real = m.shap_values
+
+    def counting(Xs, *args, **kwargs):
+        calls["n"] += 1
+        return real(Xs, *args, **kwargs)
+
+    m.shap_values = counting
+
+    m.shap_importances(Xq)
+    assert calls["n"] == 1
+    # Same content reuses the SHAP pass: even a fresh equal copy, and any
+    # formatting options.
+    m.shap_importances(Xq.copy(), n_features=2, prettified=True)
+    assert calls["n"] == 1
+    # In-place mutation is different data.
+    Xq[0, 0] += 1.0
+    m.shap_importances(Xq)
+    assert calls["n"] == 2
+    # Refit drops the cache.
+    m.fit(X, y)
+    m.shap_importances(Xq)
+    assert calls["n"] == 3
+
+
+def test_shap_importances_uses_dataframe_names_from_fit():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(43)
+    X = pd.DataFrame(rng.normal(size=(600, 4)), columns=list("abcd"))
+    y = 2 * X["a"] - X["c"] + 0.2 * rng.normal(size=600)
+    m = ChimeraBoostRegressor(n_estimators=40, depth=4, random_state=0).fit(X, y)
+
+    out = m.shap_importances(X.head(80))
+    imp = np.abs(m.shap_values(X.head(80))).mean(axis=0)
+    top = np.argsort(imp)[::-1]
+
+    # Column names captured at fit flow through without passing feature_names.
+    assert list(out["feature"]) == [list("abcd")[i] for i in top]
+    np.testing.assert_allclose(out["importance"], imp[top])
+
+
 def test_shap_maps_to_original_feature_space_with_categoricals():
     rng = np.random.default_rng(5)
     num = rng.normal(size=600)

@@ -1,6 +1,7 @@
 """Scikit-learn flavored estimators: fit / predict / predict_proba."""
 
 import contextlib
+import hashlib
 import inspect
 import warnings
 
@@ -1226,6 +1227,69 @@ def _check_predict_input(estimator, X):
     return Xc
 
 
+def _shap_input_fingerprint(X):
+    """Content key for the shap_importances cache.
+
+    Shape, dtype and value bytes -- so an equal copy of the data hits, and any
+    in-place mutation or different matrix misses. Object arrays (categorical or
+    mixed input) hash element reprs instead, since their raw bytes are just
+    pointer values.
+    """
+    arr = np.asarray(X)
+    h = hashlib.sha1(f"{arr.shape}|{arr.dtype}".encode())
+    if arr.dtype == object:
+        h.update("\x1f".join(map(repr, arr.ravel().tolist())).encode())
+    else:
+        h.update(np.ascontiguousarray(arr).view(np.uint8))
+    return h.hexdigest()
+
+
+def _format_shap_importances(model, importance, feature_names=None,
+                             n_features=None, prettified=False):
+    """Sort, name and truncate a per-feature importance vector."""
+    # Name resolution: explicit names win, then the names captured from a
+    # DataFrame at fit, then plain column indices.
+    if feature_names is None:
+        feature_names = getattr(model, "feature_names_in_", None)
+    if feature_names is not None and len(feature_names) != len(importance):
+        raise ValueError(
+            f"feature_names has {len(feature_names)} entries but X has "
+            f"{len(importance)} features.")
+
+    order = np.argsort(importance)[::-1]
+    if n_features is not None:
+        order = order[:max(0, int(n_features))]
+    top = importance[order]
+
+    if feature_names is not None:
+        names = [str(feature_names[j]) for j in order]
+        if prettified:
+            return {name: float(v) for name, v in zip(names, top)}
+        width = max([len(n) for n in names] or [1])
+        return np.array(list(zip(names, top)),
+                        dtype=[("feature", f"U{width}"), ("importance", "f8")])
+    if prettified:
+        return {int(j): float(v) for j, v in zip(order, top)}
+    return np.array(list(zip(order, top)),
+                    dtype=[("feature", "i8"), ("importance", "f8")])
+
+
+def _shap_importances(model, X, feature_names, n_features, prettified):
+    """Shared body of the estimators' ``shap_importances``: the SHAP pass is
+    cached by data content on the instance (a small, picklable pair; cleared
+    by ``fit``), formatting is recomputed per call."""
+    key = _shap_input_fingerprint(X)
+    cache = getattr(model, "_shap_importances_cache_", None)
+    if cache is not None and cache[0] == key:
+        importance = cache[1]
+    else:
+        importance = np.abs(model.shap_values(X)).mean(axis=0)
+        model._shap_importances_cache_ = (key, importance)
+    return _format_shap_importances(
+        model, importance, feature_names=feature_names,
+        n_features=n_features, prettified=prettified)
+
+
 def _auto_min_child_weight(n_train):
     """Size-adaptive ``min_child_weight`` used when the classifier leaves it None.
 
@@ -2011,6 +2075,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
+        # Cached shap_importances describe the previous fit; drop them.
+        self._shap_importances_cache_ = None
 
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
@@ -2525,6 +2591,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.expected_value_ = base + self.quantile_offset_
         return phi
 
+    def shap_importances(self, X, feature_names=None, n_features=None,
+                         prettified=False):
+        """Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.
+
+        Returns a structured ``(feature, importance)`` array sorted descending,
+        or a ``{feature: importance}`` dict when ``prettified=True``
+        (CatBoost's flag). ``feature`` holds ``feature_names`` when given,
+        else the names captured from a DataFrame at fit, else column indices.
+        ``n_features`` truncates to the top N.
+
+        The expensive SHAP pass is cached on the instance, keyed by the data's
+        content, so repeated calls on the same X -- including with different
+        formatting options -- reuse it. The cache is dropped on refit. See
+        ``shap_values`` for the attribution space and cost.
+        """
+        return _shap_importances(self, X, feature_names, n_features,
+                                 prettified)
+
 
 class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     """Gradient boosted oblivious trees for classification.
@@ -2849,6 +2933,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=True)
+        # Cached shap_importances describe the previous fit; drop them.
+        self._shap_importances_cache_ = None
 
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_,
@@ -3246,3 +3332,21 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         phi, base = self.model_.shap_values(X, background=X_background)
         self.expected_value_ = base
         return phi
+
+    def shap_importances(self, X, feature_names=None, n_features=None,
+                         prettified=False):
+        """Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.
+
+        Returns a structured ``(feature, importance)`` array sorted descending,
+        or a ``{feature: importance}`` dict when ``prettified=True``
+        (CatBoost's flag). ``feature`` holds ``feature_names`` when given,
+        else the names captured from a DataFrame at fit, else column indices.
+        ``n_features`` truncates to the top N. Attributions are in log-odds
+        space (binary only; multiclass raises ``NotImplementedError``).
+
+        The expensive SHAP pass is cached on the instance, keyed by the data's
+        content, so repeated calls on the same X -- including with different
+        formatting options -- reuse it. The cache is dropped on refit.
+        """
+        return _shap_importances(self, X, feature_names, n_features,
+                                 prettified)
