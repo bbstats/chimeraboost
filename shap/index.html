@@ -1251,8 +1251,9 @@
 
 
 <h1 id="shap-explanations">SHAP explanations<a class="headerlink" href="#shap-explanations" title="Permanent link">&para;</a></h1>
-<p><code>model.shap_values(X)</code> returns exact SHAP feature attributions: an additive
-decomposition of each prediction into per-feature contributions.</p>
+<p><code>model.shap_values(X)</code> returns exact SHAP feature attributions in the model's
+additive-score space: an additive decomposition of each prediction before any
+final nonlinear link.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">reg</span> <span class="o">=</span> <span class="n">ChimeraBoostRegressor</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># (n_samples, n_features)</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">base</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span>           <span class="c1"># baseline, set by the call above</span>
@@ -1267,8 +1268,8 @@ in a numba kernel (64 evaluations per tree at depth 6), with no clever bookkeepi
 practical difference for you is that it is built in: no separate <code>shap</code> install, and no
 sampling approximation to configure.</p>
 <h2 id="efficiency">Efficiency<a class="headerlink" href="#efficiency" title="Permanent link">&para;</a></h2>
-<p>Contributions plus the baseline reconstruct the prediction, to floating-point
-tolerance:</p>
+<p>For the default identity-link regressor losses, contributions plus the baseline
+reconstruct the prediction, to floating-point tolerance:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">recon</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">base</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">recon</span> <span class="o">-</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)[</span><span class="n">i</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mf">1e-6</span>   <span class="c1"># holds to ~1e-14</span>
@@ -1279,10 +1280,18 @@ the model's own accounting of a prediction. Gain importance
 on, ignores the per-leaf linear models, and does not decompose any individual
 prediction.</p>
 <h2 id="what-the-numbers-mean">What the numbers mean<a class="headerlink" href="#what-the-numbers-mean" title="Permanent link">&para;</a></h2>
-<p><code>phi[i, j]</code> is feature <code>j</code>'s signed contribution to the raw score of row <code>i</code>, measured
-against <code>expected_value_</code> (the mean raw score over the background):</p>
+<p><code>phi[i, j]</code> is feature <code>j</code>'s signed contribution to the model's additive score
+for row <code>i</code>, measured against <code>expected_value_</code> (the mean additive score over the
+background):</p>
 <ul>
-<li>Regressor: contributions to the predicted target.</li>
+<li>Regressor with the identity-link losses (<code>"RMSE"</code>, <code>"MAE"</code>, <code>"Quantile"</code>,
+  <code>"Huber"</code>): contributions to the predicted target. For <code>loss="Quantile"</code>, the
+  fitted conformal offset is folded into <code>expected_value_</code>, so <code>phi.sum() +
+  expected_value_</code> still reconstructs <code>predict(X)</code>.</li>
+<li>Regressor with the log-link losses (<code>"Poisson"</code>, <code>"Gamma"</code>, <code>"Tweedie"</code>) or a
+  custom loss with a non-identity <code>transform</code>: contributions to the raw score
+  before the link. In those cases <code>phi.sum() + expected_value_</code> reconstructs
+  <code>predict_raw(X)</code>, and <code>predict(X)</code> is the linked version of that raw score.</li>
 <li>Binary classifier: contributions to the pre-temperature log-odds of the positive
   class. Probabilities are a nonlinear squash of the margin, so the attribution lives
   in margin space, as it does in the wider SHAP ecosystem.</li>
@@ -1311,9 +1320,10 @@ away from a typical input. That reference is the background, which defaults to a
 of the training data captured at fit. Override it to explain against a specific cohort:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="n">X_reference</span><span class="p">)</span>
 </code></pre></div>
-<p><code>expected_value_</code> is the mean prediction over whichever background is used. Cost scales
-linearly with background size; the default sample keeps it around 3 ms per row at
-depth 6 with 200 background rows.</p>
+<p><code>expected_value_</code> is the mean additive score over whichever background is used.
+For the default identity-link regressor losses, that is also the mean prediction.
+Cost scales linearly with background size; the default sample keeps it around 3 ms
+per row at depth 6 with 200 background rows.</p>
 <h2 id="bagged-models">Bagged models<a class="headerlink" href="#bagged-models" title="Permanent link">&para;</a></h2>
 <p>When <code>n_ensembles &gt; 1</code>, attributions are averaged across members. For regression this
 is exact, since the bag prediction is the members' mean and Shapley values are linear.
@@ -1321,7 +1331,7 @@ For classification it is an additive surrogate for the soft-voted probability.</
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Binary classification and regression only. Multiclass raises <code>NotImplementedError</code>.</li>
-<li>Attributions live in raw-score / log-odds space, rather than probability space.</li>
+<li>Attributions live in additive-score / log-odds space, rather than probability space.</li>
 <li>They explain this model's behavior. They are not causal effects.</li>
 </ul>
 <h2 id="compared-with-feature_importances_">Compared with <code>feature_importances_</code><a class="headerlink" href="#compared-with-feature_importances_" title="Permanent link">&para;</a></h2>

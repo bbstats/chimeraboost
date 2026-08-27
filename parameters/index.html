@@ -1859,7 +1859,7 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. <code>los
 </tr>
 <tr>
 <td><code>expected_value_</code></td>
-<td>SHAP baseline; set after <code>shap_values</code> (see <a href="../shap/">SHAP</a>).</td>
+<td>SHAP baseline in the same additive space as <code>shap_values</code>; for identity-link regression it is the mean prediction, otherwise it is the mean raw score.</td>
 </tr>
 <tr>
 <td><code>estimators_</code></td>
