@@ -86,6 +86,16 @@ transformed losses):
 (276.5232, 276.5232)
 ```
 
+`shap_importances` is the global SHAP ranking in one call — mean absolute
+contribution per feature, sorted. DataFrame column names are picked up
+automatically; `prettified=True` returns a dict:
+
+```pycon
+>>> {f: round(v, 2) for f, v in
+...  reg.shap_importances(X_test, n_features=3, prettified=True).items()}
+{8: 24.72, 2: 19.92, 3: 10.31}
+```
+
 ## Next
 
 - [Recipes](recipes.md): categoricals, quantile regression, bagging, persistence, and more.

@@ -37,6 +37,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   comparison, an unhashable one — still takes the original loop.
 
 ### Added
+- **`shap_importances` (both estimators): global SHAP feature importance in
+  one call.** `mean(abs(shap_values(X)))` per feature, sorted descending — a
+  structured `(feature, importance)` array, or with `prettified=True`
+  (CatBoost's flag) a `{feature: importance}` dict. Names resolve from an
+  explicit `feature_names`, else the DataFrame columns captured at fit, else
+  column indices. The expensive SHAP pass is cached on the instance, keyed by
+  the data's content, and dropped on refit. (#92, #93)
+- **`predict_raw()` (regressor): the pre-link additive score that SHAP
+  reconstructs.** For the log-link losses (Poisson/Gamma/Tweedie) and custom
+  losses with a non-identity `transform`, `phi.sum(axis=1) + expected_value_`
+  reproduces `predict_raw(X)` exactly, while `predict(X)` applies the link
+  afterward — which made correct SHAP output look wrong by an order of
+  magnitude when compared against predictions. Identity-link losses are
+  unchanged (`predict_raw == predict`, minus the conformal offset for
+  `loss="Quantile"`). The SHAP docs now state the reconstruction target per
+  loss family. (#94, #95)
 - **`cross_features="always"` (regressor): cross features without the
   audition.** The default path auditions plain features against
   cross-augmented ones, and the augmented candidate wins 20 of 21 of those

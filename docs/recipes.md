@@ -379,8 +379,15 @@ for j in np.argsort(m.feature_importances_)[::-1][:5]:
 ```
 
 Gain tells you what the trees split on. It says nothing about how much a feature moves
-any given prediction, and it ignores the per-leaf linear models. For a faithful
-decomposition of the output, use [SHAP](shap.md).
+any given prediction, and it ignores the per-leaf linear models. For a faithful global
+ranking, `shap_importances` averages the absolute SHAP attributions — one call, with
+the SHAP pass cached across repeated calls on the same data:
+
+```python
+m.shap_importances(X_test, n_features=5, prettified=True)   # {feature: importance}
+```
+
+For the per-prediction decomposition behind it, use [SHAP](shap.md).
 
 ## Cross-validation and hyperparameter search
 
