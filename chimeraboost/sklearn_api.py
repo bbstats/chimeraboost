@@ -1790,6 +1790,56 @@ def _add_callback(callbacks, extra):
     return base + [extra]
 
 
+class _RegBoosterFactory:
+    """Value-capturing replacement for the regressor `_fit_single`'s old
+    `_fit_booster` / `_screen` closures.
+
+    Bound at the exact source position where the closures were defined:
+    after `_auto_es_split` has rebound X/y/eval_set and after the kw block's
+    last mutation. None of the captured names is rebound after that point,
+    so value capture here is equivalent to the closures' by-reference
+    capture; `prep_cache` and `kw` are mutated only in place, which both
+    capture styles share. One prep cache serves every booster fit below --
+    the auditions, the cross-augmented candidate, and the winner refit all
+    see identical (X, y, cat_features, eval_set), so their preprocessing is
+    computed once and reused bit-identically (see
+    GradientBoosting._prep_matrices).
+    """
+
+    __slots__ = ("est", "loss_kwargs", "kw", "X", "y", "cat_features",
+                 "eval_set", "sample_weight", "callbacks", "prep_cache")
+
+    def __init__(self, est, loss_kwargs, kw, X, y, cat_features, eval_set,
+                 sample_weight, callbacks):
+        self.est = est
+        self.loss_kwargs = loss_kwargs
+        self.kw = kw
+        self.X = X
+        self.y = y
+        self.cat_features = cat_features
+        self.eval_set = eval_set
+        self.sample_weight = sample_weight
+        self.callbacks = callbacks
+        self.prep_cache = {}
+
+    def fit(self, linear, cross_pairs=None, stop=None):
+        b = GradientBoosting(loss=self.est.loss, loss_kwargs=self.loss_kwargs,
+                             linear_leaves=linear, cross_pairs=cross_pairs,
+                             **self.kw)
+        b.fit(self.X, self.y, cat_features=self.cat_features,
+              eval_set=self.eval_set,
+              sample_weight=self.sample_weight,
+              callbacks=_add_callback(self.callbacks, stop),
+              prep_cache=self.prep_cache)
+        return b
+
+    def screen(self, pairs, base):
+        # Every caller is guarded by cross_ok, which requires an
+        # eval set, so the validation rows are always there to rank on.
+        return _screened_cross_pairs(pairs, self.est.cross_top_columns, base,
+                                     self.eval_set[0], self.eval_set[1])
+
+
 class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     """Gradient boosted oblivious trees for regression.
 
@@ -2198,46 +2248,37 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,  # noqa: C901 -- complexity baseline, removed in stage 6
-                    callbacks=None):
-        """Fit one (non-bagged) model on the data as given."""
-        X = as_model_array(X, bool(cat_features))
-        y = np.asarray(y, dtype=np.float64)
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight, dtype=np.float64)
-
-        # The booster silently drops linear_leaves for MAE/Quantile: their leaf
-        # values are the residual median or quantile, not a Newton step a ridge
-        # slope could refine. Warn so it isn't mistaken for active.
+    def _warn_inert_loss_knobs(self):
+        """Pre-split inert-knob warnings. The booster silently drops
+        linear_leaves for MAE/Quantile: their leaf values are the residual
+        median or quantile, not a Newton step a ridge slope could refine.
+        Warn so it isn't mistaken for active; same honesty for the other
+        knobs MAE/Quantile shadow (they re-estimate leaf values directly,
+        the booster's adjusts_leaves path, which owns the training step).
+        stacklevel 3: this helper + _fit_single."""
         if self.linear_leaves and self.loss in ("MAE", "Quantile"):
             warnings.warn(
                 f"linear_leaves is not supported with loss={self.loss!r} and "
-                "will be ignored.", UserWarning, stacklevel=2)
+                "will be ignored.", UserWarning, stacklevel=3)
 
-        # Same honesty for the other knobs MAE/Quantile shadow: they re-estimate
-        # leaf values directly (the booster's adjusts_leaves path), which owns
-        # the training step.
         if self.loss in ("MAE", "Quantile"):
             if self.ordered_boosting:
                 warnings.warn(
                     f"ordered_boosting is ignored with loss={self.loss!r} and "
-                    "will have no effect.", UserWarning, stacklevel=2)
+                    "will have no effect.", UserWarning, stacklevel=3)
             if self.leaf_estimation_iterations > 1:
                 warnings.warn(
                     f"leaf_estimation_iterations is ignored with "
                     f"loss={self.loss!r} and will have no effect.",
-                    UserWarning, stacklevel=2)
+                    UserWarning, stacklevel=3)
 
-        # Kept for the optional full-data refit below: the auto split
-        # reassigns X/y, but the refit retrains on every row.
-        X_full, y_full, sw_full = X, y, sample_weight
-        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
-            self, X, y, sample_weight, eval_set, groups, stratify=None)
-
-        # Mirror the classifier's inert-setting warnings: an explicit
-        # linear_leaves=True shadows ordered boosting and leaf refinement once
-        # the booster activates it, at >= LINEAR_LEAVES_MIN_SAMPLES train rows.
-        # The None auto-audition is exempt -- it decides on validation loss.
+    def _warn_ll_shadow_knobs(self, X):
+        """Post-split mirror of the classifier's inert-setting warnings: an
+        explicit linear_leaves=True shadows ordered boosting and leaf
+        refinement once the booster activates it, at >=
+        LINEAR_LEAVES_MIN_SAMPLES train rows. The None auto-audition is
+        exempt -- it decides on validation loss. Takes the post-split X
+        because that is the row count the booster will see."""
         ll_shadows = (self.linear_leaves is True
                       and self.loss not in ("MAE", "Quantile")
                       and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
@@ -2245,13 +2286,18 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             warnings.warn(
                 "ordered_boosting is ignored while linear leaves are active "
                 "(the per-leaf linear model owns the training step); set "
-                "linear_leaves=False to use it.", UserWarning, stacklevel=2)
+                "linear_leaves=False to use it.", UserWarning, stacklevel=3)
         if ll_shadows and self.leaf_estimation_iterations > 1:
             warnings.warn(
                 "leaf_estimation_iterations is ignored while linear leaves "
                 "are active; set linear_leaves=False to use it.",
-                UserWarning, stacklevel=2)
+                UserWarning, stacklevel=3)
 
+    def _resolve_reg_kw(self, es_active, X, cat_features):
+        """Resolve the booster kwargs' auto defaults on the FINAL training
+        set (after the early-stopping split). All kw mutation completes
+        here, before anything captures it. Returns ``(kw, loss_kwargs, ll)``
+        with ``linear_leaves`` popped out of kw."""
         # Default patience when early stopping is on: 50 beat 10 on 25 of 34
         # benchmark datasets when measured, because lr=0.1 keeps improving past
         # a 10-round plateau.
@@ -2298,6 +2344,34 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             kw["cat_combinations"] = _auto_cat_combinations(
                 cat_features, self.n_features_in_, len(X))
 
+        ll = kw.pop("linear_leaves")
+        return kw, loss_kwargs, ll
+
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
+        """Fit one (non-bagged) model on the data as given.
+
+        The helpers run in the exact order the inlined blocks always did --
+        the two warning helpers bracket the auto split to keep the original
+        emission order -- and every ``self.model_`` assignment lives here or
+        in the named arm that owns it."""
+        X = as_model_array(X, bool(cat_features))
+        y = np.asarray(y, dtype=np.float64)
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight, dtype=np.float64)
+
+        self._warn_inert_loss_knobs()
+
+        # Kept for the optional full-data refit below: the auto split
+        # reassigns X/y, but the refit retrains on every row.
+        X_full, y_full, sw_full = X, y, sample_weight
+        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
+            self, X, y, sample_weight, eval_set, groups, stratify=None)
+
+        self._warn_ll_shadow_knobs(X)
+
+        kw, loss_kwargs, ll = self._resolve_reg_kw(es_active, X, cat_features)
+
         # linear_leaves=None means validation-selected: fit the constant-leaf and
         # linear-leaf variants and keep whichever reaches the lower validation
         # loss. Full-Grinsztajn breadth showed fixed linear leaves are a wash for
@@ -2306,7 +2380,6 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # the same post-fit-decision pattern as temperature scaling and conformal
         # quantiles. Selection needs a validation set, RMSE (MAE and Quantile
         # override leaf values), and enough rows for linear leaves to engage.
-        ll = kw.pop("linear_leaves")
         select_ll = (ll is None and self.loss == "RMSE" and eval_set is not None
                      and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
 
@@ -2319,27 +2392,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
                     and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
 
-        # One prep cache for every booster fit below: the auditions, the
-        # cross-augmented candidate, and the winner refit all see identical
-        # (X, y, cat_features, eval_set), so their preprocessing is computed
-        # once and reused bit-identically (see GradientBoosting._prep_matrices).
-        prep_cache = {}
-
-        def _fit_booster(linear, cross_pairs=None, stop=None):
-            b = GradientBoosting(loss=self.loss, loss_kwargs=loss_kwargs,
-                                 linear_leaves=linear, cross_pairs=cross_pairs,
-                                 **kw)
-            b.fit(X, y, cat_features=cat_features, eval_set=eval_set,
-                  sample_weight=sample_weight,
-                  callbacks=_add_callback(callbacks, stop),
-                  prep_cache=prep_cache)
-            return b
-
-        def _screen(pairs, base):
-            # Every caller below is guarded by cross_ok, which requires an
-            # eval set, so the validation rows are always there to rank on.
-            return _screened_cross_pairs(pairs, self.cross_top_columns, base,
-                                         eval_set[0], eval_set[1])
+        # Bound HERE, after the kw resolution and the auto split, so its value
+        # capture matches the old closures' by-reference capture exactly --
+        # see _RegBoosterFactory.
+        fb = _RegBoosterFactory(self, loss_kwargs, kw, X, y, cat_features,
+                                eval_set, sample_weight, callbacks)
 
         self.linear_leaves_selected_ = None
         self.cross_features_selected_ = None
@@ -2347,147 +2404,170 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
         forced_cross = self.cross_features == "always" and cross_ok
         if forced_cross:
-            # Forced cross features (benchmarks/SELECT_PLAN.md E2): keep the
-            # block unconditionally instead of racing it -- the race picks the
-            # augmented candidate on 20 of 21 selections, so at the one-fit
-            # operating point it is mostly a fee for a known answer. No
-            # decision is taken on any validation curve; the only short fit
-            # here is an importance probe whose sole output is the pair
-            # ranking (a slightly wrong ranking costs fit time, not a model
-            # pick). The block is the narrower FORCED_CROSS_TOP_M because no
-            # referee dodges the variance cases (see the constants above).
-            if select_ll:
-                # The const-vs-linear audition is orthogonal and stays; its
-                # winner doubles as the importance probe.
-                stop = (_stop_after(self.selection_rounds)
-                        if self.selection_rounds is not None else None)
-                const = _fit_booster(False, stop=stop)
-                lin = _fit_booster(True, stop=stop)
-                self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
-                probe = lin if self.linear_leaves_selected_ else const
-                base_linear = self.linear_leaves_selected_
-            else:
-                base_linear = bool(ll)
-                probe = _fit_booster(
-                    base_linear, stop=_stop_after(FORCED_CROSS_PROBE_ROUNDS))
-
-            pairs = _screen(
-                _cross_candidate_pairs(probe.feature_importances_,
-                                       cat_features, X.shape[1],
-                                       top_m=FORCED_CROSS_TOP_M), probe)
-            if pairs:
-                self.model_ = _fit_booster(base_linear, cross_pairs=pairs)
-                self.cross_features_selected_ = True
-                self.cross_pairs_ = pairs
-            else:
-                # cross_ok guarantees candidates exist; this is a safety net.
-                self.model_ = _fit_booster(base_linear)
+            self._arm_forced_cross(fb, select_ll, ll)
         elif self.selection_rounds is not None and (select_ll or cross_ok):
-            # Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
-            # design). Every selection fit runs as a short audition. The
-            # cross-augmented candidate wins the full selection on the vast
-            # majority of datasets, so it gets the one full fit; the audition
-            # winner is refit in full only when the augmented model loses or
-            # cross features do not apply.
-            stop = _stop_after(self.selection_rounds)
-
-            if select_ll:
-                const = _fit_booster(False, stop=stop)
-                lin = _fit_booster(True, stop=stop)
-
-                # Tie goes to constant leaves, as in the full selection.
-                self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
-                audition = lin if self.linear_leaves_selected_ else const
-                base_linear = self.linear_leaves_selected_
-            else:
-                base_linear = bool(ll)
-                audition = _fit_booster(base_linear, stop=stop)
-
-            # An audition that early-stopped on its own BEFORE the cap already
-            # IS the full fit -- same config, seed and curve -- so refitting it
-            # would only re-pay for an identical model. Refit only if truncated.
-            capped = len(audition.valid_history_) >= self.selection_rounds
-
-            pairs = (_screen(_cross_candidate_pairs(
-                audition.feature_importances_, cat_features, X.shape[1]),
-                audition) if cross_ok else [])
-            if pairs:
-                # Symmetric race at the shared budget, the rule the step-0 race
-                # simulation validated: both candidates are judged on their best
-                # validation loss within the first selection_rounds, a trailing
-                # augmented fit is killed at the budget, and a leading one
-                # continues to its own full early stop. Comparing the augmented
-                # fit's FULL best against a capped audition would bias selection
-                # toward it -- its extra rounds are not evidence the audition
-                # couldn't have matched.
-                base_best = _best_val(audition)
-                aug = _fit_booster(base_linear, cross_pairs=pairs,
-                                   stop=_stop_if_behind(self.selection_rounds,
-                                                        base_best))
-                self.cross_features_selected_ = (
-                    min(aug.valid_history_[:self.selection_rounds])
-                    < base_best) if aug.valid_history_ else False
-                if self.cross_features_selected_:
-                    self.model_ = aug
-                    self.cross_pairs_ = pairs
-                else:
-                    self.model_ = (_fit_booster(base_linear) if capped
-                                   else audition)
-            else:
-                self.model_ = (_fit_booster(base_linear) if capped
-                               else audition)
+            self._arm_selection_rounds(fb, select_ll, cross_ok, ll)
         elif select_ll:
-            const = _fit_booster(False)
-            lin = _fit_booster(True)
-
-            # Each variant early-stops itself; compare the best validation loss
-            # reached. Tie goes to constant leaves (cheaper predictions).
-            best_const = min(const.valid_history_) if const.valid_history_ else np.inf
-            best_lin = min(lin.valid_history_) if lin.valid_history_ else np.inf
-            self.model_ = lin if best_lin < best_const else const
-            self.linear_leaves_selected_ = self.model_ is lin
+            self._arm_ll_race(fb)
         else:
-            self.model_ = _fit_booster(bool(ll))
+            self.model_ = fb.fit(bool(ll))
 
-        # Numeric cross features (default-on auto): refit with difference and
-        # product columns for the top numeric feature pairs of the base fit, and
-        # keep whichever model reaches the lower validation loss -- the same
-        # selection-on-the-validation-split pattern as linear_leaves above.
-        # Oblivious trees can only staircase a numeric interaction
-        # (benchmarks/probe_cross_features.py; Grinsztajn A/B 51W/8L, mean
-        # +1.5%), and selection dodges the variance cases. RMSE only, the probed
-        # loss; None (auto) and True behave the same. A selection_rounds audition
-        # already handled this above.
-        if (self.selection_rounds is None and cross_ok and not forced_cross):
-            pairs = _screen(_cross_candidate_pairs(
-                self.model_.feature_importances_, cat_features, X.shape[1]),
-                self.model_)
-            if pairs:
-                base_linear = (self.linear_leaves_selected_
-                               if select_ll else bool(ll))
-                aug = _fit_booster(base_linear, cross_pairs=pairs)
-                self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
-                if self.cross_features_selected_:
-                    self.model_ = aug
-                    self.cross_pairs_ = pairs
+        self._maybe_cross_refit(fb, ll, select_ll, cross_ok, forced_cross)
 
         # The winner is chosen; free the cached binned matrices now rather than
         # holding them through the conformal step below.
-        prep_cache.clear()
+        fb.prep_cache.clear()
 
-        # Conformal quantile correction on the validation split -- the
-        # regression analog of the classifier's temperature scaling.
-        #
-        # Boosting under-disperses quantiles: each round's per-leaf quantile step
-        # is shrunk by the learning rate, so the additive model converges to the
-        # tail slowly and early stopping cuts it short, collapsing predictions
-        # toward the median. The split-conformal fix shifts every prediction by
-        # the k-th order statistic of the validation residuals,
-        # k = ceil((n+1) * alpha). That is the standard conformal rank, and it
-        # also minimizes pinball loss over all constant shifts, so accuracy and
-        # coverage improve together. Distribution-free marginal coverage on
-        # exchangeable data (Romano, Patterson & Candes 2019).
-        self.quantile_offset_ = 0.0
+        self.quantile_offset_ = self._conformal_quantile_offset(eval_set)
+
+        self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full, sw_full,
+                                 cat_features, auto_split)
+
+        return self
+
+    def _arm_forced_cross(self, fb, select_ll, ll):
+        """Forced cross features (benchmarks/SELECT_PLAN.md E2): keep the
+        block unconditionally instead of racing it -- the race picks the
+        augmented candidate on 20 of 21 selections, so at the one-fit
+        operating point it is mostly a fee for a known answer. No
+        decision is taken on any validation curve; the only short fit
+        here is an importance probe whose sole output is the pair
+        ranking (a slightly wrong ranking costs fit time, not a model
+        pick). The block is the narrower FORCED_CROSS_TOP_M because no
+        referee dodges the variance cases (see the constants above)."""
+        if select_ll:
+            # The const-vs-linear audition is orthogonal and stays; its
+            # winner doubles as the importance probe.
+            stop = (_stop_after(self.selection_rounds)
+                    if self.selection_rounds is not None else None)
+            const = fb.fit(False, stop=stop)
+            lin = fb.fit(True, stop=stop)
+            self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
+            probe = lin if self.linear_leaves_selected_ else const
+            base_linear = self.linear_leaves_selected_
+        else:
+            base_linear = bool(ll)
+            probe = fb.fit(
+                base_linear, stop=_stop_after(FORCED_CROSS_PROBE_ROUNDS))
+
+        pairs = fb.screen(
+            _cross_candidate_pairs(probe.feature_importances_,
+                                   fb.cat_features, fb.X.shape[1],
+                                   top_m=FORCED_CROSS_TOP_M), probe)
+        if pairs:
+            self.model_ = fb.fit(base_linear, cross_pairs=pairs)
+            self.cross_features_selected_ = True
+            self.cross_pairs_ = pairs
+        else:
+            # cross_ok guarantees candidates exist; this is a safety net.
+            self.model_ = fb.fit(base_linear)
+
+    def _arm_selection_rounds(self, fb, select_ll, cross_ok, ll):
+        """Cheap selection (benchmarks/PARETO_PLAN.md step 2, fallback
+        design). Every selection fit runs as a short audition. The
+        cross-augmented candidate wins the full selection on the vast
+        majority of datasets, so it gets the one full fit; the audition
+        winner is refit in full only when the augmented model loses or
+        cross features do not apply."""
+        stop = _stop_after(self.selection_rounds)
+
+        if select_ll:
+            const = fb.fit(False, stop=stop)
+            lin = fb.fit(True, stop=stop)
+
+            # Tie goes to constant leaves, as in the full selection.
+            self.linear_leaves_selected_ = _best_val(lin) < _best_val(const)
+            audition = lin if self.linear_leaves_selected_ else const
+            base_linear = self.linear_leaves_selected_
+        else:
+            base_linear = bool(ll)
+            audition = fb.fit(base_linear, stop=stop)
+
+        # An audition that early-stopped on its own BEFORE the cap already
+        # IS the full fit -- same config, seed and curve -- so refitting it
+        # would only re-pay for an identical model. Refit only if truncated.
+        capped = len(audition.valid_history_) >= self.selection_rounds
+
+        pairs = (fb.screen(_cross_candidate_pairs(
+            audition.feature_importances_, fb.cat_features, fb.X.shape[1]),
+            audition) if cross_ok else [])
+        if pairs:
+            # Symmetric race at the shared budget, the rule the step-0 race
+            # simulation validated: both candidates are judged on their best
+            # validation loss within the first selection_rounds, a trailing
+            # augmented fit is killed at the budget, and a leading one
+            # continues to its own full early stop. Comparing the augmented
+            # fit's FULL best against a capped audition would bias selection
+            # toward it -- its extra rounds are not evidence the audition
+            # couldn't have matched.
+            base_best = _best_val(audition)
+            aug = fb.fit(base_linear, cross_pairs=pairs,
+                         stop=_stop_if_behind(self.selection_rounds,
+                                              base_best))
+            self.cross_features_selected_ = (
+                min(aug.valid_history_[:self.selection_rounds])
+                < base_best) if aug.valid_history_ else False
+            if self.cross_features_selected_:
+                self.model_ = aug
+                self.cross_pairs_ = pairs
+            else:
+                self.model_ = (fb.fit(base_linear) if capped
+                               else audition)
+        else:
+            self.model_ = (fb.fit(base_linear) if capped
+                           else audition)
+
+    def _arm_ll_race(self, fb):
+        """The full (uncapped) const-vs-linear race."""
+        const = fb.fit(False)
+        lin = fb.fit(True)
+
+        # Each variant early-stops itself; compare the best validation loss
+        # reached. Tie goes to constant leaves (cheaper predictions).
+        best_const = min(const.valid_history_) if const.valid_history_ else np.inf
+        best_lin = min(lin.valid_history_) if lin.valid_history_ else np.inf
+        self.model_ = lin if best_lin < best_const else const
+        self.linear_leaves_selected_ = self.model_ is lin
+
+    def _maybe_cross_refit(self, fb, ll, select_ll, cross_ok, forced_cross):
+        """Numeric cross features (default-on auto): refit with difference and
+        product columns for the top numeric feature pairs of the base fit, and
+        keep whichever model reaches the lower validation loss -- the same
+        selection-on-the-validation-split pattern as linear_leaves above.
+        Oblivious trees can only staircase a numeric interaction
+        (benchmarks/probe_cross_features.py; Grinsztajn A/B 51W/8L, mean
+        +1.5%), and selection dodges the variance cases. RMSE only, the probed
+        loss; None (auto) and True behave the same. A selection_rounds
+        audition already handled this in its own arm."""
+        if not (self.selection_rounds is None and cross_ok
+                and not forced_cross):
+            return
+        pairs = fb.screen(_cross_candidate_pairs(
+            self.model_.feature_importances_, fb.cat_features, fb.X.shape[1]),
+            self.model_)
+        if pairs:
+            base_linear = (self.linear_leaves_selected_
+                           if select_ll else bool(ll))
+            aug = fb.fit(base_linear, cross_pairs=pairs)
+            self.cross_features_selected_ = _best_val(aug) < _best_val(self.model_)
+            if self.cross_features_selected_:
+                self.model_ = aug
+                self.cross_pairs_ = pairs
+
+    def _conformal_quantile_offset(self, eval_set):
+        """Conformal quantile correction on the validation split -- the
+        regression analog of the classifier's temperature scaling.
+
+        Boosting under-disperses quantiles: each round's per-leaf quantile step
+        is shrunk by the learning rate, so the additive model converges to the
+        tail slowly and early stopping cuts it short, collapsing predictions
+        toward the median. The split-conformal fix shifts every prediction by
+        the k-th order statistic of the validation residuals,
+        k = ceil((n+1) * alpha). That is the standard conformal rank, and it
+        also minimizes pinball loss over all constant shifts, so accuracy and
+        coverage improve together. Distribution-free marginal coverage on
+        exchangeable data (Romano, Patterson & Candes 2019)."""
+        offset = 0.0
         if self.loss == "Quantile" and eval_set is not None:
             resid = (np.asarray(eval_set[1], dtype=np.float64)
                      - self.model_.predict_raw(eval_set[0]))
@@ -2500,7 +2580,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 k = min(int(np.ceil((resid.shape[0] + 1) * self.alpha)),
                         resid.shape[0])
                 if k >= 1:
-                    self.quantile_offset_ = float(resid[k - 1])
+                    offset = float(resid[k - 1])
             else:
                 # Weighted conformal rank: each row contributes its weight of
                 # mass, so a zero-weight holdout row cannot set the offset (the
@@ -2517,16 +2597,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                     thr = self.alpha * total * (n_eff + 1) / n_eff
                     j = int(np.searchsorted(np.cumsum(w_val), thr,
                                             side="left"))
-                    self.quantile_offset_ = float(resid[min(j, n_eff - 1)])
+                    offset = float(resid[min(j, n_eff - 1)])
+        return offset
 
-        # Full-data refit (benchmarks/REFIT_PLAN.md). Once early stopping,
-        # selection and calibration have consumed the auto-split holdout it is a
-        # pure data tax, so retrain the winning configuration on 100% of the rows
-        # at the selected budget: rounds scaled by the train-size ratio, the
-        # resolved learning rate pinned so the budget keeps its meaning. Only the
-        # auto-split path ever paid the tax -- an explicit eval_set or
-        # early_stopping=False is untouched -- and Quantile keeps its genuine
-        # conformal holdout instead.
+    def _dispatch_reg_refit(self, kw, loss_kwargs, X_full, y_full, sw_full,
+                            cat_features, auto_split):
+        """Full-data refit (benchmarks/REFIT_PLAN.md). Once early stopping,
+        selection and calibration have consumed the auto-split holdout it is a
+        pure data tax, so retrain the winning configuration on 100% of the rows
+        at the selected budget: rounds scaled by the train-size ratio, the
+        resolved learning rate pinned so the budget keeps its meaning. Only the
+        auto-split path ever paid the tax -- an explicit eval_set or
+        early_stopping=False is untouched -- and Quantile keeps its genuine
+        conformal holdout instead."""
         if (self.refit_full and auto_split and self.loss != "Quantile"
                 and self.model_.trees_):
             self.model_ = _refit_on_full(
@@ -2538,8 +2621,6 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             self.model_ = _refit_on_full(
                 self, self.model_, bx, byy, bsw, cat_features, kw,
                 loss_kwargs=loss_kwargs, replay=True, train_frac=bfrac)
-
-        return self
 
     def _transform_raw(self, raw):
         """Map raw additive scores to predictions through the loss link.
