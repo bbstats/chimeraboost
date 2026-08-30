@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.31.0] - 2026-08-30
 ### Changed
 - **Multiclass fits are ~40% faster; predictions are bit-identical.** The
   softmax that turns raw scores into probabilities every boosting round was
@@ -35,6 +35,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   string-heavy datasets, nothing on datasets without string categoricals.
   Anything the vectorized path cannot express — a value that raises on
   comparison, an unhashable one — still takes the original loop.
+- **`quality=1` (regressor) now pins `cross_features="always"`.** The fast
+  rung previously dropped cross features entirely because keeping them
+  meant paying for the race. Forced-on passed the full decision gate: 2.7×
+  within-run fit time (between rungs 1 and 2, at 0.57× of rung 2), 7.9
+  points above the LightGBM-to-default frontier chord, beats the old rung 1
+  wherever it engages (28W–8L on Grinsztajn, engaged median +0.5%) and
+  still beats LightGBM head-to-head (43W–16L). The classifier's rung 1 is
+  unchanged. Evidence: benchmarks/SELECT_PLAN.md E2.
+- **Internal: the fit paths were decomposed under a complexity ceiling
+  (ruff C901 ≤ 10) now enforced in CI.** Eight bit-identical refactor
+  stages (PRs #97–#104): the exact-output snapshot — extended to 155 arrays
+  covering the cross-feature race, bagged and conformalized paths it never
+  reached before — passed 155/155 at every stage. No API, defaults, or
+  numbers changed; benchmarks/REFACTOR_AUDIT.md records the program and the
+  frozen-kernel list.
 
 ### Added
 - **`shap_importances` (both estimators): global SHAP feature importance in
@@ -63,16 +78,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   the raced mode (2000-row floor, RMSE-only, enough numeric/categorical
   columns), inert wherever they fail; the classifier rejects the value. The
   raced default path is byte-identical to before.
-
-### Changed
-- **`quality=1` (regressor) now pins `cross_features="always"`.** The fast
-  rung previously dropped cross features entirely because keeping them
-  meant paying for the race. Forced-on passed the full decision gate: 2.7×
-  within-run fit time (between rungs 1 and 2, at 0.57× of rung 2), 7.9
-  points above the LightGBM-to-default frontier chord, beats the old rung 1
-  wherever it engages (28W–8L on Grinsztajn, engaged median +0.5%) and
-  still beats LightGBM head-to-head (43W–16L). The classifier's rung 1 is
-  unchanged. Evidence: benchmarks/SELECT_PLAN.md E2.
 
 ## [0.30.0] - 2026-08-02
 ### Changed
