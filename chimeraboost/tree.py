@@ -2232,7 +2232,48 @@ def build_oblivious_tree_exact(Xb, grad, n_bins_per_feature, max_depth, l2,
     return tree, leaf
 
 
-def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,  # noqa: C901 -- complexity baseline, removed in stage 7
+def _quantize_setup(grad, hess, n_samples, qbuf, qseed):
+    """Resolve the quantization scales and fill the packed scratch buffer.
+
+    qmax keeps every packed cell and prefix sum overflow-safe (see the
+    _QMAX_CAP comment); the scales map the observed grad/hess range onto
+    [-qmax, qmax] and [0, qmax]. All-zero grad or hess degenerates to
+    qg/qh = 0, which yields zero gains -- the same no-split outcome as the
+    float kernel. Returns ``(qbuf, dg, dh)``.
+    """
+    qmax = min(_QMAX_CAP, (2 ** 31 - 1) // max(n_samples, 1))
+    gmax, hmax = _gh_absmax(grad, hess)
+    inv_dg = qmax / gmax if gmax > 0.0 else 0.0
+    inv_dh = qmax / hmax if hmax > 0.0 else 0.0
+    dg = gmax / qmax if gmax > 0.0 else 0.0
+    dh = hmax / qmax if hmax > 0.0 else 0.0
+    if qbuf is None:
+        qbuf = np.empty(n_samples, dtype=np.int64)
+
+    _quantize_pack(grad, hess, inv_dg, inv_dh, np.int64(qmax),
+                   np.uint64(qseed), qbuf)
+    return qbuf, dg, dh
+
+
+def _fit_linear_leaf_tail(splits_feat, is_numeric, leaf, grad, hess, n_leaves,
+                          centers_std, Xb, l2, linear_lambda, lr):
+    """Attach the per-leaf ridge model over the NUMERIC features the tree
+    actually split on. Returns ``(lin_feats, lin_coef)``, both None when no
+    numeric feature was split."""
+    seen = []
+    for f in splits_feat:
+        if is_numeric[f] and f not in seen:
+            seen.append(f)
+
+    if not seen:
+        return None, None
+    lin_feats = np.array(seen, dtype=np.int64)
+    lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
+                                centers_std, Xb, l2, linear_lambda, lr)
+    return lin_feats, lin_coef
+
+
+def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
                          min_child_weight=1.0, hist_buffers=None,
                          linear_leaves=False, centers_std=None, is_numeric=None,
@@ -2285,22 +2326,7 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,  # noqa: C901 -- co
         hist = hist_buffers
 
     if quantize:
-        # qmax keeps every packed cell and prefix sum overflow-safe (see the
-        # _QMAX_CAP comment); the scales map the observed grad/hess range onto
-        # [-qmax, qmax] and [0, qmax]. All-zero grad or hess degenerates to
-        # qg/qh = 0, which yields zero gains — the same no-split outcome as the
-        # float kernel.
-        qmax = min(_QMAX_CAP, (2 ** 31 - 1) // max(n_samples, 1))
-        gmax, hmax = _gh_absmax(grad, hess)
-        inv_dg = qmax / gmax if gmax > 0.0 else 0.0
-        inv_dh = qmax / hmax if hmax > 0.0 else 0.0
-        dg = gmax / qmax if gmax > 0.0 else 0.0
-        dh = hmax / qmax if hmax > 0.0 else 0.0
-        if qbuf is None:
-            qbuf = np.empty(n_samples, dtype=np.int64)
-
-        _quantize_pack(grad, hess, inv_dg, inv_dh, np.int64(qmax),
-                       np.uint64(qseed), qbuf)
+        qbuf, dg, dh = _quantize_setup(grad, hess, n_samples, qbuf, qseed)
 
     splits_feat = []
     splits_thr = []
@@ -2351,16 +2377,9 @@ def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,  # noqa: C901 -- co
 
     lin_feats = lin_coef = None
     if linear_leaves and len(splits_feat) > 0 and centers_std is not None:
-        # Linear term uses the NUMERIC features the tree actually split on.
-        seen = []
-        for f in splits_feat:
-            if is_numeric[f] and f not in seen:
-                seen.append(f)
-
-        if seen:
-            lin_feats = np.array(seen, dtype=np.int64)
-            lin_coef = _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats,
-                                        centers_std, Xb, l2, linear_lambda, lr)
+        lin_feats, lin_coef = _fit_linear_leaf_tail(
+            splits_feat, is_numeric, leaf, grad, hess, n_leaves,
+            centers_std, Xb, l2, linear_lambda, lr)
 
     tree = ObliviousTree(sf, st, values, np.array(splits_gain, dtype=np.float64),
                          lin_feats=lin_feats, lin_coef=lin_coef,

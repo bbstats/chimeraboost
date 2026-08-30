@@ -1,6 +1,10 @@
 # Complexity audit & refactor program
 
-Status: stages 0-6 shipped. Started 2026-08-30.
+Status: **COMPLETE** — all 8 stages shipped 2026-08-30. End state: zero C901
+violations at max-complexity 10; exactly 10 permanent frozen-kernel noqas
+(9 in tree.py + `_factorize_numeric`); RUF100 keeps the list honest; the
+lint job gates CI. Every stage was bit-identical (identity snapshot 155/155
+exact on all 29 configs, full suite green, per-stage PRs #97-#104).
 
 Goal: every non-frozen function at or below ruff C901 complexity 10, enforced
 permanently, with **zero behavior change** — each refactor stage is
@@ -38,7 +42,13 @@ benchmarks.
 | 4 | the three `booster._fit_impl` loops | 16/14/16 | shipped (2026-08-30) |
 | 5 | classifier `_fit_single` | 31 | shipped (2026-08-30) |
 | 6 | regressor `_fit_single` | 36 | shipped (2026-08-30) |
-| 7 | `tree.build_oblivious_tree` + closeout | 13 | pending |
+| 7 | `tree.build_oblivious_tree` + closeout | 13 | shipped (2026-08-30) |
+
+Stage-7 perf note: the strict-timing wine ratio and profile_fit both read
+elevated during this stage, but an A/B against unmodified main under the
+same machine state reproduced the elevation exactly (main 18.08 ms/tree
+warm vs branch 17.39; wine failing on main too) -- machine drift, not the
+refactor. The +<=2 Python calls per tree are unmeasurable on real data.
 
 Rules for every stage: move code, never rewrite expressions; helpers receive
 rng objects and consume draws in original order; `stacklevel` +1 per frame a
