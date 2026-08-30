@@ -14,9 +14,9 @@ from .booster import MultiQuantileBoosting
 from .preprocessing import as_model_array
 from .sklearn_api import (_auto_cat_combinations, _check_eval_set,
                           _check_feature_names_match, _check_predict_input,
-                          _make_eval_split, _resolve_cat_features,
-                          _resolve_cat_feature_names, _validate_fit_input,
-                          _validate_hyperparams)
+                          _format_shap_importances, _make_eval_split,
+                          _resolve_cat_features, _resolve_cat_feature_names,
+                          _validate_fit_input, _validate_hyperparams)
 
 
 # 0.05 ... 0.95 in steps of 0.05: nineteen levels, symmetric about the median,
@@ -441,6 +441,33 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         c = _centre(Q, mi, mw)[:, None]
         return c + self.conformal_scale_[None, :] * (Q - c)
 
+    def _interval_levels(self, alpha, caller="interval"):
+        """Grid positions of the two levels bounding the central 1-alpha
+        interval. Shared by `predict` and `shap_values` so an explanation can
+        never target a different pair of levels than the prediction did.
+
+        Raises rather than interpolating: an interval the model was not fitted
+        for is an error, not a guess.
+        """
+        if alpha is None:
+            raise ValueError(
+                f'{caller} needs alpha, the miscoverage: alpha=0.1 for a 90% '
+                "interval.")
+        if not 0.0 < alpha < 1.0:
+            raise ValueError(f"alpha must be in (0, 1); got {alpha!r}.")
+
+        lo, hi = alpha / 2.0, 1.0 - alpha / 2.0
+        taus = self.quantiles_
+        i = int(np.argmin(np.abs(taus - lo)))
+        j = int(np.argmin(np.abs(taus - hi)))
+        if abs(taus[i] - lo) > 1e-9 or abs(taus[j] - hi) > 1e-9:
+            raise ValueError(
+                f"alpha={alpha} needs levels {lo:g} and {hi:g}, which are "
+                "not on the fitted grid "
+                f"{np.array2string(taus, precision=4)}. Refit with those "
+                "levels in `quantiles`.")
+        return i, j
+
     def predict(self, X, kind="quantiles", alpha=None):
         """Predict the conditional distribution.
 
@@ -465,24 +492,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             return Q
 
         if kind == "interval":
-            if alpha is None:
-                raise ValueError(
-                    'predict(kind="interval") needs alpha, the miscoverage: '
-                    "alpha=0.1 for a 90% interval.")
-            if not 0.0 < alpha < 1.0:
-                raise ValueError(f"alpha must be in (0, 1); got {alpha!r}.")
-
-            lo, hi = alpha / 2.0, 1.0 - alpha / 2.0
-            taus = self.quantiles_
-            i = int(np.argmin(np.abs(taus - lo)))
-            j = int(np.argmin(np.abs(taus - hi)))
-            if abs(taus[i] - lo) > 1e-9 or abs(taus[j] - hi) > 1e-9:
-                raise ValueError(
-                    f"alpha={alpha} needs levels {lo:g} and {hi:g}, which are "
-                    "not on the fitted grid "
-                    f"{np.array2string(taus, precision=4)}. Refit with those "
-                    "levels in `quantiles`.")
-
+            i, j = self._interval_levels(alpha)
             return np.column_stack([Q[:, i], Q[:, j]])
 
         if kind == "mean":
@@ -522,6 +532,159 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         interval."""
         return quantile_metrics.quantile_report(y, self.predict(X),
                                                 self.quantiles_, sample_weight)
+
+    def _delivered_shap(self, phi_raw, base_raw, raw):
+        """Move raw-channel attributions onto the levels `predict` delivers.
+
+        Two transforms, in the order `predict` applies them.
+
+        **The sort.** `_predict_raw_impl` returns `np.sort(raw, axis=1)`, which
+        for row i is a permutation sigma_i, so delivered level k carries raw
+        channel sigma_i(k). Gathering `phi` and the baseline by sigma_i keeps
+        Shapley efficiency exactly, because a permutation relabels channels
+        without touching their values. What it does NOT give is the Shapley
+        value of the sorted map itself: that game would apply the sort inside
+        every coalition evaluation, and since the sort acts on the summed
+        forest score it cannot be decomposed per tree -- the coalitions would
+        have to span every input feature rather than the <= D one tree touches,
+        which is the exact blow-up obliviousness buys us out of. So these are
+        exact attributions of "whichever level landed here", and the baseline
+        is per-row because different rows reorder differently.
+
+        **The conformal rescale.** `_conformalize` is linear in the channel
+        vector with no constant term, so it pushes through onto `phi` and the
+        baseline unchanged and efficiency survives. Its matrix is obtained by
+        pushing the identity through `_conformalize` itself rather than being
+        rewritten here, so it cannot drift from what `predict` does.
+        """
+        # Stable, so tied channels break the same way on every numpy version.
+        # An unstable sort would pick a different -- still self-consistent --
+        # baseline from run to run.
+        order = np.argsort(raw, axis=1, kind="stable")
+        phi = np.take_along_axis(phi_raw, order[:, None, :], axis=2)
+        base = base_raw[order]
+
+        if not np.all(self.conformal_scale_ == 1.0):
+            L = self._conformalize(np.eye(self.quantiles_.shape[0]))
+            phi = phi @ L
+            base = base @ L
+        return phi, base
+
+    def shap_values(self, X, X_background=None, kind="quantiles", alpha=None,
+                    quantile=None, space="raw"):
+        """Exact interventional TreeSHAP for the whole quantile grid.
+
+        Returns contributions in the model's additive space and sets
+        ``expected_value_`` to the matching baseline, so that contributions
+        plus baseline reconstruct the explained quantity (Shapley efficiency).
+
+        ``space`` decides what a channel means. The two answers differ only on
+        rows whose raw grid crosses:
+
+        * ``"raw"`` (default) explains the per-level scores the booster
+          accumulated, before rearrangement, against a single
+          ``(n_quantiles,)`` baseline. This is the exact Shapley decomposition
+          of level k's own model, and it is the one to aggregate across rows --
+          global importances, beeswarm plots -- because every row is then
+          measuring the same game. Conformal rescaling is not applied, since it
+          is defined on the delivered grid.
+        * ``"delivered"`` explains what ``predict`` returns, rearrangement and
+          conformal rescaling included, against a per-row ``(n_samples,
+          n_quantiles)`` baseline. Use it to explain a single prediction in the
+          levels you actually read off. `_delivered_shap` says exactly what the
+          sort does and does not buy you.
+
+        On a 3-level grid the raw scores essentially never cross and the two
+        agree; on the default 19-level grid roughly 40% of rows cross at least
+        one adjacent pair, so the choice is not cosmetic.
+
+        ``kind`` selects the explained quantity:
+
+        * ``"quantiles"`` -- ``(n_samples, n_features, n_quantiles)``, or
+          ``(n_samples, n_features)`` when ``quantile`` names one fitted level.
+        * ``"mean"`` -- the tau-integrated point prediction.
+        * ``"width"`` -- the width of the central ``1 - alpha`` interval: which
+          features make this row's prediction more uncertain. Shapley values
+          are linear in the value function, so the difference of two levels'
+          attributions is exactly the attribution of their difference.
+
+        ``"mean"`` and ``"width"`` read the delivered grid by construction --
+        both are order-dependent -- so they ignore ``space``.
+        """
+        if space not in ("raw", "delivered"):
+            raise ValueError(
+                f'space must be "raw" or "delivered"; got {space!r}.')
+        if kind not in ("quantiles", "mean", "width"):
+            raise ValueError(
+                f'kind must be "quantiles", "mean" or "width"; got {kind!r}.')
+
+        Xv = _check_predict_input(self, X)
+        X = X if Xv is None else Xv
+        if X_background is not None:
+            # Consumed positionally, so a reordered DataFrame would silently
+            # skew every baseline.
+            bg = _check_predict_input(self, X_background)
+            X_background = X_background if bg is None else bg
+
+        phi, base = self.model_.shap_values(X, background=X_background)
+
+        if kind == "quantiles" and space == "raw":
+            if quantile is not None:
+                k = self._level_index(quantile)
+                phi, base = phi[:, :, k], base[k]
+            self.expected_value_ = base
+            return phi
+
+        phi, base = self._delivered_shap(phi, base,
+                                         self.model_._raw_scores(X))
+
+        if kind == "mean":
+            w = self._mean_from_quantiles(np.eye(self.quantiles_.shape[0]))
+            self.expected_value_ = base @ w
+            return phi @ w
+
+        if kind == "width":
+            i, j = self._interval_levels(
+                alpha, caller='shap_values(kind="width")')
+            self.expected_value_ = base[:, j] - base[:, i]
+            return phi[:, :, j] - phi[:, :, i]
+
+        if quantile is not None:
+            k = self._level_index(quantile)
+            phi, base = phi[:, :, k], base[:, k]
+        self.expected_value_ = base
+        return phi
+
+    def _level_index(self, quantile):
+        """Grid position of one level, refusing anything not fitted -- the same
+        rule `_interval_levels` applies to a pair."""
+        taus = self.quantiles_
+        k = int(np.argmin(np.abs(taus - quantile)))
+        if abs(taus[k] - quantile) > 1e-9:
+            raise ValueError(
+                f"quantile={quantile} is not on the fitted grid "
+                f"{np.array2string(taus, precision=4)}. Refit with that level "
+                "in `quantiles`.")
+        return k
+
+    def shap_importances(self, X, feature_names=None, n_features=None,
+                         prettified=False, quantile=None):
+        """Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.
+
+        Averaged over the whole grid by default, or over one level when
+        ``quantile`` names it. Always computed in ``space="raw"``, because
+        averaging delivered attributions would mix a different game per row.
+
+        Returns a structured ``(feature, importance)`` array sorted descending,
+        or a ``{feature: importance}`` dict when ``prettified=True``.
+        """
+        phi = self.shap_values(X, quantile=quantile)
+        imp = np.abs(phi).mean(axis=0)
+        if imp.ndim == 2:                      # (n_features, n_quantiles)
+            imp = imp.mean(axis=1)
+        return _format_shap_importances(
+            self, imp, feature_names=feature_names, n_features=n_features,
+            prettified=prettified)
 
     @property
     def best_iteration_(self):

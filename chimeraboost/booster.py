@@ -26,6 +26,7 @@ from .tree import (build_oblivious_tree, replay_oblivious_tree,
                    _predict_forest_linear,
                    _predict_forest_linear_rm, _predict_forest_linear_rm_serial,
                    pack_forest_linear, _shap_forest_linear,
+                   _shap_forest_vec,
                    _mvs_lambda_scan, _mvs_weights, _mvs_weights_serial)
 
 
@@ -701,6 +702,91 @@ class _BaseBooster:
         s = imp.sum()
         return imp / s if s > 0 else imp
 
+    def _capture_shap_background(self, Xb, n_samples):
+        """Keep a small sample of the binned training rows as the default SHAP
+        background -- the reference distribution interventional TreeSHAP
+        integrates over. Capped so it never bloats the pickled model.
+
+        Shared by every booster that can explain itself. `Xb` is feature-major,
+        so the sample is a column selection.
+        """
+        bg_n = min(n_samples, SHAP_BACKGROUND_SIZE)
+        bg_idx = np.random.default_rng(self.random_state).choice(
+            n_samples, bg_n, replace=False)
+        self._shap_background_ = np.ascontiguousarray(Xb[:, bg_idx])
+
+    def _resolve_shap_background(self, background, max_background, random_state):
+        """Binned, feature-major background matrix for a `shap_values` call.
+
+        `None` falls back to the sample captured at fit; anything larger than
+        `max_background` is subsampled, because cost is linear in it. Read with
+        `getattr` so a model pickled before the capture existed reports the
+        absence instead of raising `AttributeError`.
+        """
+        if background is None:
+            Rb = getattr(self, "_shap_background_", None)
+            if Rb is None:
+                raise ValueError(
+                    "This model carries no SHAP background -- it was fitted by "
+                    "a version that did not capture one. Pass `background=` "
+                    "(or `X_background=`) explicitly, or refit.")
+        else:
+            bg = as_model_array(background, bool(self.prep_.cat_features_))
+            Rb = np.ascontiguousarray(self.prep_.transform(bg).T)
+
+        if Rb.shape[1] > max_background:
+            sel = np.random.default_rng(random_state).choice(
+                Rb.shape[1], max_background, replace=False)
+            Rb = np.ascontiguousarray(Rb[:, sel])
+        return Rb
+
+    def _shap_values_vec(self, X, background=None,
+                         max_background=SHAP_BACKGROUND_SIZE, random_state=0):
+        """Exact interventional TreeSHAP for a VECTOR-LEAF forest.
+
+        Returns ``(phi, base)`` with ``phi`` of shape ``(n_samples,
+        n_input_features, K)`` and ``base`` of shape ``(K,)``, satisfying
+        Shapley efficiency one channel at a time:
+
+            phi[i, :, k].sum() + base[k] == <raw forest output>[i, k]
+
+        "Raw" means before any delivery transform the subclass applies -- the
+        quantile head's monotone rearrangement, in particular. Each subclass
+        wraps this with its own account of what a channel means.
+        """
+        X = as_model_array(X, bool(self.prep_.cat_features_))
+        Xb = np.ascontiguousarray(self.prep_.transform(X).T)   # feature-major
+        n_orig = self.prep_.n_input_features_
+        K = self.init_.shape[0]
+
+        if not self.trees_:
+            return (np.zeros((Xb.shape[1], n_orig, K)),
+                    np.asarray(self.init_, dtype=np.float64).copy())
+
+        if any(isinstance(t, list) for t in self.trees_):
+            raise NotImplementedError(
+                "This model was pickled by a version that stored one tree per "
+                "class per round. SHAP needs the vector-leaf forest layout "
+                "introduced in 0.25.0; refit the model to explain it.")
+
+        Rb = self._resolve_shap_background(background, max_background,
+                                           random_state)
+
+        if getattr(self, "_forest_", None) is None:
+            self._forest_ = pack_forest_vec(self.trees_, self.depth)
+        feats, thrs, depths, vals, voff, Kf = self._forest_
+
+        phi = _shap_forest_vec(Xb, Rb, feats, thrs, depths, vals, voff, Kf,
+                               self.prep_.feature_map_, n_orig,
+                               _factorials(self.depth))
+
+        # The SHAP kernel is feature-major; the forest predictor is row-major.
+        # Transposing the wrong one here returns a silently wrong answer of
+        # exactly the right shape.
+        base = _predict_forest_vec_rm(np.ascontiguousarray(Rb.T), feats, thrs,
+                                      depths, vals, voff, Kf, self.init_)
+        return phi, base.mean(axis=0)
+
 
 class GradientBoosting(_BaseBooster):
     """Scalar booster: regression and binary classification."""
@@ -744,13 +830,7 @@ class GradientBoosting(_BaseBooster):
         qbuf = (np.empty(n_samples, dtype=np.int64)
                 if self.quantize_gradients else None)
 
-        # Keep a small sample of the binned training rows as the default SHAP
-        # background -- the reference distribution interventional TreeSHAP
-        # integrates over. Capped so it never bloats the pickled model.
-        bg_n = min(n_samples, SHAP_BACKGROUND_SIZE)
-        bg_idx = np.random.default_rng(self.random_state).choice(
-            n_samples, bg_n, replace=False)
-        self._shap_background_ = np.ascontiguousarray(Xb[:, bg_idx])
+        self._capture_shap_background(Xb, n_samples)
 
         yv = Fv = wv = None
         if eval_set is not None:
@@ -1050,16 +1130,8 @@ class GradientBoosting(_BaseBooster):
         if not self.trees_:
             return np.zeros((Xb.shape[1], n_orig)), float(self.init_)
 
-        if background is None:
-            Rb = self._shap_background_
-        else:
-            bg = as_model_array(background, bool(self.prep_.cat_features_))
-            Rb = np.ascontiguousarray(self.prep_.transform(bg).T)
-
-        if Rb.shape[1] > max_background:
-            sel = np.random.default_rng(random_state).choice(
-                Rb.shape[1], max_background, replace=False)
-            Rb = np.ascontiguousarray(Rb[:, sel])
+        Rb = self._resolve_shap_background(background, max_background,
+                                            random_state)
 
         cs = getattr(self, "_centers_std_", None)
         if cs is not None:
@@ -1101,6 +1173,21 @@ class MulticlassBoosting(_BaseBooster):
     `predict_raw` keeps a fallback for those unpickled forests.
     """
 
+
+    def shap_values(self, X, background=None,
+                    max_background=SHAP_BACKGROUND_SIZE, random_state=0):
+        """Exact interventional TreeSHAP, one channel per class.
+
+        Returns ``(phi, base)`` with ``phi`` of shape ``(n_samples,
+        n_features, n_classes)``. Attributions live in MARGIN space -- the raw
+        softmax scores -- because softmax is not linear and there is no exact
+        way to push an additive decomposition through it. Rows therefore
+        reconstruct ``predict_raw(X)``, not ``predict_proba(X)``, which is
+        where the wider SHAP ecosystem puts multiclass attributions too.
+        """
+        return self._shap_values_vec(X, background, max_background,
+                                     random_state)
+
     def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf tree per boosting round under softmax loss.
@@ -1127,6 +1214,7 @@ class MulticlassBoosting(_BaseBooster):
                                       cat_features, eval_set, prep_cache, w)
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
+        self._capture_shap_background(Xb, n_samples)
 
         # Packed quantized grad/hess scratch, reused across every class tree.
         qbuf = (np.empty(n_samples, dtype=np.int64)
@@ -1549,6 +1637,27 @@ class MultiQuantileBoosting(_BaseBooster):
 
         return basis[0]         # "sum": the literal channel sum
 
+
+    def shap_values(self, X, background=None,
+                    max_background=SHAP_BACKGROUND_SIZE, random_state=0):
+        """Exact interventional TreeSHAP, one channel per quantile level.
+
+        Returns ``(phi, base)`` explaining the RAW per-level scores -- what the
+        booster accumulated, before `_predict_raw_impl` rearranges each row.
+        Rows reconstruct the unsorted forest output channel by channel.
+
+        The rearrangement is deliberately left to the caller. It is a per-row
+        permutation, so it relabels channels rather than transforming their
+        values, and it cannot be folded into a Shapley game over one tree's
+        features: sorting acts on the summed forest score, so pushing it inside
+        the coalition enumeration would make the game range over every input
+        feature instead of the <= D a single tree touches. See
+        `ChimeraBoostQuantileRegressor.shap_values`, which handles the
+        relabeling explicitly and says what it costs.
+        """
+        return self._shap_values_vec(X, background, max_background,
+                                     random_state)
+
     def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf quantile tree per boosting round.
@@ -1575,6 +1684,7 @@ class MultiQuantileBoosting(_BaseBooster):
 
         hist_buffers, qbuf, exact_hist = self._alloc_mq_buffers(
             Xb, n_bins, K, n_samples)
+        self._capture_shap_background(Xb, n_samples)
 
         yv = Fv = wv = None
         if eval_set is not None:
@@ -1752,10 +1862,15 @@ class MultiQuantileBoosting(_BaseBooster):
         """
         return super()._val_score(yv, np.sort(Fv, axis=1), wv)
 
-    def _predict_raw_impl(self, X, cat_ctx=None):
-        """Return the (n_samples, n_quantiles) matrix of quantile estimates, each
-        row sorted. See the class docstring: monotone rearrangement is where the
-        non-crossing guarantee is enforced."""
+    def _raw_scores(self, X, cat_ctx=None):
+        """The accumulated (n_samples, n_quantiles) score matrix BEFORE
+        rearrangement -- one channel per level, in grid order, free to cross.
+
+        Split out from `_predict_raw_impl` because SHAP needs it: the sort is a
+        per-row permutation, and recovering that permutation requires the
+        unsorted scores it was derived from. Nothing on the fit path calls
+        this; `F` is accumulated directly there.
+        """
         X = as_model_array(X, bool(self.prep_.cat_features_))
         Xb = self.prep_.transform(X, cat_ctx)       # row-major
         if not self.trees_:
@@ -1768,8 +1883,13 @@ class MultiQuantileBoosting(_BaseBooster):
         kernel = (_predict_forest_vec_rm_serial
                   if Xb.shape[0] <= _SERIAL_PREDICT_N
                   else _predict_forest_vec_rm)
-        return np.sort(
-            kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_), axis=1)
+        return kernel(Xb, feats, thrs, depths, vals, voff, K, self.init_)
+
+    def _predict_raw_impl(self, X, cat_ctx=None):
+        """Return the (n_samples, n_quantiles) matrix of quantile estimates, each
+        row sorted. See the class docstring: monotone rearrangement is where the
+        non-crossing guarantee is enforced."""
+        return np.sort(self._raw_scores(X, cat_ctx), axis=1)
 
     def staged_predict_raw(self, X):
         """Yield the (n, K) quantile matrix after each successive tree.

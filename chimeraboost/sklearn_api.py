@@ -1371,6 +1371,10 @@ def _shap_importances(model, X, feature_names, n_features, prettified):
         importance = cache[1]
     else:
         importance = np.abs(model.shap_values(X)).mean(axis=0)
+        if importance.ndim == 2:
+            # Vector-leaf models attribute per class; average the magnitudes so
+            # the ranking is over features, as the name says.
+            importance = importance.mean(axis=1)
         model._shap_importances_cache_ = (key, importance)
     return _format_shap_importances(
         model, importance, feature_names=feature_names,
@@ -3512,15 +3516,20 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         return self.model_.feature_importances_
 
     def shap_values(self, X, X_background=None):
-        """Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.
+        """Exact interventional TreeSHAP contributions in MARGIN space.
 
-        Binary only. Returns an array of shape ``(n_samples, n_features)`` whose
-        rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with
-        ``expected_value_`` set as an attribute. Each entry is a feature's signed
-        contribution to the log-odds of the positive class; linear-leaf slopes are
+        Binary returns ``(n_samples, n_features)`` in pre-temperature log-odds
+        of the positive class; multiclass returns ``(n_samples, n_features,
+        n_classes)`` in raw softmax scores. Rows sum to ``predict_raw(X) -
+        expected_value_`` in both cases, with ``expected_value_`` set as an
+        attribute -- a float for binary, a ``(n_classes,)`` array otherwise.
+
+        Attributions stay in margin space because the link, sigmoid or softmax,
+        is not linear, so no exact additive decomposition survives it. That is
+        where the wider SHAP ecosystem puts them too. Linear-leaf slopes are
         included exactly. Averaged across the bag when ``n_ensembles > 1``, an
-        additive surrogate for the soft-voted probability. Multiclass is not
-        supported yet. ``X_background`` overrides the reference distribution.
+        additive surrogate for the soft-voted probability. ``X_background``
+        overrides the reference distribution.
         """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
@@ -3530,15 +3539,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             X_background = X_background if bg is None else bg
 
         members = self.estimators_ if self.estimators_ is not None else None
-        if (members is not None and getattr(members[0], "_multiclass", False)) \
-                or (members is None and self._multiclass):
-            raise NotImplementedError(
-                "shap_values is not supported for multiclass classification yet.")
-
         if members is not None:
             out = [m.model_.shap_values(X, background=X_background)
                    for m in members]
-            self.expected_value_ = float(np.mean([b for _, b in out]))
+            base = np.mean([b for _, b in out], axis=0)
+            # Binary members carry a scalar baseline, multiclass a (K,) one.
+            self.expected_value_ = base if base.ndim else float(base)
             return np.mean([p for p, _ in out], axis=0)
 
         phi, base = self.model_.shap_values(X, background=X_background)
@@ -3553,8 +3559,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         or a ``{feature: importance}`` dict when ``prettified=True``
         (CatBoost's flag). ``feature`` holds ``feature_names`` when given,
         else the names captured from a DataFrame at fit, else column indices.
-        ``n_features`` truncates to the top N. Attributions are in log-odds
-        space (binary only; multiclass raises ``NotImplementedError``).
+        ``n_features`` truncates to the top N. Attributions are in margin
+        space; for multiclass the per-class magnitudes are averaged, so the
+        ranking is over features rather than (feature, class) pairs.
 
         The expensive SHAP pass is cached on the instance, keyed by the data's
         content, so repeated calls on the same X -- including with different
