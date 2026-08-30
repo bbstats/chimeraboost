@@ -2712,6 +2712,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
 
+    def report(self, X, y, sample_weight=None, baseline=None):
+        """Score this model on ``(X, y)``: RMSE, MAE and the R2 skill score.
+
+        Returns the `chimeraboost.metrics.regression_report` dict;
+        `chimeraboost.metrics.format_report` prints it. ``baseline`` sets what
+        the skill score is measured against -- pass the training targets to
+        score against the mean the model actually had, rather than the
+        hindsight mean of ``y``.
+        """
+        from . import metrics
+        return metrics.regression_report(y, self.predict(X), sample_weight,
+                                         baseline)
+
     @property
     def feature_importances_(self):
         if self.estimators_ is not None:
@@ -3507,6 +3520,21 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         if self.estimators_ is not None:
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
+
+    def report(self, X, y, sample_weight=None):
+        """Score this model on ``(X, y)``: log loss, Brier and its skill
+        score, accuracy, F1 macro, and how far the probabilities are from
+        calibrated.
+
+        Returns the `chimeraboost.metrics.classification_report` dict;
+        `chimeraboost.metrics.format_report` prints it. The miscalibration
+        term is the one to watch after changing anything about
+        ``predict_proba`` -- it is what temperature scaling exists to keep
+        near zero.
+        """
+        from . import metrics
+        return metrics.classification_report(
+            y, self.predict_proba(X), self.classes_, sample_weight)
 
     @property
     def feature_importances_(self):

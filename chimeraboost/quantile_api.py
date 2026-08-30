@@ -468,7 +468,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 "levels in `quantiles`.")
         return i, j
 
-    def predict(self, X, kind="quantiles", alpha=None):
+    def predict(self, X, kind="quantiles", alpha=None, thresholds=None,
+                n_samples=None, random_state=None):
         """Predict the conditional distribution.
 
         ``kind="quantiles"`` (default) returns (n_samples, n_quantiles),
@@ -483,6 +484,25 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         function over tau: trapezoid across the grid plus flat extension of the
         edge levels out to 0 and 1. The flat extension is the honest reading of
         a finite grid, assuming nothing about tails the model never estimated.
+
+        ``kind="median"`` returns (n_samples,), the predicted median -- the
+        0.5 level when the grid carries it, interpolated between its
+        neighbours when it does not. This is the centre conformalization
+        rescales about.
+
+        ``kind="cdf"`` returns (n_samples, len(thresholds)): ``P(y <= t)`` for
+        each ``t`` in ``thresholds``, by inverting the grid. Clamped to the
+        outermost fitted levels rather than to 0 and 1, for the same reason
+        ``"mean"`` extends flat.
+
+        ``kind="sample"`` returns (n_samples_rows, n_samples): inverse-
+        transform draws from the predicted distribution, for feeding a
+        downstream simulation. ``random_state`` seeds them; draws stay inside
+        the fitted level range.
+
+        Unlike ``"interval"``, ``"cdf"`` and ``"sample"`` interpolate between
+        levels. That is a different question -- reading a fitted curve at a
+        point, rather than claiming a level was fitted when it was not.
         """
         Xv = _check_predict_input(self, X)
         Q = self._conformalize(
@@ -498,8 +518,68 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         if kind == "mean":
             return self._mean_from_quantiles(Q)
 
+        if kind == "median":
+            mi, mw = self._median_idx_
+            return _centre(Q, mi, mw)
+
+        if kind == "cdf":
+            return self._cdf_from_quantiles(Q, thresholds)
+
+        if kind == "sample":
+            return self._sample_from_quantiles(Q, n_samples, random_state)
+
         raise ValueError(
-            f'kind must be "quantiles", "interval" or "mean"; got {kind!r}.')
+            'kind must be "quantiles", "interval", "mean", "median", "cdf" '
+            f'or "sample"; got {kind!r}.')
+
+    def _cdf_from_quantiles(self, Q, thresholds):
+        """Invert the grid: P(y <= t) read off the predicted quantile
+        function, one column per threshold.
+
+        Linear between grid levels, and clamped outside it -- below the lowest
+        fitted level the honest answer is "at most tau_0", not zero, but the
+        grid cannot resolve further, so the edge levels are returned flat.
+        Same convention as `_mean_from_quantiles`, which assumes nothing about
+        tails the model never estimated.
+        """
+        if thresholds is None:
+            raise ValueError(
+                'predict(kind="cdf") needs `thresholds`: the values t at '
+                "which to evaluate P(y <= t).")
+        t = np.atleast_1d(np.asarray(thresholds, dtype=np.float64))
+        if t.ndim != 1:
+            raise ValueError(
+                f"thresholds must be a scalar or 1-D; got shape {t.shape}.")
+
+        taus = self.quantiles_
+        out = np.empty((Q.shape[0], t.shape[0]))
+        for i in range(Q.shape[0]):
+            out[i] = np.interp(t, Q[i], taus, left=taus[0], right=taus[-1])
+        return out
+
+    def _sample_from_quantiles(self, Q, n_samples, random_state):
+        """Inverse-transform sampling from the predicted grid: draw u uniform
+        and read the quantile function at u.
+
+        Returns (n_rows, n_samples). Draws land strictly inside the fitted
+        range -- the grid says nothing about the tails beyond it, so sampling
+        them would be inventing data rather than reporting the model.
+        """
+        if n_samples is None:
+            raise ValueError(
+                'predict(kind="sample") needs `n_samples`, how many draws to '
+                "take per row.")
+        n_samples = int(n_samples)
+        if n_samples < 1:
+            raise ValueError(f"n_samples must be >= 1; got {n_samples}.")
+
+        taus = self.quantiles_
+        rng = np.random.default_rng(random_state)
+        u = rng.uniform(taus[0], taus[-1], size=(Q.shape[0], n_samples))
+        out = np.empty_like(u)
+        for i in range(Q.shape[0]):
+            out[i] = np.interp(u[i], taus, Q[i])
+        return out
 
     def _mean_from_quantiles(self, Q):
         """Integral of the quantile function over [0, 1]: trapezoid across the
@@ -526,12 +606,19 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         return -quantile_metrics.crps(y, self.predict(X), self.quantiles_,
                                       sample_weight)
 
-    def report(self, X, y, sample_weight=None):
+    def report(self, X, y, sample_weight=None, baseline=None):
         """`quantile_metrics.quantile_report` on this model's predictions:
-        CRPS, per-level pinball, and coverage plus width for every symmetric
-        interval."""
+        CRPS and its skill score, per-level pinball, coverage plus width plus
+        interval score for every symmetric interval, the PIT histogram, and
+        the crossing rate.
+
+        ``baseline`` sets what the skill score is measured against -- pass the
+        training targets to score against the marginal distribution the model
+        actually had, rather than the hindsight marginal of ``y``.
+        """
         return quantile_metrics.quantile_report(y, self.predict(X),
-                                                self.quantiles_, sample_weight)
+                                                self.quantiles_, sample_weight,
+                                                baseline)
 
     def _delivered_shap(self, phi_raw, base_raw, raw):
         """Move raw-channel attributions onto the levels `predict` delivers.

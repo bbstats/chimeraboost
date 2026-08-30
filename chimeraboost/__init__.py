@@ -25,7 +25,7 @@ from .sklearn_api import (
 )
 from .quantile_api import ChimeraBoostQuantileRegressor
 from .losses import CustomObjective
-from . import quantile_metrics
+from . import metrics, quantile_metrics
 from .warmup import warmup, _warmup_from_env
 
 # CHIMERABOOST_WARMUP=1 -> compile the numba kernels at import ("background"
@@ -38,6 +38,7 @@ __all__ = [
     "ChimeraBoostClassifier",
     "ChimeraBoostQuantileRegressor",
     "CustomObjective",
+    "metrics",
     "quantile_metrics",
     "warmup",
 ]
