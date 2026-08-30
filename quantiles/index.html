@@ -513,6 +513,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reading-crps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading CRPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1198,6 +1215,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Scoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reading-crps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading CRPS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1392,31 +1426,76 @@ needs 99.</p>
 </tr>
 </tbody>
 </table>
-<p><code>crps</code> is the mean pinball loss over the grid. The textbook CRPS is twice that, but the
-factor is constant, so comparisons are unaffected and this convention matches the
-early-stopping metric. Pass <code>convention="full"</code> when comparing against another library —
-<code>properscoring</code> and <code>scoringrules</code> both report the doubled value.</p>
+<h3 id="reading-crps">Reading CRPS<a class="headerlink" href="#reading-crps" title="Permanent link">&para;</a></h3>
+<p>CRPS is the one number for "is this predictive distribution any good". Lower is better,
+and only the true conditional distribution reaches the minimum. Exactly three things
+make it worse, and the score alone will not tell you which:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">norm</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">taus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.91</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">y</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="mi">20_000</span><span class="p">)</span>                     <span class="c1"># the truth is standard normal</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">loc</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">loc</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">taus</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">))</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">forecast</th>
+<th style="text-align: right;">CRPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">right centre, right width</td>
+<td style="text-align: right;"><strong>0.3075</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">right centre, 3× too narrow</td>
+<td style="text-align: right;">0.3451</td>
+</tr>
+<tr>
+<td style="text-align: left;">right centre, 3× too wide</td>
+<td style="text-align: right;">0.4484</td>
+</tr>
+<tr>
+<td style="text-align: left;">centre off by 1, right width</td>
+<td style="text-align: right;">0.4537</td>
+</tr>
+</tbody>
+</table>
+<p>Note the third and fourth rows especially. Being <strong>too narrow</strong> is punished as well as
+being too wide, which is what stops CRPS being gamed by shrinking the band — the same
+property <code>interval_score</code> has. When CRPS says something is off, use
+<code>interval_coverage</code> and <code>sharpness</code>, or the PIT histogram below, to find out which of
+the three it was.</p>
+<p><strong>On the factor of two.</strong> <code>crps</code> returns the mean pinball loss over the grid, which is
+half the textbook value; the convention matches the early-stopping metric. This never
+changes which model wins — every score is on the same scale, and switching conventions
+multiplies them all by two. In the table above, <code>convention="full"</code> reads 0.6150,
+0.6902, 0.8969, 0.9073: the same ordering, the same relative gaps. Use it only when
+quoting a number next to another library, since <code>properscoring</code> and <code>scoringrules</code> both
+report the doubled value.</p>
+<p>Two models are only comparable on the same tau grid, since the grid bounds how well the
+integral is approximated.</p>
 <p>Coverage on its own is not a score: an infinitely wide interval covers everything.
 <code>interval_score</code> is the Winkler score, which charges the width plus a penalty for every
 outcome that falls outside, and so cannot be gamed in either direction.</p>
 <p>The PIT histogram is the instrument for the under-dispersion described above. It asks
 where in the predicted grid each outcome actually landed: flat means calibrated, a U
 means the bands are too narrow, a hump means too wide.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
 </code></pre></div>
 <p><code>predict(kind="mean")</code> integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.</p>
 <h2 id="explaining-a-predicted-distribution">Explaining a predicted distribution<a class="headerlink" href="#explaining-a-predicted-distribution" title="Permanent link">&para;</a></h2>
 <p><code>shap_values</code> gives exact TreeSHAP attributions with a channel per level:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
 </code></pre></div>
 <p>The one no per-level approach can give you is the attribution of interval <strong>width</strong> —
 which features make a particular row's prediction more <em>uncertain</em>, as opposed to
 higher or lower:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
 </code></pre></div>
 <p>Shapley values are linear in the value function, so the difference between two levels'
 attributions is exactly the attribution of their difference. On heteroscedastic data
@@ -1430,7 +1509,7 @@ that across rows mixes rows that were reordered differently.</p>
 <p><code>shap_importances</code> already handles this — it explains the levels <em>before</em>
 rearrangement, where every row is on the same footing. If you are building your own
 global summary or a beeswarm plot, ask for the same thing:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
 </code></pre></div>
 <p>Per-prediction explanations need none of this; the default is what you want.</p>
 <h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
