@@ -1,6 +1,6 @@
 # Complexity audit & refactor program
 
-Status: stages 0-3 shipped. Started 2026-08-30.
+Status: stages 0-4 shipped. Started 2026-08-30.
 
 Goal: every non-frozen function at or below ruff C901 complexity 10, enforced
 permanently, with **zero behavior change** — each refactor stage is
@@ -35,7 +35,7 @@ benchmarks.
 | 1 | `sklearn_api._validate_hyperparams` | 25 | shipped (2026-08-30) |
 | 2 | `sklearn_api._validate_fit_input` | 34 | shipped (2026-08-30) |
 | 3 | `quantile_api.fit`, `sklearn_api._fit_bagged` | 16, 12 | shipped (2026-08-30) |
-| 4 | the three `booster._fit_impl` loops | 16/14/16 | pending |
+| 4 | the three `booster._fit_impl` loops | 16/14/16 | shipped (2026-08-30) |
 | 5 | classifier `_fit_single` | 31 | pending |
 | 6 | regressor `_fit_single` | 36 | pending |
 | 7 | `tree.build_oblivious_tree` + closeout | 13 | pending |
