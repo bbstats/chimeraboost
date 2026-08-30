@@ -899,21 +899,13 @@ def _reject_masked(X, where):
             "X.filled(np.nan) -- NaN is treated as missing.")
 
 
-def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa: C901 -- complexity baseline, removed in stage 2
-                        classification):
-    """Shared fit-time input validation and feature-metadata capture.
+def _check_input_container(estimator, X, y, cat_features):
+    """Container-level checks: y present, dense, unmasked, 2-D, non-empty.
 
-    Returns the (possibly raveled) ``y`` and sets ``n_features_in_`` (and
-    ``feature_names_in_`` for DataFrame input) on ``estimator``. Raises clear
-    errors for the common malformed inputs rather than letting them fail
-    cryptically deep in numpy/numba.
-
-    NaN in X is deliberately allowed -- it is treated as missing and routed to
-    its own bin. inf, complex, multi-output y and scipy.sparse input are not; see
-    the README "scikit-learn compatibility" note.
+    Returns ``(Xc, feature_names, n, nf)`` where ``Xc`` is the object-dtype
+    conversion when X had to be materialized to learn its shape, else None.
     """
     import scipy.sparse as sp
-    from sklearn.exceptions import DataConversionWarning
 
     if not getattr(estimator, "_is_bag_member", False):
         # Members fit in worker processes; without this a cold bagged fit
@@ -946,27 +938,35 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa
     if n == 0:
         raise ValueError(
             f"X has 0 sample(s) (shape=(0, {nf})) while a minimum of 1 is required.")
+    return Xc, feature_names, n, nf
 
-    if cat_features:
-        ci = np.asarray(list(cat_features))
-        if ci.size:
-            if not np.issubdtype(ci.dtype, np.integer):
-                msg = "cat_features must be integer column indices or column names."
-                if np.issubdtype(ci.dtype, np.floating):
-                    # The classic slip: fit(X, y, w) binds the weights to
-                    # cat_features (the third positional argument). Name the
-                    # real mistake instead of a generic type complaint.
-                    msg += (" Got an array of floats -- if these are per-sample "
-                            "weights, pass them by keyword: "
-                            "fit(X, y, sample_weight=w).")
-                raise ValueError(msg)
-            if ci.min() < 0 or ci.max() >= nf:
-                raise ValueError(
-                    f"cat_features index out of range for X with {nf} "
-                    f"column(s): {sorted(set(ci.tolist()))}.")
-            if len(set(ci.tolist())) != ci.size:
-                raise ValueError("cat_features contains duplicate indices.")
 
+def _check_cat_indices(cat_features, nf):
+    if not cat_features:
+        return
+    ci = np.asarray(list(cat_features))
+    if not ci.size:
+        return
+    if not np.issubdtype(ci.dtype, np.integer):
+        msg = "cat_features must be integer column indices or column names."
+        if np.issubdtype(ci.dtype, np.floating):
+            # The classic slip: fit(X, y, w) binds the weights to
+            # cat_features (the third positional argument). Name the
+            # real mistake instead of a generic type complaint.
+            msg += (" Got an array of floats -- if these are per-sample "
+                    "weights, pass them by keyword: "
+                    "fit(X, y, sample_weight=w).")
+        raise ValueError(msg)
+    if ci.min() < 0 or ci.max() >= nf:
+        raise ValueError(
+            f"cat_features index out of range for X with {nf} "
+            f"column(s): {sorted(set(ci.tolist()))}.")
+    if len(set(ci.tolist())) != ci.size:
+        raise ValueError("cat_features contains duplicate indices.")
+
+
+def _coerce_X_finite(X, Xc, cat_features, nf):
+    """Numeric coercion and the inf rejection, both arms of the cat split."""
     if not cat_features:
         # Check complex BEFORE the float64 cast, which would raise its own
         # TypeError on complex input instead of our clear ValueError.
@@ -1015,6 +1015,11 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa
                 "X contains infinity. NaN is accepted (treated as missing), "
                 "but inf is not -- clip or clean it first.")
 
+
+def _check_y_target(y, n, classification):
+    """Length, shape and finiteness checks on y; returns the raveled y."""
+    from sklearn.exceptions import DataConversionWarning
+
     y = np.asarray(y)
     if y.shape[0] != n:
         raise ValueError(
@@ -1022,13 +1027,15 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa
             f"y has {y.shape[0]}.")
 
     # Ravel a column-vector y (n, 1) with a warning, like sklearn estimators;
-    # reject genuine multi-output y.
+    # reject genuine multi-output y. stacklevel 3: this helper + the
+    # _validate_fit_input frame, attributing the warning to fit's caller
+    # exactly as the pre-extraction stacklevel=2 did.
     if y.ndim == 2:
         if y.shape[1] == 1:
             warnings.warn(
                 "A column-vector y was passed when a 1d array was expected. "
                 "Please change the shape of y to (n_samples,).",
-                DataConversionWarning, stacklevel=2)
+                DataConversionWarning, stacklevel=3)
             y = y.ravel()
         else:
             raise ValueError(
@@ -1046,23 +1053,52 @@ def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa
             raise ValueError("y contains NaN or infinity.")
     elif not np.isfinite(np.asarray(y, np.float64)).all():
         raise ValueError("y contains NaN or infinity; targets must be finite.")
+    return y
 
-    if sample_weight is not None:
-        sw = np.asarray(sample_weight, dtype=np.float64)
-        if sw.ndim != 1 or sw.shape[0] != n:
-            raise ValueError(
-                f"sample_weight must be 1D of length {n}; got shape {sw.shape}.")
 
-        # Non-finite or negative weights, or an all-zero vector, otherwise fit
-        # without error and silently yield an all-NaN model: mean-1 weight
-        # normalization divides by the weight sum.
-        if not np.isfinite(sw).all():
-            raise ValueError("sample_weight contains NaN or infinity.")
-        if (sw < 0).any():
-            raise ValueError("sample_weight must be non-negative.")
-        if sw.sum() <= 0:
-            raise ValueError("sample_weight sums to zero; at least one weight "
-                             "must be positive.")
+def _check_sample_weight_arr(sample_weight, n):
+    if sample_weight is None:
+        return
+    sw = np.asarray(sample_weight, dtype=np.float64)
+    if sw.ndim != 1 or sw.shape[0] != n:
+        raise ValueError(
+            f"sample_weight must be 1D of length {n}; got shape {sw.shape}.")
+
+    # Non-finite or negative weights, or an all-zero vector, otherwise fit
+    # without error and silently yield an all-NaN model: mean-1 weight
+    # normalization divides by the weight sum.
+    if not np.isfinite(sw).all():
+        raise ValueError("sample_weight contains NaN or infinity.")
+    if (sw < 0).any():
+        raise ValueError("sample_weight must be non-negative.")
+    if sw.sum() <= 0:
+        raise ValueError("sample_weight sums to zero; at least one weight "
+                         "must be positive.")
+
+
+def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
+                        classification):
+    """Shared fit-time input validation and feature-metadata capture.
+
+    Returns the (possibly raveled) ``y`` and sets ``n_features_in_`` (and
+    ``feature_names_in_`` for DataFrame input) on ``estimator``. Raises clear
+    errors for the common malformed inputs rather than letting them fail
+    cryptically deep in numpy/numba.
+
+    NaN in X is deliberately allowed -- it is treated as missing and routed to
+    its own bin. inf, complex, multi-output y and scipy.sparse input are not; see
+    the README "scikit-learn compatibility" note.
+
+    The helpers run in the same order the checks always ran -- first-fire
+    order on multiply-invalid input is part of the contract, pinned by the
+    message goldens in tests/test_bitident_refactors.py.
+    """
+    Xc, feature_names, n, nf = _check_input_container(
+        estimator, X, y, cat_features)
+    _check_cat_indices(cat_features, nf)
+    _coerce_X_finite(X, Xc, cat_features, nf)
+    y = _check_y_target(y, n, classification)
+    _check_sample_weight_arr(sample_weight, n)
 
     estimator.n_features_in_ = nf
     if feature_names is not None:
