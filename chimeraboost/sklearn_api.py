@@ -567,7 +567,79 @@ def _member_sample_indices(n, ms, seed, groups):
     return rng.choice(n, size=m, replace=False)
 
 
-def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):  # noqa: C901 -- complexity baseline, removed in stage 3
+def _resolve_worker_layout(estimator, K):
+    """Split the thread budget across member-fitting workers.
+
+    Returns ``(n_workers, member_threads)``: ``thread_count`` if set (else
+    numba's thread count) divided across up to K workers, so a bagged fit
+    uses the same cores a single fit would.
+    """
+    n_jobs = int(estimator.ensemble_n_jobs)
+    if n_jobs == 1:
+        return 1, estimator.thread_count
+    budget = estimator.thread_count
+    if budget is None:
+        import numba
+        budget = numba.config.NUMBA_NUM_THREADS
+    n_workers = max(1, min(K, budget if n_jobs < 0 else n_jobs))
+    return n_workers, max(1, int(budget) // n_workers)
+
+
+def _resolve_member_defaults(estimator):
+    # Bagged-mode member defaults (benchmarks/BAGGING_PLAN.md B3): averaging
+    # tolerates coarser, cheaper members, so params left on auto resolve to the
+    # tuned member values rather than the single-model ones. PMLB-tuned,
+    # holdout-confirmed, decision-suite validated: 54W-17L, +0.28% pooled vs the
+    # previous bagged defaults at par fit cost.
+    #
+    # Explicit user values always win, and the substitution is announced once
+    # per fit -- an opt-in bagged fit should never silently train members on
+    # different defaults. stacklevel 4: this helper + _fit_bagged + fit,
+    # attributing the warning to the user's fit call as the pre-extraction
+    # stacklevel=3 did.
+    member_defaults = {}
+    if estimator.learning_rate is None:
+        member_defaults["learning_rate"] = 0.15
+    if estimator.colsample is None:
+        member_defaults["colsample"] = 0.85
+    estimator.member_params_ = dict(member_defaults)
+    if member_defaults:
+        warnings.warn(
+            "ChimeraBoost bagged mode: member defaults "
+            + ", ".join(f"{k}={v}" for k, v in member_defaults.items())
+            + " (pass explicit values to override; see docs).",
+            UserWarning, stacklevel=4)
+    return member_defaults
+
+
+def _patch_missing_class(idx, y, classes, seed):
+    """Guard a member draw that missed a rare class entirely.
+
+    A member cannot fit on a single class ("Need at least 2 classes" would
+    crash the whole bag on data whose y plainly has two). Inject one row of
+    the most frequent missing class. Draws that already hold two classes --
+    every non-crashing fit before this guard -- are byte-identical: the
+    patch rng is constructed only when the guard fires.
+    """
+    if classes is None or np.unique(y[idx]).size >= 2:
+        return idx
+    patch_rng = np.random.default_rng([int(seed), 1])
+    present = y[idx[0]]
+    missing = [c for c in classes if c != present]
+    counts = {c: int(np.sum(y == c)) for c in missing}
+    donor_class = max(missing, key=lambda c: counts[c])
+    donor = patch_rng.choice(np.where(y == donor_class)[0])
+    if idx.size > 1:
+        idx[patch_rng.integers(0, idx.size)] = donor
+    else:
+        # A one-row draw (tiny n, small max_samples) has no row to
+        # spare: overwriting it just swaps which single class the
+        # member sees, and it crashes again. Grow to two rows instead.
+        idx = np.append(idx, donor)
+    return idx
+
+
+def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     """Train ``estimator.n_ensembles`` member clones and return them as a list.
 
     Each member is a clone of ``estimator`` with bagging switched off
@@ -601,42 +673,13 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
     groups = None if groups is None else np.asarray(groups)
     n = X.shape[0]
     K = int(estimator.n_ensembles)
-    n_jobs = int(estimator.ensemble_n_jobs)
 
-    if n_jobs == 1:
-        n_workers, member_threads = 1, estimator.thread_count
-    else:
-        budget = estimator.thread_count
-        if budget is None:
-            import numba
-            budget = numba.config.NUMBA_NUM_THREADS
-        n_workers = max(1, min(K, budget if n_jobs < 0 else n_jobs))
-        member_threads = max(1, int(budget) // n_workers)
+    n_workers, member_threads = _resolve_worker_layout(estimator, K)
 
     seeds = np.random.default_rng(estimator.random_state).integers(
         0, 2**31 - 1, size=K)
 
-    # Bagged-mode member defaults (benchmarks/BAGGING_PLAN.md B3): averaging
-    # tolerates coarser, cheaper members, so params left on auto resolve to the
-    # tuned member values rather than the single-model ones. PMLB-tuned,
-    # holdout-confirmed, decision-suite validated: 54W-17L, +0.28% pooled vs the
-    # previous bagged defaults at par fit cost.
-    #
-    # Explicit user values always win, and the substitution is announced once
-    # per fit -- an opt-in bagged fit should never silently train members on
-    # different defaults.
-    member_defaults = {}
-    if estimator.learning_rate is None:
-        member_defaults["learning_rate"] = 0.15
-    if estimator.colsample is None:
-        member_defaults["colsample"] = 0.85
-    estimator.member_params_ = dict(member_defaults)
-    if member_defaults:
-        warnings.warn(
-            "ChimeraBoost bagged mode: member defaults "
-            + ", ".join(f"{k}={v}" for k, v in member_defaults.items())
-            + " (pass explicit values to override; see docs).",
-            UserWarning, stacklevel=3)
+    member_defaults = _resolve_member_defaults(estimator)
 
     def _fit_one(seed):
         # quality=None on members: the recipe is already resolved on the bag
@@ -661,26 +704,8 @@ def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
         ms = float(estimator.max_samples)
         idx = _member_sample_indices(n, ms, seed, groups)
 
-        # The draw can miss a rare class entirely, and a member cannot fit on a
-        # single class ("Need at least 2 classes" would crash the whole bag on
-        # data whose y plainly has two). Inject one row of the most frequent
-        # missing class. Draws that already hold two classes -- every
-        # non-crashing fit before this guard -- are byte-identical.
-        classes = getattr(estimator, "classes_", None)
-        if classes is not None and np.unique(y[idx]).size < 2:
-            patch_rng = np.random.default_rng([int(seed), 1])
-            present = y[idx[0]]
-            missing = [c for c in classes if c != present]
-            counts = {c: int(np.sum(y == c)) for c in missing}
-            donor_class = max(missing, key=lambda c: counts[c])
-            donor = patch_rng.choice(np.where(y == donor_class)[0])
-            if idx.size > 1:
-                idx[patch_rng.integers(0, idx.size)] = donor
-            else:
-                # A one-row draw (tiny n, small max_samples) has no row to
-                # spare: overwriting it just swaps which single class the
-                # member sees, and it crashes again. Grow to two rows instead.
-                idx = np.append(idx, donor)
+        idx = _patch_missing_class(idx, y, getattr(estimator, "classes_", None),
+                                   seed)
 
         wb = None if sample_weight is None else np.asarray(sample_weight)[idx]
         gb = None if groups is None else groups[idx]
