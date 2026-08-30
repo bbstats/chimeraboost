@@ -1,5 +1,42 @@
 # Shared-tree multi-quantile head
 
+## Status, 2026-08-30
+
+Three things landed around the head. None of them changes how it fits — the
+identity snapshot is bit-identical on all 155 configurations.
+
+1. **It can be explained.** `shap_values` with a channel per level, plus
+   `kind="width"`, which attributes the width of an interval rather than its
+   position. See `docs/quantiles.md`. The kernel is `tree._shap_forest_vec`,
+   pinned bit-for-bit against the frozen scalar kernel at K=1.
+2. **It can be scored properly.** `quantile_metrics` gained the Winkler
+   interval score, PIT, a CRPS skill score and sharpness.
+3. **It is finally benchmarked on real data**, by `benchmarks/quantile_suite.py`
+   — Grinsztajn regression, against CatBoost `MultiQuantile`, K LightGBM
+   quantile boosters and K of our own single-level models. This is the first
+   time the head has been scored on anything but synthetic draws and three
+   probe datasets, and the first time CatBoost's version of the same idea has
+   been run at all. Results below.
+
+**Measured while building the SHAP path, and worth recording:** on the default
+19-level grid, roughly 40% of rows have at least one adjacent pair *out of
+order in the raw scores* before delivery-time rearrangement; on a 3-level grid
+it is about 0%. The delivered crossing rate is still exactly 0 — that is what
+the sort is for — but the sort is doing real work on the default grid, not
+acting as a no-op. This is why the SHAP path distinguishes raw from delivered
+channels rather than pretending the two are interchangeable.
+
+### Still open
+
+- **`adaptive_learning_rate` is pinned False for this head**
+  (`quantile_api.py`, "Measure before flipping") and has never been measured
+  against pinball. That is a default flip on a strength surface, so it needs
+  its own pre-registration and the full `/experiment` protocol. Not attempted
+  here. Recorded 2026-08-30.
+- The acceptance-ledger rows below (fit-speed MISS, CQR coverage FAIL) were
+  measured on synthetic data. `quantile_suite.py` is the instrument for
+  re-reading them on real data; doing so is a separate piece of work.
+
 One booster, an arbitrary tau grid, a K-vector in every leaf. Replaces "fit K
 independent quantile boosters" for estimating a whole predictive
 distribution.

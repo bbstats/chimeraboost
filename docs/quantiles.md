@@ -34,6 +34,22 @@ lo, med, hi = model.predict(X_test).T
 
 More worked snippets are in [Recipes](recipes.md#quantile-regression).
 
+## Reading the distribution other ways
+
+`predict` will answer four more questions off the same fitted grid, at no extra cost:
+
+```python
+model.predict(X, kind="median")                          # (n,) the centre
+model.predict(X, kind="cdf", thresholds=[0.0, 10.0])     # (n, 2) P(y <= t)
+model.predict(X, kind="sample", n_samples=500, random_state=0)   # (n, 500)
+```
+
+`kind="cdf"` inverts the grid, and `kind="sample"` draws from it by inverse transform —
+useful for feeding a downstream simulation. Both interpolate between fitted levels and
+clamp outside the outermost ones, because a finite grid says nothing about the tails
+beyond it. `kind="interval"` still refuses levels you did not fit: reading a fitted
+curve at a point is a different thing from claiming a level was fitted when it was not.
+
 ## Predictions never cross
 
 The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so
@@ -92,16 +108,78 @@ print(qm.format_report(model.report(X_test, y_test)))
 |:--|:--|
 | `pinball_loss` | Is each level in the right place? (one value per level) |
 | `crps` | Is the distribution as a whole right? |
+| `quantile_skill_score` | Is it right by a useful margin? 1 perfect, 0 no better than ignoring every feature. |
 | `interval_coverage` | Do the intervals hold what they claim? Coverage and width. |
+| `interval_score` | Coverage and width in one number — the proper rule that trades them off. |
+| `sharpness` | Width alone, for comparing two equally calibrated models. |
+| `pit_values` / `pit_histogram` | *Where* is the model wrong? |
 | `crossing_rate` | What fraction of adjacent pairs is out of order? |
 
 `crps` is the mean pinball loss over the grid. The textbook CRPS is twice that, but the
 factor is constant, so comparisons are unaffected and this convention matches the
-early-stopping metric.
+early-stopping metric. Pass `convention="full"` when comparing against another library —
+`properscoring` and `scoringrules` both report the doubled value.
+
+Coverage on its own is not a score: an infinitely wide interval covers everything.
+`interval_score` is the Winkler score, which charges the width plus a penalty for every
+outcome that falls outside, and so cannot be gamed in either direction.
+
+The PIT histogram is the instrument for the under-dispersion described above. It asks
+where in the predicted grid each outcome actually landed: flat means calibrated, a U
+means the bands are too narrow, a hump means too wide.
+
+```python
+freq, edges = qm.pit_histogram(y_test, model.predict(X_test), model.quantiles_)
+```
 
 `predict(kind="mean")` integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.
+
+## Explaining a predicted distribution
+
+`shap_values` gives exact TreeSHAP attributions with a channel per level:
+
+```python
+phi = model.shap_values(X_test)                 # (n, n_features, n_quantiles)
+model.shap_importances(X_test, n_features=5)    # averaged over the grid
+model.shap_values(X_test, quantile=0.95)        # (n, n_features), one level
+```
+
+The one no per-level approach can give you is the attribution of interval **width** —
+which features make a particular row's prediction more *uncertain*, as opposed to
+higher or lower:
+
+```python
+w = model.shap_values(X_test, kind="width", alpha=0.1)   # (n, n_features)
+```
+
+Shapley values are linear in the value function, so the difference between two levels'
+attributions is exactly the attribution of their difference. On heteroscedastic data
+the feature driving the spread tops this ranking while barely appearing in the median's.
+
+`kind="mean"` does the same for the tau-integrated point prediction.
+
+### What the sort does to the attribution
+
+Predictions are rearranged on the way out (see above), and that rearrangement is a
+per-row permutation. It cannot be folded into the Shapley game: sorting acts on the
+summed forest score, so pushing it inside the coalition enumeration would make the game
+range over every input feature instead of the handful one tree touches — the exact
+blow-up oblivious trees avoid. So there are two honest views, and `space` picks one:
+
+| `space` | explains | baseline |
+|:--|:--|:--|
+| `"raw"` (default) | the per-level scores the booster accumulated, before rearrangement | one `(n_quantiles,)` vector |
+| `"delivered"` | what `predict` returns, rearrangement and conformalization included | per-row `(n, n_quantiles)` |
+
+Aggregate in `"raw"` — global importances, beeswarm plots — because every row is then
+measuring the same game. Use `"delivered"` to explain a single prediction in the levels
+you actually read off.
+
+The two agree exactly whenever a row's raw grid was already ordered. On a 3-level grid
+that is essentially every row; on the default 19-level grid roughly 40% of rows cross at
+least one adjacent pair, so the choice is not cosmetic there.
 
 ## What it costs
 

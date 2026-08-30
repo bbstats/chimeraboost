@@ -52,7 +52,9 @@ cost to per-tree sharpness. The design is CatBoost's, not ours. See
 
 ## Does SHAP support multiclass?
 
-Not yet.
+Yes. `shap_values` returns `(n_samples, n_features, n_classes)`, attributing each
+class's raw softmax score. Quantile models are covered too, with a channel per
+level. See [SHAP explanations](shap.md).
 
 ## How do I save and load a model?
 

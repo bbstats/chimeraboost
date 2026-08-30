@@ -115,14 +115,37 @@ from chimeraboost import quantile_metrics as qm
 model = ChimeraBoostQuantileRegressor(random_state=0).fit(X_train, y_train)
 
 Q = model.predict(X_test)                # (n_samples, 19), column k is model.quantiles_[k]
-median = Q[:, 9]                         # the 0.50 column of the default grid
+median = model.predict(X_test, kind="median")
 assert np.all(np.diff(Q, axis=1) >= 0)   # holds by construction
 
 lo, hi = model.predict(X_test, kind="interval", alpha=0.1).T   # central 90%
 point = model.predict(X_test, kind="mean")                     # tau-integrated mean
 
-print(qm.format_report(model.report(X_test, y_test)))  # CRPS, pinball, coverage, width
+# CRPS and its skill score, per-level pinball, coverage/width/interval score,
+# and the PIT calibration histogram.
+print(qm.format_report(model.report(X_test, y_test)))
 ```
+
+### Asking the distribution other questions
+
+```python
+# P(y <= t): the fitted grid, inverted.
+p_below = model.predict(X_test, kind="cdf", thresholds=[0.0, 100.0])
+
+# Draws for a downstream simulation.
+draws = model.predict(X_test, kind="sample", n_samples=1000, random_state=0)
+```
+
+### Which features drive the uncertainty
+
+```python
+# Not "what made the prediction high" but "what made it uncertain".
+width = model.shap_values(X_test, kind="width", alpha=0.1)   # (n, n_features)
+model.shap_importances(X_test, n_features=5, prettified=True)
+```
+
+See [Explaining a predicted distribution](quantiles.md#explaining-a-predicted-distribution)
+for what the rearrangement means for these attributions.
 
 The default grid is `0.05, 0.10, ... 0.95`. `kind="interval"` reads the two levels off
 that grid and raises if `alpha` asks for levels it was not fitted for, so pass your own
@@ -228,8 +251,9 @@ clf = ChimeraBoostClassifier(random_state=0).fit(X, y)   # 3+ classes
 proba = clf.predict_proba(X_test)        # shape (n_samples, n_classes)
 ```
 
-`linear_leaves` and `shap_values` cover binary classification and regression only.
-Multiclass uses constant leaves, and `shap_values` raises `NotImplementedError`.
+`linear_leaves` covers binary classification and regression only; multiclass uses
+constant leaves. `shap_values` works for multiclass and returns
+`(n_samples, n_features, n_classes)`, attributing each class's raw softmax score.
 
 ## Sample weights
 

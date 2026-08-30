@@ -102,8 +102,17 @@ phi = clf.shap_values(X_test, X_background=X_reference)
 
 `expected_value_` is the mean additive score over whichever background is used.
 For the default identity-link regressor losses, that is also the mean prediction.
-Cost scales linearly with background size; the default sample keeps it around 3 ms
-per row at depth 6 with 200 background rows.
+
+Cost scales linearly with background size, so it is capped: a background larger
+than `max_background` (default 200) is randomly subsampled to that size. Raise it
+for a more stable baseline, lower it for speed.
+
+```python
+phi = reg.shap_values(X_test, X_background=X_ref, max_background=1000)
+```
+
+The default sample keeps a call around 3 ms per row at depth 6 with 200 background
+rows.
 
 ## Bagged models
 
@@ -111,10 +120,31 @@ When `n_ensembles > 1`, attributions are averaged across members. For regression
 is exact, since the bag prediction is the members' mean and Shapley values are linear.
 For classification it is an additive surrogate for the soft-voted probability.
 
+## Multiclass
+
+`shap_values` returns `(n_samples, n_features, n_classes)`, attributing the raw softmax
+score of each class. Rows sum to `predict_raw(X) - expected_value_` per class, and
+`expected_value_` is a `(n_classes,)` array.
+
+```python
+phi = clf.shap_values(X_test)        # (n, n_features, n_classes)
+phi[:, :, 2]                          # what pushed rows toward class 2
+```
+
+`shap_importances` averages the magnitudes across classes, so the ranking stays over
+features rather than over (feature, class) pairs.
+
+## Quantile models
+
+`ChimeraBoostQuantileRegressor` has its own `shap_values` with a channel per quantile
+level, including an attribution of interval *width*. See
+[Predictive distributions](quantiles.md#explaining-a-predicted-distribution).
+
 ## Limits
 
-- Binary classification and regression only. Multiclass raises `NotImplementedError`.
-- Attributions live in additive-score / log-odds space, rather than probability space.
+- Attributions live in additive-score / log-odds / softmax-margin space, rather than
+  probability space. The link is nonlinear, so no exact additive decomposition survives
+  it.
 - They explain this model's behavior. They are not causal effects.
 
 ## Compared with `feature_importances_`

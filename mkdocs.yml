@@ -96,6 +96,7 @@ nav:
           - ChimeraBoostClassifier: api/classifier.md
           - ChimeraBoostQuantileRegressor: api/quantile-regressor.md
           - CustomObjective: api/custom-objective.md
+          - metrics: api/metrics.md
           - quantile_metrics: api/quantile-metrics.md
           - warmup: api/warmup.md
       - How it is benchmarked: benchmarks.md

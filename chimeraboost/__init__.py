@@ -15,6 +15,7 @@ Public API:
   >>> from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
   >>> model = ChimeraBoostClassifier().fit(X, y, cat_features=[0, 3])
   >>> proba = model.predict_proba(X_test)
+  >>> print(model.report(X_test, y_test))   # log loss, Brier skill, calibration
 """
 
 import os as _os
