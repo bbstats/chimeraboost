@@ -302,7 +302,86 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def fit(self, X, y, cat_features=None, eval_set=None, groups=None,  # noqa: C901 -- complexity baseline, removed in stage 3
+    def _carve_calibration_fold(self, X, y, sample_weight, groups):
+        """Step 1: the conformal calibration fold FIRST, so it sees neither
+        the fit nor the stopping decision. Carved before anything else
+        touches y. Returns ``(cal, X, y, sample_weight, groups)``."""
+        if not self.conformalize:
+            return None, X, y, sample_weight, groups
+        split = _make_eval_split(X, y, self.calibration_fraction,
+                                 self.random_state, groups=groups)
+        if split is None:
+            raise ValueError(
+                "conformalize=True could not carve a calibration fold from "
+                f"{len(y)} rows at calibration_fraction="
+                f"{self.calibration_fraction}. Supply more rows or lower "
+                "the fraction.")
+
+        keep, cal_idx = split
+        cal = (X[cal_idx], y[cal_idx])
+        X, y = X[keep], y[keep]
+        if sample_weight is not None:
+            sample_weight = sample_weight[keep]
+        if groups is not None:
+            groups = np.asarray(groups)[keep]
+        return cal, X, y, sample_weight, groups
+
+    def _carve_es_split(self, X, y, sample_weight, eval_set, groups):
+        """Step 2: the early-stopping split out of whatever remains.
+        Returns ``(X, y, sample_weight, eval_set, es_rounds)``."""
+        es_active = bool(self.early_stopping)
+        if es_active and eval_set is None:
+            split = _make_eval_split(X, y, self.validation_fraction,
+                                     self.random_state, groups=groups)
+            if split is None:
+                es_active = False           # too small to hold anything out
+            else:
+                tr, va = split
+                sw_val = None if sample_weight is None else sample_weight[va]
+                eval_set = (X[va], y[va], sw_val)
+                X, y = X[tr], y[tr]
+                if sample_weight is not None:
+                    sample_weight = sample_weight[tr]
+
+        es_rounds = self.early_stopping_rounds
+        if not es_active:
+            es_rounds = None
+        elif eval_set is not None and es_rounds is None:
+            es_rounds = 50
+        return X, y, sample_weight, eval_set, es_rounds
+
+    def _make_mq_booster(self, taus, es_rounds, cat_features, n_rows):
+        """Resolve the auto defaults and construct the booster."""
+        depth = 4 if self.depth is None else self.depth
+        mcw = (_auto_min_child_weight(taus) if self.min_child_weight is None
+               else self.min_child_weight)
+
+        cat_combos = self.cat_combinations
+        if cat_combos is None:
+            cat_combos = _auto_cat_combinations(
+                cat_features, self.n_features_in_, n_rows)
+
+        return MultiQuantileBoosting(
+            quantiles=taus, split_projection=self.split_projection,
+            exact_splits=self.exact_splits,
+            n_estimators=self.n_estimators, learning_rate=self.learning_rate,
+            depth=depth, l2_leaf_reg=self.l2_leaf_reg, max_bins=self.max_bins,
+            subsample=self.subsample,
+            colsample=1.0 if self.colsample is None else self.colsample,
+            cat_smoothing=self.cat_smoothing,
+            cat_n_permutations=self.cat_n_permutations,
+            early_stopping_rounds=es_rounds, min_child_weight=mcw,
+            thread_count=self.thread_count, random_state=self.random_state,
+            verbose=self.verbose, cat_combinations=cat_combos,
+            quantize_gradients=self.quantize_gradients,
+            # Pinned to the historical flat rate. The size fade became the
+            # booster default in 0.30.0 on RMSE and Brier evidence
+            # (benchmarks/SMALLDATA_PLAN.md), but was never measured against
+            # pinball loss; inheriting it here would ship an unmeasured default
+            # change to the quantile path. Measure before flipping.
+            adaptive_learning_rate=False)
+
+    def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
         """Fit the model. Arguments carry the same meaning as
         `ChimeraBoostRegressor.fit`."""
@@ -334,77 +413,13 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight, dtype=np.float64)
 
-        # 1. Calibration fold FIRST, so it sees neither the fit nor the
-        #    stopping decision. Carved before anything else touches y.
-        cal = None
-        if self.conformalize:
-            split = _make_eval_split(X, y, self.calibration_fraction,
-                                     self.random_state, groups=groups)
-            if split is None:
-                raise ValueError(
-                    "conformalize=True could not carve a calibration fold from "
-                    f"{len(y)} rows at calibration_fraction="
-                    f"{self.calibration_fraction}. Supply more rows or lower "
-                    "the fraction.")
+        cal, X, y, sample_weight, groups = self._carve_calibration_fold(
+            X, y, sample_weight, groups)
+        X, y, sample_weight, eval_set, es_rounds = self._carve_es_split(
+            X, y, sample_weight, eval_set, groups)
 
-            keep, cal_idx = split
-            cal = (X[cal_idx], y[cal_idx])
-            X, y = X[keep], y[keep]
-            if sample_weight is not None:
-                sample_weight = sample_weight[keep]
-            if groups is not None:
-                groups = np.asarray(groups)[keep]
-
-        # 2. Early-stopping split out of whatever remains.
-        es_active = bool(self.early_stopping)
-        if es_active and eval_set is None:
-            split = _make_eval_split(X, y, self.validation_fraction,
-                                     self.random_state, groups=groups)
-            if split is None:
-                es_active = False           # too small to hold anything out
-            else:
-                tr, va = split
-                sw_val = None if sample_weight is None else sample_weight[va]
-                eval_set = (X[va], y[va], sw_val)
-                X, y = X[tr], y[tr]
-                if sample_weight is not None:
-                    sample_weight = sample_weight[tr]
-
-        es_rounds = self.early_stopping_rounds
-        if not es_active:
-            es_rounds = None
-        elif eval_set is not None and es_rounds is None:
-            es_rounds = 50
-
-        depth = 4 if self.depth is None else self.depth
-        mcw = (_auto_min_child_weight(taus) if self.min_child_weight is None
-               else self.min_child_weight)
-
-        cat_combos = self.cat_combinations
-        if cat_combos is None:
-            cat_combos = _auto_cat_combinations(
-                cat_features, self.n_features_in_, len(y))
-
-        self.model_ = MultiQuantileBoosting(
-            quantiles=taus, split_projection=self.split_projection,
-            exact_splits=self.exact_splits,
-            n_estimators=self.n_estimators, learning_rate=self.learning_rate,
-            depth=depth, l2_leaf_reg=self.l2_leaf_reg, max_bins=self.max_bins,
-            subsample=self.subsample,
-            colsample=1.0 if self.colsample is None else self.colsample,
-            cat_smoothing=self.cat_smoothing,
-            cat_n_permutations=self.cat_n_permutations,
-            early_stopping_rounds=es_rounds, min_child_weight=mcw,
-            thread_count=self.thread_count, random_state=self.random_state,
-            verbose=self.verbose, cat_combinations=cat_combos,
-            quantize_gradients=self.quantize_gradients,
-            # Pinned to the historical flat rate. The size fade became the
-            # booster default in 0.30.0 on RMSE and Brier evidence
-            # (benchmarks/SMALLDATA_PLAN.md), but was never measured against
-            # pinball loss; inheriting it here would ship an unmeasured default
-            # change to the quantile path. Measure before flipping.
-            adaptive_learning_rate=False)
-
+        self.model_ = self._make_mq_booster(taus, es_rounds, cat_features,
+                                            len(y))
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight, callbacks=callbacks)
 
