@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.32.0] - 2026-08-30
 ### Added
 - **SHAP for the quantile head and for multiclass.** The SHAP kernel was
   scalar-leaf only, so the two models with K-vector leaves could not be
