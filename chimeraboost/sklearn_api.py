@@ -3071,9 +3071,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,  # noqa: C901 -- complexity baseline, removed in stage 5
-                    callbacks=None):
-        """Fit one (non-bagged) classifier on the data as given."""
+    def _resolve_classes_and_split(self, X, y, cat_features, eval_set,
+                                   groups, sample_weight):
+        """Class discovery, the <2-classes rejection, and the auto
+        early-stopping split with its lost-class check. Returns the post-split
+        arrays plus the pre-split originals kept for the full-data refit."""
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y)
         self.classes_ = np.unique(y)
@@ -3108,6 +3110,13 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     "eval_set, lower validation_fraction, or set "
                     "early_stopping=False.")
 
+        return (X, y, sample_weight, eval_set, es_active, auto_split,
+                X_full, y_full, sw_full)
+
+    def _resolve_cls_kw(self, es_active, X, cat_features):
+        """Resolve the booster kwargs' auto defaults on the FINAL training
+        set (after the early-stopping split). Sets ``self._multiclass``.
+        All kw mutation completes here, before anything reads it."""
         es_rounds = self.early_stopping_rounds
         if es_active and es_rounds is None:
             es_rounds = 50   # see GradientBoosting/Regressor note above
@@ -3157,14 +3166,17 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             raise NotImplementedError(
                 "linear_leaves is not supported for multiclass classification "
                 "yet; use it on regression or binary classification.")
+        return kw
 
-        # Warn when an explicitly non-default setting will be silently inert on
-        # the path about to run. The auto defaults stay quiet -- their precedence
-        # is documented. The linear-leaf update owns the training step, so it
-        # shadows both ordered boosting and leaf refinement, and multiclass never
-        # refines leaves. leaf_estimation_iterations is checked against the raw
-        # attribute (None = auto, no user intent) rather than the resolved kw,
-        # and a refinement count of 1 asks for nothing, so neither warns.
+    def _warn_inert_cls_knobs(self, kw, X):
+        """Warn when an explicitly non-default setting will be silently inert
+        on the path about to run. The auto defaults stay quiet -- their
+        precedence is documented. The linear-leaf update owns the training
+        step, so it shadows both ordered boosting and leaf refinement, and
+        multiclass never refines leaves. leaf_estimation_iterations is checked
+        against the raw attribute (None = auto, no user intent) rather than
+        the resolved kw, and a refinement count of 1 asks for nothing, so
+        neither warns. stacklevel 3: this helper + _fit_single."""
         ll_shadows = (not self._multiclass and kw.get("linear_leaves")
                       and len(X) >= LINEAR_LEAVES_MIN_SAMPLES)
         lei_set = self.leaf_estimation_iterations
@@ -3173,16 +3185,120 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             warnings.warn(
                 "ordered_boosting is ignored while linear leaves are active "
                 "(the per-leaf linear model owns the training step); set "
-                "linear_leaves=False to use it.", UserWarning, stacklevel=2)
+                "linear_leaves=False to use it.", UserWarning, stacklevel=3)
         if ll_shadows and lei_wanted:
             warnings.warn(
                 "leaf_estimation_iterations is ignored while linear leaves "
                 "are active; set linear_leaves=False to use it.",
-                UserWarning, stacklevel=2)
+                UserWarning, stacklevel=3)
         if self._multiclass and lei_wanted:
             warnings.warn(
                 "leaf_estimation_iterations is not implemented for multiclass "
-                "and will be ignored.", UserWarning, stacklevel=2)
+                "and will be ignored.", UserWarning, stacklevel=3)
+
+    def _make_booster(self, kw, **extra):
+        """One booster of the class this fit resolved to, from the fully
+        resolved kw (which never mutates after _resolve_cls_kw)."""
+        if self._multiclass:
+            return MulticlassBoosting(**extra, **kw)
+        return GradientBoosting(loss="Logloss", **extra, **kw)
+
+    def _race_cross_features(self, kw, X, y_fit, cat_features, eval_set,
+                             sample_weight, callbacks, prep_cache, cal_y,
+                             fast):
+        """Numeric cross features (default-on auto): refit with difference and
+        product columns for the top numeric feature pairs of the base fit, and
+        keep the lower-validation-loss model -- the regressor's selection
+        pattern, see _cross_candidate_pairs. Binary judges on binary log loss,
+        multiclass on softmax log loss, at the same raced budget. Assigns
+        ``model_`` / ``cross_features_selected_`` / ``cross_pairs_``."""
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+
+        if not (self.cross_features is not False
+                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
+            return
+        pairs = _screened_cross_pairs(
+            _cross_candidate_pairs(self.model_.feature_importances_,
+                                   cat_features, X.shape[1]),
+            self.cross_top_columns, self.model_, eval_set[0], cal_y)
+        if not pairs:
+            return
+        aug = self._make_booster(kw, cross_pairs=pairs)
+        if fast:
+            # Symmetric race at the shared budget (see the regressor):
+            # judge both candidates on their first selection_rounds and
+            # kill a trailing augmented fit at the budget.
+            base_best = _best_val(self.model_)
+            aug.fit(X, y_fit, cat_features=cat_features,
+                    eval_set=eval_set, sample_weight=sample_weight,
+                    callbacks=_add_callback(
+                        callbacks, _stop_if_behind(
+                            self.selection_rounds, base_best)),
+                    prep_cache=prep_cache)
+            self.cross_features_selected_ = (
+                min(aug.valid_history_[:self.selection_rounds])
+                < base_best) if aug.valid_history_ else False
+        else:
+            aug.fit(X, y_fit, cat_features=cat_features,
+                    eval_set=eval_set, sample_weight=sample_weight,
+                    callbacks=callbacks, prep_cache=prep_cache)
+            self.cross_features_selected_ = \
+                _best_val(aug) < _best_val(self.model_)
+
+        if self.cross_features_selected_:
+            self.model_ = aug
+            self.cross_pairs_ = pairs
+        elif fast and len(self.model_.valid_history_) >= self.selection_rounds:
+            # The incumbent audition really was truncated by the cap, so
+            # give the winning base variant its full fit. (An audition
+            # that early-stopped on its own already IS the full fit.)
+            self.model_ = self._make_booster(kw)
+            self.model_.fit(X, y_fit, cat_features=cat_features,
+                            eval_set=eval_set,
+                            sample_weight=sample_weight,
+                            callbacks=callbacks,
+                            prep_cache=prep_cache)
+
+    def _dispatch_cls_refit(self, kw, X_full, y_full, sw_full, cat_features,
+                            auto_split):
+        """Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split
+        data tax once early stopping, selection and temperature scaling have
+        consumed the holdout. The temperature was calibrated on the
+        early-stopping winner's validation scores and transfers to the refit
+        model."""
+        if self.refit_full and auto_split and self.model_.trees_:
+            y_refit = (y_full if self._multiclass else
+                       (y_full == self.classes_[1]).astype(np.float64))
+            self.model_ = _refit_on_full(
+                self, self.model_, X_full, y_refit, sw_full, cat_features, kw,
+                replay=self.refit_full == "replay")
+        elif (_bag_refit_rows(self) is not None and self.model_.trees_
+                and not self._multiclass):
+            # Binary only. Multiclass has no replay path -- `_refit_on_full`
+            # rebuilds a vector-leaf model from scratch there -- so a member
+            # refit would cost a whole extra fit per member instead of a cheap
+            # structure replay. That is a different trade, and this evidence does
+            # not cover it, so multiclass bags are unchanged.
+            bx, byy, bsw, bfrac = _bag_refit_rows(self)
+            y_refit = (byy == self.classes_[1]).astype(np.float64)
+            self.model_ = _refit_on_full(
+                self, self.model_, bx, y_refit, bsw, cat_features, kw,
+                replay=True, train_frac=bfrac)
+
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+                    callbacks=None):
+        """Fit one (non-bagged) classifier on the data as given.
+
+        The helpers run in the exact order the inlined blocks always did;
+        every ``self.model_`` assignment stays visible either here or in the
+        named step that owns it."""
+        (X, y, sample_weight, eval_set, es_active, auto_split,
+         X_full, y_full, sw_full) = self._resolve_classes_and_split(
+            X, y, cat_features, eval_set, groups, sample_weight)
+
+        kw = self._resolve_cls_kw(es_active, X, cat_features)
+        self._warn_inert_cls_knobs(kw, X)
 
         # cross_features: None (the auto default) and True run the same
         # validation-selected race everywhere, multiclass included (M1); an
@@ -3207,15 +3323,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         prep_cache = {}
 
         if self._multiclass:
-            def _make(**extra):
-                return MulticlassBoosting(**extra, **kw)
             y_fit = y
             if eval_set is not None:
                 cal_Xv = eval_set[0]
                 cal_w = eval_set[2] if len(eval_set) > 2 else None
         else:
-            def _make(**extra):
-                return GradientBoosting(loss="Logloss", **extra, **kw)
             y_fit = (y == self.classes_[1]).astype(np.float64)
             if eval_set is not None:
                 cal_Xv = eval_set[0]
@@ -3225,7 +3337,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_w = sw_v
                 eval_set = (cal_Xv, cal_y, sw_v)
 
-        self.model_ = _make()
+        self.model_ = self._make_booster(kw)
         self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight,
                         callbacks=_add_callback(callbacks, stop),
@@ -3236,56 +3348,9 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             if eval_set is not None:
                 cal_y = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
 
-        # Numeric cross features (default-on auto): refit with difference and
-        # product columns for the top numeric feature pairs of the base fit, and
-        # keep the lower-validation-loss model -- the regressor's selection
-        # pattern, see _cross_candidate_pairs. Binary judges on binary log loss,
-        # multiclass on softmax log loss, at the same raced budget.
-        self.cross_features_selected_ = None
-        self.cross_pairs_ = None
-
-        if (self.cross_features is not False
-                and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
-            pairs = _screened_cross_pairs(
-                _cross_candidate_pairs(self.model_.feature_importances_,
-                                       cat_features, X.shape[1]),
-                self.cross_top_columns, self.model_, eval_set[0], cal_y)
-            if pairs:
-                aug = _make(cross_pairs=pairs)
-                if fast:
-                    # Symmetric race at the shared budget (see the regressor):
-                    # judge both candidates on their first selection_rounds and
-                    # kill a trailing augmented fit at the budget.
-                    base_best = _best_val(self.model_)
-                    aug.fit(X, y_fit, cat_features=cat_features,
-                            eval_set=eval_set, sample_weight=sample_weight,
-                            callbacks=_add_callback(
-                                callbacks, _stop_if_behind(
-                                    self.selection_rounds, base_best)),
-                            prep_cache=prep_cache)
-                    self.cross_features_selected_ = (
-                        min(aug.valid_history_[:self.selection_rounds])
-                        < base_best) if aug.valid_history_ else False
-                else:
-                    aug.fit(X, y_fit, cat_features=cat_features,
-                            eval_set=eval_set, sample_weight=sample_weight,
-                            callbacks=callbacks, prep_cache=prep_cache)
-                    self.cross_features_selected_ = \
-                        _best_val(aug) < _best_val(self.model_)
-
-                if self.cross_features_selected_:
-                    self.model_ = aug
-                    self.cross_pairs_ = pairs
-                elif fast and len(self.model_.valid_history_) >= self.selection_rounds:
-                    # The incumbent audition really was truncated by the cap, so
-                    # give the winning base variant its full fit. (An audition
-                    # that early-stopped on its own already IS the full fit.)
-                    self.model_ = _make()
-                    self.model_.fit(X, y_fit, cat_features=cat_features,
-                                    eval_set=eval_set,
-                                    sample_weight=sample_weight,
-                                    callbacks=callbacks,
-                                    prep_cache=prep_cache)
+        self._race_cross_features(kw, X, y_fit, cat_features, eval_set,
+                                  sample_weight, callbacks, prep_cache, cal_y,
+                                  fast)
 
         # The winner is chosen; free the cached binned matrices rather than
         # holding them through temperature scaling below.
@@ -3300,29 +3365,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass,
                                                  sample_weight=cal_w)
 
-        # Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split data
-        # tax once early stopping, selection and temperature scaling have
-        # consumed the holdout. The temperature above was calibrated on the
-        # early-stopping winner's validation scores and transfers to the refit
-        # model.
-        if self.refit_full and auto_split and self.model_.trees_:
-            y_refit = (y_full if self._multiclass else
-                       (y_full == self.classes_[1]).astype(np.float64))
-            self.model_ = _refit_on_full(
-                self, self.model_, X_full, y_refit, sw_full, cat_features, kw,
-                replay=self.refit_full == "replay")
-        elif (_bag_refit_rows(self) is not None and self.model_.trees_
-                and not self._multiclass):
-            # Binary only. Multiclass has no replay path -- `_refit_on_full`
-            # rebuilds a vector-leaf model from scratch there -- so a member
-            # refit would cost a whole extra fit per member instead of a cheap
-            # structure replay. That is a different trade, and this evidence does
-            # not cover it, so multiclass bags are unchanged.
-            bx, byy, bsw, bfrac = _bag_refit_rows(self)
-            y_refit = (byy == self.classes_[1]).astype(np.float64)
-            self.model_ = _refit_on_full(
-                self, self.model_, bx, y_refit, bsw, cat_features, kw,
-                replay=True, train_frac=bfrac)
+        self._dispatch_cls_refit(kw, X_full, y_full, sw_full, cat_features,
+                                 auto_split)
 
         return self
 
