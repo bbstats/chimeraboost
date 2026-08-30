@@ -15,6 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    # The complexity ratchet (C901 at max-complexity 10, see
+    # benchmarks/REFACTOR_AUDIT.md) plus stale-noqa detection (RUF100). Version
+    # pinned to match the dev extra -- McCabe counts and default rules shift
+    # across ruff releases.
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.16.5
+      - run: ruff check chimeraboost/
+
   test:
     name: py${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

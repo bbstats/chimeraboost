@@ -154,7 +154,7 @@ def _quality_applied(estimator):
             setattr(estimator, k, v)
 
 
-def _validate_hyperparams(estimator):
+def _validate_hyperparams(estimator):  # noqa: C901 -- complexity baseline, removed in stage 1
     """Reject malformed constructor parameters with clear, named errors.
 
     Called at the start of ``fit`` -- sklearn's recommended place for parameter
@@ -541,7 +541,7 @@ def _member_sample_indices(n, ms, seed, groups):
     return rng.choice(n, size=m, replace=False)
 
 
-def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):
+def _fit_bagged(estimator, X, y, cat_features, eval_set, groups, sample_weight):  # noqa: C901 -- complexity baseline, removed in stage 3
     """Train ``estimator.n_ensembles`` member clones and return them as a list.
 
     Each member is a clone of ``estimator`` with bagging switched off
@@ -873,7 +873,7 @@ def _reject_masked(X, where):
             "X.filled(np.nan) -- NaN is treated as missing.")
 
 
-def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,
+def _validate_fit_input(estimator, X, y, cat_features, sample_weight, *,  # noqa: C901 -- complexity baseline, removed in stage 2
                         classification):
     """Shared fit-time input validation and feature-metadata capture.
 
@@ -2111,7 +2111,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,  # noqa: C901 -- complexity baseline, removed in stage 6
                     callbacks=None):
         """Fit one (non-bagged) model on the data as given."""
         X = as_model_array(X, bool(cat_features))
@@ -2984,7 +2984,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
+    def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,  # noqa: C901 -- complexity baseline, removed in stage 5
                     callbacks=None):
         """Fit one (non-bagged) classifier on the data as given."""
         X = as_model_array(X, bool(cat_features))

@@ -700,7 +700,7 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit the additive model.
 
@@ -1074,7 +1074,7 @@ class MulticlassBoosting(_BaseBooster):
     `predict_raw` keeps a fallback for those unpickled forests.
     """
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf tree per boosting round under softmax loss.
 
@@ -1518,7 +1518,7 @@ class MultiQuantileBoosting(_BaseBooster):
 
         return basis[0]         # "sum": the literal channel sum
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf quantile tree per boosting round.
 

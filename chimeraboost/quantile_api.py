@@ -302,7 +302,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         tags.input_tags.sparse = False
         return tags
 
-    def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
+    def fit(self, X, y, cat_features=None, eval_set=None, groups=None,  # noqa: C901 -- complexity baseline, removed in stage 3
             sample_weight=None, callbacks=None):
         """Fit the model. Arguments carry the same meaning as
         `ChimeraBoostRegressor.fit`."""

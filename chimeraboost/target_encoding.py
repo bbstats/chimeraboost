@@ -143,7 +143,7 @@ class OrderedTargetEncoder:
         return out
 
 
-def _factorize_numeric(col):
+def _factorize_numeric(col):  # noqa: C901 -- frozen: predict-latency hot path, see benchmarks/REFACTOR_AUDIT.md
     """Vectorized `factorize` for a column whose entries are all real numbers,
     None, or NaN; returns None when anything else is present, and the caller
     falls back to the general loop.
