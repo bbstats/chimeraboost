@@ -75,16 +75,30 @@ def crps(y, Q, taus, sample_weight=None, convention="half"):
     """Continuous ranked probability score, approximated as the mean pinball
     loss across the grid.
 
+    Lower is better, and only the true conditional distribution reaches the
+    minimum. It is a joint score, so exactly three things make it worse, and
+    the number alone does not say which:
+
+      * the distribution sits in the wrong place;
+      * it is vaguer than it needs to be (too wide);
+      * it is *sharper* than the model can justify (too narrow) -- being
+        confidently wrong is penalised too, which is what makes CRPS
+        ungameable by shrinking the band.
+
+    Use `interval_coverage` and `sharpness`, or `pit_histogram`, to tell those
+    apart once CRPS says something is off.
+
     Convention: CRPS is exactly ``2 * integral of pinball over tau``, so the
-    default ``"half"`` returns half the textbook value. The factor is
-    constant, so rankings and relative comparisons are unaffected, and it
-    matches the booster's early-stopping metric, which keeps the two numbers
-    directly comparable. Pass ``convention="full"`` for the textbook scale
-    when comparing against another library -- `properscoring` and
-    `scoringrules` both report the full value.
+    default ``"half"`` returns half the textbook value, matching the booster's
+    early-stopping metric. **The factor is a constant, so it never changes
+    which model wins** -- every score on a given convention is on the same
+    scale, and switching conventions multiplies them all by two. Pass
+    ``convention="full"`` only when quoting a number alongside another
+    library; `properscoring` and `scoringrules` both report the full value.
 
     Grid resolution bounds the accuracy either way: a 19-point grid
-    approximates the integral, it does not evaluate it."""
+    approximates the integral, it does not evaluate it. Two models are
+    therefore only comparable on the same grid."""
     if convention not in ("half", "full"):
         raise ValueError(
             f'convention must be "half" or "full"; got {convention!r}.')

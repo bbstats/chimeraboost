@@ -33,6 +33,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   numbers), and `sharpness`. `crps(convention="full")` gives the textbook
   scale for comparing against `properscoring` or `scoringrules`; the default
   is unchanged. `model.report()` carries all of it.
+- **CRPS documentation (#96).** The page now says what a *high* CRPS actually
+  means, with a worked table: mislocated, too wide, and too *narrow* all score
+  worse than an honest forecast. The too-narrow row is the one people are
+  surprised by, and it is what stops the score being gamed by shrinking the
+  band. The table's numbers are pinned by a test. It also states plainly that
+  the halved convention rescales every score and so can never change which
+  model wins.
 - **`chimeraboost.metrics` and `report()` on every estimator.** The quantile
   head had the only `.report()` in the library. Regressors and classifiers now
   have one too, reporting error alongside a skill score — an RMSE of 3.1 means

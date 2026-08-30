@@ -118,10 +118,42 @@ print(qm.format_report(model.report(X_test, y_test)))
 | `pit_values` / `pit_histogram` | *Where* is the model wrong? |
 | `crossing_rate` | What fraction of adjacent pairs is out of order? |
 
-`crps` is the mean pinball loss over the grid. The textbook CRPS is twice that, but the
-factor is constant, so comparisons are unaffected and this convention matches the
-early-stopping metric. Pass `convention="full"` when comparing against another library —
-`properscoring` and `scoringrules` both report the doubled value.
+### Reading CRPS
+
+CRPS is the one number for "is this predictive distribution any good". Lower is better,
+and only the true conditional distribution reaches the minimum. Exactly three things
+make it worse, and the score alone will not tell you which:
+
+```python
+from scipy.stats import norm
+taus = np.round(np.arange(0.1, 0.91, 0.1), 2)
+y = rng.standard_normal(20_000)                     # the truth is standard normal
+grid = lambda loc, scale: np.tile(loc + scale * norm.ppf(taus), (len(y), 1))
+```
+
+| forecast | CRPS |
+|:--|--:|
+| right centre, right width | **0.3075** |
+| right centre, 3× too narrow | 0.3451 |
+| right centre, 3× too wide | 0.4484 |
+| centre off by 1, right width | 0.4537 |
+
+Note the third and fourth rows especially. Being **too narrow** is punished as well as
+being too wide, which is what stops CRPS being gamed by shrinking the band — the same
+property `interval_score` has. When CRPS says something is off, use
+`interval_coverage` and `sharpness`, or the PIT histogram below, to find out which of
+the three it was.
+
+**On the factor of two.** `crps` returns the mean pinball loss over the grid, which is
+half the textbook value; the convention matches the early-stopping metric. This never
+changes which model wins — every score is on the same scale, and switching conventions
+multiplies them all by two. In the table above, `convention="full"` reads 0.6150,
+0.6902, 0.8969, 0.9073: the same ordering, the same relative gaps. Use it only when
+quoting a number next to another library, since `properscoring` and `scoringrules` both
+report the doubled value.
+
+Two models are only comparable on the same tau grid, since the grid bounds how well the
+integral is approximated.
 
 Coverage on its own is not a score: an infinitely wide interval covers everything.
 `interval_score` is the Winkler score, which charges the width plus a penalty for every

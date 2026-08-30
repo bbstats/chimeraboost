@@ -716,3 +716,44 @@ def test_asymmetric_grids_contribute_no_interval_metrics():
     assert qm.interval_coverage(y, Q, taus) == []
     assert qm.interval_score(y, Q, taus) == []
     assert qm.sharpness(Q, taus) == []
+
+
+def test_crps_penalises_all_three_ways_a_distribution_can_be_wrong():
+    """The worked table in docs/quantiles.md, pinned so it cannot drift.
+
+    CRPS is a joint score: mislocated, too wide, AND too narrow all score
+    worse than the honest forecast. The too-narrow row is the one people are
+    surprised by, and it is what stops the score being gamed by shrinking the
+    band (issue #96)."""
+    from scipy.stats import norm
+    rng = np.random.default_rng(0)
+    taus = np.round(np.arange(0.1, 0.91, 0.1), 2)
+    y = rng.standard_normal(20000)
+
+    def grid(loc, scale):
+        return np.tile(loc + scale * norm.ppf(taus), (len(y), 1))
+
+    honest = qm.crps(y, grid(0.0, 1.0), taus)
+    narrow = qm.crps(y, grid(0.0, 1 / 3), taus)
+    wide = qm.crps(y, grid(0.0, 3.0), taus)
+    biased = qm.crps(y, grid(1.0, 1.0), taus)
+
+    assert honest == pytest.approx(0.3075, abs=5e-4)
+    assert narrow == pytest.approx(0.3451, abs=5e-4)
+    assert wide == pytest.approx(0.4484, abs=5e-4)
+    assert biased == pytest.approx(0.4537, abs=5e-4)
+    assert honest < narrow < wide < biased
+
+
+def test_crps_convention_cannot_change_which_model_wins():
+    """The point issue #96 asked to be made explicit: the factor of two is a
+    constant, so it rescales every score and reorders nothing."""
+    rng = np.random.default_rng(1)
+    taus = np.array([0.25, 0.5, 0.75])
+    y = rng.standard_normal(500)
+    arms = [np.sort(rng.standard_normal((500, 3)), axis=1) for _ in range(5)]
+
+    half = [qm.crps(y, Q, taus) for Q in arms]
+    full = [qm.crps(y, Q, taus, convention="full") for Q in arms]
+    assert np.allclose(full, [2 * h for h in half])
+    assert np.array_equal(np.argsort(half), np.argsort(full))
