@@ -154,56 +154,36 @@ def _quality_applied(estimator):
             setattr(estimator, k, v)
 
 
-def _validate_hyperparams(estimator):  # noqa: C901 -- complexity baseline, removed in stage 1
-    """Reject malformed constructor parameters with clear, named errors.
+def _check_pos_int(p, name, lo=1, allow_none=False):
+    if name not in p:
+        return
+    v = p[name]
+    if v is None and allow_none:
+        return
+    if not (isinstance(v, (int, np.integer)) and not isinstance(v, bool)
+            and v >= lo):
+        raise ValueError(f"{name} must be an integer >= {lo}; got {v!r}.")
 
-    Called at the start of ``fit`` -- sklearn's recommended place for parameter
-    validation, never ``__init__``.
 
-    Without it, bad values fail cryptically deep in numba (``depth=-1`` ->
-    "negative shift count"), silently produce a broken model
-    (``learning_rate=-0.1`` diverges to garbage, ``n_estimators=0`` builds an
-    empty model), or OOM (``depth=30`` allocates a 2**30-leaf histogram).
-    ``None`` is left to the documented per-parameter default resolution.
-    """
-    p = estimator.get_params()
+def _check_in_range(p, name, lo, hi, *, lo_incl=True, hi_incl=True,
+                    allow_none=False):
+    if name not in p:
+        return
+    v = p[name]
+    if v is None and allow_none:
+        return
+    ok = isinstance(v, (int, float, np.number)) and not isinstance(v, bool)
+    if ok:
+        ok = (v >= lo if lo_incl else v > lo) and \
+             (v <= hi if hi_incl else v < hi)
+    if not ok:
+        lb = "[" if lo_incl else "("
+        rb = "]" if hi_incl else ")"
+        raise ValueError(
+            f"{name} must be in {lb}{lo}, {hi}{rb}; got {v!r}.")
 
-    # Estimators expose different parameter sets (the quantile head has no
-    # loss/alpha family, no bagging, no linear leaves), so every check below
-    # is a no-op for a parameter this estimator does not have.
-    def _pos_int(name, lo=1, allow_none=False):
-        if name not in p:
-            return
-        v = p[name]
-        if v is None and allow_none:
-            return
-        if not (isinstance(v, (int, np.integer)) and not isinstance(v, bool)
-                and v >= lo):
-            raise ValueError(f"{name} must be an integer >= {lo}; got {v!r}.")
 
-    def _in_range(name, lo, hi, *, lo_incl=True, hi_incl=True, allow_none=False):
-        if name not in p:
-            return
-        v = p[name]
-        if v is None and allow_none:
-            return
-        ok = isinstance(v, (int, float, np.number)) and not isinstance(v, bool)
-        if ok:
-            ok = (v >= lo if lo_incl else v > lo) and \
-                 (v <= hi if hi_incl else v < hi)
-        if not ok:
-            lb = "[" if lo_incl else "("
-            rb = "]" if hi_incl else ")"
-            raise ValueError(
-                f"{name} must be in {lb}{lo}, {hi}{rb}; got {v!r}.")
-
-    _pos_int("n_estimators")
-    _pos_int("cat_n_permutations")
-
-    # None = the classifier's auto default (resolved to 3 at fit); the regressor
-    # passes a concrete int.
-    _pos_int("leaf_estimation_iterations", allow_none=True)
-
+def _check_depth(p, name):
     # A depth-d tree allocates 2**d leaves in the histogram buffer, so an
     # unbounded depth OOMs. 16 matches CatBoost's documented maximum. None is the
     # regressor's loss-adaptive default, resolved at fit.
@@ -212,27 +192,45 @@ def _validate_hyperparams(estimator):  # noqa: C901 -- complexity baseline, remo
                               and not isinstance(v, bool) and 1 <= v <= 16):
         raise ValueError(f"depth must be an integer in [1, 16] or None; got {v!r}.")
 
-    _in_range("max_bins", 2, 65534)
-    _in_range("learning_rate", 0.0, np.inf, lo_incl=False, allow_none=True)
-    _in_range("l2_leaf_reg", 0.0, np.inf)
-    _in_range("subsample", 0.0, 1.0, lo_incl=False)
-    _in_range("colsample", 0.0, 1.0, lo_incl=False, allow_none=True)
 
+# The scalar checks, in the exact order the old call chain ran them --
+# first-fire order on multiply-invalid input is part of the validated contract
+# (tests/test_bitident_refactors.py pins the messages byte-for-byte).
+_HYPERPARAM_CHECKS = (
+    (_check_pos_int, "n_estimators", {}),
+    (_check_pos_int, "cat_n_permutations", {}),
+    # None = the classifier's auto default (resolved to 3 at fit); the
+    # regressor passes a concrete int.
+    (_check_pos_int, "leaf_estimation_iterations", {"allow_none": True}),
+    (_check_depth, "depth", {}),
+    (_check_in_range, "max_bins", {"lo": 2, "hi": 65534}),
+    (_check_in_range, "learning_rate",
+     {"lo": 0.0, "hi": np.inf, "lo_incl": False, "allow_none": True}),
+    (_check_in_range, "l2_leaf_reg", {"lo": 0.0, "hi": np.inf}),
+    (_check_in_range, "subsample", {"lo": 0.0, "hi": 1.0, "lo_incl": False}),
+    (_check_in_range, "colsample",
+     {"lo": 0.0, "hi": 1.0, "lo_incl": False, "allow_none": True}),
     # cat_smoothing is a Bayesian pseudocount in the ordered-TS denominator
     # (count + a); a=0 makes the first occurrence of every category divide 0/0.
-    _in_range("cat_smoothing", 0.0, np.inf, lo_incl=False)
+    (_check_in_range, "cat_smoothing",
+     {"lo": 0.0, "hi": np.inf, "lo_incl": False}),
+    (_check_in_range, "linear_lambda", {"lo": 0.0, "hi": np.inf}),
+    (_check_in_range, "min_child_weight",
+     {"lo": 0.0, "hi": np.inf, "allow_none": True}),
+    (_check_in_range, "validation_fraction",
+     {"lo": 0.0, "hi": 1.0, "lo_incl": False, "hi_incl": False}),
+    (_check_in_range, "early_stopping_rounds",
+     {"lo": 1, "hi": np.inf, "allow_none": True}),
+    (_check_in_range, "selection_rounds",
+     {"lo": 1, "hi": np.inf, "allow_none": True}),
+    (_check_pos_int, "cross_top_columns", {"allow_none": True}),
+    (_check_pos_int, "n_ensembles", {"allow_none": True}),
+    (_check_in_range, "max_samples", {"lo": 0.0, "hi": 1.0, "lo_incl": False}),
+)
 
-    _in_range("linear_lambda", 0.0, np.inf)
-    _in_range("min_child_weight", 0.0, np.inf, allow_none=True)
-    _in_range("validation_fraction", 0.0, 1.0, lo_incl=False, hi_incl=False)
-    _in_range("early_stopping_rounds", 1, np.inf, allow_none=True)
-    _in_range("selection_rounds", 1, np.inf, allow_none=True)
-    _pos_int("cross_top_columns", allow_none=True)
 
-    if p.get("n_ensembles") is not None:
-        _pos_int("n_ensembles")
-    _in_range("max_samples", 0.0, 1.0, lo_incl=False)
-
+def _check_flag_params(estimator, p):
+    """The tri-state string/bool flags: refit_full, cross_features, quality."""
     v = p.get("refit_full")
     if v is not None and v != "replay" and not isinstance(v, (bool, np.bool_)):
         raise ValueError(
@@ -256,36 +254,64 @@ def _validate_hyperparams(estimator):  # noqa: C901 -- complexity baseline, remo
                 + ", ".join(f"{k} ({n})" for k, n in QUALITY_NAMES.items())
                 + f"; got {v!r}.")
 
-    # Regressor-only loss / alpha (the classifier picks its loss automatically).
-    if "loss" in p:
-        loss = p["loss"]
-        if isinstance(loss, str):
-            known = ("RMSE", "MAE", "Quantile", "Huber", "Poisson", "Gamma",
-                     "Tweedie")
-            if loss not in known:
-                raise ValueError(
-                    f"loss must be one of {known} or a custom objective "
-                    f"instance; got {loss!r}.")
 
-            if loss == "Quantile":
-                _in_range("alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
-            if loss == "Huber":
-                _in_range("delta", 0.0, np.inf, lo_incl=False)
-            if loss == "Tweedie":
-                _in_range("tweedie_variance_power", 1.0, 2.0,
-                          lo_incl=False, hi_incl=False)
-        else:
-            # Custom objective: an instance implementing the losses.py protocol
-            # (subclass chimeraboost.CustomObjective for the optional-method
-            # defaults).
-            missing = [a for a in ("init", "grad_hess", "eval")
-                       if not callable(getattr(loss, a, None))]
-            if missing:
-                raise ValueError(
-                    "A custom loss must be an instance with callable "
-                    f"init/grad_hess/eval (missing: {missing}); subclass "
-                    "chimeraboost.CustomObjective. Got "
-                    f"{loss!r}.")
+def _check_loss_family(p):
+    # Regressor-only loss / alpha (the classifier picks its loss automatically).
+    if "loss" not in p:
+        return
+    loss = p["loss"]
+    if isinstance(loss, str):
+        known = ("RMSE", "MAE", "Quantile", "Huber", "Poisson", "Gamma",
+                 "Tweedie")
+        if loss not in known:
+            raise ValueError(
+                f"loss must be one of {known} or a custom objective "
+                f"instance; got {loss!r}.")
+
+        if loss == "Quantile":
+            _check_in_range(p, "alpha", 0.0, 1.0, lo_incl=False, hi_incl=False)
+        if loss == "Huber":
+            _check_in_range(p, "delta", 0.0, np.inf, lo_incl=False)
+        if loss == "Tweedie":
+            _check_in_range(p, "tweedie_variance_power", 1.0, 2.0,
+                            lo_incl=False, hi_incl=False)
+    else:
+        # Custom objective: an instance implementing the losses.py protocol
+        # (subclass chimeraboost.CustomObjective for the optional-method
+        # defaults).
+        missing = [a for a in ("init", "grad_hess", "eval")
+                   if not callable(getattr(loss, a, None))]
+        if missing:
+            raise ValueError(
+                "A custom loss must be an instance with callable "
+                f"init/grad_hess/eval (missing: {missing}); subclass "
+                "chimeraboost.CustomObjective. Got "
+                f"{loss!r}.")
+
+
+def _validate_hyperparams(estimator):
+    """Reject malformed constructor parameters with clear, named errors.
+
+    Called at the start of ``fit`` -- sklearn's recommended place for parameter
+    validation, never ``__init__``.
+
+    Without it, bad values fail cryptically deep in numba (``depth=-1`` ->
+    "negative shift count"), silently produce a broken model
+    (``learning_rate=-0.1`` diverges to garbage, ``n_estimators=0`` builds an
+    empty model), or OOM (``depth=30`` allocates a 2**30-leaf histogram).
+    ``None`` is left to the documented per-parameter default resolution.
+
+    Estimators expose different parameter sets (the quantile head has no
+    loss/alpha family, no bagging, no linear leaves), so every check is a
+    no-op for a parameter this estimator does not have.
+    """
+    p = estimator.get_params()
+
+    for check, name, kw in _HYPERPARAM_CHECKS:
+        check(p, name, **kw)
+
+    _check_flag_params(estimator, p)
+    _check_loss_family(p)
 
     if p.get("eval_metric") is not None and not callable(p["eval_metric"]):
         raise ValueError(
