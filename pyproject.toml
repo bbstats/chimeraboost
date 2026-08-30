@@ -34,7 +34,7 @@ Repository = "https://github.com/bbstats/chimeraboost"
 chimeraboost-warmup = "chimeraboost.warmup:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "pandas>=1.3"]
+dev = ["pytest", "pandas>=1.3", "ruff==0.16.5"]
 # Everything the benchmark harness needs beyond the library itself. pandas reads
 # the dataset files, pyarrow reads the parquet ones, matplotlib draws the charts.
 bench = ["pandas>=1.3", "pyarrow>=10", "matplotlib>=3.5", "pytest"]
@@ -50,7 +50,17 @@ include = ["chimeraboost*"]
 line-length = 100
 
 [tool.ruff.lint]
+# C901 is the complexity ratchet (benchmarks/REFACTOR_AUDIT.md): the ceiling is
+# 10, the frozen numba kernels carry permanent `# noqa: C901` markers, and
+# RUF100 fails the build if a noqa outlives its violation. The rule set is
+# pinned explicitly (not extend-select) and the ruff version is pinned (dev
+# extra, CI) because both default rules and McCabe counts shift across ruff
+# releases and would silently move the ratchet.
+select = ["E4", "E7", "E9", "F", "C901", "RUF100"]
 # `l` is the established name for a leaf index throughout the tree kernels, where
 # it reads naturally alongside `f` (feature) and `b` (bin); E741 would force a
 # churny rename across the histogram code for no clarity gain.
 ignore = ["E741"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10

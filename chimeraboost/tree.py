@@ -241,7 +241,7 @@ def _descend_leaves_serial(leaf, Xf, t):
 
 
 @njit(cache=True, parallel=True)
-def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
+def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                      n_bins_per_feature, l2, min_child_weight):
     """Fused histogram build + best-split search: one parallel launch per level
     instead of two, with the split scan reading the hist slice the same thread
@@ -352,7 +352,7 @@ def _build_and_split(Xb, grad, hess, leaf, active, hist, feat_mask,
 
 
 @njit(cache=True, parallel=True)
-def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,
+def _build_split_descend(Xb, grad, hess, leaf, active, hist, feat_mask,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                          n_bins_per_feature, l2, min_child_weight, min_gain,
                          small, n_leaves_next, next_active):
     """`_build_and_split` plus the level's follow-up work in the same launch.
@@ -546,7 +546,7 @@ def _quantize_pack(grad, hess, inv_dg, inv_dh, qmax, qseed, out):
 
 
 @njit(cache=True, parallel=True)
-def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
+def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                            n_bins_per_feature, dg, dh, l2, min_child_weight,
                            min_gain, small, n_leaves_next, next_active):
     """Packed-int64 twin of `_build_split_descend` for quantized training.
@@ -660,7 +660,7 @@ def _build_split_descend_q(Xb, q, leaf, active, histq, feat_mask,
 
 
 @njit(cache=True, parallel=True)
-def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,
+def _best_split(hist, n_bins_per_feature, l2, feat_mask, min_child_weight,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                 n_leaves):
     """Find the (feature, threshold) with the highest total gain.
 
@@ -785,7 +785,7 @@ def _leaf_values(leaf, grad, hess, n_leaves, l2, lr):
 
 
 @njit(cache=True)
-def _solve_small(A, b):
+def _solve_small(A, b):  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
     """Solve ``A x = b`` for a small dense system via LU with partial pivoting.
 
     Drop-in replacement for ``np.linalg.solve`` on the tiny (d x d, d <= depth+1)
@@ -846,7 +846,7 @@ def _solve_small(A, b):
 
 
 @njit(cache=True, parallel=True)
-def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,
+def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                      l2_intercept, lin_lambda, lr):
     """Fit a small hessian-weighted ridge per leaf (local linear-leaf models).
 
@@ -1097,7 +1097,7 @@ def _lerp_np(a, b, t):
 
 
 @njit(cache=True)
-def _select_kth(buf, lo, hi, k):
+def _select_kth(buf, lo, hi, k):  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
     """Quickselect: reorder ``buf[lo:hi]`` so ``buf[k]`` is its (k-lo)-th
     smallest element, everything left of k no greater and everything right no
     smaller. Median-of-three pivot.
@@ -1811,7 +1811,7 @@ def _predict_forest_linear_rm_serial(Xb, feats, thrs, depths, lin_k, featoff,
 
 
 @njit(cache=True, parallel=True)
-def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,
+def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                         lin_feat_idx, coefoff, coef, centers_std,
                         feat_orig, n_orig, fact):
     """Exact interventional TreeSHAP for a forest of oblivious (linear-leaf or
@@ -2045,7 +2045,7 @@ def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
 
 
 @njit(cache=True, parallel=True)
-def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,
+def _build_split_descend_vec(Xb, grad, rw, leaf, n_active, hist, histw,  # noqa: C901 -- frozen numba kernel, see benchmarks/REFACTOR_AUDIT.md
                              feat_mask, n_bins_per_feature, l2,
                              min_child_weight, min_gain):
     """EXACT multi-channel split search: the K-deep twin of
@@ -2232,7 +2232,7 @@ def build_oblivious_tree_exact(Xb, grad, n_bins_per_feature, max_depth, l2,
     return tree, leaf
 
 
-def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,
+def build_oblivious_tree(Xb, grad, hess, n_bins_per_feature,  # noqa: C901 -- complexity baseline, removed in stage 7
                          max_depth, l2, lr, min_gain=1e-8, feature_mask=None,
                          min_child_weight=1.0, hist_buffers=None,
                          linear_leaves=False, centers_std=None, is_numeric=None,

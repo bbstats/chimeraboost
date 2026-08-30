@@ -82,7 +82,7 @@ rather than a clear one. Rules:
 - Watch CHANGELOG section headers in merge conflicts — a merge once clobbered a version header.
 
 ## Layout
-- `chimeraboost/` library · `tests/` (395+, incl. numerical-identity goldens — bit-identical refactors must keep them green)
+- `chimeraboost/` library · `tests/` (530+ test functions, incl. numerical-identity goldens — bit-identical refactors must keep them green)
 - `benchmarks/` harness + analysis scripts · `benchmarks/tabarena/` sealed-holdout runners · `benchmarks/research/` cascade engine
 - `images/` committed charts (public_pareto.png is the README/docs headline, from
   `make_public_pareto.py`; pareto.png is the internal north-star chart — refresh both after shipping)

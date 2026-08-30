@@ -4,12 +4,13 @@ Each guard pins the invariant a refactor leans on, so a later change that
 breaks the invariant fails here instead of silently changing models.
 """
 import pickle
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from chimeraboost import ChimeraBoostRegressor
+from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 from chimeraboost.booster import GradientBoosting
 from chimeraboost.losses import (MAE, RMSE, Huber, MultiQuantile, MultiSoftmax,
                                  Quantile, _SOFTMAX_MAX_K, _softmax,
@@ -356,3 +357,132 @@ def test_multiclass_grad_hess_and_eval_go_through_the_kernel():
         Y * np.log(np.clip(P, 1e-12, 1.0)), axis=1)))
     assert loss.eval(Y, F) == ref_eval
     np.testing.assert_array_equal(loss.transform(F), P)
+
+
+# ---------------------------------------------------------------------------
+# Complexity-refactor guards (stage 0 of the C901 program). The identity
+# snapshot pins model outputs exactly, but two behavior surfaces are invisible
+# to it: which file/line a warning is attributed to (an extracted helper adds
+# a stack frame; without a stacklevel bump the warning moves), and the exact
+# text plus first-fire order of validation errors. Pin both here.
+# ---------------------------------------------------------------------------
+
+def _recorded(warns, match):
+    return [w for w in warns if match in str(w.message)]
+
+
+def test_inert_knob_warnings_keep_their_attribution_and_order():
+    # linear_leaves=True with >= LINEAR_LEAVES_MIN_SAMPLES post-split rows
+    # shadows ordered boosting and leaf refinement; both warnings must keep
+    # firing, in this order, attributed to sklearn_api.py (stacklevel must be
+    # bumped +1 for every frame an extraction adds).
+    X, y, _ = _reg_data(n=2000, seed=5)
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        ChimeraBoostRegressor(
+            n_estimators=15, random_state=0, linear_leaves=True,
+            ordered_boosting=True, leaf_estimation_iterations=3).fit(X, y)
+    ob = _recorded(rec, "ordered_boosting is ignored")
+    lei = _recorded(rec, "leaf_estimation_iterations is ignored")
+    assert len(ob) == 1 and len(lei) == 1
+    assert ob[0].category is UserWarning
+    assert ob[0].filename.endswith("sklearn_api.py")
+    assert lei[0].filename.endswith("sklearn_api.py")
+    assert rec.index(ob[0]) < rec.index(lei[0])
+
+
+def test_multiclass_lei_warning_keeps_its_attribution():
+    rng = np.random.default_rng(6)
+    X = rng.normal(size=(300, 4))
+    y = rng.integers(0, 3, 300)
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        ChimeraBoostClassifier(n_estimators=10, random_state=0,
+                               leaf_estimation_iterations=3).fit(X, y)
+    w = _recorded(rec, "not implemented for multiclass")
+    assert len(w) == 1
+    assert w[0].category is UserWarning
+    assert w[0].filename.endswith("sklearn_api.py")
+
+
+def test_column_vector_y_warning_keeps_its_attribution():
+    X, y, _ = _reg_data(n=200, seed=7)
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        ChimeraBoostRegressor(n_estimators=10, random_state=0,
+                              early_stopping=False).fit(X, y.reshape(-1, 1))
+    w = _recorded(rec, "A column-vector y was passed")
+    assert len(w) == 1
+    assert w[0].filename.endswith("sklearn_api.py")
+
+
+# The refactor contract for the validators: byte-identical messages and
+# unchanged first-fire order. Regex matching would let a reworded message
+# slide through, so compare the full string.
+@pytest.mark.parametrize("params, expected", [
+    ({"n_estimators": 0},
+     "n_estimators must be an integer >= 1; got 0."),
+    ({"depth": 30},
+     "depth must be an integer in [1, 16] or None; got 30."),
+    ({"learning_rate": -0.1},
+     "learning_rate must be in (0.0, inf]; got -0.1."),
+    ({"subsample": 0.0},
+     "subsample must be in (0.0, 1.0]; got 0.0."),
+    ({"loss": "LogCosh"},
+     "loss must be one of ('RMSE', 'MAE', 'Quantile', 'Huber', 'Poisson', "
+     "'Gamma', 'Tweedie') or a custom objective instance; got 'LogCosh'."),
+    ({"refit_full": "yes"},
+     'refit_full must be True, False, "replay" or None; got \'yes\'.'),
+])
+def test_hyperparam_error_messages_are_pinned(params, expected):
+    X, y, _ = _reg_data(n=50)
+    with pytest.raises(ValueError) as e:
+        ChimeraBoostRegressor(**params).fit(X, y)
+    assert str(e.value) == expected
+
+
+def test_forced_cross_on_classifier_message_is_pinned():
+    rng = np.random.default_rng(8)
+    X = rng.normal(size=(50, 3))
+    y = rng.integers(0, 2, 50)
+    with pytest.raises(ValueError) as e:
+        ChimeraBoostClassifier(cross_features="always").fit(X, y)
+    assert str(e.value) == (
+        'cross_features="always" is only supported on the regressor; '
+        "the classifier's cross features are validation-raced "
+        "(cross_features=None or True).")
+
+
+def test_fit_input_error_messages_are_pinned():
+    X, y, w = _reg_data(n=50)
+    est = ChimeraBoostRegressor(n_estimators=10)
+
+    with pytest.raises(ValueError) as e:
+        est.fit(X, None)
+    assert str(e.value) == ("This estimator requires y to be passed, but the "
+                            "target y is None.")
+
+    with pytest.raises(ValueError) as e:
+        est.fit(X, y[:-1])
+    assert str(e.value) == ("X and y have inconsistent lengths: X has 50 "
+                            "samples, y has 49.")
+
+    # The classic slip: fit(X, y, w) binds weights to cat_features.
+    with pytest.raises(ValueError) as e:
+        est.fit(X, y, w)
+    assert str(e.value) == (
+        "cat_features must be integer column indices or column names. Got an "
+        "array of floats -- if these are per-sample weights, pass them by "
+        "keyword: fit(X, y, sample_weight=w).")
+
+    with pytest.raises(ValueError) as e:
+        est.fit(X, y, sample_weight=-w)
+    assert str(e.value) == "sample_weight must be non-negative."
+
+    Xinf = X.copy()
+    Xinf[0, 0] = np.inf
+    with pytest.raises(ValueError) as e:
+        est.fit(Xinf, y)
+    assert str(e.value) == ("X contains infinity. NaN is accepted (treated as "
+                            "missing), but inf is not -- clip or clean it "
+                            "first.")

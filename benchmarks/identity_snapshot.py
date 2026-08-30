@@ -1,7 +1,10 @@
 """Bit-identity snapshot for output-identical refactors.
 
 The golden panel (tests/test_no_regression.py) pins three losses at a 2%
-band; this pins ~20 configs exactly. Usage:
+band; this pins ~30 configs exactly, including n=6000 configs that arm the
+cross-feature race / selection audition / forced-cross paths (the default-N
+configs never reach CROSS_MIN_SAMPLES post-split) plus bagged and
+conformalized-quantile fits. Usage:
 
     python benchmarks/identity_snapshot.py save    # once, at the base commit
     python benchmarks/identity_snapshot.py check   # after every refactor commit
@@ -97,7 +100,39 @@ def _configs():
     add("mq3", Q, {"quantiles": [0.1, 0.5, 0.9]}, dict(seed=14))
     add("mq3_w_sub", Q, {"quantiles": [0.1, 0.5, 0.9], "subsample": 0.7},
         dict(seed=14), weighted=True)
+    # The default N leaves 1600 post-ES-split rows -- below CROSS_MIN_SAMPLES
+    # (2000), so none of the configs above ever runs the cross-feature race,
+    # the selection-rounds audition, or forced cross. These n=6000 configs
+    # (3840 post-split) arm those paths; _EXPECT asserts each one actually
+    # fired, so gate coverage is proven at save time, not assumed.
+    add("rmse_big", R, {}, dict(seed=15, n=6000))
+    add("rmse_big_race", R, {"selection_rounds": None}, dict(seed=15, n=6000))
+    add("rmse_forced", R, {"cross_features": "always"}, dict(seed=16, n=6000))
+    add("rmse_norefit", R, {"refit_full": False}, dict(seed=15, n=6000))
+    add("logloss_big", C, {}, dict(seed=17, kind="bin", n=6000))
+    add("multiclass_big", C, {}, dict(seed=18, kind="multi", n=6000))
+    add("bag", R, {"n_ensembles": 3}, dict(seed=19))
+    add("mq3_conf", Q, {"quantiles": [0.1, 0.5, 0.9], "conformalize": True},
+        dict(seed=20))
     return cfgs
+
+
+# Path-activation proofs: fitting a config is not evidence the code path it
+# exists for actually ran (the original suite silently skipped the cross race
+# for years of commits). Each check raises at save/check time if its path
+# went dark, e.g. because a constant or split fraction moved.
+_EXPECT = {
+    "rmse_big": lambda e: (e.linear_leaves_selected_ is not None
+                           and e.cross_features_selected_ is not None),
+    "rmse_big_race": lambda e: (e.linear_leaves_selected_ is not None
+                                and e.cross_features_selected_ is not None),
+    "rmse_forced": lambda e: e.cross_features_selected_ is True,
+    "rmse_norefit": lambda e: e.linear_leaves_selected_ is not None,
+    "logloss_big": lambda e: e.cross_features_selected_ is not None,
+    "multiclass_big": lambda e: e.cross_features_selected_ is not None,
+    "bag": lambda e: (e.estimators_ is not None and len(e.estimators_) == 3),
+    "mq3_conf": lambda e: not np.all(e.conformal_scale_ == 1.0),
+}
 
 
 def _run_one(name, cls, params, data_kw, weighted):
@@ -109,14 +144,34 @@ def _run_one(name, cls, params, data_kw, weighted):
     if weighted:
         fit_kw["sample_weight"] = w
     est.fit(X, y, **fit_kw)
+
+    expect = _EXPECT.get(name)
+    if expect is not None and not expect(est):
+        raise AssertionError(
+            f"config {name!r} no longer exercises the path it exists to pin "
+            "-- see _EXPECT; the gate would be silently weaker than saved.")
+
     out = {
         f"{name}__pred": np.asarray(est.predict(Xte), dtype=np.float64),
-        f"{name}__n_trees": np.asarray(len(est.model_.trees_)),
-        f"{name}__valid_hist": np.asarray(est.model_.valid_history_,
-                                          dtype=np.float64),
         f"{name}__imp": np.asarray(est.feature_importances_,
                                    dtype=np.float64),
     }
+    if getattr(est, "estimators_", None) is not None:
+        for i, m in enumerate(est.estimators_):
+            out[f"{name}__m{i}_n_trees"] = np.asarray(len(m.model_.trees_))
+            out[f"{name}__m{i}_valid_hist"] = np.asarray(
+                m.model_.valid_history_, dtype=np.float64)
+    else:
+        out[f"{name}__n_trees"] = np.asarray(len(est.model_.trees_))
+        out[f"{name}__valid_hist"] = np.asarray(est.model_.valid_history_,
+                                                dtype=np.float64)
+    # Calibration outputs are the direct products of the conformal /
+    # temperature blocks -- pin them explicitly rather than only through pred.
+    for attr in ("quantile_offset_", "temperature_", "conformal_scale_"):
+        val = getattr(est, attr, None)
+        if val is not None:
+            out[f"{name}__{attr.rstrip('_')}"] = np.asarray(val,
+                                                            dtype=np.float64)
     if hasattr(est, "predict_proba"):
         out[f"{name}__proba"] = est.predict_proba(Xte)
     return out
