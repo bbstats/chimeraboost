@@ -8,13 +8,20 @@ these tests: any diff here is a correctness bug, not a tolerance question.
 
 import numpy as np
 
+from chimeraboost.booster import _factorials
 from chimeraboost.tree import (
+    ObliviousTree,
     _best_split,
     _build_and_split,
     _build_histograms_into,
     _build_split_descend,
     _descend_leaves,
     _descend_leaves_serial,
+    _predict_forest_vec_rm,
+    _shap_forest_linear,
+    _shap_forest_vec,
+    pack_forest_linear,
+    pack_forest_vec,
 )
 
 
@@ -170,3 +177,77 @@ def test_descend_serial_matches_parallel_exactly():
         _descend_leaves(a, Xf, t)
         _descend_leaves_serial(b, Xf, t)
         assert np.array_equal(a, b)
+
+
+def _random_constant_forest(n_trees, depth, n_features, max_bins, seed):
+    """A forest of constant-leaf oblivious trees, plus instance/background
+    matrices, in the feature-major layout both SHAP kernels consume."""
+    rng = np.random.RandomState(seed)
+    trees = []
+    for _ in range(n_trees):
+        d = rng.randint(1, depth + 1)
+        trees.append(ObliviousTree(
+            rng.randint(0, n_features, d).astype(np.int64),
+            rng.randint(0, max_bins - 1, d).astype(np.int64),
+            rng.randn(1 << d),
+        ))
+    Xb = rng.randint(0, max_bins, (n_features, 40)).astype(np.uint16)
+    Rb = rng.randint(0, max_bins, (n_features, 7)).astype(np.uint16)
+    return trees, np.ascontiguousarray(Xb), np.ascontiguousarray(Rb)
+
+
+def test_vector_shap_at_k1_matches_the_scalar_kernel_exactly():
+    """The vector SHAP kernel is the scalar one with a channel axis, so at
+    K=1 on a constant-leaf forest it must agree BIT FOR BIT, not to a
+    tolerance. This is the oracle the whole vector-leaf SHAP path rests on:
+    `_shap_forest_linear` is frozen and heavily tested, and this pins the new
+    kernel against it rather than against a fresh reimplementation.
+
+    It holds only because the two kernels sum in the same order -- marginals
+    into `contrib`, scaled once by 1/nbg, then added. Any reassociation in
+    `_shap_forest_vec` (a background collapse, a fused weight) breaks this
+    test on purpose.
+    """
+    for seed in (0, 1, 2):
+        trees, Xb, Rb = _random_constant_forest(6, 4, 5, 16, seed)
+        # Every internal column is its own original feature here.
+        feat_orig = np.arange(5, dtype=np.int64)
+        fact = _factorials(4)
+
+        # Constant leaves reach the linear packer as k=0 trees.
+        lf = pack_forest_linear(trees, 4)
+        phi_s = _shap_forest_linear(Xb, Rb, lf[0], lf[1], lf[2], lf[3], lf[4],
+                                    lf[5], lf[6], lf[7], np.zeros((1, 1)),
+                                    feat_orig, 5, fact)
+
+        # The same forest as K=1 vector leaves.
+        vtrees = [ObliviousTree(t.splits_feat, t.splits_thr,
+                                t.values.reshape(-1, 1)) for t in trees]
+        vf = pack_forest_vec(vtrees, 4)
+        phi_v = _shap_forest_vec(Xb, Rb, vf[0], vf[1], vf[2], vf[3], vf[4],
+                                 vf[5], feat_orig, 5, fact)
+
+        assert phi_v.shape == (40, 5, 1)
+        assert np.array_equal(phi_v[:, :, 0], phi_s)
+
+
+def test_vector_shap_is_efficient_per_channel():
+    """Shapley efficiency, one channel at a time: contributions plus the
+    background mean reconstruct the forest's raw output for that channel."""
+    rng = np.random.RandomState(7)
+    K = 4
+    trees, Xb, Rb = _random_constant_forest(5, 3, 6, 16, 11)
+    vtrees = [ObliviousTree(t.splits_feat, t.splits_thr,
+                            rng.randn(t.values.shape[0], K)) for t in trees]
+    feat_orig = np.arange(6, dtype=np.int64)
+    vf = pack_forest_vec(vtrees, 3)
+    phi = _shap_forest_vec(Xb, Rb, vf[0], vf[1], vf[2], vf[3], vf[4], vf[5],
+                           feat_orig, 6, _factorials(3))
+
+    init = np.zeros(K)
+    fx = _predict_forest_vec_rm(np.ascontiguousarray(Xb.T), vf[0], vf[1],
+                                vf[2], vf[3], vf[4], K, init)
+    fr = _predict_forest_vec_rm(np.ascontiguousarray(Rb.T), vf[0], vf[1],
+                                vf[2], vf[3], vf[4], K, init)
+    base = fr.mean(axis=0)
+    assert np.abs(phi.sum(axis=1) + base - fx).max() < 1e-12

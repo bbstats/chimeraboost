@@ -15,6 +15,7 @@ Public API:
   >>> from chimeraboost import ChimeraBoostRegressor, ChimeraBoostClassifier
   >>> model = ChimeraBoostClassifier().fit(X, y, cat_features=[0, 3])
   >>> proba = model.predict_proba(X_test)
+  >>> print(model.report(X_test, y_test))   # log loss, Brier skill, calibration
 """
 
 import os as _os
@@ -25,7 +26,7 @@ from .sklearn_api import (
 )
 from .quantile_api import ChimeraBoostQuantileRegressor
 from .losses import CustomObjective
-from . import quantile_metrics
+from . import metrics, quantile_metrics
 from .warmup import warmup, _warmup_from_env
 
 # CHIMERABOOST_WARMUP=1 -> compile the numba kernels at import ("background"
@@ -38,6 +39,7 @@ __all__ = [
     "ChimeraBoostClassifier",
     "ChimeraBoostQuantileRegressor",
     "CustomObjective",
+    "metrics",
     "quantile_metrics",
     "warmup",
 ]

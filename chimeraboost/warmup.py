@@ -260,8 +260,12 @@ def warmup(verbose=False, background=False, shap=False):
     # SHAP is opt-in: `_shap_forest_linear` is an expensive parallel kernel
     # (~3.7 s cold) that most callers never reach. The same call also compiles
     # the column-major `_predict_forest_linear`, which the SHAP path uses.
+    # `_shap_forest_vec` is its vector-leaf twin, reached by the multiclass and
+    # multi-quantile heads; `_predict_forest_vec_rm` is already warmed by the
+    # stages above, so the vector call adds only the one kernel.
     if shap:
         clf.shap_values(X[:8])
+        qr.shap_values(X[:8, :3])
         _log("shap")
 
     return time.perf_counter() - t0

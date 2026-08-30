@@ -42,6 +42,10 @@ NOT_WARMED = {
     # warmup(shap=True), ~3.7 s of compile most callers never need.
     "chimeraboost.tree._shap_forest_linear",
     "chimeraboost.tree._predict_forest_linear",
+    # ... and its vector-leaf twin, serving the multiclass and multi-quantile
+    # heads. Same opt-in reasoning; `_predict_forest_vec_rm` is not listed
+    # because the ordinary multiclass/quantile stages already warm it.
+    "chimeraboost.tree._shap_forest_vec",
     # MVS gradient row sampling: only reached when subsample < 1, and the
     # default is 1.0. Warming them would put their compile on the critical
     # path of every startup for a knob most callers never set -- the same
@@ -79,6 +83,7 @@ CACHE_DEPENDENT = {
 WARMED_BY_SHAP = {
     "chimeraboost.tree._shap_forest_linear",
     "chimeraboost.tree._predict_forest_linear",
+    "chimeraboost.tree._shap_forest_vec",
 }
 
 # Enumerate every @njit kernel in the package and report which warmup() left

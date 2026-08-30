@@ -1,5 +1,88 @@
 # Shared-tree multi-quantile head
 
+## Status, 2026-08-30
+
+Three things landed around the head. None of them changes how it fits — the
+identity snapshot is bit-identical on all 155 configurations.
+
+1. **It can be explained.** `shap_values` with a channel per level, plus
+   `kind="width"`, which attributes the width of an interval rather than its
+   position. See `docs/quantiles.md`. The kernel is `tree._shap_forest_vec`,
+   pinned bit-for-bit against the frozen scalar kernel at K=1.
+2. **It can be scored properly.** `quantile_metrics` gained the Winkler
+   interval score, PIT, a CRPS skill score and sharpness.
+3. **It is finally benchmarked on real data**, by `benchmarks/quantile_suite.py`
+   — Grinsztajn regression, against CatBoost `MultiQuantile`, K LightGBM
+   quantile boosters and K of our own single-level models. This is the first
+   time the head has been scored on anything but synthetic draws and three
+   probe datasets, and the first time CatBoost's version of the same idea has
+   been run at all. Results below.
+
+**Measured while building the SHAP path, and worth recording:** on the default
+19-level grid, roughly 40% of rows have at least one adjacent pair *out of
+order in the raw scores* before delivery-time rearrangement; on a 3-level grid
+it is about 0%. The delivered crossing rate is still exactly 0 — that is what
+the sort is for — but the sort is doing real work on the default grid, not
+acting as a no-op. This is why the SHAP path distinguishes raw from delivered
+channels rather than pretending the two are interchangeable.
+
+### First real-data result (2026-08-30)
+
+`quantile-20260830-175359.json` — 36 Grinsztajn regression datasets, 3 seeds,
+K=19, shared early-stopping split and budget for every arm. Sign tests per
+dataset (seeds averaged), never the mean of CRPS, which is dominated by
+whichever dataset has the largest target scale.
+
+| head vs | CRPS | interval score (90%) |
+|:--|:--|:--|
+| our own K per-level models | **32W-4L**, p<0.0001, median +1.65% | **34W-2L**, p<0.0001, +3.46% |
+| K LightGBM quantile boosters | 23W-13L, p=0.13, +0.43% — a tie | **31W-5L**, p<0.0001, +5.20% |
+| CatBoost MultiQuantile | **7W-29L**, p=0.0003, −0.45% — a loss | **25W-11L**, p=0.029, +0.41% |
+
+Other columns, all 36 datasets:
+
+| arm | coverage at nominal 0.90 (mean abs error) | crossing | median fit vs head |
+|:--|:--|:--|:--|
+| head | 0.869 (0.040) | **0.0000, on 36/36** | 1.00x |
+| our per-level | 0.908 (**0.011**) | 0.163, crosses on 36/36 | 3.41x |
+| LightGBM per-level | 0.827 (0.079, worst 0.67) | 0.224, crosses on 36/36 | 1.53x |
+| CatBoost MultiQuantile | 0.825 (0.075, worst 0.64) | 0.063, crosses on 36/36 | 8.33x |
+
+**What this settles.**
+
+1. **The shared structure earns its place.** Against our own K independent
+   single-level models it wins 32 of 36 on CRPS and 34 of 36 on interval
+   score, at a third of the fit time. That was never measured before.
+2. **CatBoost's MultiQuantile is genuinely sharper on CRPS** — a significant
+   loss for us, and the first time the two have been compared. It costs them a
+   median 8.3x our fit time, and their intervals are badly calibrated (worst
+   coverage error 0.64 against nominal 0.90), so on the interval score, which
+   charges width and miscoverage together, we still win. Recorded as a real
+   deficit on the sharpness axis, not explained away.
+3. **The LightGBM claim in the docs was synthetic-only and did not survive.**
+   `quantile_head.py` measured pinball 1-3% better and 3.0-6.2x faster. On real
+   data with both arms early-stopping it is a tie on CRPS (p=0.13) and a median
+   1.53x on speed. `docs/quantiles.md` has been corrected. The old numbers were
+   not wrong for what they measured; they were measured on fixed-round
+   synthetic fits, which flatter us.
+4. **Non-crossing is the one uncontested win.** Exactly zero on all 36
+   datasets. Every other arm, CatBoost included, crosses on every dataset.
+
+**Next question this raises** (not started): the CRPS gap to CatBoost is a
+sharpness deficit, which is the same axis P14 left open against the rigid
+offset. Worth a pre-registration of its own.
+
+### Still open
+
+- **`adaptive_learning_rate` is pinned False for this head**
+  (`quantile_api.py`, "Measure before flipping") and has never been measured
+  against pinball. That is a default flip on a strength surface, so it needs
+  its own pre-registration and the full `/experiment` protocol. Not attempted
+  here. Recorded 2026-08-30.
+- The acceptance-ledger rows below (fit-speed MISS, CQR coverage FAIL) were
+  measured on synthetic data. `quantile_suite.py` is the instrument for
+  re-reading them on real data; doing so is a separate piece of work.
+
 One booster, an arbitrary tau grid, a K-vector in every leaf. Replaces "fit K
 independent quantile boosters" for estimating a whole predictive
 distribution.

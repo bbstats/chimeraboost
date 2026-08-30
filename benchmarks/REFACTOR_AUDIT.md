@@ -1,9 +1,11 @@
 # Complexity audit & refactor program
 
 Status: **COMPLETE** — all 8 stages shipped 2026-08-30. End state: zero C901
-violations at max-complexity 10; exactly 10 permanent frozen-kernel noqas
-(9 in tree.py + `_factorize_numeric`); RUF100 keeps the list honest; the
-lint job gates CI. Every stage was bit-identical (identity snapshot 155/155
+violations at max-complexity 10; exactly 11 permanent frozen-kernel noqas
+(10 in tree.py + `_factorize_numeric`); RUF100 keeps the list honest; the
+lint job gates CI. The eleventh, `tree._shap_forest_vec`, arrived after the
+program closed (vector-leaf SHAP, 2026-08-30) and joined the table below on
+the same terms. Every stage was bit-identical (identity snapshot 155/155
 exact on all 29 configs, full suite green, per-stage PRs #97-#104).
 
 Goal: every non-frozen function at or below ruff C901 complexity 10, enforced
@@ -78,6 +80,7 @@ buys elsewhere.
 | `tree._linear_leaf_fit` (17) | numba, cache=True; churn for zero benefit at threshold 10 |
 | `tree._select_kth` (11) | same |
 | `tree._shap_forest_linear` (24) | deepest nesting in the repo (6), prange body; extraction risks numba inlining behavior |
+| `tree._shap_forest_vec` (22) | the vector-leaf twin of the above, same prange body and the same inlining exposure; pinned bit-exact against it at K=1 (tests/test_tree_kernels.py) |
 | `target_encoding._factorize_numeric` (14) | plain Python but the predict-latency hot path, with an audited (not derived) equivalence to the dict loop; optional post-program candidate |
 
 Not flagged but worth recording: the 8-kernel predict family and the 4-kernel

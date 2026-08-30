@@ -1513,13 +1513,36 @@ def test_predict_raw_identity_losses_and_bagged():
                                rtol=1e-12)
 
 
-def test_shap_multiclass_raises():
+def test_shap_multiclass_is_efficient_per_class():
+    """Multiclass SHAP used to raise NotImplementedError; the vector-leaf
+    kernel supports it. Attributions live in margin space -- softmax is not
+    linear, so nothing exact survives the link -- and efficiency therefore
+    holds against predict_raw, one class at a time."""
     rng = np.random.default_rng(8)
     X = rng.normal(size=(300, 4))
-    y = rng.integers(0, 3, size=300)
+    y = (X[:, 0] + X[:, 2] > 0).astype(int) + (X[:, 1] > 1).astype(int)
     m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
-    with pytest.raises(NotImplementedError):
-        m.shap_values(X[:10])
+
+    phi = m.shap_values(X[:10])
+    assert phi.shape == (10, 4, len(m.classes_))
+    assert np.shape(m.expected_value_) == (len(m.classes_),)
+    err = np.abs(phi.sum(axis=1) + m.expected_value_
+                 - m.model_.predict_raw(X[:10])).max()
+    assert err < 1e-6, err
+
+
+def test_shap_importances_multiclass_ranks_features_not_pairs():
+    """The per-class magnitudes are averaged, so the ranking stays over
+    features and `_format_shap_importances` gets the 1-D vector it needs."""
+    rng = np.random.default_rng(9)
+    X = rng.normal(size=(300, 4))
+    y = (X[:, 0] + X[:, 2] > 0).astype(int) + (X[:, 1] > 1).astype(int)
+    m = ChimeraBoostClassifier(n_estimators=30, random_state=0).fit(X, y)
+
+    imp = m.shap_importances(X[:50])
+    assert imp.shape == (4,)
+    # X[:, 3] enters neither term of y, so it must rank last.
+    assert imp["feature"][-1] == 3
 
 
 # --- validation_history_ property and callbacks= fit hook ---------------------

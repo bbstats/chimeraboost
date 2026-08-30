@@ -1943,6 +1943,131 @@ def _shap_forest_linear(Xb, Rb, feats, thrs, depths, lin_k, featoff,  # noqa: C9
     return phi
 
 
+@njit(cache=True, parallel=True)
+def _shap_forest_vec(Xb, Rb, feats, thrs, depths, vals, voff, K,  # noqa: C901 -- vector twin of the frozen _shap_forest_linear; see benchmarks/REFACTOR_AUDIT.md
+                     feat_orig, n_orig, fact):
+    """Exact interventional TreeSHAP for a forest of VECTOR-LEAF oblivious
+    trees -- the K-output twin of `_shap_forest_linear`.
+
+    The same game, K times over. Coalition enumeration, player deduplication
+    and Shapley weights are the scalar kernel's; what changes is that a leaf
+    holds a K-vector, so each coalition's output is a K-vector and `phi` gains
+    a channel axis. Returns (n, n_orig, K), with the efficiency identity
+    holding per channel:
+
+        sum_orig phi[i, orig, k]
+            == predict_trees(x_i)[k] - mean_r predict_trees(r)[k].
+
+    Leaves are constant. Neither vector-leaf booster fits linear leaves, so the
+    scalar kernel's slope machinery is absent rather than passed as k=0. Values
+    come from `pack_forest_vec`'s leaf-major block: channel k of leaf l lives
+    at vals[voff[t] + l*K + k].
+
+    The per-background accumulation order deliberately matches the scalar
+    kernel term for term -- sum the marginals into `contrib`, scale once by
+    1/nbg, then add -- so that at K=1 this reproduces `_shap_forest_linear` on
+    a constant-leaf forest BIT for bit. tests/test_quantile_head.py pins that.
+
+    Kept separate rather than generalized: numba cannot express the two leaf
+    shapes in one kernel, which is the same reason the predict family carries
+    float/quantized/vector twins (benchmarks/REFACTOR_AUDIT.md).
+    Parallel over instances; each thread owns a disjoint row of `phi`.
+    """
+    n = Xb.shape[1]
+    nbg = Rb.shape[1]
+    n_trees = feats.shape[0]
+    phi = np.zeros((n, n_orig, K))
+    inv_nbg = 1.0 / nbg
+
+    # Scratch is allocated once per instance rather than once per tree. The
+    # scalar kernel reallocates inside the tree loop, which is cheap for a
+    # scalar `fval` and is not once it is (nsub, K). Sizing at the maximum and
+    # slicing by the tree's own d/nsub is numerically inert -- no arithmetic
+    # moves -- which is what keeps the K=1 bit-identity oracle valid.
+    d_max = feats.shape[1]
+    nsub_max = 1 << d_max
+
+    for i in prange(n):
+        U = np.empty(d_max, dtype=np.int64)
+        level_u = np.empty(d_max, dtype=np.int64)
+        xbit = np.empty(d_max, dtype=np.int64)
+        rbit = np.empty(d_max, dtype=np.int64)
+        fval = np.empty((nsub_max, K))
+        contrib = np.empty(K)
+
+        for t in range(n_trees):
+            d = depths[t]
+            if d == 0:
+                continue
+
+            vb = voff[t]
+
+            # The distinct original features this tree uses are the coalition
+            # players U. level_u[dd] is the U-slot of level dd's feature, so a
+            # feature reused across levels moves as one player.
+            u = 0
+            for dd in range(d):
+                o = feat_orig[feats[t, dd]]
+                idx = -1
+                for q in range(u):
+                    if U[q] == o:
+                        idx = q
+                        break
+                if idx < 0:
+                    U[u] = o
+                    idx = u
+                    u += 1
+                level_u[dd] = idx
+
+            nsub = 1 << u
+
+            # x-side level bits: independent of the reference, computed once.
+            for dd in range(d):
+                xbit[dd] = 1 if Xb[feats[t, dd], i] > thrs[t, dd] else 0
+
+            for b in range(nbg):
+                for dd in range(d):
+                    rbit[dd] = 1 if Rb[feats[t, dd], b] > thrs[t, dd] else 0
+
+                # K-vector output of every coalition: bits follow x inside S,
+                # r outside it.
+                for mask in range(nsub):
+                    leaf = 0
+                    for dd in range(d):
+                        if (mask >> level_u[dd]) & 1:
+                            bit = xbit[dd]
+                        else:
+                            bit = rbit[dd]
+                        leaf = leaf * 2 + bit
+                    row = vb + leaf * K
+                    for kk in range(K):
+                        fval[mask, kk] = vals[row + kk]
+
+                # Shapley value of each player, one channel at a time: the
+                # weighted marginal over every coalition that excludes it.
+                for ui in range(u):
+                    bit_ui = 1 << ui
+                    for kk in range(K):
+                        contrib[kk] = 0.0
+                    for mask in range(nsub):
+                        if (mask >> ui) & 1:
+                            continue
+                        s = 0
+                        mm = mask
+                        while mm:
+                            s += mm & 1
+                            mm >>= 1
+                        w = fact[s] * fact[u - s - 1] / fact[u]
+                        m1 = mask | bit_ui
+                        for kk in range(K):
+                            contrib[kk] += w * (fval[m1, kk] - fval[mask, kk])
+
+                    for kk in range(K):
+                        phi[i, U[ui], kk] += contrib[kk] * inv_nbg
+
+    return phi
+
+
 class ObliviousTree:
     """A single symmetric tree. Stores its splits and leaf values.
 

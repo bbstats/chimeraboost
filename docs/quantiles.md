@@ -34,6 +34,22 @@ lo, med, hi = model.predict(X_test).T
 
 More worked snippets are in [Recipes](recipes.md#quantile-regression).
 
+## Reading the distribution other ways
+
+`predict` will answer four more questions off the same fitted grid, at no extra cost:
+
+```python
+model.predict(X, kind="median")                          # (n,) the centre
+model.predict(X, kind="cdf", thresholds=[0.0, 10.0])     # (n, 2) P(y <= t)
+model.predict(X, kind="sample", n_samples=500, random_state=0)   # (n, 500)
+```
+
+`kind="cdf"` inverts the grid, and `kind="sample"` draws from it by inverse transform —
+useful for feeding a downstream simulation. Both interpolate between fitted levels and
+clamp outside the outermost ones, because a finite grid says nothing about the tails
+beyond it. `kind="interval"` still refuses levels you did not fit: reading a fitted
+curve at a point is a different thing from claiming a level was fitted when it was not.
+
 ## Predictions never cross
 
 The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so
@@ -42,8 +58,10 @@ The 30% quantile is never returned above the 70%. Every row is sorted on its way
 never increases pinball loss at any level, for any row (Chernozhukov, Fernández-Val &
 Galichon 2010), so the guarantee is free.
 
-Independently fitted per-level models have no such property. On the benchmark in
-`benchmarks/quantile_head.py`, 18 to 21% of adjacent quantile pairs come out reversed.
+Independently fitted per-level models have no such property. Across the 36 real
+datasets in `benchmarks/quantile_suite.py`, LightGBM's per-level boosters reverse 22% of
+adjacent pairs on average and cross on every single dataset; CatBoost's own shared head
+crosses on every dataset too. Ours is exactly zero on all 36.
 
 The band is free to be much *narrower* than the pooled one where the data is quiet — it
 tracks the local spread rather than a global floor.
@@ -52,10 +70,11 @@ tracks the local spread rather than a global floor.
 
 Read the intervals with this in mind: **the raw grid runs slightly narrow.** Leaf values
 are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. On the datasets in `benchmarks/probe_quantile_band.py` a nominal 80%
-interval delivers about 72 to 76% coverage. Pinball loss is what the model optimizes and
-it is good — better than one dedicated LightGBM booster per level — but a raw interval
-is not a coverage guarantee.
+is optimistic. Across the 36 datasets in `benchmarks/quantile_suite.py` a nominal 80%
+interval delivers 77% coverage on average, and a nominal 90% delivers 87%. That is
+closer to nominal than either LightGBM per-level (72% and 83%) or CatBoost
+`MultiQuantile` (73% and 83%) manages — but it is still narrow, and a raw interval is
+not a coverage guarantee.
 
 `conformalize=True` turns it into one:
 
@@ -92,26 +111,104 @@ print(qm.format_report(model.report(X_test, y_test)))
 |:--|:--|
 | `pinball_loss` | Is each level in the right place? (one value per level) |
 | `crps` | Is the distribution as a whole right? |
+| `quantile_skill_score` | Is it right by a useful margin? 1 perfect, 0 no better than ignoring every feature. |
 | `interval_coverage` | Do the intervals hold what they claim? Coverage and width. |
+| `interval_score` | Coverage and width in one number — the proper rule that trades them off. |
+| `sharpness` | Width alone, for comparing two equally calibrated models. |
+| `pit_values` / `pit_histogram` | *Where* is the model wrong? |
 | `crossing_rate` | What fraction of adjacent pairs is out of order? |
 
 `crps` is the mean pinball loss over the grid. The textbook CRPS is twice that, but the
 factor is constant, so comparisons are unaffected and this convention matches the
-early-stopping metric.
+early-stopping metric. Pass `convention="full"` when comparing against another library —
+`properscoring` and `scoringrules` both report the doubled value.
+
+Coverage on its own is not a score: an infinitely wide interval covers everything.
+`interval_score` is the Winkler score, which charges the width plus a penalty for every
+outcome that falls outside, and so cannot be gamed in either direction.
+
+The PIT histogram is the instrument for the under-dispersion described above. It asks
+where in the predicted grid each outcome actually landed: flat means calibrated, a U
+means the bands are too narrow, a hump means too wide.
+
+```python
+freq, edges = qm.pit_histogram(y_test, model.predict(X_test), model.quantiles_)
+```
 
 `predict(kind="mean")` integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.
 
-## What it costs
+## Explaining a predicted distribution
 
-The split search runs once per round instead of once per level, so the saving grows with
-how wide the data is: roughly 3.0x the fit speed of 19 independent LightGBM quantile
-boosters at 5 features, 3.6x at 32, and 6.2x at 128. Accuracy is not traded for it —
-pinball loss comes out 1 to 3% *better* than those per-level models at every width
-measured, with the margin widening on wide data.
+`shap_values` gives exact TreeSHAP attributions with a channel per level:
 
-That is an average over the whole grid; a single level can trade more, because every
+```python
+phi = model.shap_values(X_test)                 # (n, n_features, n_quantiles)
+model.shap_importances(X_test, n_features=5)    # averaged over the grid
+model.shap_values(X_test, quantile=0.95)        # (n, n_features), one level
+```
+
+The one no per-level approach can give you is the attribution of interval **width** —
+which features make a particular row's prediction more *uncertain*, as opposed to
+higher or lower:
+
+```python
+w = model.shap_values(X_test, kind="width", alpha=0.1)   # (n, n_features)
+```
+
+Shapley values are linear in the value function, so the difference between two levels'
+attributions is exactly the attribution of their difference. On heteroscedastic data
+the feature driving the spread tops this ranking while barely appearing in the median's.
+
+`kind="mean"` does the same for the tau-integrated point prediction.
+
+### Averaging across rows
+
+One wrinkle, and only if you aggregate attributions yourself. Predictions are
+rearranged on the way out, which relabels a row's levels, so each row is explained
+against its own reordering and `expected_value_` has one row per sample. Averaging
+that across rows mixes rows that were reordered differently.
+
+`shap_importances` already handles this — it explains the levels *before*
+rearrangement, where every row is on the same footing. If you are building your own
+global summary or a beeswarm plot, ask for the same thing:
+
+```python
+phi = model.shap_values(X_test, space="raw")   # one shared (n_quantiles,) baseline
+```
+
+Per-prediction explanations need none of this; the default is what you want.
+
+## How it compares
+
+Measured on 36 Grinsztajn regression datasets, 3 seeds, all four arms sharing one
+early-stopping split and budget (`benchmarks/quantile_suite.py`). Win-loss is per
+dataset; "interval score" is the Winkler score, which charges width and miscoverage
+together.
+
+| against | CRPS | interval score | crossing | median fit time |
+|:--|:--|:--|:--|:--|
+| 19 `loss="Quantile"` models | **32W-4L** | **34W-2L** | 0.00 vs 0.16 | **3.4x faster** |
+| 19 LightGBM quantile boosters | 23W-13L (a tie) | **31W-5L** | 0.00 vs 0.22 | **1.5x faster** |
+| CatBoost `MultiQuantile` | 7W-**29L** | **25W-11L** | 0.00 vs 0.06 | **8.3x faster** |
+
+Read that honestly. **CatBoost's shared head is sharper than ours on CRPS** — it wins 29
+of 36 datasets — and that is a real deficit, not a rounding error. It costs a median 8.3x
+our fit time to get there, and its intervals are much worse calibrated (its worst
+coverage error is 0.64 against a nominal 0.90, ours 0.10), so on the interval score,
+which prices coverage and width together, we come out ahead.
+
+Against a stack of independent per-level models — ours or LightGBM's — the shared
+structure clearly pays: better or equal accuracy, faster, and the only arm here whose
+levels never cross.
+
+Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
+pinball. Those numbers came from fixed-round fits on synthetic data
+(`benchmarks/quantile_head.py`), which flatters us; on real data with both sides
+early-stopping, the accuracy is a tie and the speed edge is 1.5x.
+
+Those are averages over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
 resolve, the median column of the default 19-level grid has measured up to 18% worse
 than a dedicated `quantiles=[0.5]` fit, with a 3-level grid recovering most of the gap

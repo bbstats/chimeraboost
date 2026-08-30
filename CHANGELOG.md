@@ -3,6 +3,71 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **SHAP for the quantile head and for multiclass.** The SHAP kernel was
+  scalar-leaf only, so the two models with K-vector leaves could not be
+  explained: `ChimeraBoostQuantileRegressor.shap_values` raised
+  `AttributeError`, and multiclass raised `NotImplementedError`. Both work now,
+  through one new numba kernel — the vector twin of the existing one, with the
+  same coalition enumeration over the few features an oblivious tree touches
+  and a channel axis added. At K=1 on a constant-leaf forest it reproduces the
+  scalar kernel bit for bit, which is the oracle the whole path rests on.
+  Multiclass returns `(n_samples, n_features, n_classes)` in softmax-margin
+  space; the quantile head returns a channel per level.
+  `shap_values` explains what `predict` returned. Rearranging the levels on
+  delivery relabels them per row, so a cross-row average wants the
+  pre-rearrangement view instead; `shap_importances` uses it automatically and
+  `space="raw"` asks for it directly.
+- **Interval-width attribution.** `model.shap_values(X, kind="width",
+  alpha=0.1)` answers "which features make this row's prediction *uncertain*",
+  as distinct from higher or lower. Shapley values are linear in the value
+  function, so the difference between two levels' attributions is exactly the
+  attribution of their difference. No per-level-model approach can produce
+  this, because it needs both levels to come from one model.
+- **Quantile scoring: the proper rules.** `quantile_metrics` gains
+  `interval_score` (Winkler — coverage and width in one number, ungameable in
+  either direction), `pit_values` / `pit_histogram` (where the model is wrong,
+  not just that it is), `quantile_skill_score` (1 perfect, 0 no better than
+  ignoring every feature — the same scale as the project's other headline
+  numbers), and `sharpness`. `crps(convention="full")` gives the textbook
+  scale for comparing against `properscoring` or `scoringrules`; the default
+  is unchanged. `model.report()` carries all of it.
+- **`chimeraboost.metrics` and `report()` on every estimator.** The quantile
+  head had the only `.report()` in the library. Regressors and classifiers now
+  have one too, reporting error alongside a skill score — an RMSE of 3.1 means
+  nothing alone, an R2 of 0.02 does — plus, for classification, the CORP
+  miscalibration gap that temperature scaling exists to keep near zero.
+  Definitions match `benchmarks/run_benchmarks.py`, so a number a user reads
+  is comparable with the project's own tables.
+- **Three more ways to read a fitted quantile grid**, all free from what is
+  already stored: `predict(kind="median")`, `predict(kind="cdf",
+  thresholds=...)` for `P(y <= t)`, and `predict(kind="sample", n_samples=...)`
+  for seeded inverse-transform draws.
+- **`benchmarks/quantile_suite.py`**, a real-data quantile benchmark. The head
+  shipped in 0.26.0 and had never been scored on real data, nor ever against
+  CatBoost's `MultiQuantile` — the design the docs cite as precedent. It runs
+  the Grinsztajn regression suite against that, against K LightGBM quantile
+  boosters, and against K of our own single-level models, and writes the
+  harness's JSON shape so `compare_runs.py` can sign-test it.
+
+### Fixed
+- `docs/recipes.md` said raw quantile intervals "come out too wide". They have
+  run slightly narrow since 0.28.0 replaced the narrowing budget with per-row
+  rearrangement; the page had never been updated and told users the opposite of
+  the truth. A nominal 80% interval delivers about 77% coverage.
+- `shap_values` silently subsampled any background over 200 rows while the
+  docs said cost scaled linearly with background size. `max_background` and
+  `random_state` are now exposed on the estimators, and the docs say the cap
+  exists.
+- A model pickled before the SHAP background sample existed raised
+  `AttributeError` on `shap_values`; it now reports what is missing and what
+  to do about it.
+
+### Changed
+- Nothing about how any model fits. Every item above is additive, and the
+  exact-output snapshot is bit-identical on all 155 configurations.
+
 ## [0.31.0] - 2026-08-30
 ### Changed
 - **Multiclass fits are ~40% faster; predictions are bit-identical.** The

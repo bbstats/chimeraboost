@@ -535,9 +535,13 @@ def test_report_and_score():
     X, y = _heteroscedastic(n=1000, seed=23)
     m = ChimeraBoostQuantileRegressor(random_state=0, n_estimators=60).fit(X, y)
     rep = m.report(X, y)
-    assert set(rep) == {"crps", "pinball", "taus", "intervals", "crossing_rate"}
+    assert set(rep) == {"crps", "skill", "pinball", "taus", "intervals",
+                        "pit", "pit_edges", "crossing_rate"}
     assert rep["crossing_rate"] == 0.0
     assert m.score(X, y) == pytest.approx(-rep["crps"])
+    # Every interval carries coverage, width AND the score that trades them off.
+    assert set(rep["intervals"][0]) == {"lo", "hi", "nominal", "coverage",
+                                        "width", "score"}
     assert isinstance(qm.format_report(rep, "t"), str)
 
 
@@ -576,3 +580,139 @@ def test_metric_shape_errors():
         qm.pinball_loss(y, np.zeros((2, 2)), np.array([0.25, 0.75]))
     with pytest.raises(ValueError):
         qm.pinball_loss(y, np.zeros(3), np.array([0.5]))
+
+
+# --- interval score, sharpness, PIT, skill ------------------------------------
+
+def test_interval_score_matches_the_definition_by_hand():
+    """Width, plus 2/alpha times how far outside the interval the outcome
+    fell. Three rows: inside, 1.0 below, 2.0 above, on a unit-width 80%
+    interval (alpha 0.2)."""
+    taus = np.array([0.1, 0.9])
+    Q = np.tile(np.array([0.0, 1.0]), (3, 1))
+    y = np.array([0.5, -1.0, 3.0])
+    got = qm.interval_score(y, Q, taus)
+    assert len(got) == 1
+    assert got[0]["nominal"] == pytest.approx(0.8)
+    want = np.mean([1.0, 1.0 + 10.0 * 1.0, 1.0 + 10.0 * 2.0])
+    assert got[0]["score"] == pytest.approx(want)
+
+
+def test_interval_score_punishes_both_too_wide_and_too_narrow():
+    """The point of a proper rule: it cannot be gamed in either direction."""
+    rng = np.random.default_rng(0)
+    y = rng.standard_normal(20000)
+    taus = np.array([0.1, 0.9])
+    from scipy.stats import norm
+    honest = np.tile(norm.ppf(taus), (20000, 1))
+
+    def score(f):
+        return qm.interval_score(y, honest * f, taus)[0]["score"]
+
+    assert score(1.0) < score(0.5)      # too narrow loses
+    assert score(1.0) < score(3.0)      # so does too wide
+
+
+def test_sharpness_is_width_alone_and_ignores_y():
+    taus = np.array([0.1, 0.5, 0.9])
+    Q = np.tile(np.array([-1.0, 0.0, 2.0]), (5, 1))
+    s = qm.sharpness(Q, taus)
+    assert [d["width"] for d in s] == [pytest.approx(3.0)]
+    # Same widths as interval_coverage reports, whatever y happens to be.
+    cov = qm.interval_coverage(np.zeros(5), Q, taus)
+    assert s[0]["width"] == pytest.approx(cov[0]["width"])
+
+
+def test_pit_is_flat_for_a_perfectly_calibrated_forecast():
+    from scipy.stats import norm
+    rng = np.random.default_rng(1)
+    taus = np.round(np.arange(0.05, 0.9501, 0.05), 2)
+    y = rng.standard_normal(40000)
+    Q = np.tile(norm.ppf(taus), (40000, 1))
+    freq, edges = qm.pit_histogram(y, Q, taus)
+    assert len(freq) == 10 and len(edges) == 11
+    assert np.abs(freq - 0.1).max() < 0.01
+
+
+def test_pit_is_u_shaped_when_the_bands_are_too_narrow():
+    """The failure mode `docs/quantiles.md` warns about: coverage says the
+    band is too tight, PIT says the mass piles into both tails."""
+    from scipy.stats import norm
+    rng = np.random.default_rng(2)
+    taus = np.round(np.arange(0.05, 0.9501, 0.05), 2)
+    y = rng.standard_normal(40000)
+    Q = np.tile(norm.ppf(taus) * 0.5, (40000, 1))     # half as wide as truth
+    freq, _ = qm.pit_histogram(y, Q, taus)
+    edges_mass = freq[0] + freq[-1]
+    middle_mass = freq[4] + freq[5]
+    assert edges_mass > 3 * middle_mass
+
+
+def test_pit_clamps_outcomes_beyond_the_grid():
+    taus = np.array([0.25, 0.75])
+    Q = np.tile(np.array([0.0, 1.0]), (3, 1))
+    p = qm.pit_values(np.array([-5.0, 0.5, 5.0]), Q, taus)
+    assert p[0] == 0.0 and p[2] == 1.0
+    assert 0.25 < p[1] < 0.75
+
+
+def test_skill_is_zero_for_the_marginal_grid_and_one_for_the_truth():
+    rng = np.random.default_rng(3)
+    taus = np.round(np.arange(0.1, 0.91, 0.1), 2)
+    y = rng.standard_normal(4000)
+
+    base = qm.marginal_grid(y, taus, len(y))
+    assert qm.quantile_skill_score(y, base, taus) == pytest.approx(0.0,
+                                                                  abs=1e-12)
+    # A grid that nails every outcome scores 1.
+    perfect = np.tile(y[:, None], (1, len(taus)))
+    assert qm.quantile_skill_score(y, perfect, taus) == pytest.approx(1.0)
+    # Something deliberately terrible scores below zero.
+    assert qm.quantile_skill_score(y, base + 50.0, taus) < 0.0
+
+
+def test_skill_accepts_a_training_target_vector_as_the_baseline():
+    rng = np.random.default_rng(4)
+    taus = np.array([0.25, 0.5, 0.75])
+    y_train = rng.standard_normal(5000)
+    y = rng.standard_normal(500)
+    Q = np.tile(np.quantile(y_train, taus), (500, 1))
+    # Scoring the marginal grid against the same marginal is ~zero skill.
+    assert abs(qm.quantile_skill_score(y, Q, taus, baseline=y_train)) < 0.02
+
+
+def test_skill_rejects_a_mismatched_baseline_grid():
+    taus = np.array([0.25, 0.75])
+    y = np.zeros(4)
+    with pytest.raises(ValueError, match="baseline grid has shape"):
+        qm.quantile_skill_score(y, np.zeros((4, 2)), taus,
+                                baseline=np.zeros((3, 2)))
+
+
+def test_skill_refuses_a_degenerate_baseline_rather_than_dividing_by_zero():
+    taus = np.array([0.25, 0.75])
+    y = np.ones(6)
+    with pytest.raises(ValueError, match="already perfect"):
+        qm.quantile_skill_score(y, np.ones((6, 2)), taus)
+
+
+def test_crps_convention_switches_the_constant_factor_only():
+    rng = np.random.default_rng(5)
+    taus = np.array([0.25, 0.5, 0.75])
+    y = rng.standard_normal(200)
+    Q = np.sort(rng.standard_normal((200, 3)), axis=1)
+    half = qm.crps(y, Q, taus)
+    assert qm.crps(y, Q, taus, convention="full") == pytest.approx(2 * half)
+    with pytest.raises(ValueError, match="convention must be"):
+        qm.crps(y, Q, taus, convention="textbook")
+
+
+def test_asymmetric_grids_contribute_no_interval_metrics():
+    """Every interval metric walks the same `_symmetric_pairs`, so a grid with
+    no symmetric pair yields nothing rather than an arbitrary pairing."""
+    taus = np.array([0.1, 0.2, 0.3])
+    Q = np.sort(np.random.default_rng(6).standard_normal((10, 3)), axis=1)
+    y = np.zeros(10)
+    assert qm.interval_coverage(y, Q, taus) == []
+    assert qm.interval_score(y, Q, taus) == []
+    assert qm.sharpness(Q, taus) == []
