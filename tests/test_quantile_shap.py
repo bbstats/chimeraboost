@@ -48,18 +48,19 @@ def test_raw_and_delivered_attributions_are_both_efficient(quantiles,
                                                            conformalize):
     m, Xt = _fit(quantiles, conformalize)
 
-    # Raw space reconstructs the pre-rearrangement scores.
-    phi = m.shap_values(Xt)
+    # The default explains what predict() returns.
+    phid = m.shap_values(Xt)
+    assert phid.shape == (60, 6, len(quantiles))
+    assert m.expected_value_.shape == (60, len(quantiles))
+    err = np.abs(phid.sum(axis=1) + m.expected_value_ - m.predict(Xt)).max()
+    assert err < 1e-8, err
+
+    # Raw space reconstructs the pre-rearrangement scores instead.
+    phi = m.shap_values(Xt, space="raw")
     assert phi.shape == (60, 6, len(quantiles))
     assert np.shape(m.expected_value_) == (len(quantiles),)
     raw = m.model_._raw_scores(Xt)
     assert np.abs(phi.sum(axis=1) + m.expected_value_ - raw).max() < 1e-8
-
-    # Delivered space reconstructs exactly what predict() returns.
-    phid = m.shap_values(Xt, space="delivered")
-    assert m.expected_value_.shape == (60, len(quantiles))
-    err = np.abs(phid.sum(axis=1) + m.expected_value_ - m.predict(Xt)).max()
-    assert err < 1e-8, err
 
 
 def test_conformal_rescale_is_actually_exercised():
@@ -89,7 +90,7 @@ def test_the_two_spaces_agree_exactly_when_no_row_crosses():
     m, Xt = _fit(quantiles=[0.1, 0.5, 0.9])
     raw = m.model_._raw_scores(Xt)
     assert not (np.diff(raw, axis=1) < 0).any(), "grid crossed; test is moot"
-    assert np.array_equal(m.shap_values(Xt),
+    assert np.array_equal(m.shap_values(Xt, space="raw"),
                           m.shap_values(Xt, space="delivered"))
 
 
@@ -181,11 +182,17 @@ def test_categoricals_land_in_original_feature_space():
     m = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
                                       n_estimators=60, random_state=0,
                                       cat_features=[1]).fit(X, y)
-    phi = m.shap_values(X[:40])
+    # Explicitly raw, so this pins the original-space mapping rather than
+    # relying on a 3-level grid never crossing (which would make the default
+    # coincide with raw and the assertion pass for the wrong reason).
+    phi = m.shap_values(X[:40], space="raw")
     assert phi.shape == (40, 3, 3)
     err = np.abs(phi.sum(axis=1) + m.expected_value_
                  - m.model_._raw_scores(X[:40])).max()
     assert err < 1e-8
+
+    # The default is still well-formed on categorical data.
+    assert m.shap_values(X[:40]).shape == (40, 3, 3)
 
 
 def test_explicit_background_moves_the_baseline():
@@ -209,3 +216,19 @@ def test_an_unfitted_forest_explains_to_the_init_value():
     assert phi.shape == (5, 6, 3)
     assert not phi.any()
     assert np.allclose(m.expected_value_, m.model_.init_)
+
+
+def test_importances_stay_on_the_raw_grid_whatever_the_default_is():
+    """`shap_importances` averages across rows, and the delivered view
+    reorders levels per row, so averaging it would mix rows that were
+    reordered differently. It must pin space="raw" rather than inherit
+    whatever `shap_values` defaults to."""
+    m, Xt = _fit(n=3000)
+    got = m.shap_importances(Xt, prettified=True)
+    want = m.shap_importances(Xt, prettified=True, quantile=None)
+    assert got == want
+
+    phi_raw = m.shap_values(Xt, space="raw")
+    expected = np.abs(phi_raw).mean(axis=0).mean(axis=1)
+    assert np.allclose([got[j] for j in sorted(got)],
+                       [expected[j] for j in sorted(got)])

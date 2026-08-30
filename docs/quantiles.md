@@ -163,26 +163,22 @@ the feature driving the spread tops this ranking while barely appearing in the m
 
 `kind="mean"` does the same for the tau-integrated point prediction.
 
-### What the sort does to the attribution
+### Averaging across rows
 
-Predictions are rearranged on the way out (see above), and that rearrangement is a
-per-row permutation. It cannot be folded into the Shapley game: sorting acts on the
-summed forest score, so pushing it inside the coalition enumeration would make the game
-range over every input feature instead of the handful one tree touches — the exact
-blow-up oblivious trees avoid. So there are two honest views, and `space` picks one:
+One wrinkle, and only if you aggregate attributions yourself. Predictions are
+rearranged on the way out, which relabels a row's levels, so each row is explained
+against its own reordering and `expected_value_` has one row per sample. Averaging
+that across rows mixes rows that were reordered differently.
 
-| `space` | explains | baseline |
-|:--|:--|:--|
-| `"raw"` (default) | the per-level scores the booster accumulated, before rearrangement | one `(n_quantiles,)` vector |
-| `"delivered"` | what `predict` returns, rearrangement and conformalization included | per-row `(n, n_quantiles)` |
+`shap_importances` already handles this — it explains the levels *before*
+rearrangement, where every row is on the same footing. If you are building your own
+global summary or a beeswarm plot, ask for the same thing:
 
-Aggregate in `"raw"` — global importances, beeswarm plots — because every row is then
-measuring the same game. Use `"delivered"` to explain a single prediction in the levels
-you actually read off.
+```python
+phi = model.shap_values(X_test, space="raw")   # one shared (n_quantiles,) baseline
+```
 
-The two agree exactly whenever a row's raw grid was already ordered. On a 3-level grid
-that is essentially every row; on the default 19-level grid roughly 40% of rows cross at
-least one adjacent pair, so the choice is not cosmetic there.
+Per-prediction explanations need none of this; the default is what you want.
 
 ## How it compares
 

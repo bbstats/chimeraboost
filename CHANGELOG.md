@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   scalar kernel bit for bit, which is the oracle the whole path rests on.
   Multiclass returns `(n_samples, n_features, n_classes)` in softmax-margin
   space; the quantile head returns a channel per level.
+  `shap_values` explains what `predict` returned. Rearranging the levels on
+  delivery relabels them per row, so a cross-row average wants the
+  pre-rearrangement view instead; `shap_importances` uses it automatically and
+  `space="raw"` asks for it directly.
 - **Interval-width attribution.** `model.shap_values(X, kind="width",
   alpha=0.1)` answers "which features make this row's prediction *uncertain*",
   as distinct from higher or lower. Shapley values are linear in the value
@@ -48,6 +52,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   harness's JSON shape so `compare_runs.py` can sign-test it.
 
 ### Fixed
+- `docs/recipes.md` said raw quantile intervals "come out too wide". They have
+  run slightly narrow since 0.28.0 replaced the narrowing budget with per-row
+  rearrangement; the page had never been updated and told users the opposite of
+  the truth. A nominal 80% interval delivers about 77% coverage.
 - `shap_values` silently subsampled any background over 200 rows while the
   docs said cost scaled linearly with background size. `max_background` and
   `random_state` are now exposed on the estimators, and the docs say the cap

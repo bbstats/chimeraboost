@@ -621,28 +621,28 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                                                 baseline)
 
     def _delivered_shap(self, phi_raw, base_raw, raw):
-        """Move raw-channel attributions onto the levels `predict` delivers.
+        """Move raw-level attributions onto the levels `predict` delivers.
 
         Two transforms, in the order `predict` applies them.
 
-        **The sort.** `_predict_raw_impl` returns `np.sort(raw, axis=1)`, which
-        for row i is a permutation sigma_i, so delivered level k carries raw
-        channel sigma_i(k). Gathering `phi` and the baseline by sigma_i keeps
-        Shapley efficiency exactly, because a permutation relabels channels
-        without touching their values. What it does NOT give is the Shapley
-        value of the sorted map itself: that game would apply the sort inside
-        every coalition evaluation, and since the sort acts on the summed
-        forest score it cannot be decomposed per tree -- the coalitions would
-        have to span every input feature rather than the <= D one tree touches,
-        which is the exact blow-up obliviousness buys us out of. So these are
-        exact attributions of "whichever level landed here", and the baseline
-        is per-row because different rows reorder differently.
+        **The sort** is a per-row permutation, so gathering `phi` and the
+        baseline by it relabels levels without touching their values and
+        efficiency is preserved exactly. The baseline becomes per-row because
+        different rows reorder differently.
 
-        **The conformal rescale.** `_conformalize` is linear in the channel
-        vector with no constant term, so it pushes through onto `phi` and the
-        baseline unchanged and efficiency survives. Its matrix is obtained by
-        pushing the identity through `_conformalize` itself rather than being
-        rewritten here, so it cannot drift from what `predict` does.
+        These are therefore exact attributions of "whichever level landed
+        here", not of the sorted map as a function. The latter is not
+        available at any price: the sort acts on the SUMMED forest score, so it
+        cannot be decomposed per tree, and a coalition game over every input
+        feature instead of the <= D one tree touches is the exact blow-up
+        obliviousness buys us out of. Recorded because it looks like an
+        oversight otherwise.
+
+        **The conformal rescale** is linear in the level vector with no
+        constant term, so it pushes through onto `phi` and the baseline alike.
+        Its matrix comes from pushing the identity through `_conformalize`
+        itself rather than being rewritten here, so it cannot drift from what
+        `predict` does.
         """
         # Stable, so tied channels break the same way on every numpy version.
         # An unstable sort would pick a different -- still self-consistent --
@@ -658,32 +658,11 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         return phi, base
 
     def shap_values(self, X, X_background=None, kind="quantiles", alpha=None,
-                    quantile=None, space="raw"):
-        """Exact interventional TreeSHAP for the whole quantile grid.
+                    quantile=None, space="delivered"):
+        """Exact interventional TreeSHAP for a predicted quantile grid.
 
-        Returns contributions in the model's additive space and sets
-        ``expected_value_`` to the matching baseline, so that contributions
-        plus baseline reconstruct the explained quantity (Shapley efficiency).
-
-        ``space`` decides what a channel means. The two answers differ only on
-        rows whose raw grid crosses:
-
-        * ``"raw"`` (default) explains the per-level scores the booster
-          accumulated, before rearrangement, against a single
-          ``(n_quantiles,)`` baseline. This is the exact Shapley decomposition
-          of level k's own model, and it is the one to aggregate across rows --
-          global importances, beeswarm plots -- because every row is then
-          measuring the same game. Conformal rescaling is not applied, since it
-          is defined on the delivered grid.
-        * ``"delivered"`` explains what ``predict`` returns, rearrangement and
-          conformal rescaling included, against a per-row ``(n_samples,
-          n_quantiles)`` baseline. Use it to explain a single prediction in the
-          levels you actually read off. `_delivered_shap` says exactly what the
-          sort does and does not buy you.
-
-        On a 3-level grid the raw scores essentially never cross and the two
-        agree; on the default 19-level grid roughly 40% of rows cross at least
-        one adjacent pair, so the choice is not cosmetic.
+        Explains what ``predict`` returned. Contributions plus
+        ``expected_value_`` (set by this call) reconstruct it, level by level.
 
         ``kind`` selects the explained quantity:
 
@@ -691,12 +670,23 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
           ``(n_samples, n_features)`` when ``quantile`` names one fitted level.
         * ``"mean"`` -- the tau-integrated point prediction.
         * ``"width"`` -- the width of the central ``1 - alpha`` interval: which
-          features make this row's prediction more uncertain. Shapley values
-          are linear in the value function, so the difference of two levels'
-          attributions is exactly the attribution of their difference.
+          features make this row's prediction more uncertain, as opposed to
+          higher or lower. Shapley values are linear in the value function, so
+          the difference of two levels' attributions is exactly the attribution
+          of their difference.
 
-        ``"mean"`` and ``"width"`` read the delivered grid by construction --
-        both are order-dependent -- so they ignore ``space``.
+        ``space`` is for one specific job and most callers can ignore it.
+        Predictions are rearranged on delivery, which relabels a row's levels,
+        so the default ``"delivered"`` measures each row against its own
+        reordering of the background and ``expected_value_`` is
+        ``(n_samples, n_quantiles)``. Aggregating those across rows mixes rows
+        that were reordered differently. ``space="raw"`` explains the
+        pre-rearrangement levels instead, against one shared
+        ``(n_quantiles,)`` baseline, which is what makes a cross-row average
+        meaningful -- `shap_importances` uses it for exactly that reason. The
+        two agree on any row whose levels were already in order.
+        ``"mean"`` and ``"width"`` are order-dependent by construction and
+        always read the delivered grid.
         """
         if space not in ("raw", "delivered"):
             raise ValueError(
@@ -759,13 +749,14 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         """Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.
 
         Averaged over the whole grid by default, or over one level when
-        ``quantile`` names it. Always computed in ``space="raw"``, because
-        averaging delivered attributions would mix a different game per row.
+        ``quantile`` names it. Uses ``space="raw"`` so that every row is
+        measured on the same footing -- see `shap_values` -- which is what a
+        cross-row average needs.
 
         Returns a structured ``(feature, importance)`` array sorted descending,
         or a ``{feature: importance}`` dict when ``prettified=True``.
         """
-        phi = self.shap_values(X, quantile=quantile)
+        phi = self.shap_values(X, quantile=quantile, space="raw")
         imp = np.abs(phi).mean(axis=0)
         if imp.ndim == 2:                      # (n_features, n_quantiles)
             imp = imp.mean(axis=1)

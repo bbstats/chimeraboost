@@ -144,8 +144,7 @@ width = model.shap_values(X_test, kind="width", alpha=0.1)   # (n, n_features)
 model.shap_importances(X_test, n_features=5, prettified=True)
 ```
 
-See [Explaining a predicted distribution](quantiles.md#explaining-a-predicted-distribution)
-for what the rearrangement means for these attributions.
+See [Explaining a predicted distribution](quantiles.md#explaining-a-predicted-distribution).
 
 The default grid is `0.05, 0.10, ... 0.95`. `kind="interval"` reads the two levels off
 that grid and raises if `alpha` asks for levels it was not fitted for, so pass your own
@@ -157,15 +156,16 @@ model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
 lo, med, hi = model.predict(X_test).T
 ```
 
-Raw intervals come out too wide, because boosting shrinks every round's step and the
-grid never fully contracts. `conformalize=True` calibrates them:
+Raw intervals come out slightly *narrow*: a leaf's levels are the residual quantiles of
+the rows in that leaf, measured on those same rows, which is optimistic. A nominal 80%
+interval delivers about 77% coverage. `conformalize=True` calibrates it:
 
 ```python
 model = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9], conformalize=True,
                                       random_state=0).fit(X_train, y_train)
 lo, med, hi = model.predict(X_test).T
-print(model.conformal_scale_)                              # < 1 means the fit was too wide
-print(np.mean((y_test >= lo) & (y_test <= hi)))            # ~0.80, the nominal level
+print(model.conformal_scale_)                    # one factor per level; > 1 widened the fit
+print(np.mean((y_test >= lo) & (y_test <= hi)))  # ~0.80, the nominal level
 ```
 
 The calibration fold is carved out before the early-stopping split, so it influences
