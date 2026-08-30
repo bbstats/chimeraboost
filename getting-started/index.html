@@ -395,6 +395,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-did-it-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How did it do?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -741,6 +752,8 @@
       
         
       
+        
+      
     
     
     
@@ -891,6 +904,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1130,6 +1171,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-did-it-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How did it do?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#next" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1181,11 +1233,11 @@
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">preds</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">root_mean_squared_error</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">preds</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="go">56.82</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="go">60.57</span>
 </code></pre></div>
 <p>Number of trees selected:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">reg</span><span class="o">.</span><span class="n">best_iteration_</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">29</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">52</span>
 </code></pre></div>
 <h2 id="classification">Classification<a class="headerlink" href="#classification" title="Permanent link">&para;</a></h2>
 <p><code>predict_proba</code> returns calibrated probabilities; columns follow <code>clf.classes_</code>.</p>
@@ -1200,18 +1252,18 @@
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">clf</span> <span class="o">=</span> <span class="n">ChimeraBoostClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">proba</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">roc_auc_score</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">proba</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]),</span> <span class="mi">3</span><span class="p">)</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="go">0.985</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="go">0.987</span>
 </code></pre></div>
 <p>The probabilities are temperature-scaled on the validation split:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">clf</span><span class="o">.</span><span class="n">temperature_</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">0.525</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">0.426</span>
 </code></pre></div>
 <h2 id="which-features-mattered">Which features mattered<a class="headerlink" href="#which-features-mattered" title="Permanent link">&para;</a></h2>
 <p><code>feature_importances_</code> is a quick global ranking by split gain:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">imp</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">feature_importances_</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="p">[(</span><span class="nb">int</span><span class="p">(</span><span class="n">j</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">imp</span><span class="p">[</span><span class="n">j</span><span class="p">]),</span> <span class="mi">3</span><span class="p">))</span> <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">imp</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="mi">3</span><span class="p">]]</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="go">[(8, 0.438), (2, 0.252), (3, 0.107)]</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="go">[(8, 0.419), (2, 0.225), (3, 0.117)]</span>
 </code></pre></div>
 <p>For a faithful, per-prediction explanation, use SHAP. With the default
 identity-link regressor losses, the contributions plus the baseline reconstruct
@@ -1221,7 +1273,7 @@ transformed losses):</p>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">phi</span><span class="o">.</span><span class="n">shape</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="go">(89, 10)</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">round</span><span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">+</span> <span class="n">reg</span><span class="o">.</span><span class="n">expected_value_</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="n">reg</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="go">(276.5232, 276.5232)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="go">(245.7708, 245.7708)</span>
 </code></pre></div>
 <p><code>shap_importances</code> is the global SHAP ranking in one call — mean absolute
 contribution per feature, sorted. DataFrame column names are picked up
@@ -1230,12 +1282,38 @@ automatically; <code>prettified=True</code> returns a dict:</p>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="gp">... </span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">prettified</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="go">{8: 24.72, 2: 19.92, 3: 10.31}</span>
 </code></pre></div>
+<h2 id="how-did-it-do">How did it do?<a class="headerlink" href="#how-did-it-do" title="Permanent link">&para;</a></h2>
+<p><code>report</code> scores a fitted model without wiring up sklearn by hand. Every headline
+number comes with a skill score against the no-skill forecast, because an RMSE of
+60.6 means nothing on its own and an R2 of 0.28 does:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">metrics</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">reg</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="go">rows scored: 89</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="go">RMSE (lower better)                                 60.568497</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="go">MAE (lower better)                                  47.204309</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="go">R2 skill vs the mean (1 perfect, 0 no better)        0.284595</span>
+</code></pre></div>
+<p>A classifier's <code>report</code> adds log loss, the Brier score and its skill, accuracy, F1,
+and how far the probabilities are from calibrated:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>rows scored: 114
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>log loss (lower better)                              0.311271
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>Brier score (lower better)                           0.072318
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>Brier skill vs the prior (1 perfect, 0 no better)    0.844741
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>accuracy                                             0.964912
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>F1 macro                                             0.962312
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>miscalibration (0 is perfectly calibrated)           0.011351
+</code></pre></div>
+<p><code>calibration_mcb</code> is 0 when the probabilities are already perfectly calibrated and
+higher when a monotone rescaling would improve them — it is the number temperature
+scaling exists to keep small.</p>
+<p>Quantile models have their own <a href="../quantiles/#scoring"><code>report</code></a>.</p>
 <h2 id="next">Next<a class="headerlink" href="#next" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../recipes/">Recipes</a>: categoricals, quantile regression, bagging, persistence, and more.</li>
 <li><a href="../concepts/">How it works</a>: oblivious trees, categorical encoding, linear leaves, calibration.</li>
 <li><a href="../parameters/">Parameters</a>: what each option does and when to change it.</li>
 <li><a href="../shap/">SHAP</a>: exact feature attributions in depth.</li>
+<li><a href="../quantiles/">Predictive distributions</a>: quantiles, intervals, and calibration.</li>
 </ul>
 
 

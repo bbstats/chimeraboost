@@ -605,6 +605,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiclass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiclass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quantile-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantile models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#limits" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -787,6 +809,8 @@
       
         
       
+        
+      
     
     
     
@@ -937,6 +961,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1209,6 +1261,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiclass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiclass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quantile-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantile models
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#limits" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1328,17 +1402,36 @@ of the training data captured at fit. Override it to explain against a specific 
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="n">X_reference</span><span class="p">)</span>
 </code></pre></div>
 <p><code>expected_value_</code> is the mean additive score over whichever background is used.
-For the default identity-link regressor losses, that is also the mean prediction.
-Cost scales linearly with background size; the default sample keeps it around 3 ms
-per row at depth 6 with 200 background rows.</p>
+For the default identity-link regressor losses, that is also the mean prediction.</p>
+<p>Cost scales linearly with background size, so it is capped: a background larger
+than <code>max_background</code> (default 200) is randomly subsampled to that size. Raise it
+for a more stable baseline, lower it for speed.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">reg</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="n">X_ref</span><span class="p">,</span> <span class="n">max_background</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+</code></pre></div>
+<p>The default sample keeps a call around 3 ms per row at depth 6 with 200 background
+rows.</p>
 <h2 id="bagged-models">Bagged models<a class="headerlink" href="#bagged-models" title="Permanent link">&para;</a></h2>
 <p>When <code>n_ensembles &gt; 1</code>, attributions are averaged across members. For regression this
 is exact, since the bag prediction is the members' mean and Shapley values are linear.
 For classification it is an additive surrogate for the soft-voted probability.</p>
+<h2 id="multiclass">Multiclass<a class="headerlink" href="#multiclass" title="Permanent link">&para;</a></h2>
+<p><code>shap_values</code> returns <code>(n_samples, n_features, n_classes)</code>, attributing the raw softmax
+score of each class. Rows sum to <code>predict_raw(X) - expected_value_</code> per class, and
+<code>expected_value_</code> is a <code>(n_classes,)</code> array.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>        <span class="c1"># (n, n_features, n_classes)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">phi</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span>                          <span class="c1"># what pushed rows toward class 2</span>
+</code></pre></div>
+<p><code>shap_importances</code> averages the magnitudes across classes, so the ranking stays over
+features rather than over (feature, class) pairs.</p>
+<h2 id="quantile-models">Quantile models<a class="headerlink" href="#quantile-models" title="Permanent link">&para;</a></h2>
+<p><code>ChimeraBoostQuantileRegressor</code> has its own <code>shap_values</code> with a channel per quantile
+level, including an attribution of interval <em>width</em>. See
+<a href="../quantiles/#explaining-a-predicted-distribution">Predictive distributions</a>.</p>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Binary classification and regression only. Multiclass raises <code>NotImplementedError</code>.</li>
-<li>Attributions live in additive-score / log-odds space, rather than probability space.</li>
+<li>Attributions live in additive-score / log-odds / softmax-margin space, rather than
+  probability space. The link is nonlinear, so no exact additive decomposition survives
+  it.</li>
 <li>They explain this model's behavior. They are not causal effects.</li>
 </ul>
 <h2 id="compared-with-feature_importances_">Compared with <code>feature_importances_</code><a class="headerlink" href="#compared-with-feature_importances_" title="Permanent link">&para;</a></h2>

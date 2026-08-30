@@ -472,6 +472,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#reading-the-distribution-other-ways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the distribution other ways
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#predictions-never-cross" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -505,10 +516,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-it-costs" class="md-nav__link">
+  <a href="#explaining-a-predicted-distribution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it costs
+        Explaining a predicted distribution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Explaining a predicted distribution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#averaging-across-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Averaging across rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-compares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it compares
       
     </span>
   </a>
@@ -743,6 +782,8 @@
       
         
       
+        
+      
     
     
     
@@ -893,6 +934,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1088,6 +1157,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#reading-the-distribution-other-ways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the distribution other ways
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#predictions-never-cross" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1121,10 +1201,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-it-costs" class="md-nav__link">
+  <a href="#explaining-a-predicted-distribution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it costs
+        Explaining a predicted distribution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Explaining a predicted distribution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#averaging-across-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Averaging across rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-compares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it compares
       
     </span>
   </a>
@@ -1190,26 +1298,40 @@ on it, so fit the levels you intend to use:</p>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">lo</span><span class="p">,</span> <span class="n">med</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
 </code></pre></div>
 <p>More worked snippets are in <a href="../recipes/#quantile-regression">Recipes</a>.</p>
+<h2 id="reading-the-distribution-other-ways">Reading the distribution other ways<a class="headerlink" href="#reading-the-distribution-other-ways" title="Permanent link">&para;</a></h2>
+<p><code>predict</code> will answer four more questions off the same fitted grid, at no extra cost:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"median"</span><span class="p">)</span>                          <span class="c1"># (n,) the centre</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"cdf"</span><span class="p">,</span> <span class="n">thresholds</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">])</span>     <span class="c1"># (n, 2) P(y &lt;= t)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"sample"</span><span class="p">,</span> <span class="n">n_samples</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># (n, 500)</span>
+</code></pre></div>
+<p><code>kind="cdf"</code> inverts the grid, and <code>kind="sample"</code> draws from it by inverse transform —
+useful for feeding a downstream simulation. Both interpolate between fitted levels and
+clamp outside the outermost ones, because a finite grid says nothing about the tails
+beyond it. <code>kind="interval"</code> still refuses levels you did not fit: reading a fitted
+curve at a point is a different thing from claiming a level was fitted when it was not.</p>
 <h2 id="predictions-never-cross">Predictions never cross<a class="headerlink" href="#predictions-never-cross" title="Permanent link">&para;</a></h2>
 <p>The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so
 <code>np.diff(Q, axis=1) &gt;= 0</code> holds exactly, including at every intermediate stage of
 <code>staged_predict</code>. Sorting is not a compromise: rearranging a crossing quantile curve
 never increases pinball loss at any level, for any row (Chernozhukov, Fernández-Val &amp;
 Galichon 2010), so the guarantee is free.</p>
-<p>Independently fitted per-level models have no such property. On the benchmark in
-<code>benchmarks/quantile_head.py</code>, 18 to 21% of adjacent quantile pairs come out reversed.</p>
+<p>Independently fitted per-level models have no such property. Across the 36 real
+datasets in <code>benchmarks/quantile_suite.py</code>, LightGBM's per-level boosters reverse 22% of
+adjacent pairs on average and cross on every single dataset; CatBoost's own shared head
+crosses on every dataset too. Ours is exactly zero on all 36.</p>
 <p>The band is free to be much <em>narrower</em> than the pooled one where the data is quiet — it
 tracks the local spread rather than a global floor.</p>
 <h2 id="interval-calibration">Interval calibration<a class="headerlink" href="#interval-calibration" title="Permanent link">&para;</a></h2>
 <p>Read the intervals with this in mind: <strong>the raw grid runs slightly narrow.</strong> Leaf values
 are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. On the datasets in <code>benchmarks/probe_quantile_band.py</code> a nominal 80%
-interval delivers about 72 to 76% coverage. Pinball loss is what the model optimizes and
-it is good — better than one dedicated LightGBM booster per level — but a raw interval
-is not a coverage guarantee.</p>
+is optimistic. Across the 36 datasets in <code>benchmarks/quantile_suite.py</code> a nominal 80%
+interval delivers 77% coverage on average, and a nominal 90% delivers 87%. That is
+closer to nominal than either LightGBM per-level (72% and 83%) or CatBoost
+<code>MultiQuantile</code> (73% and 83%) manages — but it is still narrow, and a raw interval is
+not a coverage guarantee.</p>
 <p><code>conformalize=True</code> turns it into one:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">(</span><span class="n">conformalize</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">conformal_scale_</span><span class="p">)</span>      <span class="c1"># one factor per level; above 1 widened the fit</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">(</span><span class="n">conformalize</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">conformal_scale_</span><span class="p">)</span>      <span class="c1"># one factor per level; above 1 widened the fit</span>
 </code></pre></div>
 <p>This holds out <code>calibration_fraction</code> of the rows <strong>before</strong> the early-stopping split,
 so that fold influences neither the fit nor the stopping point, then rescales each level
@@ -1224,9 +1346,9 @@ levels you asked for. A 90% interval needs at least 9 calibration rows, and a 99
 needs 99.</p>
 <h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
 <p><code>chimeraboost.quantile_metrics</code> scores a predicted grid.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1245,8 +1367,24 @@ needs 99.</p>
 <td style="text-align: left;">Is the distribution as a whole right?</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>quantile_skill_score</code></td>
+<td style="text-align: left;">Is it right by a useful margin? 1 perfect, 0 no better than ignoring every feature.</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>interval_coverage</code></td>
 <td style="text-align: left;">Do the intervals hold what they claim? Coverage and width.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval_score</code></td>
+<td style="text-align: left;">Coverage and width in one number — the proper rule that trades them off.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sharpness</code></td>
+<td style="text-align: left;">Width alone, for comparing two equally calibrated models.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>pit_values</code> / <code>pit_histogram</code></td>
+<td style="text-align: left;"><em>Where</em> is the model wrong?</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>crossing_rate</code></td>
@@ -1256,17 +1394,97 @@ needs 99.</p>
 </table>
 <p><code>crps</code> is the mean pinball loss over the grid. The textbook CRPS is twice that, but the
 factor is constant, so comparisons are unaffected and this convention matches the
-early-stopping metric.</p>
+early-stopping metric. Pass <code>convention="full"</code> when comparing against another library —
+<code>properscoring</code> and <code>scoringrules</code> both report the doubled value.</p>
+<p>Coverage on its own is not a score: an infinitely wide interval covers everything.
+<code>interval_score</code> is the Winkler score, which charges the width plus a penalty for every
+outcome that falls outside, and so cannot be gamed in either direction.</p>
+<p>The PIT histogram is the instrument for the under-dispersion described above. It asks
+where in the predicted grid each outcome actually landed: flat means calibrated, a U
+means the bands are too narrow, a hump means too wide.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
+</code></pre></div>
 <p><code>predict(kind="mean")</code> integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.</p>
-<h2 id="what-it-costs">What it costs<a class="headerlink" href="#what-it-costs" title="Permanent link">&para;</a></h2>
-<p>The split search runs once per round instead of once per level, so the saving grows with
-how wide the data is: roughly 3.0x the fit speed of 19 independent LightGBM quantile
-boosters at 5 features, 3.6x at 32, and 6.2x at 128. Accuracy is not traded for it —
-pinball loss comes out 1 to 3% <em>better</em> than those per-level models at every width
-measured, with the margin widening on wide data.</p>
-<p>That is an average over the whole grid; a single level can trade more, because every
+<h2 id="explaining-a-predicted-distribution">Explaining a predicted distribution<a class="headerlink" href="#explaining-a-predicted-distribution" title="Permanent link">&para;</a></h2>
+<p><code>shap_values</code> gives exact TreeSHAP attributions with a channel per level:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
+</code></pre></div>
+<p>The one no per-level approach can give you is the attribution of interval <strong>width</strong> —
+which features make a particular row's prediction more <em>uncertain</em>, as opposed to
+higher or lower:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
+</code></pre></div>
+<p>Shapley values are linear in the value function, so the difference between two levels'
+attributions is exactly the attribution of their difference. On heteroscedastic data
+the feature driving the spread tops this ranking while barely appearing in the median's.</p>
+<p><code>kind="mean"</code> does the same for the tau-integrated point prediction.</p>
+<h3 id="averaging-across-rows">Averaging across rows<a class="headerlink" href="#averaging-across-rows" title="Permanent link">&para;</a></h3>
+<p>One wrinkle, and only if you aggregate attributions yourself. Predictions are
+rearranged on the way out, which relabels a row's levels, so each row is explained
+against its own reordering and <code>expected_value_</code> has one row per sample. Averaging
+that across rows mixes rows that were reordered differently.</p>
+<p><code>shap_importances</code> already handles this — it explains the levels <em>before</em>
+rearrangement, where every row is on the same footing. If you are building your own
+global summary or a beeswarm plot, ask for the same thing:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
+</code></pre></div>
+<p>Per-prediction explanations need none of this; the default is what you want.</p>
+<h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
+<p>Measured on 36 Grinsztajn regression datasets, 3 seeds, all four arms sharing one
+early-stopping split and budget (<code>benchmarks/quantile_suite.py</code>). Win-loss is per
+dataset; "interval score" is the Winkler score, which charges width and miscoverage
+together.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">against</th>
+<th style="text-align: left;">CRPS</th>
+<th style="text-align: left;">interval score</th>
+<th style="text-align: left;">crossing</th>
+<th style="text-align: left;">median fit time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">19 <code>loss="Quantile"</code> models</td>
+<td style="text-align: left;"><strong>32W-4L</strong></td>
+<td style="text-align: left;"><strong>34W-2L</strong></td>
+<td style="text-align: left;">0.00 vs 0.16</td>
+<td style="text-align: left;"><strong>3.4x faster</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">19 LightGBM quantile boosters</td>
+<td style="text-align: left;">23W-13L (a tie)</td>
+<td style="text-align: left;"><strong>31W-5L</strong></td>
+<td style="text-align: left;">0.00 vs 0.22</td>
+<td style="text-align: left;"><strong>1.5x faster</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">CatBoost <code>MultiQuantile</code></td>
+<td style="text-align: left;">7W-<strong>29L</strong></td>
+<td style="text-align: left;"><strong>25W-11L</strong></td>
+<td style="text-align: left;">0.00 vs 0.06</td>
+<td style="text-align: left;"><strong>8.3x faster</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Read that honestly. <strong>CatBoost's shared head is sharper than ours on CRPS</strong> — it wins 29
+of 36 datasets — and that is a real deficit, not a rounding error. It costs a median 8.3x
+our fit time to get there, and its intervals are much worse calibrated (its worst
+coverage error is 0.64 against a nominal 0.90, ours 0.10), so on the interval score,
+which prices coverage and width together, we come out ahead.</p>
+<p>Against a stack of independent per-level models — ours or LightGBM's — the shared
+structure clearly pays: better or equal accuracy, faster, and the only arm here whose
+levels never cross.</p>
+<p>Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
+pinball. Those numbers came from fixed-round fits on synthetic data
+(<code>benchmarks/quantile_head.py</code>), which flatters us; on real data with both sides
+early-stopping, the accuracy is a tie and the speed edge is 1.5x.</p>
+<p>Those are averages over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
 resolve, the median column of the default 19-level grid has measured up to 18% worse
 than a dedicated <code>quantiles=[0.5]</code> fit, with a 3-level grid recovering most of the gap

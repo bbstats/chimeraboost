@@ -643,6 +643,8 @@
       
         
       
+        
+      
     
     
     
@@ -882,6 +884,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;shap_values
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_importances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;shap_importances
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -906,6 +930,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1160,6 +1212,28 @@
     <span class="md-ellipsis">
       
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;shap_values
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_importances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;shap_importances
       
     </span>
   </a>
@@ -1624,7 +1698,14 @@ set).</p>
 
 
 <a href="#chimeraboost.ChimeraBoostQuantileRegressor.predict" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s1">'quantiles'</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">predict</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">X</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">kind</span><span class="o">=</span><span class="s2">"quantiles"</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">thresholds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">n_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1640,38 +1721,26 @@ not fitted for is an error, not a guess.</p>
 function over tau: trapezoid across the grid plus flat extension of the
 edge levels out to 0 and 1. The flat extension is the honest reading of
 a finite grid, assuming nothing about tails the model never estimated.</p>
+<p><code>kind="median"</code> returns (n_samples,), the predicted median -- the
+0.5 level when the grid carries it, interpolated between its
+neighbours when it does not. This is the centre conformalization
+rescales about.</p>
+<p><code>kind="cdf"</code> returns (n_samples, len(thresholds)): <code>P(y &lt;= t)</code> for
+each <code>t</code> in <code>thresholds</code>, by inverting the grid. Clamped to the
+outermost fitted levels rather than to 0 and 1, for the same reason
+<code>"mean"</code> extends flat.</p>
+<p><code>kind="sample"</code> returns (n_samples_rows, n_samples): inverse-
+transform draws from the predicted distribution, for feeding a
+downstream simulation. <code>random_state</code> seeds them; draws stay inside
+the fitted level range.</p>
+<p>Unlike <code>"interval"</code>, <code>"cdf"</code> and <code>"sample"</code> interpolate between
+levels. That is a different question -- reading a fitted curve at a
+point, rather than claiming a level was fitted when it was not.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-444">444</a></span>
-<span class="normal"><a href="#__codelineno-0-445">445</a></span>
-<span class="normal"><a href="#__codelineno-0-446">446</a></span>
-<span class="normal"><a href="#__codelineno-0-447">447</a></span>
-<span class="normal"><a href="#__codelineno-0-448">448</a></span>
-<span class="normal"><a href="#__codelineno-0-449">449</a></span>
-<span class="normal"><a href="#__codelineno-0-450">450</a></span>
-<span class="normal"><a href="#__codelineno-0-451">451</a></span>
-<span class="normal"><a href="#__codelineno-0-452">452</a></span>
-<span class="normal"><a href="#__codelineno-0-453">453</a></span>
-<span class="normal"><a href="#__codelineno-0-454">454</a></span>
-<span class="normal"><a href="#__codelineno-0-455">455</a></span>
-<span class="normal"><a href="#__codelineno-0-456">456</a></span>
-<span class="normal"><a href="#__codelineno-0-457">457</a></span>
-<span class="normal"><a href="#__codelineno-0-458">458</a></span>
-<span class="normal"><a href="#__codelineno-0-459">459</a></span>
-<span class="normal"><a href="#__codelineno-0-460">460</a></span>
-<span class="normal"><a href="#__codelineno-0-461">461</a></span>
-<span class="normal"><a href="#__codelineno-0-462">462</a></span>
-<span class="normal"><a href="#__codelineno-0-463">463</a></span>
-<span class="normal"><a href="#__codelineno-0-464">464</a></span>
-<span class="normal"><a href="#__codelineno-0-465">465</a></span>
-<span class="normal"><a href="#__codelineno-0-466">466</a></span>
-<span class="normal"><a href="#__codelineno-0-467">467</a></span>
-<span class="normal"><a href="#__codelineno-0-468">468</a></span>
-<span class="normal"><a href="#__codelineno-0-469">469</a></span>
-<span class="normal"><a href="#__codelineno-0-470">470</a></span>
-<span class="normal"><a href="#__codelineno-0-471">471</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-471">471</a></span>
 <span class="normal"><a href="#__codelineno-0-472">472</a></span>
 <span class="normal"><a href="#__codelineno-0-473">473</a></span>
 <span class="normal"><a href="#__codelineno-0-474">474</a></span>
@@ -1692,55 +1761,110 @@ a finite grid, assuming nothing about tails the model never estimated.</p>
 <span class="normal"><a href="#__codelineno-0-489">489</a></span>
 <span class="normal"><a href="#__codelineno-0-490">490</a></span>
 <span class="normal"><a href="#__codelineno-0-491">491</a></span>
-<span class="normal"><a href="#__codelineno-0-492">492</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-444" name="__codelineno-0-444"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"quantiles"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="w">    </span><span class="sd">"""Predict the conditional distribution.</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="sd">    ``kind="quantiles"`` (default) returns (n_samples, n_quantiles),</span>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">    column k being level ``quantiles_[k]``, non-decreasing along axis 1.</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">    ``kind="interval"`` returns (n_samples, 2): the central ``1 - alpha``</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">    interval, read off the ``alpha/2`` and ``1 - alpha/2`` levels, which</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">    must both be on the grid. No interpolation -- an interval the model was</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">    not fitted for is an error, not a guess.</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">    ``kind="mean"`` returns (n_samples,), the integral of the quantile</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="sd">    function over tau: trapezoid across the grid plus flat extension of the</span>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">    edge levels out to 0 and 1. The flat extension is the honest reading of</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">    a finite grid, assuming nothing about tails the model never estimated.</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a><span class="sd">    """</span>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a>    <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conformalize</span><span class="p">(</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">predict_raw</span><span class="p">(</span><span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span><span class="p">))</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a>
-<a id="__codelineno-0-464" name="__codelineno-0-464"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"quantiles"</span><span class="p">:</span>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a>        <span class="k">return</span> <span class="n">Q</span>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"interval"</span><span class="p">:</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a>        <span class="k">if</span> <span class="n">alpha</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a>                <span class="s1">'predict(kind="interval") needs alpha, the miscoverage: '</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a>                <span class="s2">"alpha=0.1 for a 90</span><span class="si">% i</span><span class="s2">nterval."</span><span class="p">)</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="mf">0.0</span> <span class="o">&lt;</span> <span class="n">alpha</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"alpha must be in (0, 1); got </span><span class="si">{</span><span class="n">alpha</span><span class="si">!r}</span><span class="s2">."</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-492">492</a></span>
+<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+<span class="normal"><a href="#__codelineno-0-494">494</a></span>
+<span class="normal"><a href="#__codelineno-0-495">495</a></span>
+<span class="normal"><a href="#__codelineno-0-496">496</a></span>
+<span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span>
+<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+<span class="normal"><a href="#__codelineno-0-503">503</a></span>
+<span class="normal"><a href="#__codelineno-0-504">504</a></span>
+<span class="normal"><a href="#__codelineno-0-505">505</a></span>
+<span class="normal"><a href="#__codelineno-0-506">506</a></span>
+<span class="normal"><a href="#__codelineno-0-507">507</a></span>
+<span class="normal"><a href="#__codelineno-0-508">508</a></span>
+<span class="normal"><a href="#__codelineno-0-509">509</a></span>
+<span class="normal"><a href="#__codelineno-0-510">510</a></span>
+<span class="normal"><a href="#__codelineno-0-511">511</a></span>
+<span class="normal"><a href="#__codelineno-0-512">512</a></span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span>
+<span class="normal"><a href="#__codelineno-0-516">516</a></span>
+<span class="normal"><a href="#__codelineno-0-517">517</a></span>
+<span class="normal"><a href="#__codelineno-0-518">518</a></span>
+<span class="normal"><a href="#__codelineno-0-519">519</a></span>
+<span class="normal"><a href="#__codelineno-0-520">520</a></span>
+<span class="normal"><a href="#__codelineno-0-521">521</a></span>
+<span class="normal"><a href="#__codelineno-0-522">522</a></span>
+<span class="normal"><a href="#__codelineno-0-523">523</a></span>
+<span class="normal"><a href="#__codelineno-0-524">524</a></span>
+<span class="normal"><a href="#__codelineno-0-525">525</a></span>
+<span class="normal"><a href="#__codelineno-0-526">526</a></span>
+<span class="normal"><a href="#__codelineno-0-527">527</a></span>
+<span class="normal"><a href="#__codelineno-0-528">528</a></span>
+<span class="normal"><a href="#__codelineno-0-529">529</a></span>
+<span class="normal"><a href="#__codelineno-0-530">530</a></span>
+<span class="normal"><a href="#__codelineno-0-531">531</a></span>
+<span class="normal"><a href="#__codelineno-0-532">532</a></span>
+<span class="normal"><a href="#__codelineno-0-533">533</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"quantiles"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">thresholds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a>            <span class="n">n_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a><span class="w">    </span><span class="sd">"""Predict the conditional distribution.</span>
 <a id="__codelineno-0-474" name="__codelineno-0-474"></a>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a>        <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">alpha</span> <span class="o">/</span> <span class="mf">2.0</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>        <span class="n">taus</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a>        <span class="n">i</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">taus</span> <span class="o">-</span> <span class="n">lo</span><span class="p">)))</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a>        <span class="n">j</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">taus</span> <span class="o">-</span> <span class="n">hi</span><span class="p">)))</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a>        <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">taus</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">lo</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">1e-9</span> <span class="ow">or</span> <span class="nb">abs</span><span class="p">(</span><span class="n">taus</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">1e-9</span><span class="p">:</span>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a>                <span class="sa">f</span><span class="s2">"alpha=</span><span class="si">{</span><span class="n">alpha</span><span class="si">}</span><span class="s2"> needs levels </span><span class="si">{</span><span class="n">lo</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">hi</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">, which are "</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a>                <span class="s2">"not on the fitted grid "</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a>                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">array2string</span><span class="p">(</span><span class="n">taus</span><span class="p">,</span><span class="w"> </span><span class="n">precision</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span><span class="si">}</span><span class="s2">. Refit with those "</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a>                <span class="s2">"levels in `quantiles`."</span><span class="p">)</span>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">Q</span><span class="p">[:,</span> <span class="n">i</span><span class="p">],</span> <span class="n">Q</span><span class="p">[:,</span> <span class="n">j</span><span class="p">]])</span>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a><span class="sd">    ``kind="quantiles"`` (default) returns (n_samples, n_quantiles),</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a><span class="sd">    column k being level ``quantiles_[k]``, non-decreasing along axis 1.</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a><span class="sd">    ``kind="interval"`` returns (n_samples, 2): the central ``1 - alpha``</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a><span class="sd">    interval, read off the ``alpha/2`` and ``1 - alpha/2`` levels, which</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a><span class="sd">    must both be on the grid. No interpolation -- an interval the model was</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a><span class="sd">    not fitted for is an error, not a guess.</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a><span class="sd">    ``kind="mean"`` returns (n_samples,), the integral of the quantile</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a><span class="sd">    function over tau: trapezoid across the grid plus flat extension of the</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a><span class="sd">    edge levels out to 0 and 1. The flat extension is the honest reading of</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a><span class="sd">    a finite grid, assuming nothing about tails the model never estimated.</span>
 <a id="__codelineno-0-487" name="__codelineno-0-487"></a>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"mean"</span><span class="p">:</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mean_from_quantiles</span><span class="p">(</span><span class="n">Q</span><span class="p">)</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a>
-<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a>        <span class="sa">f</span><span class="s1">'kind must be "quantiles", "interval" or "mean"; got </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s1">.'</span><span class="p">)</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="sd">    ``kind="median"`` returns (n_samples,), the predicted median -- the</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="sd">    0.5 level when the grid carries it, interpolated between its</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a><span class="sd">    neighbours when it does not. This is the centre conformalization</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="sd">    rescales about.</span>
+<a id="__codelineno-0-492" name="__codelineno-0-492"></a>
+<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="sd">    ``kind="cdf"`` returns (n_samples, len(thresholds)): ``P(y &lt;= t)`` for</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="sd">    each ``t`` in ``thresholds``, by inverting the grid. Clamped to the</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="sd">    outermost fitted levels rather than to 0 and 1, for the same reason</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="sd">    ``"mean"`` extends flat.</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">    ``kind="sample"`` returns (n_samples_rows, n_samples): inverse-</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">    transform draws from the predicted distribution, for feeding a</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="sd">    downstream simulation. ``random_state`` seeds them; draws stay inside</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="sd">    the fitted level range.</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="sd">    Unlike ``"interval"``, ``"cdf"`` and ``"sample"`` interpolate between</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">    levels. That is a different question -- reading a fitted curve at a</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">    point, rather than claiming a level was fitted when it was not.</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    """</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>    <span class="n">Q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conformalize</span><span class="p">(</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">predict_raw</span><span class="p">(</span><span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span><span class="p">))</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"quantiles"</span><span class="p">:</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>        <span class="k">return</span> <span class="n">Q</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"interval"</span><span class="p">:</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>        <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_interval_levels</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">Q</span><span class="p">[:,</span> <span class="n">i</span><span class="p">],</span> <span class="n">Q</span><span class="p">[:,</span> <span class="n">j</span><span class="p">]])</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"mean"</span><span class="p">:</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mean_from_quantiles</span><span class="p">(</span><span class="n">Q</span><span class="p">)</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"median"</span><span class="p">:</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a>        <span class="n">mi</span><span class="p">,</span> <span class="n">mw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_median_idx_</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a>        <span class="k">return</span> <span class="n">_centre</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">mi</span><span class="p">,</span> <span class="n">mw</span><span class="p">)</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"cdf"</span><span class="p">:</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cdf_from_quantiles</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">thresholds</span><span class="p">)</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"sample"</span><span class="p">:</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sample_from_quantiles</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">n_samples</span><span class="p">,</span> <span class="n">random_state</span><span class="p">)</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a>        <span class="s1">'kind must be "quantiles", "interval", "mean", "median", "cdf" '</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a>        <span class="sa">f</span><span class="s1">'or "sample"; got </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s1">.'</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1767,23 +1891,23 @@ stage and the last one equals <code>predict</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-503">503</a></span>
-<span class="normal"><a href="#__codelineno-0-504">504</a></span>
-<span class="normal"><a href="#__codelineno-0-505">505</a></span>
-<span class="normal"><a href="#__codelineno-0-506">506</a></span>
-<span class="normal"><a href="#__codelineno-0-507">507</a></span>
-<span class="normal"><a href="#__codelineno-0-508">508</a></span>
-<span class="normal"><a href="#__codelineno-0-509">509</a></span>
-<span class="normal"><a href="#__codelineno-0-510">510</a></span>
-<span class="normal"><a href="#__codelineno-0-511">511</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="k">def</span><span class="w"> </span><span class="nf">staged_predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="w">    </span><span class="sd">"""Yield the (n, K) quantile matrix after each successive tree. The</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">    conformal rescaling is a post-fit transform, so it is applied at every</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    stage and the last one equals ``predict``."""</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a>    <span class="k">for</span> <span class="n">staged</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">staged_predict_raw</span><span class="p">(</span><span class="n">X</span><span class="p">):</span>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a>        <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conformalize</span><span class="p">(</span><span class="n">staged</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-593">593</a></span>
+<span class="normal"><a href="#__codelineno-0-594">594</a></span>
+<span class="normal"><a href="#__codelineno-0-595">595</a></span>
+<span class="normal"><a href="#__codelineno-0-596">596</a></span>
+<span class="normal"><a href="#__codelineno-0-597">597</a></span>
+<span class="normal"><a href="#__codelineno-0-598">598</a></span>
+<span class="normal"><a href="#__codelineno-0-599">599</a></span>
+<span class="normal"><a href="#__codelineno-0-600">600</a></span>
+<span class="normal"><a href="#__codelineno-0-601">601</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-593" name="__codelineno-0-593"></a><span class="k">def</span><span class="w"> </span><span class="nf">staged_predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
+<a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="w">    </span><span class="sd">"""Yield the (n, K) quantile matrix after each successive tree. The</span>
+<a id="__codelineno-0-595" name="__codelineno-0-595"></a><span class="sd">    conformal rescaling is a post-fit transform, so it is applied at every</span>
+<a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">    stage and the last one equals ``predict``."""</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-598" name="__codelineno-0-598"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-599" name="__codelineno-0-599"></a>
+<a id="__codelineno-0-600" name="__codelineno-0-600"></a>    <span class="k">for</span> <span class="n">staged</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">staged_predict_raw</span><span class="p">(</span><span class="n">X</span><span class="p">):</span>
+<a id="__codelineno-0-601" name="__codelineno-0-601"></a>        <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conformalize</span><span class="p">(</span><span class="n">staged</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1809,15 +1933,15 @@ per the sklearn convention.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-513">513</a></span>
-<span class="normal"><a href="#__codelineno-0-514">514</a></span>
-<span class="normal"><a href="#__codelineno-0-515">515</a></span>
-<span class="normal"><a href="#__codelineno-0-516">516</a></span>
-<span class="normal"><a href="#__codelineno-0-517">517</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="k">def</span><span class="w"> </span><span class="nf">score</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="w">    </span><span class="sd">"""Negative CRPS (mean pinball loss over the grid). Higher is better,</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    per the sklearn convention."""</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a>    <span class="k">return</span> <span class="o">-</span><span class="n">quantile_metrics</span><span class="o">.</span><span class="n">crps</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">,</span>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a>                                  <span class="n">sample_weight</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-603">603</a></span>
+<span class="normal"><a href="#__codelineno-0-604">604</a></span>
+<span class="normal"><a href="#__codelineno-0-605">605</a></span>
+<span class="normal"><a href="#__codelineno-0-606">606</a></span>
+<span class="normal"><a href="#__codelineno-0-607">607</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-603" name="__codelineno-0-603"></a><span class="k">def</span><span class="w"> </span><span class="nf">score</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-604" name="__codelineno-0-604"></a><span class="w">    </span><span class="sd">"""Negative CRPS (mean pinball loss over the grid). Higher is better,</span>
+<a id="__codelineno-0-605" name="__codelineno-0-605"></a><span class="sd">    per the sklearn convention."""</span>
+<a id="__codelineno-0-606" name="__codelineno-0-606"></a>    <span class="k">return</span> <span class="o">-</span><span class="n">quantile_metrics</span><span class="o">.</span><span class="n">crps</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">,</span>
+<a id="__codelineno-0-607" name="__codelineno-0-607"></a>                                  <span class="n">sample_weight</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1832,29 +1956,323 @@ per the sklearn convention.</p>
 
 
 <a href="#chimeraboost.ChimeraBoostQuantileRegressor.report" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">report</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">report</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">baseline</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p><code>quantile_metrics.quantile_report</code> on this model's predictions:
-CRPS, per-level pinball, and coverage plus width for every symmetric
-interval.</p>
+CRPS and its skill score, per-level pinball, coverage plus width plus
+interval score for every symmetric interval, the PIT histogram, and
+the crossing rate.</p>
+<p><code>baseline</code> sets what the skill score is measured against -- pass the
+training targets to score against the marginal distribution the model
+actually had, rather than the hindsight marginal of <code>y</code>.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-519">519</a></span>
-<span class="normal"><a href="#__codelineno-0-520">520</a></span>
-<span class="normal"><a href="#__codelineno-0-521">521</a></span>
-<span class="normal"><a href="#__codelineno-0-522">522</a></span>
-<span class="normal"><a href="#__codelineno-0-523">523</a></span>
-<span class="normal"><a href="#__codelineno-0-524">524</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="k">def</span><span class="w"> </span><span class="nf">report</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="w">    </span><span class="sd">"""`quantile_metrics.quantile_report` on this model's predictions:</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">    CRPS, per-level pinball, and coverage plus width for every symmetric</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">    interval."""</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a>    <span class="k">return</span> <span class="n">quantile_metrics</span><span class="o">.</span><span class="n">quantile_report</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">),</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a>                                            <span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-609">609</a></span>
+<span class="normal"><a href="#__codelineno-0-610">610</a></span>
+<span class="normal"><a href="#__codelineno-0-611">611</a></span>
+<span class="normal"><a href="#__codelineno-0-612">612</a></span>
+<span class="normal"><a href="#__codelineno-0-613">613</a></span>
+<span class="normal"><a href="#__codelineno-0-614">614</a></span>
+<span class="normal"><a href="#__codelineno-0-615">615</a></span>
+<span class="normal"><a href="#__codelineno-0-616">616</a></span>
+<span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-609" name="__codelineno-0-609"></a><span class="k">def</span><span class="w"> </span><span class="nf">report</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">baseline</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-610" name="__codelineno-0-610"></a><span class="w">    </span><span class="sd">"""`quantile_metrics.quantile_report` on this model's predictions:</span>
+<a id="__codelineno-0-611" name="__codelineno-0-611"></a><span class="sd">    CRPS and its skill score, per-level pinball, coverage plus width plus</span>
+<a id="__codelineno-0-612" name="__codelineno-0-612"></a><span class="sd">    interval score for every symmetric interval, the PIT histogram, and</span>
+<a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="sd">    the crossing rate.</span>
+<a id="__codelineno-0-614" name="__codelineno-0-614"></a>
+<a id="__codelineno-0-615" name="__codelineno-0-615"></a><span class="sd">    ``baseline`` sets what the skill score is measured against -- pass the</span>
+<a id="__codelineno-0-616" name="__codelineno-0-616"></a><span class="sd">    training targets to score against the marginal distribution the model</span>
+<a id="__codelineno-0-617" name="__codelineno-0-617"></a><span class="sd">    actually had, rather than the hindsight marginal of ``y``.</span>
+<a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="sd">    """</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="k">return</span> <span class="n">quantile_metrics</span><span class="o">.</span><span class="n">quantile_report</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">),</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>                                            <span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">,</span>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a>                                            <span class="n">baseline</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="chimeraboost.ChimeraBoostQuantileRegressor.shap_values" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">shap_values</span>
+
+
+<a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_values" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">shap_values</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">X</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">kind</span><span class="o">=</span><span class="s2">"quantiles"</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">quantile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">space</span><span class="o">=</span><span class="s2">"delivered"</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Exact interventional TreeSHAP for a predicted quantile grid.</p>
+<p>Explains what <code>predict</code> returned. Contributions plus
+<code>expected_value_</code> (set by this call) reconstruct it, level by level.</p>
+<p><code>kind</code> selects the explained quantity:</p>
+<ul>
+<li><code>"quantiles"</code> -- <code>(n_samples, n_features, n_quantiles)</code>, or
+  <code>(n_samples, n_features)</code> when <code>quantile</code> names one fitted level.</li>
+<li><code>"mean"</code> -- the tau-integrated point prediction.</li>
+<li><code>"width"</code> -- the width of the central <code>1 - alpha</code> interval: which
+  features make this row's prediction more uncertain, as opposed to
+  higher or lower. Shapley values are linear in the value function, so
+  the difference of two levels' attributions is exactly the attribution
+  of their difference.</li>
+</ul>
+<p><code>space</code> is for one specific job and most callers can ignore it.
+Predictions are rearranged on delivery, which relabels a row's levels,
+so the default <code>"delivered"</code> measures each row against its own
+reordering of the background and <code>expected_value_</code> is
+<code>(n_samples, n_quantiles)</code>. Aggregating those across rows mixes rows
+that were reordered differently. <code>space="raw"</code> explains the
+pre-rearrangement levels instead, against one shared
+<code>(n_quantiles,)</code> baseline, which is what makes a cross-row average
+meaningful -- <code>shap_importances</code> uses it for exactly that reason. The
+two agree on any row whose levels were already in order.
+<code>"mean"</code> and <code>"width"</code> are order-dependent by construction and
+always read the delivered grid.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-660">660</a></span>
+<span class="normal"><a href="#__codelineno-0-661">661</a></span>
+<span class="normal"><a href="#__codelineno-0-662">662</a></span>
+<span class="normal"><a href="#__codelineno-0-663">663</a></span>
+<span class="normal"><a href="#__codelineno-0-664">664</a></span>
+<span class="normal"><a href="#__codelineno-0-665">665</a></span>
+<span class="normal"><a href="#__codelineno-0-666">666</a></span>
+<span class="normal"><a href="#__codelineno-0-667">667</a></span>
+<span class="normal"><a href="#__codelineno-0-668">668</a></span>
+<span class="normal"><a href="#__codelineno-0-669">669</a></span>
+<span class="normal"><a href="#__codelineno-0-670">670</a></span>
+<span class="normal"><a href="#__codelineno-0-671">671</a></span>
+<span class="normal"><a href="#__codelineno-0-672">672</a></span>
+<span class="normal"><a href="#__codelineno-0-673">673</a></span>
+<span class="normal"><a href="#__codelineno-0-674">674</a></span>
+<span class="normal"><a href="#__codelineno-0-675">675</a></span>
+<span class="normal"><a href="#__codelineno-0-676">676</a></span>
+<span class="normal"><a href="#__codelineno-0-677">677</a></span>
+<span class="normal"><a href="#__codelineno-0-678">678</a></span>
+<span class="normal"><a href="#__codelineno-0-679">679</a></span>
+<span class="normal"><a href="#__codelineno-0-680">680</a></span>
+<span class="normal"><a href="#__codelineno-0-681">681</a></span>
+<span class="normal"><a href="#__codelineno-0-682">682</a></span>
+<span class="normal"><a href="#__codelineno-0-683">683</a></span>
+<span class="normal"><a href="#__codelineno-0-684">684</a></span>
+<span class="normal"><a href="#__codelineno-0-685">685</a></span>
+<span class="normal"><a href="#__codelineno-0-686">686</a></span>
+<span class="normal"><a href="#__codelineno-0-687">687</a></span>
+<span class="normal"><a href="#__codelineno-0-688">688</a></span>
+<span class="normal"><a href="#__codelineno-0-689">689</a></span>
+<span class="normal"><a href="#__codelineno-0-690">690</a></span>
+<span class="normal"><a href="#__codelineno-0-691">691</a></span>
+<span class="normal"><a href="#__codelineno-0-692">692</a></span>
+<span class="normal"><a href="#__codelineno-0-693">693</a></span>
+<span class="normal"><a href="#__codelineno-0-694">694</a></span>
+<span class="normal"><a href="#__codelineno-0-695">695</a></span>
+<span class="normal"><a href="#__codelineno-0-696">696</a></span>
+<span class="normal"><a href="#__codelineno-0-697">697</a></span>
+<span class="normal"><a href="#__codelineno-0-698">698</a></span>
+<span class="normal"><a href="#__codelineno-0-699">699</a></span>
+<span class="normal"><a href="#__codelineno-0-700">700</a></span>
+<span class="normal"><a href="#__codelineno-0-701">701</a></span>
+<span class="normal"><a href="#__codelineno-0-702">702</a></span>
+<span class="normal"><a href="#__codelineno-0-703">703</a></span>
+<span class="normal"><a href="#__codelineno-0-704">704</a></span>
+<span class="normal"><a href="#__codelineno-0-705">705</a></span>
+<span class="normal"><a href="#__codelineno-0-706">706</a></span>
+<span class="normal"><a href="#__codelineno-0-707">707</a></span>
+<span class="normal"><a href="#__codelineno-0-708">708</a></span>
+<span class="normal"><a href="#__codelineno-0-709">709</a></span>
+<span class="normal"><a href="#__codelineno-0-710">710</a></span>
+<span class="normal"><a href="#__codelineno-0-711">711</a></span>
+<span class="normal"><a href="#__codelineno-0-712">712</a></span>
+<span class="normal"><a href="#__codelineno-0-713">713</a></span>
+<span class="normal"><a href="#__codelineno-0-714">714</a></span>
+<span class="normal"><a href="#__codelineno-0-715">715</a></span>
+<span class="normal"><a href="#__codelineno-0-716">716</a></span>
+<span class="normal"><a href="#__codelineno-0-717">717</a></span>
+<span class="normal"><a href="#__codelineno-0-718">718</a></span>
+<span class="normal"><a href="#__codelineno-0-719">719</a></span>
+<span class="normal"><a href="#__codelineno-0-720">720</a></span>
+<span class="normal"><a href="#__codelineno-0-721">721</a></span>
+<span class="normal"><a href="#__codelineno-0-722">722</a></span>
+<span class="normal"><a href="#__codelineno-0-723">723</a></span>
+<span class="normal"><a href="#__codelineno-0-724">724</a></span>
+<span class="normal"><a href="#__codelineno-0-725">725</a></span>
+<span class="normal"><a href="#__codelineno-0-726">726</a></span>
+<span class="normal"><a href="#__codelineno-0-727">727</a></span>
+<span class="normal"><a href="#__codelineno-0-728">728</a></span>
+<span class="normal"><a href="#__codelineno-0-729">729</a></span>
+<span class="normal"><a href="#__codelineno-0-730">730</a></span>
+<span class="normal"><a href="#__codelineno-0-731">731</a></span>
+<span class="normal"><a href="#__codelineno-0-732">732</a></span>
+<span class="normal"><a href="#__codelineno-0-733">733</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-660" name="__codelineno-0-660"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"quantiles"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-661" name="__codelineno-0-661"></a>                <span class="n">quantile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"delivered"</span><span class="p">):</span>
+<a id="__codelineno-0-662" name="__codelineno-0-662"></a><span class="w">    </span><span class="sd">"""Exact interventional TreeSHAP for a predicted quantile grid.</span>
+<a id="__codelineno-0-663" name="__codelineno-0-663"></a>
+<a id="__codelineno-0-664" name="__codelineno-0-664"></a><span class="sd">    Explains what ``predict`` returned. Contributions plus</span>
+<a id="__codelineno-0-665" name="__codelineno-0-665"></a><span class="sd">    ``expected_value_`` (set by this call) reconstruct it, level by level.</span>
+<a id="__codelineno-0-666" name="__codelineno-0-666"></a>
+<a id="__codelineno-0-667" name="__codelineno-0-667"></a><span class="sd">    ``kind`` selects the explained quantity:</span>
+<a id="__codelineno-0-668" name="__codelineno-0-668"></a>
+<a id="__codelineno-0-669" name="__codelineno-0-669"></a><span class="sd">    * ``"quantiles"`` -- ``(n_samples, n_features, n_quantiles)``, or</span>
+<a id="__codelineno-0-670" name="__codelineno-0-670"></a><span class="sd">      ``(n_samples, n_features)`` when ``quantile`` names one fitted level.</span>
+<a id="__codelineno-0-671" name="__codelineno-0-671"></a><span class="sd">    * ``"mean"`` -- the tau-integrated point prediction.</span>
+<a id="__codelineno-0-672" name="__codelineno-0-672"></a><span class="sd">    * ``"width"`` -- the width of the central ``1 - alpha`` interval: which</span>
+<a id="__codelineno-0-673" name="__codelineno-0-673"></a><span class="sd">      features make this row's prediction more uncertain, as opposed to</span>
+<a id="__codelineno-0-674" name="__codelineno-0-674"></a><span class="sd">      higher or lower. Shapley values are linear in the value function, so</span>
+<a id="__codelineno-0-675" name="__codelineno-0-675"></a><span class="sd">      the difference of two levels' attributions is exactly the attribution</span>
+<a id="__codelineno-0-676" name="__codelineno-0-676"></a><span class="sd">      of their difference.</span>
+<a id="__codelineno-0-677" name="__codelineno-0-677"></a>
+<a id="__codelineno-0-678" name="__codelineno-0-678"></a><span class="sd">    ``space`` is for one specific job and most callers can ignore it.</span>
+<a id="__codelineno-0-679" name="__codelineno-0-679"></a><span class="sd">    Predictions are rearranged on delivery, which relabels a row's levels,</span>
+<a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="sd">    so the default ``"delivered"`` measures each row against its own</span>
+<a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="sd">    reordering of the background and ``expected_value_`` is</span>
+<a id="__codelineno-0-682" name="__codelineno-0-682"></a><span class="sd">    ``(n_samples, n_quantiles)``. Aggregating those across rows mixes rows</span>
+<a id="__codelineno-0-683" name="__codelineno-0-683"></a><span class="sd">    that were reordered differently. ``space="raw"`` explains the</span>
+<a id="__codelineno-0-684" name="__codelineno-0-684"></a><span class="sd">    pre-rearrangement levels instead, against one shared</span>
+<a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">    ``(n_quantiles,)`` baseline, which is what makes a cross-row average</span>
+<a id="__codelineno-0-686" name="__codelineno-0-686"></a><span class="sd">    meaningful -- `shap_importances` uses it for exactly that reason. The</span>
+<a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">    two agree on any row whose levels were already in order.</span>
+<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">    ``"mean"`` and ``"width"`` are order-dependent by construction and</span>
+<a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="sd">    always read the delivered grid.</span>
+<a id="__codelineno-0-690" name="__codelineno-0-690"></a><span class="sd">    """</span>
+<a id="__codelineno-0-691" name="__codelineno-0-691"></a>    <span class="k">if</span> <span class="n">space</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"raw"</span><span class="p">,</span> <span class="s2">"delivered"</span><span class="p">):</span>
+<a id="__codelineno-0-692" name="__codelineno-0-692"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-693" name="__codelineno-0-693"></a>            <span class="sa">f</span><span class="s1">'space must be "raw" or "delivered"; got </span><span class="si">{</span><span class="n">space</span><span class="si">!r}</span><span class="s1">.'</span><span class="p">)</span>
+<a id="__codelineno-0-694" name="__codelineno-0-694"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"quantiles"</span><span class="p">,</span> <span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"width"</span><span class="p">):</span>
+<a id="__codelineno-0-695" name="__codelineno-0-695"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-696" name="__codelineno-0-696"></a>            <span class="sa">f</span><span class="s1">'kind must be "quantiles", "mean" or "width"; got </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s1">.'</span><span class="p">)</span>
+<a id="__codelineno-0-697" name="__codelineno-0-697"></a>
+<a id="__codelineno-0-698" name="__codelineno-0-698"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-699" name="__codelineno-0-699"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-700" name="__codelineno-0-700"></a>    <span class="k">if</span> <span class="n">X_background</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-701" name="__codelineno-0-701"></a>        <span class="c1"># Consumed positionally, so a reordered DataFrame would silently</span>
+<a id="__codelineno-0-702" name="__codelineno-0-702"></a>        <span class="c1"># skew every baseline.</span>
+<a id="__codelineno-0-703" name="__codelineno-0-703"></a>        <span class="n">bg</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-704" name="__codelineno-0-704"></a>        <span class="n">X_background</span> <span class="o">=</span> <span class="n">X_background</span> <span class="k">if</span> <span class="n">bg</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bg</span>
+<a id="__codelineno-0-705" name="__codelineno-0-705"></a>
+<a id="__codelineno-0-706" name="__codelineno-0-706"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-707" name="__codelineno-0-707"></a>
+<a id="__codelineno-0-708" name="__codelineno-0-708"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"quantiles"</span> <span class="ow">and</span> <span class="n">space</span> <span class="o">==</span> <span class="s2">"raw"</span><span class="p">:</span>
+<a id="__codelineno-0-709" name="__codelineno-0-709"></a>        <span class="k">if</span> <span class="n">quantile</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-710" name="__codelineno-0-710"></a>            <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level_index</span><span class="p">(</span><span class="n">quantile</span><span class="p">)</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a>            <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">k</span><span class="p">],</span> <span class="n">base</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+<a id="__codelineno-0-712" name="__codelineno-0-712"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
+<a id="__codelineno-0-713" name="__codelineno-0-713"></a>        <span class="k">return</span> <span class="n">phi</span>
+<a id="__codelineno-0-714" name="__codelineno-0-714"></a>
+<a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_delivered_shap</span><span class="p">(</span><span class="n">phi</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span>
+<a id="__codelineno-0-716" name="__codelineno-0-716"></a>                                     <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">_raw_scores</span><span class="p">(</span><span class="n">X</span><span class="p">))</span>
+<a id="__codelineno-0-717" name="__codelineno-0-717"></a>
+<a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"mean"</span><span class="p">:</span>
+<a id="__codelineno-0-719" name="__codelineno-0-719"></a>        <span class="n">w</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mean_from_quantiles</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">quantiles_</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+<a id="__codelineno-0-720" name="__codelineno-0-720"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span> <span class="o">@</span> <span class="n">w</span>
+<a id="__codelineno-0-721" name="__codelineno-0-721"></a>        <span class="k">return</span> <span class="n">phi</span> <span class="o">@</span> <span class="n">w</span>
+<a id="__codelineno-0-722" name="__codelineno-0-722"></a>
+<a id="__codelineno-0-723" name="__codelineno-0-723"></a>    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">"width"</span><span class="p">:</span>
+<a id="__codelineno-0-724" name="__codelineno-0-724"></a>        <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_interval_levels</span><span class="p">(</span>
+<a id="__codelineno-0-725" name="__codelineno-0-725"></a>            <span class="n">alpha</span><span class="p">,</span> <span class="n">caller</span><span class="o">=</span><span class="s1">'shap_values(kind="width")'</span><span class="p">)</span>
+<a id="__codelineno-0-726" name="__codelineno-0-726"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span><span class="p">[:,</span> <span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">base</span><span class="p">[:,</span> <span class="n">i</span><span class="p">]</span>
+<a id="__codelineno-0-727" name="__codelineno-0-727"></a>        <span class="k">return</span> <span class="n">phi</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">phi</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">i</span><span class="p">]</span>
+<a id="__codelineno-0-728" name="__codelineno-0-728"></a>
+<a id="__codelineno-0-729" name="__codelineno-0-729"></a>    <span class="k">if</span> <span class="n">quantile</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-730" name="__codelineno-0-730"></a>        <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level_index</span><span class="p">(</span><span class="n">quantile</span><span class="p">)</span>
+<a id="__codelineno-0-731" name="__codelineno-0-731"></a>        <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">k</span><span class="p">],</span> <span class="n">base</span><span class="p">[:,</span> <span class="n">k</span><span class="p">]</span>
+<a id="__codelineno-0-732" name="__codelineno-0-732"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
+<a id="__codelineno-0-733" name="__codelineno-0-733"></a>    <span class="k">return</span> <span class="n">phi</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="chimeraboost.ChimeraBoostQuantileRegressor.shap_importances" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">shap_importances</span>
+
+
+<a href="#chimeraboost.ChimeraBoostQuantileRegressor.shap_importances" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">shap_importances</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">X</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">feature_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">prettified</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">quantile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Global SHAP importance: <code>mean(abs(shap_values(X)))</code> per feature.</p>
+<p>Averaged over the whole grid by default, or over one level when
+<code>quantile</code> names it. Uses <code>space="raw"</code> so that every row is
+measured on the same footing -- see <code>shap_values</code> -- which is what a
+cross-row average needs.</p>
+<p>Returns a structured <code>(feature, importance)</code> array sorted descending,
+or a <code>{feature: importance}</code> dict when <code>prettified=True</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>chimeraboost/quantile_api.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-747">747</a></span>
+<span class="normal"><a href="#__codelineno-0-748">748</a></span>
+<span class="normal"><a href="#__codelineno-0-749">749</a></span>
+<span class="normal"><a href="#__codelineno-0-750">750</a></span>
+<span class="normal"><a href="#__codelineno-0-751">751</a></span>
+<span class="normal"><a href="#__codelineno-0-752">752</a></span>
+<span class="normal"><a href="#__codelineno-0-753">753</a></span>
+<span class="normal"><a href="#__codelineno-0-754">754</a></span>
+<span class="normal"><a href="#__codelineno-0-755">755</a></span>
+<span class="normal"><a href="#__codelineno-0-756">756</a></span>
+<span class="normal"><a href="#__codelineno-0-757">757</a></span>
+<span class="normal"><a href="#__codelineno-0-758">758</a></span>
+<span class="normal"><a href="#__codelineno-0-759">759</a></span>
+<span class="normal"><a href="#__codelineno-0-760">760</a></span>
+<span class="normal"><a href="#__codelineno-0-761">761</a></span>
+<span class="normal"><a href="#__codelineno-0-762">762</a></span>
+<span class="normal"><a href="#__codelineno-0-763">763</a></span>
+<span class="normal"><a href="#__codelineno-0-764">764</a></span>
+<span class="normal"><a href="#__codelineno-0-765">765</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-747" name="__codelineno-0-747"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_importances</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">feature_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-748" name="__codelineno-0-748"></a>                     <span class="n">prettified</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-749" name="__codelineno-0-749"></a><span class="w">    </span><span class="sd">"""Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.</span>
+<a id="__codelineno-0-750" name="__codelineno-0-750"></a>
+<a id="__codelineno-0-751" name="__codelineno-0-751"></a><span class="sd">    Averaged over the whole grid by default, or over one level when</span>
+<a id="__codelineno-0-752" name="__codelineno-0-752"></a><span class="sd">    ``quantile`` names it. Uses ``space="raw"`` so that every row is</span>
+<a id="__codelineno-0-753" name="__codelineno-0-753"></a><span class="sd">    measured on the same footing -- see `shap_values` -- which is what a</span>
+<a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="sd">    cross-row average needs.</span>
+<a id="__codelineno-0-755" name="__codelineno-0-755"></a>
+<a id="__codelineno-0-756" name="__codelineno-0-756"></a><span class="sd">    Returns a structured ``(feature, importance)`` array sorted descending,</span>
+<a id="__codelineno-0-757" name="__codelineno-0-757"></a><span class="sd">    or a ``{feature: importance}`` dict when ``prettified=True``.</span>
+<a id="__codelineno-0-758" name="__codelineno-0-758"></a><span class="sd">    """</span>
+<a id="__codelineno-0-759" name="__codelineno-0-759"></a>    <span class="n">phi</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="n">quantile</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>
+<a id="__codelineno-0-760" name="__codelineno-0-760"></a>    <span class="n">imp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phi</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-761" name="__codelineno-0-761"></a>    <span class="k">if</span> <span class="n">imp</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>                      <span class="c1"># (n_features, n_quantiles)</span>
+<a id="__codelineno-0-762" name="__codelineno-0-762"></a>        <span class="n">imp</span> <span class="o">=</span> <span class="n">imp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-0-763" name="__codelineno-0-763"></a>    <span class="k">return</span> <span class="n">_format_shap_importances</span><span class="p">(</span>
+<a id="__codelineno-0-764" name="__codelineno-0-764"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">imp</span><span class="p">,</span> <span class="n">feature_names</span><span class="o">=</span><span class="n">feature_names</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="n">n_features</span><span class="p">,</span>
+<a id="__codelineno-0-765" name="__codelineno-0-765"></a>        <span class="n">prettified</span><span class="o">=</span><span class="n">prettified</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>

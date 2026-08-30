@@ -639,6 +639,8 @@
       
         
       
+        
+      
     
     
     
@@ -789,6 +791,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1349,7 +1379,9 @@ recompiles. Put <code>chimeraboost-warmup</code> in the same script as your <cod
 cost to per-tree sharpness. The design is CatBoost's, not ours. See
 <a href="../concepts/#oblivious-trees">How it works</a>.</p>
 <h2 id="does-shap-support-multiclass">Does SHAP support multiclass?<a class="headerlink" href="#does-shap-support-multiclass" title="Permanent link">&para;</a></h2>
-<p>Not yet.</p>
+<p>Yes. <code>shap_values</code> returns <code>(n_samples, n_features, n_classes)</code>, attributing each
+class's raw softmax score. Quantile models are covered too, with a channel per
+level. See <a href="../shap/">SHAP explanations</a>.</p>
 <h2 id="how-do-i-save-and-load-a-model">How do I save and load a model?<a class="headerlink" href="#how-do-i-save-and-load-a-model" title="Permanent link">&para;</a></h2>
 <p>A fitted estimator pickles like any scikit-learn object:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>

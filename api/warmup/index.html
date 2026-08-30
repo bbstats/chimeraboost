@@ -643,6 +643,8 @@
       
         
       
+        
+      
     
     
     
@@ -793,6 +795,34 @@
     
   
     CustomObjective
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metrics
   
 
     
@@ -1449,7 +1479,11 @@ called directly below, with the dtypes the real call passes.</p>
 <span class="normal"><a href="#__codelineno-0-264">264</a></span>
 <span class="normal"><a href="#__codelineno-0-265">265</a></span>
 <span class="normal"><a href="#__codelineno-0-266">266</a></span>
-<span class="normal"><a href="#__codelineno-0-267">267</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="k">def</span><span class="w"> </span><span class="nf">warmup</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">shap</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-267">267</a></span>
+<span class="normal"><a href="#__codelineno-0-268">268</a></span>
+<span class="normal"><a href="#__codelineno-0-269">269</a></span>
+<span class="normal"><a href="#__codelineno-0-270">270</a></span>
+<span class="normal"><a href="#__codelineno-0-271">271</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="k">def</span><span class="w"> </span><span class="nf">warmup</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">shap</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="w">    </span><span class="sd">"""Compile (or load from the on-disk cache) all default-path kernels.</span>
 <a id="__codelineno-0-92" name="__codelineno-0-92"></a>
 <a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">    Covers binary classification with linear leaves, a categorical feature and</span>
@@ -1622,11 +1656,15 @@ called directly below, with the dtypes the real call passes.</p>
 <a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="c1"># SHAP is opt-in: `_shap_forest_linear` is an expensive parallel kernel</span>
 <a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="c1"># (~3.7 s cold) that most callers never reach. The same call also compiles</span>
 <a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="c1"># the column-major `_predict_forest_linear`, which the SHAP path uses.</span>
-<a id="__codelineno-0-263" name="__codelineno-0-263"></a>    <span class="k">if</span> <span class="n">shap</span><span class="p">:</span>
-<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">[:</span><span class="mi">8</span><span class="p">])</span>
-<a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="n">_log</span><span class="p">(</span><span class="s2">"shap"</span><span class="p">)</span>
-<a id="__codelineno-0-266" name="__codelineno-0-266"></a>
-<a id="__codelineno-0-267" name="__codelineno-0-267"></a>    <span class="k">return</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>    <span class="c1"># `_shap_forest_vec` is its vector-leaf twin, reached by the multiclass and</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a>    <span class="c1"># multi-quantile heads; `_predict_forest_vec_rm` is already warmed by the</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="c1"># stages above, so the vector call adds only the one kernel.</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="k">if</span> <span class="n">shap</span><span class="p">:</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="n">clf</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">[:</span><span class="mi">8</span><span class="p">])</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a>        <span class="n">qr</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">[:</span><span class="mi">8</span><span class="p">,</span> <span class="p">:</span><span class="mi">3</span><span class="p">])</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="n">_log</span><span class="p">(</span><span class="s2">"shap"</span><span class="p">)</span>
+<a id="__codelineno-0-270" name="__codelineno-0-270"></a>
+<a id="__codelineno-0-271" name="__codelineno-0-271"></a>    <span class="k">return</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -1654,11 +1692,7 @@ invalidates numba's cache. Also reachable as
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/warmup.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-296">296</a></span>
-<span class="normal"><a href="#__codelineno-0-297">297</a></span>
-<span class="normal"><a href="#__codelineno-0-298">298</a></span>
-<span class="normal"><a href="#__codelineno-0-299">299</a></span>
-<span class="normal"><a href="#__codelineno-0-300">300</a></span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-300">300</a></span>
 <span class="normal"><a href="#__codelineno-0-301">301</a></span>
 <span class="normal"><a href="#__codelineno-0-302">302</a></span>
 <span class="normal"><a href="#__codelineno-0-303">303</a></span>
@@ -1681,34 +1715,38 @@ invalidates numba's cache. Also reachable as
 <span class="normal"><a href="#__codelineno-0-320">320</a></span>
 <span class="normal"><a href="#__codelineno-0-321">321</a></span>
 <span class="normal"><a href="#__codelineno-0-322">322</a></span>
-<span class="normal"><a href="#__codelineno-0-323">323</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-296" name="__codelineno-0-296"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-297" name="__codelineno-0-297"></a><span class="w">    </span><span class="sd">"""``chimeraboost-warmup`` -- compile the kernels now, not on first fit.</span>
-<a id="__codelineno-0-298" name="__codelineno-0-298"></a>
-<a id="__codelineno-0-299" name="__codelineno-0-299"></a><span class="sd">    Run once after ``pip install``, and again after every upgrade, which</span>
-<a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="sd">    invalidates numba's cache. Also reachable as</span>
-<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="sd">    ``python -m chimeraboost.warmup`` or ``python -m chimeraboost``.</span>
-<a id="__codelineno-0-302" name="__codelineno-0-302"></a><span class="sd">    """</span>
-<a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">.</span><span class="w"> </span><span class="kn">import</span> <span class="n">__version__</span>
-<a id="__codelineno-0-304" name="__codelineno-0-304"></a>
-<a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
-<a id="__codelineno-0-306" name="__codelineno-0-306"></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">"chimeraboost-warmup"</span><span class="p">,</span>
-<a id="__codelineno-0-307" name="__codelineno-0-307"></a>        <span class="n">description</span><span class="o">=</span><span class="s2">"Compile ChimeraBoost's numba kernels and cache them on "</span>
-<a id="__codelineno-0-308" name="__codelineno-0-308"></a>                    <span class="s2">"disk, so later runs start at full speed. Re-run after "</span>
-<a id="__codelineno-0-309" name="__codelineno-0-309"></a>                    <span class="s2">"upgrading ChimeraBoost -- an upgrade resets the cache."</span><span class="p">)</span>
-<a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--shap"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
-<a id="__codelineno-0-311" name="__codelineno-0-311"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"also compile the SHAP kernels (~3.7 s more)"</span><span class="p">)</span>
-<a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--verbose"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
-<a id="__codelineno-0-313" name="__codelineno-0-313"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"print per-stage timings"</span><span class="p">)</span>
-<a id="__codelineno-0-314" name="__codelineno-0-314"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--quiet"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
-<a id="__codelineno-0-315" name="__codelineno-0-315"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"print nothing on success"</span><span class="p">)</span>
-<a id="__codelineno-0-316" name="__codelineno-0-316"></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
-<a id="__codelineno-0-317" name="__codelineno-0-317"></a>
-<a id="__codelineno-0-318" name="__codelineno-0-318"></a>    <span class="n">elapsed</span> <span class="o">=</span> <span class="n">warmup</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">verbose</span><span class="p">,</span> <span class="n">shap</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">shap</span><span class="p">)</span>
-<a id="__codelineno-0-319" name="__codelineno-0-319"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="o">.</span><span class="n">quiet</span><span class="p">:</span>
-<a id="__codelineno-0-320" name="__codelineno-0-320"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"chimeraboost </span><span class="si">{</span><span class="n">__version__</span><span class="si">}</span><span class="s2">: kernels ready in </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s "</span>
-<a id="__codelineno-0-321" name="__codelineno-0-321"></a>              <span class="sa">f</span><span class="s2">"(cache: </span><span class="si">{</span><span class="n">_cache_dir</span><span class="p">()</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
-<a id="__codelineno-0-322" name="__codelineno-0-322"></a>
-<a id="__codelineno-0-323" name="__codelineno-0-323"></a>    <span class="k">return</span> <span class="mi">0</span>
+<span class="normal"><a href="#__codelineno-0-323">323</a></span>
+<span class="normal"><a href="#__codelineno-0-324">324</a></span>
+<span class="normal"><a href="#__codelineno-0-325">325</a></span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span>
+<span class="normal"><a href="#__codelineno-0-327">327</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-300" name="__codelineno-0-300"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-301" name="__codelineno-0-301"></a><span class="w">    </span><span class="sd">"""``chimeraboost-warmup`` -- compile the kernels now, not on first fit.</span>
+<a id="__codelineno-0-302" name="__codelineno-0-302"></a>
+<a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="sd">    Run once after ``pip install``, and again after every upgrade, which</span>
+<a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="sd">    invalidates numba's cache. Also reachable as</span>
+<a id="__codelineno-0-305" name="__codelineno-0-305"></a><span class="sd">    ``python -m chimeraboost.warmup`` or ``python -m chimeraboost``.</span>
+<a id="__codelineno-0-306" name="__codelineno-0-306"></a><span class="sd">    """</span>
+<a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">.</span><span class="w"> </span><span class="kn">import</span> <span class="n">__version__</span>
+<a id="__codelineno-0-308" name="__codelineno-0-308"></a>
+<a id="__codelineno-0-309" name="__codelineno-0-309"></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+<a id="__codelineno-0-310" name="__codelineno-0-310"></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">"chimeraboost-warmup"</span><span class="p">,</span>
+<a id="__codelineno-0-311" name="__codelineno-0-311"></a>        <span class="n">description</span><span class="o">=</span><span class="s2">"Compile ChimeraBoost's numba kernels and cache them on "</span>
+<a id="__codelineno-0-312" name="__codelineno-0-312"></a>                    <span class="s2">"disk, so later runs start at full speed. Re-run after "</span>
+<a id="__codelineno-0-313" name="__codelineno-0-313"></a>                    <span class="s2">"upgrading ChimeraBoost -- an upgrade resets the cache."</span><span class="p">)</span>
+<a id="__codelineno-0-314" name="__codelineno-0-314"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--shap"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
+<a id="__codelineno-0-315" name="__codelineno-0-315"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"also compile the SHAP kernels (~3.7 s more)"</span><span class="p">)</span>
+<a id="__codelineno-0-316" name="__codelineno-0-316"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--verbose"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
+<a id="__codelineno-0-317" name="__codelineno-0-317"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"print per-stage timings"</span><span class="p">)</span>
+<a id="__codelineno-0-318" name="__codelineno-0-318"></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--quiet"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span>
+<a id="__codelineno-0-319" name="__codelineno-0-319"></a>                        <span class="n">help</span><span class="o">=</span><span class="s2">"print nothing on success"</span><span class="p">)</span>
+<a id="__codelineno-0-320" name="__codelineno-0-320"></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+<a id="__codelineno-0-321" name="__codelineno-0-321"></a>
+<a id="__codelineno-0-322" name="__codelineno-0-322"></a>    <span class="n">elapsed</span> <span class="o">=</span> <span class="n">warmup</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">verbose</span><span class="p">,</span> <span class="n">shap</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">shap</span><span class="p">)</span>
+<a id="__codelineno-0-323" name="__codelineno-0-323"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="o">.</span><span class="n">quiet</span><span class="p">:</span>
+<a id="__codelineno-0-324" name="__codelineno-0-324"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"chimeraboost </span><span class="si">{</span><span class="n">__version__</span><span class="si">}</span><span class="s2">: kernels ready in </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s "</span>
+<a id="__codelineno-0-325" name="__codelineno-0-325"></a>              <span class="sa">f</span><span class="s2">"(cache: </span><span class="si">{</span><span class="n">_cache_dir</span><span class="p">()</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
+<a id="__codelineno-0-326" name="__codelineno-0-326"></a>
+<a id="__codelineno-0-327" name="__codelineno-0-327"></a>    <span class="k">return</span> <span class="mi">0</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
