@@ -3,7 +3,7 @@
 Usage:
     python benchmarks/compare_runs.py BASE.json NEW.json [base_label new_label]
                                       [--model ChimeraBoost] [--by-suite]
-                                      [--metric brier]
+                                      [--metric brier|crps]
 
 Compares the per-dataset mean of the 'primary' metric (always higher-is-better:
 negative RMSE for regression, F1/accuracy for classification). Reports per-dataset
@@ -25,6 +25,9 @@ is a derived view of its parent dataset, so a pooled test counts the same rows
 twice. The tool warns loudly if you pool strata without it.
 --metric brier judges on Brier instead: classification sets only (regression
 records carry no Brier), oriented so NEW wins = lower Brier.
+--metric crps judges on CRPS, for quantile_suite.py runs, oriented so NEW wins
+= lower CRPS. Those runs already store primary = -CRPS, so the default reads
+the same ordering; --metric crps exists to print the CRPS itself.
 --model filters records to one model first. Without it, a multi-model JSON
 blends every model's records into the per-dataset mean (fine when both runs
 hold the other models fixed, but the deltas are diluted).
@@ -89,7 +92,8 @@ def load_run(path, model=None, metric="primary"):
     metric because the near-solved test needs them."""
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-    sign = -1.0 if metric == "brier" else 1.0   # orient higher = better
+    # Both alternatives are losses, so flip them to "higher = better".
+    sign = -1.0 if metric in ("brier", "crps") else 1.0
     bucket, rmse, brier = defaultdict(list), defaultdict(list), defaultdict(list)
     for r in data["records"]:
         if model is not None and r["model"] != model:
@@ -121,6 +125,12 @@ def is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n):
     metadata at all -- a Brier below 1e-3 is solved whatever the record says --
     so it still applies to anything that recorded one. Regression records carry
     no Brier, so they cannot be caught by it accidentally.
+
+    Quantile runs (`quantile_suite.py`, task "quantile") are never excluded:
+    they carry neither RMSE nor Brier, so both rules fall through to False.
+    That is the safe direction -- nothing is dropped that should have been
+    counted -- and it only affects the MEAN, which is never the verdict here.
+    Add a CRPS/y_std rule if a near-solved quantile dataset ever distorts one.
     """
     meta = ds_meta.get(ds) or {}
     if meta.get("task") == "regression":
@@ -171,9 +181,11 @@ def main():
                     help="restrict to one model's records (e.g. ChimeraBoost).")
     ap.add_argument("--model-new", default=None,
                     help="model name for the NEW run's records (default: --model).")
-    ap.add_argument("--metric", choices=["primary", "brier"], default="primary",
+    ap.add_argument("--metric", choices=["primary", "brier", "crps"],
+                    default="primary",
                     help="judge metric; brier = classification only, "
-                         "oriented so NEW wins = lower Brier.")
+                         "oriented so NEW wins = lower Brier; crps = "
+                         "quantile_suite.py runs, lower is better too.")
     ap.add_argument("--keep-near-solved", action="store_true",
                     help="do NOT exclude near-solved datasets from the mean "
                          "(reproduces pre-fix numbers quoted in older plans).")
