@@ -58,8 +58,10 @@ The 30% quantile is never returned above the 70%. Every row is sorted on its way
 never increases pinball loss at any level, for any row (Chernozhukov, Fernández-Val &
 Galichon 2010), so the guarantee is free.
 
-Independently fitted per-level models have no such property. On the benchmark in
-`benchmarks/quantile_head.py`, 18 to 21% of adjacent quantile pairs come out reversed.
+Independently fitted per-level models have no such property. Across the 36 real
+datasets in `benchmarks/quantile_suite.py`, LightGBM's per-level boosters reverse 22% of
+adjacent pairs on average and cross on every single dataset; CatBoost's own shared head
+crosses on every dataset too. Ours is exactly zero on all 36.
 
 The band is free to be much *narrower* than the pooled one where the data is quiet — it
 tracks the local spread rather than a global floor.
@@ -68,10 +70,11 @@ tracks the local spread rather than a global floor.
 
 Read the intervals with this in mind: **the raw grid runs slightly narrow.** Leaf values
 are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. On the datasets in `benchmarks/probe_quantile_band.py` a nominal 80%
-interval delivers about 72 to 76% coverage. Pinball loss is what the model optimizes and
-it is good — better than one dedicated LightGBM booster per level — but a raw interval
-is not a coverage guarantee.
+is optimistic. Across the 36 datasets in `benchmarks/quantile_suite.py` a nominal 80%
+interval delivers 77% coverage on average, and a nominal 90% delivers 87%. That is
+closer to nominal than either LightGBM per-level (72% and 83%) or CatBoost
+`MultiQuantile` (73% and 83%) manages — but it is still narrow, and a raw interval is
+not a coverage guarantee.
 
 `conformalize=True` turns it into one:
 
@@ -181,15 +184,35 @@ The two agree exactly whenever a row's raw grid was already ordered. On a 3-leve
 that is essentially every row; on the default 19-level grid roughly 40% of rows cross at
 least one adjacent pair, so the choice is not cosmetic there.
 
-## What it costs
+## How it compares
 
-The split search runs once per round instead of once per level, so the saving grows with
-how wide the data is: roughly 3.0x the fit speed of 19 independent LightGBM quantile
-boosters at 5 features, 3.6x at 32, and 6.2x at 128. Accuracy is not traded for it —
-pinball loss comes out 1 to 3% *better* than those per-level models at every width
-measured, with the margin widening on wide data.
+Measured on 36 Grinsztajn regression datasets, 3 seeds, all four arms sharing one
+early-stopping split and budget (`benchmarks/quantile_suite.py`). Win-loss is per
+dataset; "interval score" is the Winkler score, which charges width and miscoverage
+together.
 
-That is an average over the whole grid; a single level can trade more, because every
+| against | CRPS | interval score | crossing | median fit time |
+|:--|:--|:--|:--|:--|
+| 19 `loss="Quantile"` models | **32W-4L** | **34W-2L** | 0.00 vs 0.16 | **3.4x faster** |
+| 19 LightGBM quantile boosters | 23W-13L (a tie) | **31W-5L** | 0.00 vs 0.22 | **1.5x faster** |
+| CatBoost `MultiQuantile` | 7W-**29L** | **25W-11L** | 0.00 vs 0.06 | **8.3x faster** |
+
+Read that honestly. **CatBoost's shared head is sharper than ours on CRPS** — it wins 29
+of 36 datasets — and that is a real deficit, not a rounding error. It costs a median 8.3x
+our fit time to get there, and its intervals are much worse calibrated (its worst
+coverage error is 0.64 against a nominal 0.90, ours 0.10), so on the interval score,
+which prices coverage and width together, we come out ahead.
+
+Against a stack of independent per-level models — ours or LightGBM's — the shared
+structure clearly pays: better or equal accuracy, faster, and the only arm here whose
+levels never cross.
+
+Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
+pinball. Those numbers came from fixed-round fits on synthetic data
+(`benchmarks/quantile_head.py`), which flatters us; on real data with both sides
+early-stopping, the accuracy is a tie and the speed edge is 1.5x.
+
+Those are averages over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
 resolve, the median column of the default 19-level grid has measured up to 18% worse
 than a dedicated `quantiles=[0.5]` fit, with a 3-level grid recovering most of the gap

@@ -26,6 +26,52 @@ the sort is for — but the sort is doing real work on the default grid, not
 acting as a no-op. This is why the SHAP path distinguishes raw from delivered
 channels rather than pretending the two are interchangeable.
 
+### First real-data result (2026-08-30)
+
+`quantile-20260830-175359.json` — 36 Grinsztajn regression datasets, 3 seeds,
+K=19, shared early-stopping split and budget for every arm. Sign tests per
+dataset (seeds averaged), never the mean of CRPS, which is dominated by
+whichever dataset has the largest target scale.
+
+| head vs | CRPS | interval score (90%) |
+|:--|:--|:--|
+| our own K per-level models | **32W-4L**, p<0.0001, median +1.65% | **34W-2L**, p<0.0001, +3.46% |
+| K LightGBM quantile boosters | 23W-13L, p=0.13, +0.43% — a tie | **31W-5L**, p<0.0001, +5.20% |
+| CatBoost MultiQuantile | **7W-29L**, p=0.0003, −0.45% — a loss | **25W-11L**, p=0.029, +0.41% |
+
+Other columns, all 36 datasets:
+
+| arm | coverage at nominal 0.90 (mean abs error) | crossing | median fit vs head |
+|:--|:--|:--|:--|
+| head | 0.869 (0.040) | **0.0000, on 36/36** | 1.00x |
+| our per-level | 0.908 (**0.011**) | 0.163, crosses on 36/36 | 3.41x |
+| LightGBM per-level | 0.827 (0.079, worst 0.67) | 0.224, crosses on 36/36 | 1.53x |
+| CatBoost MultiQuantile | 0.825 (0.075, worst 0.64) | 0.063, crosses on 36/36 | 8.33x |
+
+**What this settles.**
+
+1. **The shared structure earns its place.** Against our own K independent
+   single-level models it wins 32 of 36 on CRPS and 34 of 36 on interval
+   score, at a third of the fit time. That was never measured before.
+2. **CatBoost's MultiQuantile is genuinely sharper on CRPS** — a significant
+   loss for us, and the first time the two have been compared. It costs them a
+   median 8.3x our fit time, and their intervals are badly calibrated (worst
+   coverage error 0.64 against nominal 0.90), so on the interval score, which
+   charges width and miscoverage together, we still win. Recorded as a real
+   deficit on the sharpness axis, not explained away.
+3. **The LightGBM claim in the docs was synthetic-only and did not survive.**
+   `quantile_head.py` measured pinball 1-3% better and 3.0-6.2x faster. On real
+   data with both arms early-stopping it is a tie on CRPS (p=0.13) and a median
+   1.53x on speed. `docs/quantiles.md` has been corrected. The old numbers were
+   not wrong for what they measured; they were measured on fixed-round
+   synthetic fits, which flatter us.
+4. **Non-crossing is the one uncontested win.** Exactly zero on all 36
+   datasets. Every other arm, CatBoost included, crosses on every dataset.
+
+**Next question this raises** (not started): the CRPS gap to CatBoost is a
+sharpness deficit, which is the same axis P14 left open against the rigid
+offset. Worth a pre-registration of its own.
+
 ### Still open
 
 - **`adaptive_learning_rate` is pinned False for this head**
