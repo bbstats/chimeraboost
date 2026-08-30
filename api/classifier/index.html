@@ -2435,71 +2435,71 @@ supported yet. <code>X_background</code> overrides the reference distribution.</
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3389">3389</a></span>
-<span class="normal"><a href="#__codelineno-0-3390">3390</a></span>
-<span class="normal"><a href="#__codelineno-0-3391">3391</a></span>
-<span class="normal"><a href="#__codelineno-0-3392">3392</a></span>
-<span class="normal"><a href="#__codelineno-0-3393">3393</a></span>
-<span class="normal"><a href="#__codelineno-0-3394">3394</a></span>
-<span class="normal"><a href="#__codelineno-0-3395">3395</a></span>
-<span class="normal"><a href="#__codelineno-0-3396">3396</a></span>
-<span class="normal"><a href="#__codelineno-0-3397">3397</a></span>
-<span class="normal"><a href="#__codelineno-0-3398">3398</a></span>
-<span class="normal"><a href="#__codelineno-0-3399">3399</a></span>
-<span class="normal"><a href="#__codelineno-0-3400">3400</a></span>
-<span class="normal"><a href="#__codelineno-0-3401">3401</a></span>
-<span class="normal"><a href="#__codelineno-0-3402">3402</a></span>
-<span class="normal"><a href="#__codelineno-0-3403">3403</a></span>
-<span class="normal"><a href="#__codelineno-0-3404">3404</a></span>
-<span class="normal"><a href="#__codelineno-0-3405">3405</a></span>
-<span class="normal"><a href="#__codelineno-0-3406">3406</a></span>
-<span class="normal"><a href="#__codelineno-0-3407">3407</a></span>
-<span class="normal"><a href="#__codelineno-0-3408">3408</a></span>
-<span class="normal"><a href="#__codelineno-0-3409">3409</a></span>
-<span class="normal"><a href="#__codelineno-0-3410">3410</a></span>
-<span class="normal"><a href="#__codelineno-0-3411">3411</a></span>
-<span class="normal"><a href="#__codelineno-0-3412">3412</a></span>
-<span class="normal"><a href="#__codelineno-0-3413">3413</a></span>
-<span class="normal"><a href="#__codelineno-0-3414">3414</a></span>
-<span class="normal"><a href="#__codelineno-0-3415">3415</a></span>
-<span class="normal"><a href="#__codelineno-0-3416">3416</a></span>
-<span class="normal"><a href="#__codelineno-0-3417">3417</a></span>
-<span class="normal"><a href="#__codelineno-0-3418">3418</a></span>
-<span class="normal"><a href="#__codelineno-0-3419">3419</a></span>
-<span class="normal"><a href="#__codelineno-0-3420">3420</a></span>
-<span class="normal"><a href="#__codelineno-0-3421">3421</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3389" name="__codelineno-0-3389"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-0-3390" name="__codelineno-0-3390"></a><span class="w">    </span><span class="sd">"""Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.</span>
-<a id="__codelineno-0-3391" name="__codelineno-0-3391"></a>
-<a id="__codelineno-0-3392" name="__codelineno-0-3392"></a><span class="sd">    Binary only. Returns an array of shape ``(n_samples, n_features)`` whose</span>
-<a id="__codelineno-0-3393" name="__codelineno-0-3393"></a><span class="sd">    rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with</span>
-<a id="__codelineno-0-3394" name="__codelineno-0-3394"></a><span class="sd">    ``expected_value_`` set as an attribute. Each entry is a feature's signed</span>
-<a id="__codelineno-0-3395" name="__codelineno-0-3395"></a><span class="sd">    contribution to the log-odds of the positive class; linear-leaf slopes are</span>
-<a id="__codelineno-0-3396" name="__codelineno-0-3396"></a><span class="sd">    included exactly. Averaged across the bag when ``n_ensembles &gt; 1``, an</span>
-<a id="__codelineno-0-3397" name="__codelineno-0-3397"></a><span class="sd">    additive surrogate for the soft-voted probability. Multiclass is not</span>
-<a id="__codelineno-0-3398" name="__codelineno-0-3398"></a><span class="sd">    supported yet. ``X_background`` overrides the reference distribution.</span>
-<a id="__codelineno-0-3399" name="__codelineno-0-3399"></a><span class="sd">    """</span>
-<a id="__codelineno-0-3400" name="__codelineno-0-3400"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
-<a id="__codelineno-0-3401" name="__codelineno-0-3401"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
-<a id="__codelineno-0-3402" name="__codelineno-0-3402"></a>
-<a id="__codelineno-0-3403" name="__codelineno-0-3403"></a>    <span class="k">if</span> <span class="n">X_background</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3404" name="__codelineno-0-3404"></a>        <span class="n">bg</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-3405" name="__codelineno-0-3405"></a>        <span class="n">X_background</span> <span class="o">=</span> <span class="n">X_background</span> <span class="k">if</span> <span class="n">bg</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bg</span>
-<a id="__codelineno-0-3406" name="__codelineno-0-3406"></a>
-<a id="__codelineno-0-3407" name="__codelineno-0-3407"></a>    <span class="n">members</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-<a id="__codelineno-0-3408" name="__codelineno-0-3408"></a>    <span class="k">if</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">members</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"_multiclass"</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span> \
-<a id="__codelineno-0-3409" name="__codelineno-0-3409"></a>            <span class="ow">or</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span><span class="p">):</span>
-<a id="__codelineno-0-3410" name="__codelineno-0-3410"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-<a id="__codelineno-0-3411" name="__codelineno-0-3411"></a>            <span class="s2">"shap_values is not supported for multiclass classification yet."</span><span class="p">)</span>
-<a id="__codelineno-0-3412" name="__codelineno-0-3412"></a>
-<a id="__codelineno-0-3413" name="__codelineno-0-3413"></a>    <span class="k">if</span> <span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-3414" name="__codelineno-0-3414"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-3415" name="__codelineno-0-3415"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">members</span><span class="p">]</span>
-<a id="__codelineno-0-3416" name="__codelineno-0-3416"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">b</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">out</span><span class="p">]))</span>
-<a id="__codelineno-0-3417" name="__codelineno-0-3417"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-3418" name="__codelineno-0-3418"></a>
-<a id="__codelineno-0-3419" name="__codelineno-0-3419"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
-<a id="__codelineno-0-3420" name="__codelineno-0-3420"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
-<a id="__codelineno-0-3421" name="__codelineno-0-3421"></a>    <span class="k">return</span> <span class="n">phi</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3433">3433</a></span>
+<span class="normal"><a href="#__codelineno-0-3434">3434</a></span>
+<span class="normal"><a href="#__codelineno-0-3435">3435</a></span>
+<span class="normal"><a href="#__codelineno-0-3436">3436</a></span>
+<span class="normal"><a href="#__codelineno-0-3437">3437</a></span>
+<span class="normal"><a href="#__codelineno-0-3438">3438</a></span>
+<span class="normal"><a href="#__codelineno-0-3439">3439</a></span>
+<span class="normal"><a href="#__codelineno-0-3440">3440</a></span>
+<span class="normal"><a href="#__codelineno-0-3441">3441</a></span>
+<span class="normal"><a href="#__codelineno-0-3442">3442</a></span>
+<span class="normal"><a href="#__codelineno-0-3443">3443</a></span>
+<span class="normal"><a href="#__codelineno-0-3444">3444</a></span>
+<span class="normal"><a href="#__codelineno-0-3445">3445</a></span>
+<span class="normal"><a href="#__codelineno-0-3446">3446</a></span>
+<span class="normal"><a href="#__codelineno-0-3447">3447</a></span>
+<span class="normal"><a href="#__codelineno-0-3448">3448</a></span>
+<span class="normal"><a href="#__codelineno-0-3449">3449</a></span>
+<span class="normal"><a href="#__codelineno-0-3450">3450</a></span>
+<span class="normal"><a href="#__codelineno-0-3451">3451</a></span>
+<span class="normal"><a href="#__codelineno-0-3452">3452</a></span>
+<span class="normal"><a href="#__codelineno-0-3453">3453</a></span>
+<span class="normal"><a href="#__codelineno-0-3454">3454</a></span>
+<span class="normal"><a href="#__codelineno-0-3455">3455</a></span>
+<span class="normal"><a href="#__codelineno-0-3456">3456</a></span>
+<span class="normal"><a href="#__codelineno-0-3457">3457</a></span>
+<span class="normal"><a href="#__codelineno-0-3458">3458</a></span>
+<span class="normal"><a href="#__codelineno-0-3459">3459</a></span>
+<span class="normal"><a href="#__codelineno-0-3460">3460</a></span>
+<span class="normal"><a href="#__codelineno-0-3461">3461</a></span>
+<span class="normal"><a href="#__codelineno-0-3462">3462</a></span>
+<span class="normal"><a href="#__codelineno-0-3463">3463</a></span>
+<span class="normal"><a href="#__codelineno-0-3464">3464</a></span>
+<span class="normal"><a href="#__codelineno-0-3465">3465</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3433" name="__codelineno-0-3433"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">X_background</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="w">    </span><span class="sd">"""Exact interventional TreeSHAP contributions in LOG-ODDS (margin) space.</span>
+<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a>
+<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">    Binary only. Returns an array of shape ``(n_samples, n_features)`` whose</span>
+<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">    rows sum to ``raw_log_odds(X) - expected_value_`` (pre-temperature), with</span>
+<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a><span class="sd">    ``expected_value_`` set as an attribute. Each entry is a feature's signed</span>
+<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a><span class="sd">    contribution to the log-odds of the positive class; linear-leaf slopes are</span>
+<a id="__codelineno-0-3440" name="__codelineno-0-3440"></a><span class="sd">    included exactly. Averaged across the bag when ``n_ensembles &gt; 1``, an</span>
+<a id="__codelineno-0-3441" name="__codelineno-0-3441"></a><span class="sd">    additive surrogate for the soft-voted probability. Multiclass is not</span>
+<a id="__codelineno-0-3442" name="__codelineno-0-3442"></a><span class="sd">    supported yet. ``X_background`` overrides the reference distribution.</span>
+<a id="__codelineno-0-3443" name="__codelineno-0-3443"></a><span class="sd">    """</span>
+<a id="__codelineno-0-3444" name="__codelineno-0-3444"></a>    <span class="n">Xv</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<a id="__codelineno-0-3445" name="__codelineno-0-3445"></a>    <span class="n">X</span> <span class="o">=</span> <span class="n">X</span> <span class="k">if</span> <span class="n">Xv</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">Xv</span>
+<a id="__codelineno-0-3446" name="__codelineno-0-3446"></a>
+<a id="__codelineno-0-3447" name="__codelineno-0-3447"></a>    <span class="k">if</span> <span class="n">X_background</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3448" name="__codelineno-0-3448"></a>        <span class="n">bg</span> <span class="o">=</span> <span class="n">_check_predict_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-3449" name="__codelineno-0-3449"></a>        <span class="n">X_background</span> <span class="o">=</span> <span class="n">X_background</span> <span class="k">if</span> <span class="n">bg</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">bg</span>
+<a id="__codelineno-0-3450" name="__codelineno-0-3450"></a>
+<a id="__codelineno-0-3451" name="__codelineno-0-3451"></a>    <span class="n">members</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimators_</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+<a id="__codelineno-0-3452" name="__codelineno-0-3452"></a>    <span class="k">if</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">members</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"_multiclass"</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span> \
+<a id="__codelineno-0-3453" name="__codelineno-0-3453"></a>            <span class="ow">or</span> <span class="p">(</span><span class="n">members</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_multiclass</span><span class="p">):</span>
+<a id="__codelineno-0-3454" name="__codelineno-0-3454"></a>        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+<a id="__codelineno-0-3455" name="__codelineno-0-3455"></a>            <span class="s2">"shap_values is not supported for multiclass classification yet."</span><span class="p">)</span>
+<a id="__codelineno-0-3456" name="__codelineno-0-3456"></a>
+<a id="__codelineno-0-3457" name="__codelineno-0-3457"></a>    <span class="k">if</span> <span class="n">members</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-3458" name="__codelineno-0-3458"></a>        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-3459" name="__codelineno-0-3459"></a>               <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">members</span><span class="p">]</span>
+<a id="__codelineno-0-3460" name="__codelineno-0-3460"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">b</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">out</span><span class="p">]))</span>
+<a id="__codelineno-0-3461" name="__codelineno-0-3461"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">out</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-0-3462" name="__codelineno-0-3462"></a>
+<a id="__codelineno-0-3463" name="__codelineno-0-3463"></a>    <span class="n">phi</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">background</span><span class="o">=</span><span class="n">X_background</span><span class="p">)</span>
+<a id="__codelineno-0-3464" name="__codelineno-0-3464"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">expected_value_</span> <span class="o">=</span> <span class="n">base</span>
+<a id="__codelineno-0-3465" name="__codelineno-0-3465"></a>    <span class="k">return</span> <span class="n">phi</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2535,39 +2535,39 @@ formatting options -- reuse it. The cache is dropped on refit.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>chimeraboost/sklearn_api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3423">3423</a></span>
-<span class="normal"><a href="#__codelineno-0-3424">3424</a></span>
-<span class="normal"><a href="#__codelineno-0-3425">3425</a></span>
-<span class="normal"><a href="#__codelineno-0-3426">3426</a></span>
-<span class="normal"><a href="#__codelineno-0-3427">3427</a></span>
-<span class="normal"><a href="#__codelineno-0-3428">3428</a></span>
-<span class="normal"><a href="#__codelineno-0-3429">3429</a></span>
-<span class="normal"><a href="#__codelineno-0-3430">3430</a></span>
-<span class="normal"><a href="#__codelineno-0-3431">3431</a></span>
-<span class="normal"><a href="#__codelineno-0-3432">3432</a></span>
-<span class="normal"><a href="#__codelineno-0-3433">3433</a></span>
-<span class="normal"><a href="#__codelineno-0-3434">3434</a></span>
-<span class="normal"><a href="#__codelineno-0-3435">3435</a></span>
-<span class="normal"><a href="#__codelineno-0-3436">3436</a></span>
-<span class="normal"><a href="#__codelineno-0-3437">3437</a></span>
-<span class="normal"><a href="#__codelineno-0-3438">3438</a></span>
-<span class="normal"><a href="#__codelineno-0-3439">3439</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3423" name="__codelineno-0-3423"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_importances</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">feature_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-3424" name="__codelineno-0-3424"></a>                     <span class="n">prettified</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-<a id="__codelineno-0-3425" name="__codelineno-0-3425"></a><span class="w">    </span><span class="sd">"""Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.</span>
-<a id="__codelineno-0-3426" name="__codelineno-0-3426"></a>
-<a id="__codelineno-0-3427" name="__codelineno-0-3427"></a><span class="sd">    Returns a structured ``(feature, importance)`` array sorted descending,</span>
-<a id="__codelineno-0-3428" name="__codelineno-0-3428"></a><span class="sd">    or a ``{feature: importance}`` dict when ``prettified=True``</span>
-<a id="__codelineno-0-3429" name="__codelineno-0-3429"></a><span class="sd">    (CatBoost's flag). ``feature`` holds ``feature_names`` when given,</span>
-<a id="__codelineno-0-3430" name="__codelineno-0-3430"></a><span class="sd">    else the names captured from a DataFrame at fit, else column indices.</span>
-<a id="__codelineno-0-3431" name="__codelineno-0-3431"></a><span class="sd">    ``n_features`` truncates to the top N. Attributions are in log-odds</span>
-<a id="__codelineno-0-3432" name="__codelineno-0-3432"></a><span class="sd">    space (binary only; multiclass raises ``NotImplementedError``).</span>
-<a id="__codelineno-0-3433" name="__codelineno-0-3433"></a>
-<a id="__codelineno-0-3434" name="__codelineno-0-3434"></a><span class="sd">    The expensive SHAP pass is cached on the instance, keyed by the data's</span>
-<a id="__codelineno-0-3435" name="__codelineno-0-3435"></a><span class="sd">    content, so repeated calls on the same X -- including with different</span>
-<a id="__codelineno-0-3436" name="__codelineno-0-3436"></a><span class="sd">    formatting options -- reuse it. The cache is dropped on refit.</span>
-<a id="__codelineno-0-3437" name="__codelineno-0-3437"></a><span class="sd">    """</span>
-<a id="__codelineno-0-3438" name="__codelineno-0-3438"></a>    <span class="k">return</span> <span class="n">_shap_importances</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">n_features</span><span class="p">,</span>
-<a id="__codelineno-0-3439" name="__codelineno-0-3439"></a>                             <span class="n">prettified</span><span class="p">)</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-3467">3467</a></span>
+<span class="normal"><a href="#__codelineno-0-3468">3468</a></span>
+<span class="normal"><a href="#__codelineno-0-3469">3469</a></span>
+<span class="normal"><a href="#__codelineno-0-3470">3470</a></span>
+<span class="normal"><a href="#__codelineno-0-3471">3471</a></span>
+<span class="normal"><a href="#__codelineno-0-3472">3472</a></span>
+<span class="normal"><a href="#__codelineno-0-3473">3473</a></span>
+<span class="normal"><a href="#__codelineno-0-3474">3474</a></span>
+<span class="normal"><a href="#__codelineno-0-3475">3475</a></span>
+<span class="normal"><a href="#__codelineno-0-3476">3476</a></span>
+<span class="normal"><a href="#__codelineno-0-3477">3477</a></span>
+<span class="normal"><a href="#__codelineno-0-3478">3478</a></span>
+<span class="normal"><a href="#__codelineno-0-3479">3479</a></span>
+<span class="normal"><a href="#__codelineno-0-3480">3480</a></span>
+<span class="normal"><a href="#__codelineno-0-3481">3481</a></span>
+<span class="normal"><a href="#__codelineno-0-3482">3482</a></span>
+<span class="normal"><a href="#__codelineno-0-3483">3483</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-3467" name="__codelineno-0-3467"></a><span class="k">def</span><span class="w"> </span><span class="nf">shap_importances</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">feature_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-3468" name="__codelineno-0-3468"></a>                     <span class="n">prettified</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<a id="__codelineno-0-3469" name="__codelineno-0-3469"></a><span class="w">    </span><span class="sd">"""Global SHAP importance: ``mean(abs(shap_values(X)))`` per feature.</span>
+<a id="__codelineno-0-3470" name="__codelineno-0-3470"></a>
+<a id="__codelineno-0-3471" name="__codelineno-0-3471"></a><span class="sd">    Returns a structured ``(feature, importance)`` array sorted descending,</span>
+<a id="__codelineno-0-3472" name="__codelineno-0-3472"></a><span class="sd">    or a ``{feature: importance}`` dict when ``prettified=True``</span>
+<a id="__codelineno-0-3473" name="__codelineno-0-3473"></a><span class="sd">    (CatBoost's flag). ``feature`` holds ``feature_names`` when given,</span>
+<a id="__codelineno-0-3474" name="__codelineno-0-3474"></a><span class="sd">    else the names captured from a DataFrame at fit, else column indices.</span>
+<a id="__codelineno-0-3475" name="__codelineno-0-3475"></a><span class="sd">    ``n_features`` truncates to the top N. Attributions are in log-odds</span>
+<a id="__codelineno-0-3476" name="__codelineno-0-3476"></a><span class="sd">    space (binary only; multiclass raises ``NotImplementedError``).</span>
+<a id="__codelineno-0-3477" name="__codelineno-0-3477"></a>
+<a id="__codelineno-0-3478" name="__codelineno-0-3478"></a><span class="sd">    The expensive SHAP pass is cached on the instance, keyed by the data's</span>
+<a id="__codelineno-0-3479" name="__codelineno-0-3479"></a><span class="sd">    content, so repeated calls on the same X -- including with different</span>
+<a id="__codelineno-0-3480" name="__codelineno-0-3480"></a><span class="sd">    formatting options -- reuse it. The cache is dropped on refit.</span>
+<a id="__codelineno-0-3481" name="__codelineno-0-3481"></a><span class="sd">    """</span>
+<a id="__codelineno-0-3482" name="__codelineno-0-3482"></a>    <span class="k">return</span> <span class="n">_shap_importances</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">n_features</span><span class="p">,</span>
+<a id="__codelineno-0-3483" name="__codelineno-0-3483"></a>                             <span class="n">prettified</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
