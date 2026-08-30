@@ -422,6 +422,16 @@ class _BaseBooster:
                 return True
         return False
 
+    def _truncate_to_best(self, Fv, stopper):
+        """Truncate to the best validation prefix, exactly as a mid-training
+        stop would. Shared by the depth-0 exit (no legal split, so the next
+        round on the same gradients would find none either) and the
+        budget-exhausted for/else exit of all three boosters. Callback stops
+        are excluded on purpose -- the selection auditions read
+        feature_importances_ off callback-capped fits."""
+        if Fv is not None and stopper.patience:
+            self.trees_ = self.trees_[: stopper.best_iter + 1]
+
     def predict_raw(self, X, cat_ctx=None):
         """Predict under this model's thread limit (restored on exit).
 
@@ -700,7 +710,7 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit the additive model.
 
@@ -723,44 +733,8 @@ class GradientBoosting(_BaseBooster):
                       if isinstance(self.loss_name, str) else self.loss_name)
         self.lr_ = self._resolve_lr(eval_set, n_train=n_samples)
 
-        donor_trees = None
-        if self.replay_donor is not None:
-            donor_trees, donor_prep = self.replay_donor
-
-            # Drop the reference once consumed: the donor holds a whole forest,
-            # and this booster is the one that gets pickled.
-            self.replay_donor = None
-
-            # Refit every data-dependent statistic on these rows as a
-            # from-scratch refit would -- categories, gdiff group means, ordered
-            # target statistics -- but ADOPT THE DONOR'S BINNER, because the
-            # replayed split thresholds are bin indices into its borders.
-            #
-            # Never reach for the donor's `transform` here. It applies the
-            # INFERENCE-time target statistics, where a category's mean includes
-            # the label of the very row being encoded -- straight target leakage
-            # on a training matrix. tests/test_chimeraboost.py::
-            # test_ordered_ts_resists_leakage caught it handing a pure-noise
-            # 2500-level column 54% of the model's importance. Ordered TS exists
-            # precisely to prevent that.
-            #
-            # `cat_combinations` is pinned to what the donor built rather than
-            # re-resolved at the new row count: it decides how many TS columns
-            # exist, and the transferred splits address columns by position.
-            self.prep_ = FeaturePreprocessor(
-                self.max_bins, self.cat_smoothing, self.random_state,
-                self.cat_n_permutations, bool(donor_prep.combo_pairs_),
-                self.cross_pairs)
-
-            Xb = np.ascontiguousarray(
-                self.prep_.fit_transform(X, [y], cat_features, w,
-                                         binner=donor_prep.binner_).T)
-            Xvb = (np.ascontiguousarray(self.prep_.transform(
-                as_model_array(eval_set[0], bool(cat_features))).T)
-                if eval_set is not None else None)
-        else:
-            Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
-                                          prep_cache, w)
+        Xb, Xvb, donor_trees = self._prep_or_replay_matrices(
+            X, y, cat_features, eval_set, prep_cache, w)
 
         n_bins = self.prep_.n_bins_
         hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
@@ -819,92 +793,145 @@ class GradientBoosting(_BaseBooster):
             g, h = self._maybe_subsample(grad, hess, rng)
             fmask = self._feature_mask(Xb.shape[0], rng)
 
-            # Fresh rounding seed per tree: decorrelates the stochastic rounding
-            # noise across boosting rounds. Drawn only on the quantized path, so
-            # the float path's rng stream is unchanged.
-            qseed = (int(rng.integers(1 << 63))
-                     if self.quantize_gradients else 0)
-
-            if donor_trees is not None and m < len(donor_trees):
-                # Replay round: structure fixed, leaf values (and linear-leaf
-                # coefficients) refit against this round's full-data gradients.
-                tree, leaf = replay_oblivious_tree(
-                    donor_trees[m], Xb, g, h, self.l2_leaf_reg, self.lr_,
-                    linear_leaves=ll_active, centers_std=self._centers_std_,
-                    linear_lambda=self.linear_lambda)
-            else:
-                tree, leaf = build_oblivious_tree(
-                    Xb, g, h, n_bins, self.depth,
-                    self.l2_leaf_reg, self.lr_,
-                    feature_mask=fmask,
-                    min_child_weight=self.min_child_weight,
-                    hist_buffers=hist_buffers,
-                    linear_leaves=ll_active,
-                    centers_std=self._centers_std_,
-                    is_numeric=self.prep_.is_numeric_binned_,
-                    linear_lambda=self.linear_lambda,
-                    quantize=self.quantize_gradients,
-                    qbuf=qbuf, qseed=qseed)
+            tree, leaf = self._grow_or_replay(
+                m, donor_trees, Xb, g, h, n_bins, fmask, hist_buffers,
+                ll_active, qbuf, rng)
 
             # A depth-0 tree found no legal split, and the next round on the
             # same gradients would find none either, so stop rather than bank
-            # empty trees. Truncate like the other exits do: without this,
-            # trees grown after the validation optimum survived here.
+            # empty trees.
             if tree.depth == 0:
-                if Fv is not None and stopper.patience:
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
+                self._truncate_to_best(Fv, stopper)
                 break
 
             if adjusts_leaves:
                 self._correct_leaves(tree, leaf, y, F, w)
             self.trees_.append(tree)
 
-            # Exactly one of the three training updates below runs. Ordered
-            # boosting and leaf adjustment are mutually exclusive: the former
-            # rewrites the training step, the latter the leaf value.
-            if ll_active and tree.lin_coef is not None:
-                # The step is the leaf's own local linear model: no ordered
-                # boosting, no leaf-estimation refinement.
-                F += _linear_predict(leaf, tree.lin_feats, tree.lin_coef,
-                                     self._centers_std_, Xb)
-            elif self.ordered_boosting and not adjusts_leaves:
-                # Ordered boosting owns the training step; leaf-estimation
-                # Newton refinement belongs to the plain path only.
-                F += self._loo_update(tree, leaf, g, h)
-            else:
-                # Extra Newton steps refine the leaf values against residuals
-                # recomputed after each step. Constant-hessian losses (RMSE)
-                # converge in a few; Logloss reaches a better per-leaf
-                # approximation than the single first-order step.
-                #
-                # Never for MAE/Quantile: _correct_leaves already set the exact
-                # minimizer (median/quantile), and a sign-gradient Newton step
-                # on top would corrupt it. The sklearn layer's "no effect"
-                # warning for those losses is honest only with this guard.
-                if not adjusts_leaves:
-                    self._refine_leaf_values(tree, leaf, F, y, w)
-
-                # Fused in-place add: F += tree.values[leaf] without the
-                # n-length gather temporary. The (n, 1) views are C-contiguous,
-                # so this reuses the vector boosters' compiled signature.
-                _add_leaf_values(F.reshape(-1, 1), tree.values.reshape(-1, 1),
-                                 leaf)
+            self._apply_training_update(tree, leaf, F, g, h, y, w, Xb,
+                                        adjusts_leaves, ll_active)
 
             if self._round_epilogue(
                     m, F, y, w, Fv, yv, wv, stopper, callbacks, cb_train_loss,
                     lambda: _eval_advance(Fv, tree, Xvb)):
                 break
         else:
-            # No break: the tree budget ran out before patience could fire, so
-            # truncate as a mid-training stop would. Callback stops are excluded
-            # on purpose -- the selection auditions read feature_importances_
-            # off callback-capped fits.
-            if Fv is not None and stopper.patience:
-                self.trees_ = self.trees_[: stopper.best_iter + 1]
+            # No break: the tree budget ran out before patience could fire.
+            self._truncate_to_best(Fv, stopper)
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
+
+    def _prep_or_replay_matrices(self, X, y, cat_features, eval_set,
+                                 prep_cache, w):
+        """Bin the training (and eval) matrices, adopting the replay donor's
+        binner when one is set. Returns ``(Xb, Xvb, donor_trees)``."""
+        if self.replay_donor is None:
+            Xb, Xvb = self._prep_matrices(X, [y], cat_features, eval_set,
+                                          prep_cache, w)
+            return Xb, Xvb, None
+
+        donor_trees, donor_prep = self.replay_donor
+
+        # Drop the reference once consumed: the donor holds a whole forest,
+        # and this booster is the one that gets pickled.
+        self.replay_donor = None
+
+        # Refit every data-dependent statistic on these rows as a
+        # from-scratch refit would -- categories, gdiff group means, ordered
+        # target statistics -- but ADOPT THE DONOR'S BINNER, because the
+        # replayed split thresholds are bin indices into its borders.
+        #
+        # Never reach for the donor's `transform` here. It applies the
+        # INFERENCE-time target statistics, where a category's mean includes
+        # the label of the very row being encoded -- straight target leakage
+        # on a training matrix. tests/test_chimeraboost.py::
+        # test_ordered_ts_resists_leakage caught it handing a pure-noise
+        # 2500-level column 54% of the model's importance. Ordered TS exists
+        # precisely to prevent that.
+        #
+        # `cat_combinations` is pinned to what the donor built rather than
+        # re-resolved at the new row count: it decides how many TS columns
+        # exist, and the transferred splits address columns by position.
+        self.prep_ = FeaturePreprocessor(
+            self.max_bins, self.cat_smoothing, self.random_state,
+            self.cat_n_permutations, bool(donor_prep.combo_pairs_),
+            self.cross_pairs)
+
+        Xb = np.ascontiguousarray(
+            self.prep_.fit_transform(X, [y], cat_features, w,
+                                     binner=donor_prep.binner_).T)
+        Xvb = (np.ascontiguousarray(self.prep_.transform(
+            as_model_array(eval_set[0], bool(cat_features))).T)
+            if eval_set is not None else None)
+        return Xb, Xvb, donor_trees
+
+    def _grow_or_replay(self, m, donor_trees, Xb, g, h, n_bins, fmask,
+                        hist_buffers, ll_active, qbuf, rng):
+        """Grow round m's tree, or replay the donor's structure against this
+        round's gradients. Draws the quantized path's rounding seed, so it
+        must be called at the exact point of the round the draw always
+        happened (after the feature mask)."""
+        # Fresh rounding seed per tree: decorrelates the stochastic rounding
+        # noise across boosting rounds. Drawn only on the quantized path, so
+        # the float path's rng stream is unchanged.
+        qseed = (int(rng.integers(1 << 63))
+                 if self.quantize_gradients else 0)
+
+        if donor_trees is not None and m < len(donor_trees):
+            # Replay round: structure fixed, leaf values (and linear-leaf
+            # coefficients) refit against this round's full-data gradients.
+            return replay_oblivious_tree(
+                donor_trees[m], Xb, g, h, self.l2_leaf_reg, self.lr_,
+                linear_leaves=ll_active, centers_std=self._centers_std_,
+                linear_lambda=self.linear_lambda)
+        return build_oblivious_tree(
+            Xb, g, h, n_bins, self.depth,
+            self.l2_leaf_reg, self.lr_,
+            feature_mask=fmask,
+            min_child_weight=self.min_child_weight,
+            hist_buffers=hist_buffers,
+            linear_leaves=ll_active,
+            centers_std=self._centers_std_,
+            is_numeric=self.prep_.is_numeric_binned_,
+            linear_lambda=self.linear_lambda,
+            quantize=self.quantize_gradients,
+            qbuf=qbuf, qseed=qseed)
+
+    def _apply_training_update(self, tree, leaf, F, g, h, y, w, Xb,
+                               adjusts_leaves, ll_active):
+        """Advance F by round m's tree. Exactly one of the three training
+        updates runs. Ordered boosting and leaf adjustment are mutually
+        exclusive: the former rewrites the training step, the latter the
+        leaf value."""
+        if ll_active and tree.lin_coef is not None:
+            # The step is the leaf's own local linear model: no ordered
+            # boosting, no leaf-estimation refinement.
+            F += _linear_predict(leaf, tree.lin_feats, tree.lin_coef,
+                                 self._centers_std_, Xb)
+        elif self.ordered_boosting and not adjusts_leaves:
+            # Ordered boosting owns the training step; leaf-estimation
+            # Newton refinement belongs to the plain path only.
+            F += self._loo_update(tree, leaf, g, h)
+        else:
+            # Extra Newton steps refine the leaf values against residuals
+            # recomputed after each step. Constant-hessian losses (RMSE)
+            # converge in a few; Logloss reaches a better per-leaf
+            # approximation than the single first-order step.
+            #
+            # Never for MAE/Quantile: _correct_leaves already set the exact
+            # minimizer (median/quantile), and a sign-gradient Newton step
+            # on top would corrupt it. The sklearn layer's "no effect"
+            # warning for those losses is honest only with this guard.
+            if not adjusts_leaves:
+                self._refine_leaf_values(tree, leaf, F, y, w)
+
+            # Fused in-place add: F += tree.values[leaf] without the
+            # n-length gather temporary. The (n, 1) views are C-contiguous,
+            # so this reuses the vector boosters' compiled signature.
+            _add_leaf_values(F.reshape(-1, 1), tree.values.reshape(-1, 1),
+                             leaf)
 
     def _correct_leaves(self, tree, leaf, y, F, sample_weight=None):
         """Override Newton leaf values with the loss-appropriate residual
@@ -1074,7 +1101,7 @@ class MulticlassBoosting(_BaseBooster):
     `predict_raw` keeps a fallback for those unpickled forests.
     """
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf tree per boosting round under softmax loss.
 
@@ -1132,24 +1159,7 @@ class MulticlassBoosting(_BaseBooster):
             if w is not None:
                 grad, hess = grad * w[:, None], hess * w[:, None]
 
-            # 1-d Newton sketch for the split search: a fresh CENTERED
-            # Rademacher projection of the gradient columns.
-            #
-            # Softmax gradient rows sum to zero, so the all-ones direction is
-            # the null space. An uncentered all-equal draw (probability
-            # 2^(1-K)) gives an identically-zero sketch and a spurious
-            # permanent stop -- caught in the A1 smoke, see the A1_PLAN.md
-            # implementation log. Centering removes that dead component.
-            #
-            # The rescale keeps sum(r^2) = K, so the projected-curvature mass
-            # stays on the row-hessian-sum scale every round and
-            # min_child_weight and l2 semantics do not wobble with the draw.
-            r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
-            r -= r.mean()
-            while not np.any(r):        # all-equal draw centered to zero
-                r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
-                r -= r.mean()
-            r *= np.sqrt(K / (r @ r))
+            r = self._sketch_direction(rng, K)
             g_s = grad @ r
 
             # Exact projected curvature r^T diag(H_i) r, coupled like the
@@ -1178,27 +1188,10 @@ class MulticlassBoosting(_BaseBooster):
             # No legal split on the sketched gradients: stop like the scalar
             # booster, keeping the best prefix exactly as the other exits do.
             if tree.depth == 0:
-                if Fv is not None and stopper.patience:
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
+                self._truncate_to_best(Fv, stopper)
                 break
 
-            # Replace the sketch's scalar leaf values with the K-vector Newton
-            # values on the shared partition. Coupling is applied inside, per
-            # element — see _leaf_values_vec.
-            tree.values = _leaf_values_vec(leaf, grad, hess, coupling,
-                                           tree.values.shape[0],
-                                           self.l2_leaf_reg, self.lr_)
-
-            if self.ordered_boosting:
-                # Per-class LOO on the shared leaf assignment.
-                for k in range(K):
-                    F[:, k] += _loo_leaf_step(
-                        leaf, np.ascontiguousarray(grad[:, k]),
-                        np.ascontiguousarray(hess[:, k]) * coupling,
-                        tree.values.shape[0], self.l2_leaf_reg, self.lr_)
-            else:
-                _add_leaf_values(F, tree.values, leaf)
-
+            self._apply_vector_update(tree, leaf, F, grad, hess, coupling, K)
             self.trees_.append(tree)
 
             if self._round_epilogue(
@@ -1206,16 +1199,54 @@ class MulticlassBoosting(_BaseBooster):
                     lambda: _add_leaf_values(Fv, tree.values, tree.apply(Xvb))):
                 break
         else:
-            # No break: the tree budget ran out before patience could fire, so
-            # truncate as a mid-training stop would. Callback stops are excluded
-            # on purpose -- the selection auditions read feature_importances_
-            # off callback-capped fits.
-            if Fv is not None and stopper.patience:
-                self.trees_ = self.trees_[: stopper.best_iter + 1]
+            # No break: the tree budget ran out before patience could fire.
+            self._truncate_to_best(Fv, stopper)
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
+
+    def _sketch_direction(self, rng, K):
+        """1-d Newton sketch direction for the split search: a fresh CENTERED
+        Rademacher projection of the gradient columns.
+
+        Softmax gradient rows sum to zero, so the all-ones direction is
+        the null space. An uncentered all-equal draw (probability
+        2^(1-K)) gives an identically-zero sketch and a spurious
+        permanent stop -- caught in the A1 smoke, see the A1_PLAN.md
+        implementation log. Centering removes that dead component.
+
+        The rescale keeps sum(r^2) = K, so the projected-curvature mass
+        stays on the row-hessian-sum scale every round and
+        min_child_weight and l2 semantics do not wobble with the draw.
+        The whole retry loop lives here so the rng stream is consumed
+        exactly as it always was.
+        """
+        r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
+        r -= r.mean()
+        while not np.any(r):        # all-equal draw centered to zero
+            r = rng.integers(0, 2, size=K).astype(np.float64) * 2.0 - 1.0
+            r -= r.mean()
+        r *= np.sqrt(K / (r @ r))
+        return r
+
+    def _apply_vector_update(self, tree, leaf, F, grad, hess, coupling, K):
+        """Refit round m's leaf values as K-vector Newton values on the shared
+        partition, then advance F. Coupling is applied inside, per element --
+        see _leaf_values_vec."""
+        tree.values = _leaf_values_vec(leaf, grad, hess, coupling,
+                                       tree.values.shape[0],
+                                       self.l2_leaf_reg, self.lr_)
+
+        if self.ordered_boosting:
+            # Per-class LOO on the shared leaf assignment.
+            for k in range(K):
+                F[:, k] += _loo_leaf_step(
+                    leaf, np.ascontiguousarray(grad[:, k]),
+                    np.ascontiguousarray(hess[:, k]) * coupling,
+                    tree.values.shape[0], self.l2_leaf_reg, self.lr_)
+        else:
+            _add_leaf_values(F, tree.values, leaf)
 
     def _predict_raw_impl(self, X, cat_ctx=None):
         """Return the (n_samples, n_classes) matrix of raw per-class scores
@@ -1518,7 +1549,7 @@ class MultiQuantileBoosting(_BaseBooster):
 
         return basis[0]         # "sum": the literal channel sum
 
-    def _fit_impl(self, X, y, cat_features=None, eval_set=None,  # noqa: C901 -- complexity baseline, removed in stage 4
+    def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit one vector-leaf quantile tree per boosting round.
 
@@ -1542,16 +1573,8 @@ class MultiQuantileBoosting(_BaseBooster):
                                       prep_cache, w)
         n_bins = self.prep_.n_bins_
 
-        # The exact arm needs its own K-deep buffers and never touches the
-        # scalar ones, so allocate exactly one of the two.
-        if self.exact_splits:
-            hist_buffers, qbuf = None, None
-            exact_hist = alloc_exact_hist(Xb.shape[0], self.depth, n_bins, K)
-        else:
-            exact_hist = None
-            hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
-            qbuf = (np.empty(n_samples, dtype=np.int64)
-                    if self.quantize_gradients else None)
+        hist_buffers, qbuf, exact_hist = self._alloc_mq_buffers(
+            Xb, n_bins, K, n_samples)
 
         yv = Fv = wv = None
         if eval_set is not None:
@@ -1590,22 +1613,8 @@ class MultiQuantileBoosting(_BaseBooster):
         t0 = time.time()
 
         for m in range(self.n_estimators):
-            # The default arms know their direction up front, so they read the
-            # projection straight off each row's PIT rank and never build the
-            # (n, K) gradient at all -- see `tree._project_pinball`.
-            grad = None
-            if need_grad:
-                grad, _ = self.loss_.grad_hess(y, F)
-                if w is not None:
-                    grad = grad * w[:, None]
-
-            direction = self._split_direction(grad, m, rng)
-            if grad is not None and self.split_projection == "gram":
-                g_s = grad @ direction
-            else:
-                _project_pinball(y, F, direction, float(direction @ taus),
-                                 w_row, g_buf)
-                g_s = g_buf
+            grad, g_s = self._round_projection(y, F, w, m, rng, taus, w_row,
+                                               g_buf, need_grad)
 
             # Unit-norm direction plus unit hessian means the projected
             # curvature is exactly 1 per row -- times the row's sample weight,
@@ -1633,44 +1642,17 @@ class MultiQuantileBoosting(_BaseBooster):
             rw = w if mw is None else (mw if w is None else w * mw)
             fmask = self._feature_mask(Xb.shape[0], rng)
 
-            if self.exact_splits:
-                tree, leaf = build_oblivious_tree_exact(
-                    Xb, grad if mw is None else grad * mw[:, None],
-                    n_bins, self.depth, self.l2_leaf_reg,
-                    feature_mask=fmask,
-                    min_child_weight=self.min_child_weight,
-                    row_weight=rw, hist_buffers=exact_hist)
-            else:
-                qseed = (int(rng.integers(1 << 63))
-                         if self.quantize_gradients else 0)
-                tree, leaf = build_oblivious_tree(
-                    Xb, g_s, h_s, n_bins, self.depth, self.l2_leaf_reg,
-                    self.lr_, feature_mask=fmask,
-                    min_child_weight=self.min_child_weight,
-                    hist_buffers=hist_buffers,
-                    quantize=self.quantize_gradients, qbuf=qbuf, qseed=qseed)
+            tree, leaf = self._grow_tree_mq(
+                Xb, grad, g_s, h_s, mw, rw, n_bins, fmask, hist_buffers,
+                exact_hist, qbuf, rng)
 
             # No legal split: stop like the other boosters, truncating to the
             # best prefix exactly as their exits do.
             if tree.depth == 0:
-                if Fv is not None and stopper.patience:
-                    self.trees_ = self.trees_[: stopper.best_iter + 1]
+                self._truncate_to_best(Fv, stopper)
                 break
 
-            # Replace the projection's scalar leaf values with the exact per-tau
-            # residual quantiles on the shared partition. Each channel is its own
-            # quantile of the same residuals, unconstrained against the others,
-            # which is what lets a leaf narrow its interval as far as its rows
-            # warrant.
-            n_lv = tree.values.shape[0]
-            if rw is None:
-                kern = (_leaf_quantiles_vec_serial if small
-                        else _leaf_quantiles_vec)
-                tree.values = kern(leaf, y, F, taus, n_lv, self.lr_)
-            else:
-                kern = (_leaf_quantiles_vec_w_serial if small
-                        else _leaf_quantiles_vec_w)
-                tree.values = kern(leaf, y, F, rw, taus, n_lv, self.lr_)
+            self._refit_leaf_quantiles(tree, leaf, y, F, rw, taus, small)
 
             _add_leaf_values(F, tree.values, leaf)
             self.trees_.append(tree)
@@ -1681,12 +1663,83 @@ class MultiQuantileBoosting(_BaseBooster):
                 break
         else:
             # No break: the tree budget ran out before patience could fire.
-            if Fv is not None and stopper.patience:
-                self.trees_ = self.trees_[: stopper.best_iter + 1]
+            self._truncate_to_best(Fv, stopper)
 
         self.fit_time_ = time.time() - t0
         self.best_iteration_ = len(self.trees_)
         return self
+
+    def _round_projection(self, y, F, w, m, rng, taus, w_row, g_buf,
+                          need_grad):
+        """Round m's (n, K) gradient (only where an arm needs it) and its 1-d
+        projection for the split search. The default arms know their direction
+        up front, so they read the projection straight off each row's PIT rank
+        and never build the (n, K) gradient at all -- see
+        `tree._project_pinball`. The direction draw consumes the rng at the
+        exact point of the round it always did."""
+        grad = None
+        if need_grad:
+            grad, _ = self.loss_.grad_hess(y, F)
+            if w is not None:
+                grad = grad * w[:, None]
+
+        direction = self._split_direction(grad, m, rng)
+        if grad is not None and self.split_projection == "gram":
+            g_s = grad @ direction
+        else:
+            _project_pinball(y, F, direction, float(direction @ taus),
+                             w_row, g_buf)
+            g_s = g_buf
+        return grad, g_s
+
+    def _alloc_mq_buffers(self, Xb, n_bins, K, n_samples):
+        """The exact arm needs its own K-deep buffers and never touches the
+        scalar ones, so allocate exactly one of the two. Returns
+        ``(hist_buffers, qbuf, exact_hist)``."""
+        if self.exact_splits:
+            return None, None, alloc_exact_hist(Xb.shape[0], self.depth,
+                                                n_bins, K)
+        hist_buffers = self._alloc_hist_buffers(Xb.shape[0], n_bins)
+        qbuf = (np.empty(n_samples, dtype=np.int64)
+                if self.quantize_gradients else None)
+        return hist_buffers, qbuf, None
+
+    def _grow_tree_mq(self, Xb, grad, g_s, h_s, mw, rw, n_bins, fmask,
+                      hist_buffers, exact_hist, qbuf, rng):
+        """Grow round m's tree on the exact or quantized-scalar arm. The
+        quantized arm draws its rounding seed here, at the exact point of
+        the round the draw always happened (after the feature mask)."""
+        if self.exact_splits:
+            return build_oblivious_tree_exact(
+                Xb, grad if mw is None else grad * mw[:, None],
+                n_bins, self.depth, self.l2_leaf_reg,
+                feature_mask=fmask,
+                min_child_weight=self.min_child_weight,
+                row_weight=rw, hist_buffers=exact_hist)
+        qseed = (int(rng.integers(1 << 63))
+                 if self.quantize_gradients else 0)
+        return build_oblivious_tree(
+            Xb, g_s, h_s, n_bins, self.depth, self.l2_leaf_reg,
+            self.lr_, feature_mask=fmask,
+            min_child_weight=self.min_child_weight,
+            hist_buffers=hist_buffers,
+            quantize=self.quantize_gradients, qbuf=qbuf, qseed=qseed)
+
+    def _refit_leaf_quantiles(self, tree, leaf, y, F, rw, taus, small):
+        """Replace the projection's scalar leaf values with the exact per-tau
+        residual quantiles on the shared partition. Each channel is its own
+        quantile of the same residuals, unconstrained against the others,
+        which is what lets a leaf narrow its interval as far as its rows
+        warrant."""
+        n_lv = tree.values.shape[0]
+        if rw is None:
+            kern = (_leaf_quantiles_vec_serial if small
+                    else _leaf_quantiles_vec)
+            tree.values = kern(leaf, y, F, taus, n_lv, self.lr_)
+        else:
+            kern = (_leaf_quantiles_vec_w_serial if small
+                    else _leaf_quantiles_vec_w)
+            tree.values = kern(leaf, y, F, rw, taus, n_lv, self.lr_)
 
     def _val_score(self, yv, Fv, wv):
         """Score the eval set on REARRANGED scores, which is what a user
