@@ -7,6 +7,8 @@ of these tests are equivalence checks against those definitions rather than
 self-consistency checks.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -215,6 +217,84 @@ def test_cdf_accepts_a_scalar_threshold():
     assert m.predict(Xt, kind="cdf", thresholds=0.0).shape == (200, 1)
 
 
+def test_cdf_reads_2d_thresholds_row_against_row():
+    m, Xt = _q()
+    t = np.column_stack([np.linspace(-2.0, 2.0, 200), np.full(200, 0.5)])
+    got = m.predict(Xt, kind="cdf", thresholds=t)
+    assert got.shape == (200, 2)
+    # Row i of a 2-D thresholds array must answer exactly as row i asked with
+    # its own thresholds shared -- per-row is the same inversion, not new math.
+    for i in (0, 7, 199):
+        assert np.array_equal(
+            got[i], m.predict(Xt[i:i + 1], kind="cdf", thresholds=t[i])[0])
+
+
+def test_cdf_2d_thresholds_must_carry_one_row_per_prediction_row():
+    m, Xt = _q()
+    with pytest.raises(ValueError, match="one row per prediction row"):
+        m.predict(Xt, kind="cdf", thresholds=np.zeros((2, 2)))
+
+
+def test_predict_thresh_is_the_complement_of_the_cdf():
+    m, Xt = _q()
+    t = [-1.0, 0.0, 1.0]
+    cdf = m.predict(Xt, kind="cdf", thresholds=t)
+    assert np.array_equal(m.predict_thresh(Xt, t, direction="less"), cdf)
+    assert np.array_equal(m.predict_thresh(Xt, t), 1.0 - cdf)
+
+
+def test_predict_thresh_shapes_follow_the_thresholds():
+    m, Xt = _q()
+    assert m.predict_thresh(Xt, 0.0).shape == (200,)
+    assert m.predict_thresh(Xt, [0.0, 1.0]).shape == (200, 2)
+    assert m.predict_thresh(Xt, np.zeros((200, 3))).shape == (200, 3)
+
+
+def test_predict_thresh_reads_a_level_back_at_its_own_value():
+    m, Xt = _q()
+    Q = m.predict(Xt)
+    taus = m.quantiles_
+    # A per-row threshold sitting exactly on a fitted level must read that
+    # level back: P(y <= q_k(x)) = tau_k.
+    for k in (0, 9, 18):
+        got = m.predict_thresh(Xt, Q[:, [k]], direction="less")
+        assert np.allclose(got[:, 0], taus[k]), k
+
+
+def test_predict_thresh_clamps_to_the_fitted_levels():
+    m, Xt = _q()
+    lo, hi = m.quantiles_[0], m.quantiles_[-1]
+    # Beyond the grid the honest answer is the edge level, never 0 or 1.
+    assert np.allclose(m.predict_thresh(Xt, -100.0), 1.0 - lo)
+    assert np.allclose(m.predict_thresh(Xt, 100.0), 1.0 - hi)
+    assert np.allclose(m.predict_thresh(Xt, -100.0, direction="less"), lo)
+
+
+def test_cdf_on_a_coarse_grid_warns_and_the_default_grid_does_not():
+    # Three levels with gaps of 0.4 cannot carry a CDF: between them the
+    # answer is interpolation, not an estimate, so both CDF readers warn.
+    m3, Xt3 = _q(quantiles=[0.1, 0.5, 0.9])
+    with pytest.warns(UserWarning, match="denser grid"):
+        m3.predict(Xt3, kind="cdf", thresholds=[0.0])
+    with pytest.warns(UserWarning, match="denser grid"):
+        m3.predict_thresh(Xt3, 0.0)
+
+    # The 19-level default (gaps of 0.05) must stay quiet.
+    m, Xt = _q()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        m.predict(Xt, kind="cdf", thresholds=[0.0])
+        m.predict_thresh(Xt, 0.0)
+
+
+def test_predict_thresh_refuses_bad_arguments():
+    m, Xt = _q()
+    with pytest.raises(ValueError, match="direction must be"):
+        m.predict_thresh(Xt, 0.0, direction="above")
+    with pytest.raises(ValueError, match="needs `thresholds`"):
+        m.predict_thresh(Xt, None)
+
+
 def test_samples_follow_the_predicted_distribution_and_are_seeded():
     m, Xt = _q()
     s = m.predict(Xt, kind="sample", n_samples=4000, random_state=0)
@@ -242,6 +322,6 @@ def test_new_kinds_refuse_missing_arguments():
     with pytest.raises(ValueError, match="n_samples must be"):
         m.predict(Xt, kind="sample", n_samples=0)
     with pytest.raises(ValueError, match="thresholds must be"):
-        m.predict(Xt, kind="cdf", thresholds=np.zeros((2, 2)))
+        m.predict(Xt, kind="cdf", thresholds=np.zeros((2, 2, 2)))
     with pytest.raises(ValueError, match="kind must be"):
         m.predict(Xt, kind="quantile")

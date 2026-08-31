@@ -3,6 +3,21 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **`predict_thresh` on the quantile regressor (#106).** Exceedance
+  probabilities read off the fitted grid: `model.predict_thresh(X, t)` returns
+  `P(y > t)`, `direction="less"` the complement — the same inversion as
+  `predict(kind="cdf")` with the `1 - cdf` step and the naming done for you.
+  Thresholds may now also vary per row: a 2-D `(n, T)` array is read row
+  against row (in `kind="cdf"` too), so every row can carry its own line to
+  beat. 1-D always means shared, 2-D always means per-row, regardless of
+  length. Probabilities clamp to the outermost fitted levels — on the default
+  grid never below 0.05 or above 0.95 — because the model never estimated the
+  tails beyond them. Both CDF readers warn when the fitted grid is too coarse
+  to carry one (any inter-level gap above 0.2, e.g. `quantiles=[0.1, 0.5,
+  0.9]`): the answer would be mostly interpolation, not an estimate.
+
 ## [0.32.0] - 2026-08-30
 ### Added
 - **SHAP for the quantile head and for multiclass.** The SHAP kernel was
