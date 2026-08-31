@@ -42,6 +42,7 @@ More worked snippets are in [Recipes](recipes.md#quantile-regression).
 model.predict(X, kind="median")                          # (n,) the centre
 model.predict(X, kind="cdf", thresholds=[0.0, 10.0])     # (n, 2) P(y <= t)
 model.predict(X, kind="sample", n_samples=500, random_state=0)   # (n, 500)
+model.predict_thresh(X, 10.0)                            # (n,) P(y > 10)
 ```
 
 `kind="cdf"` inverts the grid, and `kind="sample"` draws from it by inverse transform —
@@ -49,6 +50,13 @@ useful for feeding a downstream simulation. Both interpolate between fitted leve
 clamp outside the outermost ones, because a finite grid says nothing about the tails
 beyond it. `kind="interval"` still refuses levels you did not fit: reading a fitted
 curve at a point is a different thing from claiming a level was fitted when it was not.
+
+`predict_thresh` is the exceedance view of the same inversion: `direction="greater"`
+(the default) returns `P(y > t)`, `"less"` returns `P(y <= t)`. Thresholds may be a
+scalar, a 1-D list applied to every row, or a 2-D `(n, T)` array read row against row —
+1-D always means shared, per-row always means 2-D, regardless of length. The clamp
+carries over: on the default grid no probability reads below 0.05 or above 0.95,
+because the model never estimated those tails.
 
 ## Predictions never cross
 
