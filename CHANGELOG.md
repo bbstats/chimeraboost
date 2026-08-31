@@ -14,7 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   beat. 1-D always means shared, 2-D always means per-row, regardless of
   length. Probabilities clamp to the outermost fitted levels — on the default
   grid never below 0.05 or above 0.95 — because the model never estimated the
-  tails beyond them.
+  tails beyond them. Both CDF readers warn when the fitted grid is too coarse
+  to carry one (any inter-level gap above 0.2, e.g. `quantiles=[0.1, 0.5,
+  0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ## [0.32.0] - 2026-08-30
 ### Added

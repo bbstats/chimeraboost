@@ -7,6 +7,8 @@ of these tests are equivalence checks against those definitions rather than
 self-consistency checks.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -266,6 +268,23 @@ def test_predict_thresh_clamps_to_the_fitted_levels():
     assert np.allclose(m.predict_thresh(Xt, -100.0), 1.0 - lo)
     assert np.allclose(m.predict_thresh(Xt, 100.0), 1.0 - hi)
     assert np.allclose(m.predict_thresh(Xt, -100.0, direction="less"), lo)
+
+
+def test_cdf_on_a_coarse_grid_warns_and_the_default_grid_does_not():
+    # Three levels with gaps of 0.4 cannot carry a CDF: between them the
+    # answer is interpolation, not an estimate, so both CDF readers warn.
+    m3, Xt3 = _q(quantiles=[0.1, 0.5, 0.9])
+    with pytest.warns(UserWarning, match="denser grid"):
+        m3.predict(Xt3, kind="cdf", thresholds=[0.0])
+    with pytest.warns(UserWarning, match="denser grid"):
+        m3.predict_thresh(Xt3, 0.0)
+
+    # The 19-level default (gaps of 0.05) must stay quiet.
+    m, Xt = _q()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        m.predict(Xt, kind="cdf", thresholds=[0.0])
+        m.predict_thresh(Xt, 0.0)
 
 
 def test_predict_thresh_refuses_bad_arguments():

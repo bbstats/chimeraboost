@@ -128,6 +128,10 @@ print(qm.format_report(model.report(X_test, y_test)))
 
 ### Asking the distribution other questions
 
+Probability questions need a dense fitted grid (the 19-level default). A sparse
+interval grid like `quantiles=[0.1, 0.5, 0.9]` warns here: the answer would be mostly
+interpolation.
+
 ```python
 # P(y <= t): the fitted grid, inverted.
 p_below = model.predict(X_test, kind="cdf", thresholds=[0.0, 100.0])

@@ -58,6 +58,12 @@ scalar, a 1-D list applied to every row, or a 2-D `(n, T)` array read row agains
 carries over: on the default grid no probability reads below 0.05 or above 0.95,
 because the model never estimated those tails.
 
+Both CDF readers need a grid dense enough to interpolate honestly. If any gap between
+adjacent fitted levels exceeds 0.2 — `quantiles=[0.1, 0.5, 0.9]`, say — they warn,
+because the probabilities would be mostly interpolation between distant levels rather
+than estimates. A sparse grid is fine for the intervals it was fitted for; fit the
+19-level default when you want probabilities.
+
 ## Predictions never cross
 
 The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so

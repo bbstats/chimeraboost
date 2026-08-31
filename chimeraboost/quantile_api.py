@@ -6,6 +6,8 @@ cross features, no bagging, no full-data refit. It imports the validation
 helpers and keeps the same flat, module-function style.
 """
 
+import warnings
+
 import numpy as np
 from sklearn.base import BaseEstimator
 
@@ -495,7 +497,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         ``thresholds`` is shared by every row; a 2-D (n_samples, T) array is
         read row against row -- the rule is dimensionality, never length.
         Clamped to the outermost fitted levels rather than to 0 and 1, for
-        the same reason ``"mean"`` extends flat.
+        the same reason ``"mean"`` extends flat. Warns when the fitted grid
+        is too coarse to carry a CDF (any inter-level gap above 0.2).
 
         ``kind="sample"`` returns (n_samples_rows, n_samples): inverse-
         transform draws from the predicted distribution, for feeding a
@@ -542,7 +545,9 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         ``predict(kind="cdf")``: linear between grid levels, clamped to the
         outermost fitted levels outside them -- on the default grid no
         probability reads below 0.05 or above 0.95, because the model never
-        estimated those tails.
+        estimated those tails. A coarse grid (any inter-level gap above 0.2,
+        e.g. ``quantiles=[0.1, 0.5, 0.9]``) warns: the probabilities would
+        be mostly interpolation, not estimates.
 
         ``thresholds`` may be a scalar (one probability per row, returned
         1-D), a 1-D array of T values shared by every row (returns
@@ -597,6 +602,23 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 "Thresholds shared by every row are passed 1-D.")
 
         taus = self.quantiles_
+        # A coarse grid cannot really answer a CDF question: between fitted
+        # levels the curve is linear interpolation -- an assumption, not an
+        # estimate -- and beyond the outermost ones it is clamp. Warn when
+        # the largest inter-level gap leaves interpolation doing most of the
+        # work. The 0.2 line keeps an even 9-level grid quiet and flags the
+        # three-level interval grids the docs recommend for other purposes.
+        widest = float(np.diff(taus).max()) if taus.size > 1 else 1.0
+        if widest > 0.2:
+            warnings.warn(
+                f"The fitted grid has {taus.size} quantile level(s) with "
+                f"gaps up to {widest:.2f}, so P(y <= t) is mostly linear "
+                "interpolation between distant levels, clamped to "
+                f"[{taus[0]:g}, {taus[-1]:g}] outside them. Fit a denser "
+                "grid -- the 19-level default resolves steps of 0.05 -- if "
+                "you need CDF or exceedance probabilities.",
+                UserWarning, stacklevel=3)
+
         per_row = t.ndim == 2
         out = np.empty((Q.shape[0], t.shape[-1]))
         for i in range(Q.shape[0]):
