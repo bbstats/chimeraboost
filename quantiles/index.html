@@ -1337,12 +1337,24 @@ on it, so fit the levels you intend to use:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"median"</span><span class="p">)</span>                          <span class="c1"># (n,) the centre</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"cdf"</span><span class="p">,</span> <span class="n">thresholds</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">])</span>     <span class="c1"># (n, 2) P(y &lt;= t)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"sample"</span><span class="p">,</span> <span class="n">n_samples</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># (n, 500)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">model</span><span class="o">.</span><span class="n">predict_thresh</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">)</span>                            <span class="c1"># (n,) P(y &gt; 10)</span>
 </code></pre></div>
 <p><code>kind="cdf"</code> inverts the grid, and <code>kind="sample"</code> draws from it by inverse transform —
 useful for feeding a downstream simulation. Both interpolate between fitted levels and
 clamp outside the outermost ones, because a finite grid says nothing about the tails
 beyond it. <code>kind="interval"</code> still refuses levels you did not fit: reading a fitted
 curve at a point is a different thing from claiming a level was fitted when it was not.</p>
+<p><code>predict_thresh</code> is the exceedance view of the same inversion: <code>direction="greater"</code>
+(the default) returns <code>P(y &gt; t)</code>, <code>"less"</code> returns <code>P(y &lt;= t)</code>. Thresholds may be a
+scalar, a 1-D list applied to every row, or a 2-D <code>(n, T)</code> array read row against row —
+1-D always means shared, per-row always means 2-D, regardless of length. The clamp
+carries over: on the default grid no probability reads below 0.05 or above 0.95,
+because the model never estimated those tails.</p>
+<p>Both CDF readers need a grid dense enough to interpolate honestly. If any gap between
+adjacent fitted levels exceeds 0.2 — <code>quantiles=[0.1, 0.5, 0.9]</code>, say — they warn,
+because the probabilities would be mostly interpolation between distant levels rather
+than estimates. A sparse grid is fine for the intervals it was fitted for; fit the
+19-level default when you want probabilities.</p>
 <h2 id="predictions-never-cross">Predictions never cross<a class="headerlink" href="#predictions-never-cross" title="Permanent link">&para;</a></h2>
 <p>The 30% quantile is never returned above the 70%. Every row is sorted on its way out, so
 <code>np.diff(Q, axis=1) &gt;= 0</code> holds exactly, including at every intermediate stage of
