@@ -105,8 +105,8 @@ pair, so a tree of depth *d* is described by *d* splits and a leaf index is a *d
 number (Kohavi and Li, 1995; Prokhorenkova et al., 2018). Prediction reduces to a
 handful of comparisons and a table lookup per tree, executed in a single numba kernel
 parallelized over samples so that each row traverses the entire forest while its
-features remain in cache. The shared-split constraint also acts as a strong
-regularizer. Its cost is examined in section 6.
+features remain in cache. Sharing one split across a depth also acts as a strong
+regularizer.
 
 **Quantized histogram split finding.** Splits are searched over binned features (128
 bins by default), with gradients and hessians quantized to 15-bit integers following
@@ -253,17 +253,13 @@ nominal 0.90, versus 0.10 for ChimeraBoost), so the interval score favored
 ChimeraBoost 25 to 11; applications that weight CRPS alone and disregard cost are
 better served by CatBoost.
 
-**No GPU support.** This is a consequence of the pure-Python design constraint rather
-than an omission to be corrected.
+**No GPU support.** The library is pure Python by design; a GPU backend is out of
+scope rather than an omission to be corrected.
 
 **Compiler cold start.** The first fit after a fresh install or upgrade incurs
 roughly ten seconds of numba compilation (0.8 s warm, 0.27 s in steady state). A
 `chimeraboost-warmup` command and an environment variable allow precompilation; the
 cost is reduced rather than eliminated.
-
-**The oblivious constraint.** On low-noise, high-signal data, leaf-wise learners can
-represent sharper structure than symmetric trees. The regularization that helps on
-noisy tabular data works against the model on nearly deterministic problems.
 
 **Training speed.** LightGBM and XGBoost defaults train in roughly 75% of
 ChimeraBoost's time on TabArena hardware. The library's case rests on quality per unit
