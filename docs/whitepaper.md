@@ -83,13 +83,13 @@ and the stopped model is refit on all rows by structure replay. The remaining
 speed-accuracy choice is a single integer, `quality`, whose five settings were each
 measured to sit on the speed-accuracy frontier:
 
-| `quality` | profile | fit time (multiple of the fastest library) |
+| `quality` | profile | fit time (default = 1x) |
 |---|---|---|
-| 1 | fast | 2.7x |
-| 2 | balanced | 5.3x |
-| 3 | accurate (default) | 6.9x |
-| 4 | ensemble of 5 | 18.1x |
-| 5 | ensemble of 8 | 26.0x |
+| 1 | fast | 0.4x |
+| 2 | balanced | 0.8x |
+| 3 | accurate (default) | 1x |
+| 4 | ensemble of 5 | 2.6x |
+| 5 | ensemble of 8 | 3.8x |
 
 **Interpretability and calibration.** The `shap_values` method computes exact
 interventional TreeSHAP attributions (Lundberg et al., 2020) with no external
@@ -224,25 +224,25 @@ current version. Since no TabArena result has ever influenced a change to the
 library, these figures constitute an out-of-sample evaluation.
 
 **Public suite.** The published chart runs on 22 audited public datasets disjoint
-from all development data. In the most recent full run (three seeds, 21 of 22 datasets
-scored):
+from all development data. In the most recent full run (August 2026, three seeds, 21
+of 22 datasets scored), with fit times expressed relative to the ChimeraBoost default:
 
-| model | avg rank | 95% CI | median slowdown |
+| model | avg rank | 95% CI | median fit time (default = 1x) |
 |---|---|---|---|
-| ChimeraBoost `quality=4` (ensemble) | **1.73** | 1.46-1.99 | 16.4x |
-| CatBoost | 1.92 | 1.53-2.31 | 52.0x |
-| ChimeraBoost default | 1.97 | 1.67-2.28 | 7.2x |
-| LightGBM | 2.23 | 1.74-2.70 | 1.0x |
+| ChimeraBoost `quality=4` (ensemble) | **1.82** | 1.48-2.16 | 2.4x |
+| CatBoost | 1.88 | 1.51-2.22 | 6.5x |
+| ChimeraBoost default | 1.90 | 1.62-2.21 | 1.0x |
+| LightGBM | 2.26 | 1.77-2.73 | 0.1x |
 
-![Strength versus fit-time slowdown on the public suite](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png)
+![Average rank versus fit time relative to the default on the public suite](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png)
 
 Each ChimeraBoost configuration is ranked in its own three-way contest against
 CatBoost and LightGBM, so 2.0 is the middle of the field. Ranks are facet-balanced
 across task type, dataset size, and cardinality; the unweighted ranks, which favor
-CatBoost slightly, are recorded in the repository. The default configuration
-was statistically indistinguishable from CatBoost at less than a third of CatBoost's
-median fit time, and the `quality=4` ensemble achieved the best average rank while
-still costing less than a third of CatBoost.
+CatBoost slightly, are recorded in the repository. The default configuration was
+statistically indistinguishable from CatBoost at about a sixth of CatBoost's fit time
+on the median dataset, and the `quality=4` ensemble achieved the best average rank at
+just over a third of CatBoost's cost.
 
 ## 6. Limitations
 
