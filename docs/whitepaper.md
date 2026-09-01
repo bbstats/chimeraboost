@@ -10,8 +10,8 @@ ChimeraBoost is a gradient boosting library written entirely in Python. It depen
 four packages (numpy, numba, scipy, and scikit-learn) and nothing else: no C++
 extension, no GPU, and pandas is optional. On TabArena, the community tabular
 benchmark, its default configuration is the second strongest gradient boosting library
-on the board. Only CatBoost scores higher, and XGBoost and LightGBM defaults sit more
-than a hundred Elo points below. It reaches that quality while training in under half
+on the board. Only CatBoost scores higher, and XGBoost and LightGBM defaults sit
+nearly ninety Elo points below. It reaches that quality while training in under half
 of CatBoost's median time, and it can do a few things the big libraries can't: quantile
 predictions that never cross, exact SHAP values without installing anything extra, and
 defaults good enough that most users never touch a hyperparameter.
@@ -54,25 +54,26 @@ or per dataset, is allowed to influence a code change. Development decisions run
 separate benchmark suites (section 5), which makes the table below a genuinely
 out-of-sample result.
 
-As of September 2026, among gradient boosting libraries at default settings:
+As of September 2026, in the leaderboard's default view, among gradient boosting
+libraries at default settings:
 
 | model (default config) | Elo | median train s/1K | median predict s/1K |
 |---|---|---|---|
-| CatBoost | 1379 | 5.88 | 0.025 |
-| **ChimeraBoost** | **1315** | **2.65** | **0.052** |
-| XGBoost | 1214 | 1.94 | 0.123 |
-| EBM | 1204 | 6.67 | 0.014 |
-| LightGBM | 1187 | 1.96 | 0.142 |
+| CatBoost | 1357 | 5.88 | 0.025 |
+| **ChimeraBoost** | **1297** | **2.65** | **0.052** |
+| XGBoost | 1208 | 1.94 | 0.123 |
+| EBM | 1191 | 6.67 | 0.014 |
+| LightGBM | 1181 | 1.96 | 0.142 |
 
 There are two ways to read that table. On accuracy, ChimeraBoost's default is second
-among GBDTs, and the 101-point gap down to third place is larger than the 64-point gap
+among GBDTs, and the 89-point gap down to third place is larger than the 60-point gap
 up to first. On cost, it trains in about 45% of CatBoost's median time per thousand
 rows and predicts two to three times faster than XGBoost or LightGBM at their defaults,
 although CatBoost still predicts faster than any of them except EBM. ChimeraBoost's
-tuned-and-ensembled entry scores 1383, just above CatBoost's default, using a search
+tuned-and-ensembled entry scores 1360, just above CatBoost's default, using a search
 space from June that predates several of the library's newer adaptive defaults. For
 context, the top of the overall board belongs to tabular foundation models around Elo
-1790; those are pretrained neural networks in a different weight class of compute.
+1750; those are pretrained neural networks in a different weight class of compute.
 
 ### 2.2 The public suite
 
