@@ -253,17 +253,23 @@ nominal 0.90, versus 0.10 for ChimeraBoost), so the interval score favored
 ChimeraBoost 25 to 11; applications that weight CRPS alone and disregard cost are
 better served by CatBoost.
 
-**No GPU support.** The library is pure Python by design; a GPU backend is out of
-scope rather than an omission to be corrected.
-
 **Compiler cold start.** The first fit after a fresh install or upgrade incurs
 roughly ten seconds of numba compilation (0.8 s warm, 0.27 s in steady state). A
 `chimeraboost-warmup` command and an environment variable allow precompilation; the
 cost is reduced rather than eliminated.
 
-**Training speed.** LightGBM and XGBoost defaults train in roughly 75% of
-ChimeraBoost's time on TabArena hardware. The library's case rests on quality per unit
-of compute rather than minimum training time.
+**Training speed, especially at scale.** LightGBM and XGBoost defaults train in
+roughly 75% of ChimeraBoost's time at TabArena's scale, and the gap grows with row
+count: in internal measurements on synthetic data at a fixed tree count, the fit-time
+ratio to LightGBM widened from about 5x at 50,000 rows to roughly 10x at 500,000,
+because numba's generated histogram kernels do not match hand-tuned C++ SIMD. The
+absence of GPU support, a consequence of the pure-Python design, bites in exactly
+this regime: the compiled libraries all offer GPU training whose payoff arrives on
+datasets of millions of rows, and no pure-Python counterpart exists. The fit-time
+comparisons in this paper describe the small-to-medium regime the benchmarks cover
+and should not be extrapolated to very large data. Prediction throughput is less
+affected; at two million rows it measured on par with LightGBM. The library's case
+rests on quality per unit of compute rather than minimum training time.
 
 **API stability.** The library is at version 0.x; names have been stable in practice
 but are not yet guaranteed.
@@ -293,9 +299,10 @@ TabArena figures are the leaderboard read of 2026-09-01
 (`benchmarks/tabarena/LEADERBOARD_SNAPSHOT.md`), the public-suite run is recorded in
 `benchmarks/PUBLIC_PLAN.md`, the quantile comparisons come from
 `benchmarks/quantile_suite.py` ([full tables](quantiles.md#how-it-compares)), and the
-out-of-fold calibration study is `benchmarks/quantile_oof_calibration.py`. Per-feature
-attributions for borrowed techniques are maintained on
-[the attribution page](attribution.md).
+out-of-fold calibration study is `benchmarks/quantile_oof_calibration.py`. The
+large-data scaling measurements come from `benchmarks/scaling_giant.py` and
+`benchmarks/scaling_predict.py`. Per-feature attributions for borrowed techniques are
+maintained on [the attribution page](attribution.md).
 
 ## References
 
