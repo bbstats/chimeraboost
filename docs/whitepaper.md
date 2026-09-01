@@ -11,14 +11,16 @@ dependencies (numpy, numba, scipy, and scikit-learn), with no compiled extension
 no GPU requirement. On TabArena, a community benchmark run by its own maintainers and
 treated here strictly as a held-out evaluation, ChimeraBoost's default configuration
 ranks second among gradient boosting libraries, behind CatBoost and well ahead of
-XGBoost and LightGBM, while training in under half of CatBoost's median time. Two
-techniques account for much of this position: a structure-replay refit that recovers
-the data withheld for early stopping at negligible cost, reducing total fit time by
-34.8% on a 59-dataset suite, and a gradient-matrix-free multi-quantile head that
-estimates a full grid of conditional quantiles in one booster, with predictions that
-provably never cross, at approximately the per-round cost of a single level. The
-library further provides exact TreeSHAP attributions, conformalized prediction
-intervals, and temperature-calibrated probabilities without external packages.
+XGBoost and LightGBM, while training in under half of CatBoost's median time. Much of
+the speed comes from a structure-replay refit: after early stopping, the selected tree
+structures are replayed against gradients computed on all rows, recovering the
+withheld validation data at negligible cost and reducing total fit time by 34.8% on a
+59-dataset suite. Beyond the point prediction that TabArena measures, the library also
+estimates full predictive distributions: a gradient-matrix-free multi-quantile head
+fits a grid of conditional quantiles in one booster, with predictions that provably
+never cross, at approximately the per-round cost of a single level. Exact TreeSHAP
+attributions, conformalized prediction intervals, and temperature-calibrated
+probabilities are provided without external packages.
 
 ## 1. Introduction
 
