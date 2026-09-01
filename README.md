@@ -3,7 +3,7 @@
 
 ### Lightning-fast Gradient Boosting, near-<a href="https://github.com/user-attachments/assets/3a63ecb0-2f18-41bd-8119-ce4e0ca9a86a" />Catboost quality</a>, all in Python
 
-📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/)
+📖 **Documentation:** [bbstats.github.io/chimeraboost](https://bbstats.github.io/chimeraboost/) · **Whitepaper:** [web](https://bbstats.github.io/chimeraboost/whitepaper/) / [PDF](https://github.com/bbstats/chimeraboost/raw/main/docs/whitepaper.pdf)
 
 <div align="center" markdown="1">
 <img width="532" height="428" alt="image" src="https://github.com/user-attachments/assets/1778b56f-e05e-4dfb-be93-1f0b66f15d98" />
