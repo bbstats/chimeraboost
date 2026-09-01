@@ -15,7 +15,10 @@ XGBoost and LightGBM, while training in under half of CatBoost's median time. Mu
 the speed comes from a structure-replay refit: after early stopping, the selected tree
 structures are replayed against gradients computed on all rows, recovering the
 withheld validation data at negligible cost and reducing total fit time by 34.8% on a
-59-dataset suite. Beyond the point prediction that TabArena measures, the library also
+59-dataset suite. Configuration choices that are usually the user's burden, such as
+whether leaves hold constants or linear models, are made during the fit by racing
+candidate configurations on validation data under a shared round budget. Beyond the
+point prediction that TabArena measures, the library also
 estimates full predictive distributions: a gradient-matrix-free multi-quantile head
 fits a grid of conditional quantiles in one booster, with predictions that provably
 never cross, at approximately the per-round cost of a single level. Exact TreeSHAP
@@ -40,21 +43,21 @@ The contributions are as follows:
 1. **A competitive pure-Python GBDT.** On the TabArena leaderboard the default
    configuration scores Elo 1297, second among gradient boosting libraries after
    CatBoost (1357) and ahead of XGBoost (1208) and LightGBM (1181), at a median
-   training time of 2.65 seconds per thousand rows against CatBoost's 5.88 (section 5).
+   training time of 2.65 seconds per thousand rows against CatBoost's 5.88 (section 7).
 2. **Structure-replay refit.** Early stopping withholds a validation fold, so the
    selected model has seen only part of the data. ChimeraBoost replays the selected
    tree structures against gradients computed on all rows, refitting leaf values only.
    This removed a step that had consumed 37 to 49% of every default fit and reduced
-   total fit time by 34.8% on the decision suite, with accuracy unchanged (section 3).
+   total fit time by 34.8% on the decision suite, with accuracy unchanged (section 4).
 3. **A gradient-matrix-free multi-quantile head.** A single booster estimates a grid
    of conditional quantiles (19 levels by default) with one tree structure per round
    and a vector-valued leaf. A projection collapses each row's K-channel pinball
    gradient to a scalar in one pass, so the (n × K) gradient matrix is never
    materialized and the head costs approximately what a single level costs per round.
-   Predictions are monotone across levels by construction (section 4).
+   Predictions are monotone across levels by construction (section 6).
 4. **An evaluation protocol with strict suite separation.** Development, tuning,
    published evidence, and external validation use disjoint dataset collections, and
-   the external leaderboard is never consulted when making changes (section 5).
+   the external leaderboard is never consulted when making changes (section 7).
 
 ## 2. System overview
 
@@ -75,13 +78,13 @@ through their own `to_numpy` method.
 **Automatic configuration.** Several decisions usually delegated to the user are made
 during the fit. Linear leaf models (Shi, Li and Li, 2019) are auditioned against
 constant leaves, and automatically generated cross features (Zhang et al., 2023)
-against plain features, in short races on a shared round budget; only the winner
-proceeds to full early stopping. The learning
-rate adapts to training set size, following the observation that dataset size is the
-one input CatBoost's own defaults respond to. Early stopping is enabled by default,
-and the stopped model is refit on all rows by structure replay. The remaining
-speed-accuracy choice is a single integer, `quality`, whose five settings were each
-measured to sit on the speed-accuracy frontier:
+against plain features, in short races on a shared round budget; section 5 details
+the mechanism. The learning rate adapts to training set size, following the
+observation that dataset size is the one input CatBoost's own defaults respond to.
+Early stopping is enabled by default, and the stopped model is refit on all rows by
+structure replay (section 4). The remaining speed-accuracy choice is a single
+integer, `quality`, whose five settings were each measured to sit on the
+speed-accuracy frontier:
 
 | `quality` | profile | fit time (default = 1x) |
 |---|---|---|
@@ -121,22 +124,98 @@ class, storing a class vector in each leaf (Iosipoi and Vakhrushev, 2022; Zhang 
 Jung, 2021). This made multiclass fits 2.5 times faster while improving Brier score by
 5% at equal F1. The same mechanism supplies the quantile head's per-leaf vector.
 
-**Structure-replay refit.** A model selected by early stopping has trained without
-the validation fold, and refitting from scratch on all rows had cost 37 to 49% of
-every default fit. Since growing trees accounts for 83 to 85% of fit time, ChimeraBoost
-instead replays the selected structure, applying the recorded splits round by round to
-gradients computed on the full data and refitting only the leaf values. On the
-59-dataset decision suite this reduced total fit time by 34.8%, with 58 of 59 datasets
-fitting faster and accuracy statistically unchanged on four independent suites.
-
 **Bagging without replacement.** The `n_ensembles` option fits members on 80%
 subsamples drawn without replacement, which outperformed the classical bootstrap on
 both accuracy and fit time in our comparisons. Members fit in parallel worker
 processes sharing one thread budget. With `refit_members=True`, each member is
-replayed on its full subsample; five refit members outperformed eight plain members on
-both accuracy and speed.
+replayed on its full subsample (section 4); five refit members outperformed eight
+plain members on both accuracy and speed.
 
-## 4. The multi-quantile head
+## 4. Structure-replay refit
+
+Early stopping poses a dilemma that every GBDT user quietly pays for. Choosing the
+tree count requires a validation fold, so the selected model has never trained on
+those rows; on small datasets the forgone data is material. The standard remedy,
+adopted by AutoGluon's `refit_full` (Erickson et al., 2020) among others, retrains
+from scratch on all rows once the count is known. It recovers the data at the price
+of a second fit: profiled on ChimeraBoost's own pipeline, that retrain consumed 37 to
+49% of every default fit, the single largest cost in the library.
+
+The remedy overpays. Growing trees, the histogram construction and split search,
+accounts for 83 to 85% of a fit, and a from-scratch retrain spends most of that
+budget rediscovering split structures the first model already found. An oblivious
+tree's structure is also unusually cheap to record: a depth-*d* tree is *d* (feature,
+threshold) pairs, independent of its leaf values. ChimeraBoost therefore replays
+rather than retrains. The recorded structures are applied round by round to gradients
+computed on the full data, and only the leaf values are refit by the usual Newton
+step, so the gradient sequence evolves exactly as boosting requires while the split
+search is never repeated. The held-out rows reach the leaf estimates, which is where
+the accuracy was lost, at approximately the cost of the leaf-estimation slice of a
+fit. Both halves of the idea exist separately in prior systems: refreshing leaf
+values on a fixed structure is XGBoost's `refresh` updater and LightGBM's `refit()`,
+and the full-data retrain after early stopping is established practice. Composing
+them, and making the composition the default rather than an option, is the
+contribution.
+
+One implementation subtlety is worth recording, because it is the kind of error that
+produces convincing wrong results. Split thresholds are bin indices, meaningful only
+under the binner that produced them, so the donor model's preprocessor must be reused
+verbatim. The first implementation refit the binner on the full data, which silently
+moved every threshold underneath the replayed structures; the apparent accuracy gains
+of that version were target leakage, and the project's leakage regression test caught
+it. The results below are from the corrected version.
+
+Measured on the 59-dataset decision suite, replay cut total default fit time by
+34.8%, with 58 of 59 datasets fitting faster; on the high-cardinality suite the
+saving was 15.2% (faster on 12 of 14), smaller because replay does not cover
+multiclass and categorical preprocessing is a fixed cost either way. Accuracy was
+statistically unchanged on four independent suites, with every median difference
+essentially zero (+0.005%, -0.017%, -0.043%, -0.114%), two of which played no part
+in the ship decision. The same machinery is reused wherever a model has withheld
+data: `refit_members` replays each bagged member on its full subsample, reclaiming
+what each member gave up to its own out-of-bag split.
+
+## 5. Selecting the configuration during the fit
+
+Several of ChimeraBoost's defaults are not fixed values but decisions, because the
+right answer is dataset-dependent. Whether leaves should hold ridge linear models
+(Shi, Li and Li, 2019) or constants depends on how much within-leaf structure the
+data carries; whether a block of generated cross features (Zhang et al., 2023) earns
+its width depends on how interaction-heavy the problem is. Standard practice
+delegates such choices to user-side cross-validation. ChimeraBoost instead treats
+each option as a candidate and races the candidates inside the fit, in the manner of
+Hoeffding races (Maron and Moore, 1993) and successive halving (Jamieson and
+Talwalkar, 2016).
+
+The mechanism is deliberately simple. Each candidate configuration trains on the same
+train/validation split for a shared budget of `selection_rounds` boosting rounds (100
+by default), candidates are judged on their best validation loss within the budget,
+and only the winner continues to full early stopping; a candidate that early-stops
+inside the budget has already completed its full fit. Racing makes fits about 1.5
+times faster than training every candidate to completion, and composes with section
+4: the winner, once early-stopped, is replayed on all rows, so a configuration chosen
+on partial evidence still ships as a full-data model.
+
+Two races run under this budget. The regressor auditions linear leaves against
+constant leaves (binary classification enables linear leaves directly, and below
+roughly 1,000 rows the audition is skipped in favor of constants). The second race
+refits with generated cross features, differences and products of the top-ranked
+numeric pairs plus group-centered columns of top numerics against top categoricals,
+and keeps whichever model validates better. Each decision is exposed afterward as a
+fitted attribute (`linear_leaves_selected_`, `cross_features_selected_`), so the
+configuration the race chose is inspectable rather than hidden.
+
+The budget itself is load-bearing, and we measured rather than assumed this. A
+25-round race was evaluated and rejected: validation loss that early in a fit
+misranks candidates often enough to hurt, and the full-data refit then amplifies the
+wrong pick rather than repairing it. Substituting a different selection statistic at
+25 rounds failed as well, which localized the harm to the shortened budget rather
+than the pick rule. At 100 rounds the audition's choices agree with full runs closely
+enough that the disagreements are within noise, and users who want the racing cost
+gone entirely can pin both decisions with `quality=1`, which is what buys that rung
+its 0.4x fit time.
+
+## 6. The multi-quantile head
 
 `ChimeraBoostQuantileRegressor` estimates a grid of conditional quantiles jointly.
 From one fitted grid the model answers several distributional queries at no additional
@@ -181,9 +260,9 @@ of independently fitted per-level models cannot produce this decomposition.
 split: against 19 independent LightGBM quantile boosters, CRPS was approximately tied
 (23 wins, 13 losses), while the interval score, a proper rule pricing coverage and
 width jointly, favored ChimeraBoost 31 to 5 at two thirds of the fit time. CatBoost's
-MultiQuantile won on CRPS; section 6 quantifies this.
+MultiQuantile won on CRPS; section 8 quantifies this.
 
-## 5. Evaluation
+## 7. Evaluation
 
 **Protocol.** Benchmark suites are assigned single, non-overlapping roles: a
 synthetic screen for mechanism checks; a decision suite (Grinsztajn et al., 2022, plus
@@ -244,7 +323,7 @@ statistically indistinguishable from CatBoost at about a sixth of CatBoost's fit
 on the median dataset, and the `quality=4` ensemble achieved the best average rank at
 just over a third of CatBoost's cost.
 
-## 6. Limitations
+## 8. Limitations
 
 **CRPS against CatBoost MultiQuantile.** CatBoost's shared quantile head won 29 of 36
 datasets on CRPS, a real deficit. It required a median 8.3 times ChimeraBoost's fit
@@ -274,7 +353,7 @@ rests on quality per unit of compute rather than minimum training time.
 **API stability.** The library is at version 0.x; names have been stable in practice
 but are not yet guaranteed.
 
-## 7. Availability
+## 9. Availability
 
 ChimeraBoost is available on PyPI (`pip install chimeraboost`, Python 3.9+) under the
 Apache-2.0 license.
@@ -309,6 +388,9 @@ maintained on [the attribution page](attribution.md).
 - Chen, T. and Guestrin, C. (2016). XGBoost: A scalable tree boosting system. *KDD*.
 - Chernozhukov, V., Fernández-Val, I. and Galichon, A. (2010). Quantile and
   probability curves without crossing. *Econometrica*.
+- Erickson, N., Mueller, J., Shirkov, A., Zhang, H., Larroy, P., Li, M. and Smola,
+  A. (2020). AutoGluon-Tabular: Robust and accurate AutoML for structured data.
+  *arXiv:2003.06505*.
 - Erickson, N. et al. (2025). TabArena: A living benchmark for machine learning on
   tabular data. *NeurIPS*.
 - Grinsztajn, L., Oyallon, E. and Varoquaux, G. (2022). Why do tree-based models
@@ -317,12 +399,16 @@ maintained on [the attribution page](attribution.md).
   gradient boosting. *NeurIPS*.
 - Iosipoi, L. and Vakhrushev, A. (2022). SketchBoost: Fast gradient boosted decision
   tree for multioutput problems. *NeurIPS*.
+- Jamieson, K. and Talwalkar, A. (2016). Non-stochastic best arm identification and
+  hyperparameter optimization. *AISTATS*.
 - Ke, G. et al. (2017). LightGBM: A highly efficient gradient boosting decision tree.
   *NeurIPS*.
 - Kohavi, R. and Li, C.-H. (1995). Oblivious decision trees, graphs, and top-down
   pruning. *IJCAI*.
 - Lundberg, S. et al. (2020). From local explanations to global understanding with
   explainable AI for trees. *Nature Machine Intelligence*.
+- Maron, O. and Moore, A. W. (1993). Hoeffding races: Accelerating model selection
+  search for classification and function approximation. *NeurIPS*.
 - Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A. V. and Gulin, A. (2018).
   CatBoost: Unbiased boosting with categorical features. *NeurIPS*.
 - Romano, Y., Patterson, E. and Candès, E. (2019). Conformalized quantile
