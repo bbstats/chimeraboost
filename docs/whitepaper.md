@@ -1,6 +1,6 @@
 # ChimeraBoost: Gradient Boosted Oblivious Trees in Pure Python
 
-**Version 0.32.0 · September 2026 · Apache-2.0 · [github.com/bbstats/chimeraboost](https://github.com/bbstats/chimeraboost)**
+**Version 0.33.0 · September 2026 · Apache-2.0 · [github.com/bbstats/chimeraboost](https://github.com/bbstats/chimeraboost)**
 
 ## Abstract
 
@@ -73,9 +73,10 @@ pandas is deliberately absent from the dependency list: DataFrames are consumed
 through their own `to_numpy` method.
 
 **Automatic configuration.** Several decisions usually delegated to the user are made
-during the fit. Linear leaf models are auditioned against constant leaves, and
-automatically generated cross features against plain features, in short races on a
-shared round budget; only the winner proceeds to full early stopping. The learning
+during the fit. Linear leaf models (Shi, Li and Li, 2019) are auditioned against
+constant leaves, and automatically generated cross features (Zhang et al., 2023)
+against plain features, in short races on a shared round budget; only the winner
+proceeds to full early stopping. The learning
 rate adapts to training set size, following the observation that dataset size is the
 one input CatBoost's own defaults respond to. Early stopping is enabled by default,
 and the stopped model is refit on all rows by structure replay. The remaining
@@ -91,8 +92,9 @@ measured to sit on the speed-accuracy frontier:
 | 5 | ensemble of 8 | 26.0x |
 
 **Interpretability and calibration.** The `shap_values` method computes exact
-interventional TreeSHAP attributions (Lundberg et al., 2020) with no external package
-and no sampling approximation, at roughly 3 ms per row at depth 6. Classifier
+interventional TreeSHAP attributions (Lundberg et al., 2020) with no external
+package; the computation is exact over its background set, which defaults to at most
+200 rows, and costs roughly 3 ms per row at depth 6. Classifier
 probabilities are temperature-scaled on the early-stopping fold; the transformation is
 monotone, leaving accuracy and AUC unchanged while improving calibration.
 
@@ -110,11 +112,13 @@ regularizer. Its cost is examined in section 6.
 bins by default), with gradients and hessians quantized to 15-bit integers following
 Shi, Ke et al. (2022). Integer histograms reduced fit time by 20 to 25% at unchanged
 accuracy in our measurements. Leaf values are always computed from exact
-floating-point gradients, and results are deterministic for a fixed seed.
+floating-point gradients, and results are deterministic for a fixed seed. When row
+subsampling is enabled, rows are drawn by minimum-variance sampling (Ibragimov and
+Gusev, 2019), which weights selection by gradient magnitude.
 
 **Vector leaves.** Multiclass models grow one tree per round rather than one per
 class, storing a class vector in each leaf (Iosipoi and Vakhrushev, 2022; Zhang and
-Jung, 2020). This made multiclass fits 2.5 times faster while improving Brier score by
+Jung, 2021). This made multiclass fits 2.5 times faster while improving Brier score by
 5% at equal F1. The same mechanism supplies the quantile head's per-leaf vector.
 
 **Structure-replay refit.** A model selected by early stopping has trained without
@@ -162,10 +166,11 @@ MultiQuantile (73% and 83%). With `conformalize=True` the intervals gain
 distribution-free marginal coverage by conformalized quantile regression (Romano,
 Patterson and Candès, 2019), measured within 2.7 percentage points of nominal at
 n = 10,000. An out-of-fold study on seven datasets confirmed the derived quantities:
-exceedance probabilities showed expected calibration error between 0.03 and 0.05,
-crossing remained zero everywhere, the raw grid's slight narrowness was confined to
-the outermost tail cells, and conformalization corrected precisely that, bringing 90%
-coverage to between 0.902 and 0.905 on the three worst datasets.
+exceedance probabilities showed expected calibration error from 0.029 to 0.051,
+crossing remained zero everywhere, and the raw grid's slight narrowness was confined
+to the outermost tail cells. Conformalization corrected precisely that, bringing 90%
+coverage to between 0.902 and 0.905 on the three worst datasets, at a cost of about
+one point of CRPS skill.
 
 **Attribution of interval width.** Because both edges of an interval come from one
 model, SHAP attributions can be computed for the width of an interval, identifying the
@@ -212,8 +217,11 @@ though CatBoost's predict time remains lower. The tuned-and-ensembled entry scor
 1360, marginally above CatBoost's default, using a search space that predates several
 of the library's current adaptive defaults. The top of the overall board is held by
 tabular foundation models near Elo 1750, pretrained networks in a different resource
-class. Since no TabArena result has ever influenced a change to the library, these
-figures constitute an out-of-sample evaluation.
+class. The evaluated entry ran version 0.30.0; the two releases since left
+default-configuration predictions unchanged bit for bit, so the accuracy figures
+carry over, and later speedups mean the timing column, if anything, understates the
+current version. Since no TabArena result has ever influenced a change to the
+library, these figures constitute an out-of-sample evaluation.
 
 **Public suite.** The published chart runs on 22 audited public datasets disjoint
 from all development data. In the most recent full run (three seeds, 21 of 22 datasets
@@ -229,7 +237,9 @@ scored):
 ![Strength versus fit-time slowdown on the public suite](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png)
 
 Each ChimeraBoost configuration is ranked in its own three-way contest against
-CatBoost and LightGBM, so 2.0 is the middle of the field. The default configuration
+CatBoost and LightGBM, so 2.0 is the middle of the field. Ranks are facet-balanced
+across task type, dataset size, and cardinality; the unweighted ranks, which favor
+CatBoost slightly, are recorded in the repository. The default configuration
 was statistically indistinguishable from CatBoost at less than a third of CatBoost's
 median fit time, and the `quality=4` ensemble achieved the best average rank while
 still costing less than a third of CatBoost.
@@ -320,5 +330,5 @@ attributions for borrowed techniques are maintained on
   regression trees. *IJCAI*.
 - Zhang, T. et al. (2023). OpenFE: Automated feature generation with expert-level
   performance. *ICML*.
-- Zhang, Z. and Jung, C. (2020). GBDT-MO: Gradient-boosted decision trees for
+- Zhang, Z. and Jung, C. (2021). GBDT-MO: Gradient-boosted decision trees for
   multiple outputs. *IEEE Transactions on Neural Networks and Learning Systems*.
