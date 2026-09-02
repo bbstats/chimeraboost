@@ -15,7 +15,7 @@ XGBoost and LightGBM, while training in under half of CatBoost's median time. Mu
 the speed comes from a structure-replay refit: after early stopping, the selected tree
 structures are replayed against gradients computed on all rows, recovering the
 withheld validation data at negligible cost and reducing total fit time by 34.8% on a
-59-dataset suite. Configuration choices that are usually the user's burden, such as
+59-dataset suite. Configuration choices that are usually left to the user, such as
 whether leaves hold constants or linear models, are made during the fit by racing
 candidate configurations on validation data under a shared round budget. Beyond the
 point prediction that TabArena measures, the library also
@@ -34,9 +34,9 @@ distance between an algorithmic idea and a testable implementation is large, and
 population of practitioners who can modify these systems is small. ChimeraBoost
 explores the opposite corner of the design space. The entire library is Python,
 roughly 11,700 lines across 13 modules, with numba supplying JIT-compiled kernels
-where the profile demands them. The question the project asks is whether a library
-built this way can be competitive with the compiled systems rather than merely
-convenient, and the evidence presented below suggests that it can.
+where profiling shows they are needed. The question is whether a library built this
+way can be competitive with the compiled systems rather than merely convenient, and
+the evidence presented below suggests that it can.
 
 The contributions are as follows:
 
@@ -72,7 +72,7 @@ statistics in the manner of CatBoost, averaged over four permutations, and may b
 addressed by column index or by DataFrame column name. Missing values receive a
 dedicated histogram bin at both fit and predict time, for numeric and categorical
 features alike. No one-hot encoding, imputation, or label encoding is required, and
-pandas is deliberately absent from the dependency list: DataFrames are consumed
+pandas is intentionally not a dependency: DataFrames are consumed
 through their own `to_numpy` method.
 
 **Automatic configuration.** Several decisions usually delegated to the user are made
@@ -133,32 +133,32 @@ plain members on both accuracy and speed.
 
 ## 4. Structure-replay refit
 
-Early stopping poses a dilemma that every GBDT user quietly pays for. Choosing the
-tree count requires a validation fold, so the selected model has never trained on
-those rows; on small datasets the forgone data is material. The standard remedy,
-adopted by AutoGluon's `refit_full` (Erickson et al., 2020) among others, retrains
-from scratch on all rows once the count is known. It recovers the data at the price
-of a second fit: profiled on ChimeraBoost's own pipeline, that retrain consumed 37 to
-49% of every default fit, the single largest cost in the library.
+Early stopping has a cost that is easy to overlook. Choosing the tree count requires
+a validation fold, so the selected model has never trained on those rows; on small
+datasets that lost data matters. The standard fix, adopted by AutoGluon's
+`refit_full` (Erickson et al., 2020) among others, retrains from scratch on all rows
+once the count is known. It recovers the data at the price of a second fit: profiled
+on ChimeraBoost's own pipeline, that retrain consumed 37 to 49% of every default fit,
+the single largest cost in the library.
 
-The remedy overpays. Growing trees, the histogram construction and split search,
-accounts for 83 to 85% of a fit, and a from-scratch retrain spends most of that
-budget rediscovering split structures the first model already found. An oblivious
+A full retrain does more work than the problem requires. Growing trees, the histogram
+construction and split search, accounts for 83 to 85% of a fit, and a from-scratch
+retrain spends most of that budget rediscovering split structures the first model
+already found. An oblivious
 tree's structure is also unusually cheap to record: a depth-*d* tree is *d* (feature,
 threshold) pairs, independent of its leaf values. ChimeraBoost therefore replays
 rather than retrains. The recorded structures are applied round by round to gradients
 computed on the full data, and only the leaf values are refit by the usual Newton
 step, so the gradient sequence evolves exactly as boosting requires while the split
-search is never repeated. The held-out rows reach the leaf estimates, which is where
-the accuracy was lost, at approximately the cost of the leaf-estimation slice of a
-fit. Both halves of the idea exist separately in prior systems: refreshing leaf
+search is never repeated. The held-out rows now contribute to the leaf estimates,
+which is where the accuracy was being lost, and the whole procedure costs
+approximately the leaf-estimation share of a fit. Both halves of the idea exist separately in prior systems: refreshing leaf
 values on a fixed structure is XGBoost's `refresh` updater and LightGBM's `refit()`,
-and the full-data retrain after early stopping is established practice. Composing
-them, and making the composition the default rather than an option, is the
-contribution.
+and the full-data retrain after early stopping is established practice. Combining
+the two, and enabling the combination by default, is the contribution here.
 
-One implementation subtlety is worth recording, because it is the kind of error that
-produces convincing wrong results. Split thresholds are bin indices, meaningful only
+One implementation detail deserves mention because getting it wrong produces
+convincing but invalid results. Split thresholds are bin indices, meaningful only
 under the binner that produced them, so the donor model's preprocessor must be reused
 verbatim. The first implementation refit the binner on the full data, which silently
 moved every threshold underneath the replayed structures; the apparent accuracy gains
@@ -177,24 +177,24 @@ what each member gave up to its own out-of-bag split.
 
 ## 5. Selecting the configuration during the fit
 
-Several of ChimeraBoost's defaults are not fixed values but decisions, because the
-right answer is dataset-dependent. Whether leaves should hold ridge linear models
-(Shi, Li and Li, 2019) or constants depends on how much within-leaf structure the
-data carries; whether a block of generated cross features (Zhang et al., 2023) earns
-its width depends on how interaction-heavy the problem is. Standard practice
+Several of ChimeraBoost's defaults are decisions rather than fixed values, because
+the optimal configuration depends on the dataset. Whether leaves should hold ridge
+linear models (Shi, Li and Li, 2019) or constants depends on how much within-leaf
+structure the data has; whether generated cross features (Zhang et al., 2023) improve
+the model depends on how interaction-heavy the problem is. Standard practice
 delegates such choices to user-side cross-validation. ChimeraBoost instead treats
 each option as a candidate and races the candidates inside the fit, in the manner of
 Hoeffding races (Maron and Moore, 1993) and successive halving (Jamieson and
 Talwalkar, 2016).
 
-The mechanism is deliberately simple. Each candidate configuration trains on the same
+The mechanism is simple. Each candidate configuration trains on the same
 train/validation split for a shared budget of `selection_rounds` boosting rounds (100
 by default), candidates are judged on their best validation loss within the budget,
 and only the winner continues to full early stopping; a candidate that early-stops
 inside the budget has already completed its full fit. Racing makes fits about 1.5
-times faster than training every candidate to completion, and composes with section
-4: the winner, once early-stopped, is replayed on all rows, so a configuration chosen
-on partial evidence still ships as a full-data model.
+times faster than training every candidate to completion, and it works together with
+the replay of section 4: the winner, once early-stopped, is replayed on all rows, so
+a configuration selected on partial data still produces a full-data model.
 
 Two races run under this budget. The regressor auditions linear leaves against
 constant leaves (binary classification enables linear leaves directly, and below
@@ -203,16 +203,16 @@ refits with generated cross features, differences and products of the top-ranked
 numeric pairs plus group-centered columns of top numerics against top categoricals,
 and keeps whichever model validates better. Each decision is exposed afterward as a
 fitted attribute (`linear_leaves_selected_`, `cross_features_selected_`), so the
-configuration the race chose is inspectable rather than hidden.
+selected configuration can be inspected after fitting.
 
-The budget itself is load-bearing, and we measured rather than assumed this. A
-25-round race was evaluated and rejected: validation loss that early in a fit
-misranks candidates often enough to hurt, and the full-data refit then amplifies the
-wrong pick rather than repairing it. Substituting a different selection statistic at
-25 rounds failed as well, which localized the harm to the shortened budget rather
-than the pick rule. At 100 rounds the audition's choices agree with full runs closely
-enough that the disagreements are within noise, and users who want the racing cost
-gone entirely can pin both decisions with `quality=1`, which is what buys that rung
+The size of the budget matters, and we verified this empirically. A 25-round race
+was evaluated and rejected: validation loss that early in a fit misranks candidates
+often enough to hurt, and the full-data refit then amplifies the wrong pick rather
+than repairing it. Substituting a different selection statistic at 25 rounds failed
+as well, indicating that the problem was the shortened budget rather than the
+selection rule. At 100 rounds the audition's choices agree with full runs closely
+enough that the disagreements are within noise, and users who want to skip the races
+entirely can pin both decisions with `quality=1`, which is how that setting reaches
 its 0.4x fit time.
 
 ## 6. The multi-quantile head
@@ -258,8 +258,9 @@ of independently fitted per-level models cannot produce this decomposition.
 
 **Comparison.** On the 36 datasets, with every method early-stopping on the same
 split: against 19 independent LightGBM quantile boosters, CRPS was approximately tied
-(23 wins, 13 losses), while the interval score, a proper rule pricing coverage and
-width jointly, favored ChimeraBoost 31 to 5 at two thirds of the fit time. CatBoost's
+(23 wins, 13 losses), while the interval score, a proper scoring rule that accounts
+for coverage and width jointly, favored ChimeraBoost 31 to 5 at two thirds of the
+fit time. CatBoost's
 MultiQuantile won on CRPS; section 8 quantifies this.
 
 ## 7. Evaluation
@@ -342,13 +343,13 @@ roughly 75% of ChimeraBoost's time at TabArena's scale, and the gap grows with r
 count: in internal measurements on synthetic data at a fixed tree count, the fit-time
 ratio to LightGBM widened from about 5x at 50,000 rows to roughly 10x at 500,000,
 because numba's generated histogram kernels do not match hand-tuned C++ SIMD. The
-absence of GPU support, a consequence of the pure-Python design, bites in exactly
-this regime: the compiled libraries all offer GPU training whose payoff arrives on
+absence of GPU support, a consequence of the pure-Python design, matters most in
+exactly this regime: the compiled libraries all offer GPU training whose payoff arrives on
 datasets of millions of rows, and no pure-Python counterpart exists. The fit-time
 comparisons in this paper describe the small-to-medium regime the benchmarks cover
 and should not be extrapolated to very large data. Prediction throughput is less
-affected; at two million rows it measured on par with LightGBM. The library's case
-rests on quality per unit of compute rather than minimum training time.
+affected; at two million rows it measured on par with LightGBM. ChimeraBoost targets
+quality per unit of compute rather than minimum training time.
 
 **API stability.** The library is at version 0.x; names have been stable in practice
 but are not yet guaranteed.
