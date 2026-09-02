@@ -10,7 +10,9 @@ changed since.*
 > Grinsztajn members), decisions now run on synthetic → Grinsztajn + high-card with
 > per-stratum sign tests (`run_benchmarks.py --decide`), the 22-dataset public suite
 > is post-hoc validation only, and **TabArena is the one sealed holdout** (official
-> leaderboard Elo 1278, rank 31/68, 2026-07-23). Headline strength axis is
+> leaderboard Elo 1297 default / 1360 tuned+ensembled, 2026-09-01, site-default
+> imputation_yes slice — see
+> `benchmarks/tabarena/LEADERBOARD_SNAPSHOT.md`). Headline strength axis is
 > skill scores split by task — Brier skill and R² (since 2026-08-02). Major features shipped since this
 > briefing: quantized histograms (default-on), the SELECT `quality` ladder with
 > `refit_full` and the REPLAY structure-transfer refit (default-on), A1 vector-leaf
