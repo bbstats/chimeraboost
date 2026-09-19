@@ -265,6 +265,32 @@ axis, so both "do less of the audition" doors are now shut.
 
 ---
 
+### B17 — Sub-gate CV-averaged selection races at chance
+tags: cv, race, subgate, audition, small-data, cross-features
+
+Below the 2000-row gate the single validation split is too small to referee
+cross features (B1) — but averaging the referee over 3 stratified folds
+does not repair it either: on the synth screen the CV-averaged race picked
+the augmented model on 10 sub-gate multiclass sets and was right on
+exactly 5 (engaging median −0.22%), while each engaging set paid 3-7x the
+base fit (B12: short fits run ~full rounds, so 6 fold-fits cost ~5 full
+fits). ~110-row validation slices stay noisy even averaged; a cheaper or
+cleverer referee doesn't fix a signal that thin. Worse than imprecise, the
+referee is unstable: one set's decision flips between two identical runs
+(aug-pick in one, decline in the rerun). The one bright thread (a +17.76%
+win where interaction depth runs high; OLS t+2.90 on interaction_depth) is
+a dataset-selection question for a future family, not a reprieve:
+precision over the engaging slice was 50%.
+
+Consequence: do not propose re-refereeing below-gate selection with CV
+averaging (or more folds thereof). If the geometry-prize thread is ever
+taken up, it starts as a dataset-gating claim with its own S1, not as F2.
+
+*Incident*: `CAMPAIGN_PLAN.md` F2, I016 (S1 thin pass, +1.20% on one real
+set) → I017 (S2 5/5 flat, killed); screen `results/f2s2-20260918.json`.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured

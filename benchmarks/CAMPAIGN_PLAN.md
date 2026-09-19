@@ -24,6 +24,8 @@ A shipped preset is a frontier win but not a default win.
 - Environment: the working python is `A:\code\miniconda3\python.exe` (PATH `python` is a bare 3.10 with nothing installed).
 - No entry in this file may say PENDING once the underlying run is resolved.
 - Int-exact per-histogram ≠ bit-identical end-to-end (op order feeds gains/tie-breaks). Any "exact" kernel change runs `identity_snapshot.py` first; identical → pure-speed ladder; not → FP-drift class → S2 with the Brier read.
+- Standing numerical-drift policy (the maintainer, 2026-09-18): an algorithm-changing revision may carry last-bit drift provided it is monitored (identity-snapshot diff quantified, not silently absorbed), reported (both axes in the verdict), and gate-evidenced to improve over time. Pure rewrites that drift without changing the algorithm stay on the ladder above.
+- Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 
 ## Screening ladder
 
@@ -84,6 +86,11 @@ fact: 2026-08-16 | inside one `_softmax` call at (32377,3): the `max` reduce is 
 fact: 2026-08-16 | softmax candidates: in-place `out=` ufuncs 1.01× (no effect, temporaries were never the cost); numpy column-fold 0.48×; numba fused with reciprocal-multiply 0.03× but drifts at every K; **numba fused with true divide 0.03× (32×) and bit-identical at K ≤ 7**
 fact: 2026-08-16 | the bit-identity boundary for any hand-folded sum over the class axis is **K ≤ 7**, measured over K=2..50 — numpy's pairwise summation starts blocking at K=8. `max` never drifts at any K.
 fact: 2026-08-16 | attribution on 7684655 (`results/campaign-attr-20260816.{json,md}`): cross-audition leg = 40–58% of fit on engaged sets (nyc-taxi 52%, road-safety 58%, diamonds 46%); ll selected 12/12, cross 24/27; race truncation at k=100 keeps 24/24 cross picks; okcupid-stem multiclass "other" (non-kernel) = 50.5% of fit; hc prep_other+ts_enc ~12–28%
+fact: 2026-09-18 | strength-first program approved (Pareto plan, Muse session): F2 S1 probe → beam refill (L1 rescoped to loss-slice profiling, speed out of scope) → S1–S4 ladder; drift ruling above is its standing policy
+fact: 2026-09-18 | tree state at kickoff: branch `whitepaper` (13 ahead / 1 behind origin/main), 43-file prose-only working diff; `chimeraboost/` + `tests/` identical to origin/main, so measurement on this tree reads main's code — branch left untouched
+fact: 2026-09-18 | bench lane clear (no run in flight); `results/` newer than last entry: `quantile-20260830-175359.json` (quantile-suite instrument, 0.32 record lives in CHANGELOG — not a default-loop run)
+fact: 2026-09-18 | HARNESS WART (fix wanted, out of this program's scope): `--save <explicit .json path>` points the console tee and the JSON sidecar at the same file and corrupts the write (I017 attempt 1). Until fixed: always use bare `--save` and copy/rename after. A rejected-or-derived guard belongs in run_benchmarks.py with a test.
+fact: 2026-09-18 | sub-gate 3-fold CV race costs 3-7x the base fit on engaging sets (mean ~5x; declined-after-folds sets pay too, no-pairs sets are free) — B12 instance, measured in `results/f2s2-20260918.json`
 
 ## Beam
 
@@ -91,7 +98,7 @@ fact: 2026-08-16 | attribution on 7684655 (`results/campaign-attr-20260816.{json
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 shipped) | C1 SHIPPED (I012/I013): fused softmax kernel, bit-identical, multiclass fit −37 to −44%. C1b measured and PARKED (I014): ceiling 4.4–7.5%, cheap but hc-only — Nathan's call vs F2 |
-| F2 | Sub-gate cross via CV-averaged race | ACTIVE | S1 probe script (S0 re-scoped it, I002) |
+| F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | ACTIVE | S1 probe of classifier pair fidelity (S0 done, I004); behind F4/F2 |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
 
@@ -110,13 +117,16 @@ barriers: B14, B2 — clearing argument owed at S0: B14 closed the audition ROUN
 next: none — closed. The knob (`cross_top_columns`, default-off, bit-identical unset) and the arms (`ChimeraBoostXTop6`/`XTop12`) stay in the tree as the instrument that produced B16.
 kill (the bar it hit): any synth slice where the screen changes a cross PICK (not just cost) with strength loss; or S3 regression stratum sign-test fail at default quality
 
-### F2 — Sub-gate cross eligibility via a CV-averaged race (re-scoped at S0, was: lower the row gate)
+### F2 — Sub-gate cross eligibility via a CV-averaged race (KILLED I017)
 status: ACTIVE
 hypothesis: sets below `CROSS_MIN_SAMPLES=2000` (`sklearn_api.py:1283`) — eucalyptus first — can earn cross features IF the race signal is repaired by CV-averaging (cheap at that size); a plain threshold drop is barred by B1's mechanism (untrustworthy small val split) + B2 (refit amplifies mispicks)
 parent-evidence: M1 record 2026-07-17 (eucalyptus = biggest hc CatBoost gap, below gate; recorded follow-up); I002
 barriers: B1 (cleared only via the signal-quality mechanism), B2 (judge at rung 3), B14 (inapplicable — signal quality, not budget)
 kill: the S1 probe shows the CV-averaged race still mispicks on sub-gate sets (test metric not improved by its picks)
-next: S1 = zero-library-change probe (see I002)
+verdict: KILLED — S1 passed thin (+1.20% on one real set, I016), S2 flat
+(5/5 engaged, median −0.22%, I017). CV-averaged refereeing over ~110-row
+slices is chance-level (B17); the family is closed, the branch goes
+unmerged.
 
 ### F3 — Classifier forced-cross ("always")
 status: ACTIVE
@@ -157,6 +167,118 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I017 2026-09-18 F2 S2 (synth screen of the sub-gate flag; pre-registered)
+barrier re-check on the concrete design: B16 inapplicable (the full
+candidate block is carried; only the referee changes); B1 cleared at I002
+(CV repairs the signal, the threshold stays); B6 a spurious keyword match
+(a mechanism, not a tuning sweep); B12 applies — cost is priced from this
+screen; B14 a different axis (I002); B7 inapplicable (plain K-fold refits
+average a binary decision — no shared structure across folds, no OOF reuse
+for fitting, unlike the killed shadow-CV leaf tuner); B2 rides to S3 (judge
+at rung 3 with a mispick watch).
+flag verified before screening: 9 focused tests green, ruff clean on the
+library (0.15.17; pinned 0.16.5 unrunnable in this sandbox — noted for the
+PR), identity snapshot 155/155 with the flag off, full suite 1061 passed +
+1 skipped (the skip is pre-existing).
+forecast: strength — the engaging slice (sub-gate multiclass) reads
+positive (S1 showed +1.20% on real data); every non-engaging dataset an
+exact tie. Cost — about 6 small fits per engaging set; low single digits
+there, zero elsewhere (report-only at S2).
+pass bars, in order: 1 exact-tie control — every regression, binary, and
+above-gate multiclass dataset an exact tie; a single non-tie voids the
+screen as an implementation bug. 2 direction — the engaging slice positive
+by majority and median. 3 canary slice not positive. 4 cost recorded.
+ran: `run_benchmarks.py --synth --seeds 3 --models ChimeraBoost
+ChimeraBoostSubgate` from branch f2/subgate-race (worktree), auto
+timestamped save, scored with compare_runs.py + synth_report.py on the same
+file via --model/--model-new with --expect-inert. First attempt passed
+`--save results/f2s2-20260918.json` explicitly, which collided the console
+tee with the JSON sidecar (same path) and corrupted the file mid-write;
+reran with the default save and copied the JSON across (byte-validated).
+Console of attempt 1 kept as `f2s2-20260918-attempt1.log` (its printed
+numbers are valid; only the file write was corrupt).
+verdict: FAIL → KILL F2. Bar 1 PASS — all 10 non-ties are sub-gate
+multiclass (n_train < 2500, i.e. below the gate at race time); the other
+126 read as exact ties, including all 48 crossfeat-scope sets where the
+shipped race runs — the shipped path is untouched. Bar 2 FAIL — engaging
+slice 5 wins / 5 losses with median −0.22%: the race is a coin flip where
+it engages. Bar 3 PASS — canary&cats 0-0-3 flat (saturated 2-0 at +0.044%
+noted, both near-perfect scores). Bar 4 recorded — engaging sets cost 3-7x
+the base fit (mean ~5x); declined-after-folds sets pay too; only no-pairs
+sets are free. Forecast 1/3: ties HIT, direction MISS, cost MISS (the
+folds run ~full rounds — B12's exact warning, not applied to the
+forecast). Mechanism of death: ~110-row validation slices stay too noisy
+to referee even averaged over 3 folds (50% engaged precision); S1's thin
++1.20% on 3 fits did not replicate. Extra nail: syn:v2/117's decision
+flips between two identical runs (aug-pick in attempt 1, decline in the
+rerun) — the referee is knife-edge unstable, not just imprecise. Bright
+thread for the refill (not a reprieve): gains concentrate with interaction
+depth (OLS t+2.90; depth>=3 slice 4-3 at +0.257% vs depth<=2 1-2 at
+−0.067%) — a dataset-gating claim would need its own S1. Confidences:
+dead-on-decision-suites high; S1 likely noise on 3 fits.
+next: F2 closed. Worktree branch f2/subgate-race kept until the maintainer
+confirms the kill, then deleted unmerged (nothing ships from a killed
+family; the probe + this record are the durable artifacts).
+
+#### I016 2026-09-18 F2 S1 (sub-gate CV-averaged race probe; pre-registered)
+forecast: strength — eucalyptus is the biggest hc CatBoost gap and crosses
+are loss-agnostic geometry, so oracle headroom should exist; whether 3-fold
+CV over ~110-row validation slices repairs the race signal is genuinely
+uncertain. Expectation: oracle positive, CV directional but thin. Cost —
+probe only, unmeasured at S1 (sub-gate fits are seconds; a 3-fold race there
+is affordable by inspection).
+kill bars (in order): 0 headroom — oracle-over-plain test-Brier mean ≥
++0.2% on the 3 gap fits, else KILL as "nothing to win". 1 signal — cvrace
+beats plain on ≥2/3 gap fits with positive mean, else KILL as "signal
+unrecoverable". 2 canary — no CV-picked augmented loss beyond −0.1% on any
+cjs fit. 3 control — CV pick == single pick on ≥2/3 okcupid fits.
+ran: `benchmarks/probe_subgate_race.py` (new; inner MulticlassBoosting at
+production config, production pair proposal, fixed pair set, uncalibrated
+multiclass Brier).
+verdict: PASS (thin). Bar 0 headroom PASS — oracle +1.92% mean on the
+gap fits, a real prize (aug wins 2/3 seeds). Bar 1 signal PASS at exactly the
+bar — cvrace 2/3 with mean +1.20%, one genuine mispick (s0 −2.16%). Bar 2
+canary: the %-bar is void on a saturated set (Brier ~3e-08; near-solved
+doctrine), the absolute read is −5.6e-10 mean = noise floor, no invented
+signal — but note CV picked aug 1/3 where single-split picked 0/3 (dither,
+not signal). Bar 3 control PASS — 2/3 agreement, and the one disagreement
+(okcupid s2) favored CV (+0.34% vs +0.00%). Forecast: HIT. Two caveats ride
+to S2: (a) CV and single-split picked identically on the gap set, so no
+CV-over-single repair is demonstrated yet — the CV-vs-plain-threshold design
+choice still rests on B1's mechanism, not this probe; (b) per B2 the s0
+mispick would propagate under the rung-3 refit, so S3 must run at the
+shipped default with a mispick watch. Instrument note: the probe first
+rounded metrics to 8 decimals, which corrupted the canary read — caught on
+the first print, fixed to full precision with an absolute-delta guard, rerun.
+next: spec the sub-gate CV-race flag (default-off) with tests; S2 synth
+screen vs default.
+
+#### I015 2026-09-18 re-baseline (canonical chart-grade decide run on 0.32.0)
+forecast: measurement, not an experiment — no arms, no verdict bars. Expected
+reads: default accuracy ≈ the 08-02 chart (no default-strength change since the
+adaptive learning rate); default slowdown a touch down (the 0.31 wins are
+multiclass/string-cat only, so Grinsztajn barely moves); rung 1 now OneLinX
+(the E2 ship) near 2.7x; bagged rungs slightly cheaper on multiclass/string-cat
+sets. Any default-point move beyond noise is a finding, not a win.
+ran: `run_benchmarks.py --decide --seeds 3 --save` on branch `whitepaper`
+(library verified identical to origin/main), field ChimeraBoost / OneLin /
+OneLinX / NoRefit / Ens5 / Ens8 / CatBoost / LightGBM / sklearn_HGB, scratch
+python, explicit go from the maintainer 2026-09-18.
+verdict: READ (`results/20260918-170822.json`, 309/309 in 93 min; the
+process exited 1 AFTER saving — no traceback, no sys.exit in the harness,
+progress sidecar "done", JSON valid, charts regenerated — recorded as a
+spurious teardown code). Charts refreshed from the new run. Default still the
+best non-bagged rung on both panels (clf skill 0.4036 @ 3.5x vs NoRefit
+0.3980; reg R2 0.7330 @ 4.3x vs NoRefit 0.7280). CatBoost dominated on both
+(clf 0.4057 @ 66x under Ens5 0.4081 @ 7.1x; reg 0.7287 @ 82x under the
+default). New rung 1 reads above old on regression (OneLinX 0.7263 @ 2.0x vs
+OneLin 0.7237 @ 1.4x) with the predicted exact clf tie (0.3955 both);
+LightGBM is now dominated on regression by OneLin. Caveat: HGB's 0.4349 clf
+skill is a subset artifact (it skips the high-card sets it cannot fit, so it
+averages over easier survivors) — never quote as a league position.
+Forecast: HIT.
+next: done — Phase 1 F2 S1 probe (I016).
 
 #### I014 2026-08-16 F4 S0 (candidate C1b — grad_hess fusion; ceiling measured, PARKED)
 forecast: n/a in the strength sense (measurement). The stated prior in I013 was
