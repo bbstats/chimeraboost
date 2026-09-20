@@ -388,6 +388,24 @@ After fitting, `validation_history_` holds the per-round validation loss, and th
 regressor's `staged_predict(X)` yields the prediction after each successive tree. It
 is not defined for a bagged ensemble.
 
+## Grouped data: random intercepts
+
+When rows cluster into groups (users, stores, subjects) with their own level
+shifts, a plain categorical burns tree depth isolating IDs. `random_effects`
+fits one shrunk intercept per group instead; small groups pool toward zero
+while large groups stand on their own means.
+
+```python
+reg = ChimeraBoostRegressor(random_effects=True, random_state=0)
+reg.fit(X_train, y_train, groups=subject_ids)   # group column stays out of X
+pred = reg.predict(X_test, groups=test_subject_ids)  # unseen groups add 0
+print(reg.group_intercepts_, reg.group_ratio_)
+```
+
+RMSE single models only; `predict` without `groups=` returns the trees-only
+part. With the flag off (default) the `groups=` argument only shapes the
+validation split, as above.
+
 ## Calibrated probabilities
 
 `predict_proba` is temperature-scaled on the validation split to minimize log loss.

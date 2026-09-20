@@ -9,6 +9,9 @@ import numpy as np
 from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
                       MulticlassBoosting, _thread_limit)
 from .preprocessing import CatTransformCache, as_model_array
+from .random_effects import (codes_for_labels, estimate_ratio_reml,
+                             solve_intercepts)
+from .target_encoding import factorize
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
@@ -57,7 +60,7 @@ _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "cat_features", "cross_features",
                            "cross_top_columns",
                            "selection_rounds", "refit_full", "refit_members",
-                           "quality"})
+                           "quality", "random_effects"})
 
 # --- quality: named operating points on the strength/slowdown Pareto --------
 # Evidence: benchmarks/SELECT_PLAN.md. Every recipe only pins parameters that
@@ -884,6 +887,36 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
                 sample_weight = sample_weight[train_idx]
 
     return es_active, auto_split, X, y, sample_weight, eval_set
+
+
+def _factorize_groups(groups, n_rows):
+    """Factorize fit-time group labels into ``0..G-1`` codes.
+
+    One label per row is required -- a length mismatch fails here with the
+    row counts named, instead of cryptically inside the splitter. Returns
+    ``(codes, labels)`` in ``factorize`` first-appearance order.
+    """
+    g = np.asarray(groups, dtype=object)
+    if g.ndim != 1 or g.shape[0] != n_rows:
+        raise ValueError(
+            f"groups must have one label per training row ({n_rows},); got "
+            f"shape {g.shape}.")
+    return factorize(g)
+
+
+def _solve_group_offsets(model, X_full, y_full, sw_full, codes_full,
+                         n_groups):
+    """Intercepts + variance ratio against a fitted booster on full rows.
+
+    Scores ``model`` (trees-only) on every row and solves the empirical-Bayes
+    intercepts from those residuals -- the random-effects top-up, covering
+    every group in X including auto-split val groups. Returns ``(b, ratio)``.
+    """
+    resid = (np.asarray(y_full, dtype=np.float64)
+             - model.predict_raw(X_full))
+    ratio = estimate_ratio_reml(resid, codes_full, n_groups, sw_full)
+    return (solve_intercepts(resid, codes_full, n_groups, ratio, sw_full),
+            ratio)
 
 
 def _extract_feature_names(X):
@@ -2080,6 +2113,16 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         called without its own ``cat_features`` (the fit argument overrides).
         Provided as a constructor argument so ``GridSearchCV``/``Pipeline`` can
         carry it.
+    random_effects : bool, default False
+        Fit a random intercept per group: the model becomes ``F(X) + b_g``,
+        trees for the global part plus one shrunk intercept per group from
+        ``fit(..., groups=...)``. For grouped data (users, stores, clinics,
+        panel IDs) where a plain categorical burns tree depth isolating IDs.
+        Shrinkage is empirical-Bayes under a REML variance ratio, so small
+        groups pool toward zero while large groups stand on their own means.
+        ``predict`` takes the row groups and adds the fitted intercepts;
+        unseen groups get exactly 0. Slice 1: ``loss="RMSE"`` single models
+        only (not ``n_ensembles > 1``).
 
     Attributes
     ----------
@@ -2109,6 +2152,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     linear_leaves_selected_ : bool or None
         With ``linear_leaves=None``, whether the linear-leaf variant won the
         validation selection. ``None`` when no selection took place.
+    group_intercepts_ : ndarray of shape (n_groups,) or None
+        Fitted random intercepts in ``group_labels_`` order. ``None`` unless
+        fit with ``random_effects=True``.
+    group_labels_ : ndarray of shape (n_groups,) or None
+        Fit-time group labels the intercepts align with. ``None`` unless fit
+        with ``random_effects=True``.
+    group_ratio_ : float or None
+        Fitted noise-to-group variance ratio (``inf`` means no group signal
+        was found). ``None`` unless fit with ``random_effects=True``.
     """
 
     # cross_features="always" (the unrefereed forced mode) is regressor-only:
@@ -2134,7 +2186,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
                  refit_full="replay", refit_members=False, quality=None,
-                 adaptive_learning_rate=True):
+                 adaptive_learning_rate=True, random_effects=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -2175,6 +2227,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # Size fade for the auto learning rate, default-on since 0.30.0; only
         # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
+        self.random_effects = random_effects
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -2194,10 +2247,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             Explicit validation set. When provided, automatic splitting is
             skipped regardless of the *early_stopping* setting.
         groups : array-like of shape (n_samples,) or None
-            Group labels for the samples (e.g. ``df['subject_id']``). When
-            supplied and *early_stopping* triggers an automatic split, groups
-            are kept intact across the train/validation boundary using
-            ``GroupShuffleSplit``.
+            Group labels for the samples (e.g. ``df['subject_id']``). With
+            the default ``random_effects=False``, groups shape the
+            automatic validation split: each group stays intact across
+            the train/validation boundary (``GroupShuffleSplit``). With
+            ``random_effects=True`` the split is random instead, and the
+            groups get one shrunk intercept each, added to predictions
+            by ``predict(X, groups=...)``.
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights, normalized to mean 1 internally. Applied
             throughout: the gradient/leaf fit, the categorical target encoder,
@@ -2218,6 +2274,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                 classification=False)
         # Cached shap_importances describe the previous fit; drop them.
         self._shap_importances_cache_ = None
+        # Random-effects state from any previous fit is stale now.
+        self.group_intercepts_ = None
+        self.group_labels_ = None
+        self.group_ratio_ = None
 
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
@@ -2230,6 +2290,20 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 _check_feature_names_match(self, eval_set[0])
 
         with _quality_applied(self):
+            if self.random_effects:
+                if self.loss != "RMSE":
+                    raise ValueError(
+                        "random_effects=True is only supported with "
+                        f"loss='RMSE' in slice 1; got {self.loss!r}.")
+                if groups is None:
+                    raise ValueError(
+                        "random_effects=True needs fit(..., groups=...) -- "
+                        "there is nothing to fit intercepts for without "
+                        "group labels.")
+                if self.n_ensembles and self.n_ensembles > 1:
+                    raise ValueError(
+                        "random_effects=True is not supported with "
+                        "n_ensembles > 1 in slice 1; fit a single model.")
             if self.n_ensembles and self.n_ensembles > 1:
                 if callbacks is not None:
                     raise ValueError(
@@ -2366,11 +2440,29 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
         self._warn_inert_loss_knobs()
 
+        # Random intercepts (issue #109): factorize the full-X groups once;
+        # the top-up solve after the refit needs codes for every row.
+        re_active = bool(self.random_effects)
+        if re_active:
+            group_codes_full, self.group_labels_ = _factorize_groups(
+                groups, len(X))
+            n_re_groups = len(self.group_labels_)
+            # The winner is a PLAIN fit (no b exists during training), so it
+            # validates on a random split like one: a group split would hold
+            # out whole unseen groups whose means F cannot predict, flooring
+            # the val curve and blinding early stopping (gate finding: 48
+            # trees vs 252 on gsyn:base). Groups enter only at the solve.
+            groups_for_split = None
+        else:
+            group_codes_full, n_re_groups = None, None
+            groups_for_split = groups
+
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
         es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
-            self, X, y, sample_weight, eval_set, groups, stratify=None)
+            self, X, y, sample_weight, eval_set, groups_for_split,
+            stratify=None)
 
         self._warn_ll_shadow_knobs(X)
 
@@ -2424,8 +2516,29 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
         self.quantile_offset_ = self._conformal_quantile_offset(eval_set)
 
-        self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full, sw_full,
-                                 cat_features, auto_split)
+        y_full_for_refit = y_full
+        if re_active:
+            # Refinement riding the refit: the winner already learned X on
+            # raw y (the good equilibrium -- MERF order), so solve b against
+            # it and let the refit train on the group-adjusted target. When
+            # no refit runs this is skipped and the top-up below stands
+            # alone (still sound: pure post-only).
+            b_pre, _ = _solve_group_offsets(
+                self.model_, X_full, y_full, sw_full, group_codes_full,
+                n_re_groups)
+            y_full_for_refit = (np.asarray(y_full, dtype=np.float64)
+                                - b_pre[group_codes_full])
+        self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full_for_refit,
+                                 sw_full, cat_features, auto_split)
+
+        if re_active:
+            # The top-up: solve the intercepts once against the FINAL model
+            # on the FULL rows (raw y -- the solve differences F itself) --
+            # after any refit -- so every group in X carries an intercept,
+            # including auto-split val groups.
+            self.group_intercepts_, self.group_ratio_ = _solve_group_offsets(
+                self.model_, X_full, y_full, sw_full, group_codes_full,
+                n_re_groups)
 
         return self
 
@@ -2644,7 +2757,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``quantile_offset_``. For the log-link losses (Poisson/Gamma/Tweedie)
         and custom losses with a non-identity ``transform`` it is the pre-link
         score -- the space ``shap_values`` reconstructs exactly. Averaged across
-        the bag when ``n_ensembles > 1``, mirroring ``predict``.
+        the bag when ``n_ensembles > 1``, mirroring ``predict``. With
+        ``random_effects=True`` this stays trees-only -- group intercepts are
+        added by ``predict`` only, so SHAP rows still sum here exactly.
         """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
@@ -2656,7 +2771,40 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                 for m in self.estimators_], axis=0)
         return self.model_.predict_raw(X)
 
-    def predict(self, X):
+    def _group_offsets(self, groups, n_rows):
+        """Random-intercept offsets for predict-time group labels.
+
+        Returns None when no offsets apply: a model fit without random
+        effects and asked with ``groups=None``, or an RE model asked F-only.
+        Raises when groups are passed to a model that has no intercepts, or
+        the length mismatches the prediction rows. Unseen labels score 0.
+        """
+        if getattr(self, "group_intercepts_", None) is None:
+            if groups is not None:
+                raise ValueError(
+                    "groups=... was passed to predict, but this model was "
+                    "fit without random_effects=True and has no group "
+                    "intercepts.")
+            return None
+        if groups is None:
+            return None
+        codes = codes_for_labels(groups, self.group_labels_)
+        if codes.shape[0] != n_rows:
+            raise ValueError(
+                "groups must have one label per prediction row "
+                f"({n_rows},); got {codes.shape[0]}.")
+        off = np.zeros(n_rows, dtype=np.float64)
+        seen = codes >= 0
+        off[seen] = self.group_intercepts_[codes[seen]]
+        return off
+
+    def predict(self, X, groups=None):
+        """Predict regression targets.
+
+        ``groups`` (labels matching ``fit``'s) adds the fitted random
+        intercept per row; unseen labels get exactly 0. ``None`` returns the
+        trees-only prediction even for a random-effects model.
+        """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
 
@@ -2667,18 +2815,22 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             # prediction is the mean of the member predictions.
             with _thread_limit(self.thread_count):
                 Xc, ctx = _bag_predict_context(self, X)
-                return np.mean(
+                base = np.mean(
                     [m._transform_raw(m.model_.predict_raw(Xc, ctx))
                      + m.quantile_offset_
                      for m in self.estimators_], axis=0)
-        return self._transform_raw(self.model_.predict_raw(X)) \
-            + self.quantile_offset_
+        else:
+            base = (self._transform_raw(self.model_.predict_raw(X))
+                    + self.quantile_offset_)
+        off = self._group_offsets(groups, base.shape[0])
+        return base if off is None else base + off
 
-    def staged_predict(self, X):
+    def staged_predict(self, X, groups=None):
         """Yield the prediction after each successive tree.
 
         The conformal quantile offset is a post-fit constant and is included in
-        every stage, so the final stage equals ``predict``.
+        every stage, so the final stage equals ``predict``. ``groups`` adds the
+        fitted random intercepts (constant across stages) the same way.
         """
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
@@ -2687,8 +2839,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             raise NotImplementedError("staged_predict is not defined for a "
                                       "bagged ensemble (n_ensembles > 1).")
 
+        off = None
+        started = False
         for staged in self.model_.staged_predict_raw(X):
-            yield self._transform_raw(staged) + self.quantile_offset_
+            if not started:
+                # Sized from the first stage's row count.
+                off = self._group_offsets(groups, staged.shape[0])
+                started = True
+            base = self._transform_raw(staged) + self.quantile_offset_
+            yield base if off is None else base + off
 
     @property
     def best_iteration_(self):
@@ -2712,18 +2871,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             return [m.model_.valid_history_ for m in self.estimators_]
         return self.model_.valid_history_
 
-    def report(self, X, y, sample_weight=None, baseline=None):
+    def report(self, X, y, sample_weight=None, baseline=None, groups=None):
         """Score this model on ``(X, y)``: RMSE, MAE and the R2 skill score.
 
         Returns the `chimeraboost.metrics.regression_report` dict;
         `chimeraboost.metrics.format_report` prints it. ``baseline`` sets what
         the skill score is measured against -- pass the training targets to
         score against the mean the model actually had, rather than the
-        hindsight mean of ``y``.
+        hindsight mean of ``y``. ``groups`` adds random intercepts before
+        scoring; without it a random-effects model reports F-only.
         """
         from . import metrics
-        return metrics.regression_report(y, self.predict(X), sample_weight,
-                                         baseline)
+        return metrics.regression_report(y, self.predict(X, groups=groups),
+                                         sample_weight, baseline)
 
     @property
     def feature_importances_(self):

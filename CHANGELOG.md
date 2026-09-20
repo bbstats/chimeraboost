@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **Random intercepts for grouped regression data (#109, slice 1).**
+  `ChimeraBoostRegressor(random_effects=True)` plus the existing
+  `fit(X, y, groups=...)` fits `F(X) + b_g`: trees for the global part
+  and one empirical-Bayes intercept per group (REML variance ratio, so
+  small groups pool toward zero). `predict(X, groups=...)` adds the
+  fitted intercepts; unseen groups get exactly 0. Slice 1 is RMSE,
+  single-model only. Gated on a dedicated grouped benchmark (6
+  truth-known synthetic sets + 5 real grouped sets, seeds averaged):
+  9W-2L vs dropping the column and vs Chimera-as-categorical (both
+  p=0.065, with a decisive 10W-1L seen-group slice vs dropping),
+  8W-3L vs LightGBM-as-categorical and 7W-4L vs CatBoost (both lean
+  positive, n.s.), at a median 0.82x fit-time ratio.
 - **`predict_thresh` on the quantile regressor (#106).** Exceedance
   probabilities read off the fitted grid: `model.predict_thresh(X, t)` returns
   `P(y > t)`, `direction="less"` the complement — the same inversion as
