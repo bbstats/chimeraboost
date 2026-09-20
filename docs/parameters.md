@@ -128,6 +128,12 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 | `max_samples` | `0.8` | Fraction of rows each member trains on, drawn without replacement. This beats the classic bootstrap on both accuracy and fit time; `1.0` restores the full-size with-replacement bootstrap. |
 | `refit_members` | `False` | After a member early-stops on its out-of-bag rows, replay its own tree structure against gradients from every row, so its leaf values stop being estimated from `max_samples` of the data. The splits are untouched, which is where a bag's diversity actually lives. Costs about 10-17% more fit time, the higher end on larger suites. Five refit members beat eight plain ones on both accuracy and speed. Regression and binary only. |
 
+## Random effects
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `random_effects` | `False` | Fit one shrunk intercept per `groups=` label on top of the trees (regressor, RMSE single-model only). Small groups pool toward zero; unseen groups predict trees-only. See the User Guide: [grouped data](recipes.md#grouped-data-random-intercepts). |
+
 ## System
 
 | Parameter | Default | Effect |
@@ -142,7 +148,7 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 |---|---|
 | `cat_features` | Columns to treat as categorical, by integer position and/or column name. |
 | `eval_set` | `(X_val, y_val)` validation set; overrides the internal split. |
-| `groups` | Group labels. Keeps each group entirely in train or validation when auto-splitting. |
+| `groups` | Group labels. With the flag off, keeps each group entirely in train or validation when auto-splitting; with `random_effects=True` the split is random and each group gets one shrunk intercept. |
 | `sample_weight` | Per-sample training weights (normalized to mean 1). |
 | `callbacks` | A callable or list of callables `cb(iteration, train_loss, val_loss, model)` invoked each boosting round. Returning `True` requests an early stop. |
 
@@ -155,6 +161,9 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 | `classes_` *(classifier)* | Label values, in `predict_proba` column order. |
 | `temperature_` *(classifier)* | Calibration temperature. Above 1 means the raw scores were over-confident. |
 | `quantile_offset_` *(regressor)* | Split-conformal correction added to `loss="Quantile"` predictions, fitted on the validation split. 0.0 for other losses or without a split. |
+| `group_intercepts_` *(regressor)* | Fitted random intercept per group, in `group_labels_` order. `None` unless fit with `random_effects=True`. |
+| `group_labels_` *(regressor)* | Group labels the intercepts align with. `None` unless fit with `random_effects=True`. |
+| `group_ratio_` *(regressor)* | Fitted noise-to-group variance ratio (`inf` means no group signal found). `None` unless fit with `random_effects=True`. |
 | `expected_value_` | SHAP baseline in the same additive space as `shap_values`; for identity-link regression it is the mean prediction, otherwise it is the mean raw score. |
 | `estimators_` | Fitted members when `n_ensembles > 1`, otherwise `None`. |
 | `validation_history_` | Per-round validation loss recorded during fit. Empty without a validation split, and a list of member histories when bagged. |

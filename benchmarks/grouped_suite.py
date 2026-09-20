@@ -20,16 +20,18 @@ out entirely (their test rows are the UNSEEN slice -- no intercept can help
 there), and ~20% of the remaining rows form the SEEN slice. The forecast
 (RANDEFF_PLAN.md) is a large win on seen rows at high intra-class
 correlation and roughly flat on unseen rows; a win anywhere else fails the
-mechanism story. Train and test rows are shared by every arm; each arm uses
-its natural early stopping (the Chimera arms self-split randomly -- the RE
-winner is a plain fit, so a group holdout would blind it -- while
-LightGBM/CatBoost share one carved whole-group validation set, the harness
-convention).
+mechanism story. Train and test rows are shared by every arm; every arm
+validates on a RANDOM carve (the Chimera arms self-split, LightGBM/CatBoost
+share one carved set) -- a whole-group holdout blinds early stopping, the
+RANDEFF_PLAN.md finding that levelled this footing.
 
 Arms
 ----
 ChimeraRE     random_effects=True on groups; the group column is DROPPED
               from X (the issue's "no group ID features" rule)
+ChimeraRE-postonly
+              the identical plain fit plus one EB solve after -- the
+              refinement ablation, kept as the inner baseline
 ChimeraCat    plain ChimeraBoost with the group column as a categorical --
               the in-house baseline the new machinery must justify itself
               against (ordered target statistics on the IDs)
@@ -111,23 +113,19 @@ def _grouped_test_split(groups, seed):
     return rest[n_seen:], rest[:n_seen], unseen_idx
 
 
-def _grouped_val_split(groups, seed=0):
-    """Whole-group validation carve (~20% of rows) shared by every arm."""
+def _random_val_split(n, seed):
+    """Random validation carve (~20% of rows) shared by every arm.
+
+    Deliberately NOT whole-group: a group holdout blinds early stopping
+    (the RANDEFF_PLAN.md finding -- the field arms stopped at a dozen-odd
+    trees on synthetic sets under the old carve), and every Chimera arm
+    self-splits randomly, so this keeps all arms on the same footing.
+    """
     rng = np.random.default_rng(seed)
-    groups = np.asarray(groups)
-    uniq = np.unique(groups)
-    rng.shuffle(uniq)
-    sizes = {g: int((groups == g).sum()) for g in uniq}
-    target = VAL_FRAC * len(groups)
-    acc, cut = 0, 0
-    for cut, g in enumerate(uniq):
-        acc += sizes[g]
-        if acc >= target:
-            break
-    val_groups = set(uniq[:cut + 1].tolist())
-    val_idx = np.flatnonzero(np.array([g in val_groups for g in groups]))
-    return np.flatnonzero(
-        np.array([g not in val_groups for g in groups])), val_idx
+    idx = np.arange(n)
+    rng.shuffle(idx)
+    n_val = int(round(VAL_FRAC * n))
+    return idx[n_val:], idx[:n_val]
 
 
 # --- synthetic grouped data (known truth) ---------------------------------
@@ -361,7 +359,7 @@ def run_one(key, seed, threads, models):
     te_idx = np.concatenate([seen_idx, unseen_idx])
     seen_mask = np.arange(len(te_idx)) < len(seen_idx)
     tr_groups = groups[train_idx]
-    f_idx, v_idx = _grouped_val_split(tr_groups)
+    f_idx, v_idx = _random_val_split(len(train_idx), seed)
 
     tr = (X[train_idx][f_idx], y[train_idx][f_idx], tr_groups[f_idx])
     val = (X[train_idx][v_idx], y[train_idx][v_idx], tr_groups[v_idx])

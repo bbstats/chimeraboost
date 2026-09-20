@@ -167,31 +167,49 @@ independent things" question.
 
 ## Verdict (2026-09-20): SHIP as opt-in
 
-Gate run `grouped-20260920-113455.json`: 11 sets (6 truth-known synth +
-5 real hc:) x seeds 0-2, 5 arms. Statistic is dataset-level W-L over
-seed-averaged RMSE (house convention); cell counts beside it. Syn cells
-are independent draws (fresh data per seed: effective n=18); real cells
-are re-splits (effective n=5 datasets -- a pointer, never a gate alone).
+Gate run `grouped-20260920-192559.json`: 11 sets (6 truth-known synth +
+5 real hc:) x seeds 0-2, 6 arms. This SUPERSEDES
+`grouped-20260920-113455.json` (same seeds, same test rows): review
+found the field arms early-stopping on a whole-group holdout -- the
+same blinding the plan found for the RE winner -- so the suite now
+carves a random 20% validation set shared by every arm. The re-carve
+changes the train partition for all arms, so every row below is
+re-scored from the one run; the Chimera rows moved by partition noise
+only. Statistic is dataset-level W-L over seed-averaged RMSE (house
+convention); cell counts beside it. Syn cells are independent draws
+(fresh data per seed: effective n=18); real cells are re-splits
+(effective n=5 datasets -- a pointer, never a gate alone).
 
 ChimeraRE vs each peer, dataset-level overall (syn / real split):
 
 | peer | all (11 ds) | syn (6) | real (5) | read |
 |---|---|---|---|---|
-| ChimeraDrop | 10W-1L p=0.012 | 6W-0L | 4W-1L | decisive |
-| LightGBMCat | 10W-1L p=0.012 | 6W-0L | 4W-1L | decisive |
-| ChimeraCat | 8W-3L p=0.23 | 5W-1L (cells 14W-4L p=0.03) | 3W-2L | leans +, n.s. |
-| CatBoostCat | 8W-3L p=0.23 | 6W-0L p=0.03 | 2W-3L | leans +, n.s. |
+| ChimeraDrop | 9W-2L p=0.065 | 6W-0L | 3W-2L | strong (seen 10W-1L p=0.012) |
+| ChimeraCat | 9W-2L p=0.065 | 6W-0L | 3W-2L | strong, improved |
+| LightGBMCat | 8W-3L p=0.23 | 5W-1L | 3W-2L | WEAKENED, leans + (was 10W-1L p=0.012) |
+| CatBoostCat | 7W-4L p=0.55 | 6W-0L p=0.03 | 1W-4L | leans + overall; syn sweep holds |
 
-Median gap positive in all four comparisons (8+ of 11 datasets won).
-Dropping any single dataset keeps the Drop/LightGBM verdicts (9W-1L,
-p=0.02); no verdict rides one set. Wins concentrate where the
-mechanism predicts: many-small 3W-0 and wine-reviews (10k groups)
-3W-0 vs ChimeraCat; x-confounded 3W-0. Losses (house -4% and wine
--0.5% vs CatBoost, employee 0W-3L vs ChimeraCat) are the sets where
-group effects plausibly interact with X -- intercepts-only cannot
-express that, tree splits on the group column can. Unseen slice:
-9W-2L vs Drop, 9W-2L vs LightGBM, 6W-5L vs Cat, 8W-3L vs CatBoost --
-the F-only fallback holds, no unseen collapse anywhere.
+Median gap positive in all four comparisons (7+ of 11 datasets won).
+The LightGBM verdict weakened as the review anticipated: honest early
+stopping (synth trees 19-165 now vs 14-89 before; CatBoost fitting
+400-1200 trees vs 145-368) made the field arms real opponents, and
+LightGBM now takes few-big and x-confounded on synth plus colleges
+and employee on real. Said plainly: RE no longer beats
+LightGBM-as-categorical decisively; it leans positive at 8W-3L. The
+ship does not depend on it -- the Chimera-vs-Chimera rows carry the
+merge (Drop 9W-2L with a decisive 10W-1L seen slice; Cat improved to
+9W-2L with a syn sweep). No row's direction rides one dataset. Wins
+concentrate where the mechanism predicts: many-small 3W-0 and
+wine-reviews (10k groups) 3W-0 vs ChimeraCat; x-confounded 3W-0. The
+employee loss vs ChimeraCat is gone (now 2W-1L, dataset win).
+Remaining losses vs CatBoost are wine (-1.2%, 0W-3L), colleges
+(0W-3L) and employee (1W-2L); house is mixed (2W-1L cells for RE,
+mean loss on one seed). CatBoost with honest early stopping now
+memorizes seen groups (syn seen only 10W-8L for RE, down from
+16W-2L) while still losing overall and unseen (6W-0L syn) -- exactly
+the overfit-the-IDs behavior shrunk intercepts avoid. Unseen slice:
+6W-5L vs Drop, 5W-6L vs LightGBM, 8W-3L vs Cat, 7W-4L vs CatBoost --
+the F-only fallback holds flat, as forecast, no collapse anywhere.
 
 Refinement ablation (`grouped-20260920-114053.json`, fresh seeds 3-5,
 RE vs RE-postonly, the only difference the adjusted refit target):
@@ -201,28 +219,38 @@ set within 0.5%. Per the pre-registered rule (stays iff it recovers
 the synth margins while holding the real sets): STAYS. The unseen
 sweep confirms the mechanism -- the refinement genuinely improves F,
 it is not just a better b. Cost of the refinement: unmeasurable
-(same two fits, different refit target).
+(same two fits, different refit target). The re-run's postonly arm
+re-confirms on seeds 0-2: syn 6W-0L datasets (16W-2L cells), real
+2W-3L flat.
 
 Forecast score: strength HIT (large seen wins at high ICC: syn
-sweeps + wine 3W-0; unseen flat-or-better as predicted); fit time
-HIT, better than forecast (median RE/Cat fit ratio 0.95x -- RE fits
+sweeps + wine 3W-0; unseen flat as predicted); fit time
+HIT, better than forecast (median RE/Cat fit ratio 0.82x -- RE fits
 fewer trees with the group column dropped from F, and the solves
 are O(N)). Random-split-validation forecast from the 2026-09-20
 note: HIT (syn tree counts normalized, syn-vs-Cat recovered from
-9W-9L cells to 14W-4L).
+9W-9L cells to 15W-3L cells / 6W-0L datasets).
 
 Robustness (GATE_ROBUSTNESS read 2026-09-20): effective n printed
-above (trap 1/2); no one-set verdicts (trap 2, checked); no ties
-(trap 4, continuous metric); same statistic both sides, both levels
-labelled (trap 3/5); instrument pre-registered for this decision
-(trap 6); refinement/postonly arms post-hoc and labelled so, with
-the ablation confirmed on fresh draws (trap 8). Control: flag-off
-is bit-identical by test, and low-ICC behaves (RE wins slightly,
-no shrinkage pathology).
+above (trap 1/2); no row's direction rides one dataset (trap 2,
+checked per row); no ties (trap 4, continuous metric); same
+statistic both sides, both levels labelled (trap 3/5); instrument
+pre-registered for this decision (trap 6); refinement/postonly arms
+post-hoc and labelled so, with the ablation confirmed on fresh
+draws (trap 8). Control: flag-off is bit-identical by test, and
+low-ICC behaves (RE wins slightly, no shrinkage pathology).
+
+Gate evidence: `benchmarks/results/` is gitignored, so the three
+deciding JSONs live outside the repo at
+`A:\code\chimeraboost_runs\grouped-109\`: the verdict run
+(`grouped-20260920-113455.json`, superseded by the re-carve),
+the refinement ablation (`grouped-20260920-114053.json`), and the
+re-run this verdict scores (`grouped-20260920-192559.json`).
 
 Mechanism confidence HIGH on synth (truth-known sweeps on all
 three slices plus the ablation's unseen sweep); transfer confidence
 MEDIUM (real pattern matches the intercepts-vs-interactions theory
 but rests on 5 sets). Slice-2 question: random slopes for the
 house/employee-shaped gap (group x feature interactions), before
-classification.
+classification. Slice 2 is tracked in #113 (slopes, a second grouping
+column, and the entity-ID auto-route candidate).

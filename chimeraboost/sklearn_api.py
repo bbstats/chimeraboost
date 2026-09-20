@@ -2247,12 +2247,13 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             Explicit validation set. When provided, automatic splitting is
             skipped regardless of the *early_stopping* setting.
         groups : array-like of shape (n_samples,) or None
-            Group labels for the samples (e.g. ``df['subject_id']``). When
-            supplied and *early_stopping* triggers an automatic split, groups
-            are kept intact across the train/validation boundary using
-            ``GroupShuffleSplit``. With ``random_effects=True`` the groups are
-            additionally modelled -- one shrunk intercept per group, added to
-            predictions by ``predict(X, groups=...)``.
+            Group labels for the samples (e.g. ``df['subject_id']``). With
+            the default ``random_effects=False``, groups shape the
+            automatic validation split: each group stays intact across
+            the train/validation boundary (``GroupShuffleSplit``). With
+            ``random_effects=True`` the split is random instead, and the
+            groups get one shrunk intercept each, added to predictions
+            by ``predict(X, groups=...)``.
         sample_weight : array-like of shape (n_samples,) or None
             Per-sample weights, normalized to mean 1 internally. Applied
             throughout: the gradient/leaf fit, the categorical target encoder,

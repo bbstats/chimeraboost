@@ -13,9 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   fitted intercepts; unseen groups get exactly 0. Slice 1 is RMSE,
   single-model only. Gated on a dedicated grouped benchmark (6
   truth-known synthetic sets + 5 real grouped sets, seeds averaged):
-  10W-1L vs dropping the column and vs LightGBM-as-categorical
-  (both p=0.012), 8W-3L vs Chimera-as-categorical and vs CatBoost
-  (both lean positive, n.s.), at a median 0.95x fit-time ratio.
+  9W-2L vs dropping the column and vs Chimera-as-categorical (both
+  p=0.065, with a decisive 10W-1L seen-group slice vs dropping),
+  8W-3L vs LightGBM-as-categorical and 7W-4L vs CatBoost (both lean
+  positive, n.s.), at a median 0.82x fit-time ratio.
 
 ## [0.32.0] - 2026-08-30
 ### Added
