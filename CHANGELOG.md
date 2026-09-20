@@ -3,6 +3,20 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Added
+- **Random intercepts for grouped regression data (#109, slice 1).**
+  `ChimeraBoostRegressor(random_effects=True)` plus the existing
+  `fit(X, y, groups=...)` fits `F(X) + b_g`: trees for the global part
+  and one empirical-Bayes intercept per group (REML variance ratio, so
+  small groups pool toward zero). `predict(X, groups=...)` adds the
+  fitted intercepts; unseen groups get exactly 0. Slice 1 is RMSE,
+  single-model only. Gated on a dedicated grouped benchmark (6
+  truth-known synthetic sets + 5 real grouped sets, seeds averaged):
+  10W-1L vs dropping the column and vs LightGBM-as-categorical
+  (both p=0.012), 8W-3L vs Chimera-as-categorical and vs CatBoost
+  (both lean positive, n.s.), at a median 0.95x fit-time ratio.
+
 ## [0.32.0] - 2026-08-30
 ### Added
 - **SHAP for the quantile head and for multiclass.** The SHAP kernel was
