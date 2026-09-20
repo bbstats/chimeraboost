@@ -798,6 +798,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#random-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Random effects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#system" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1382,6 +1393,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#random-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Random effects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#system" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1800,6 +1822,23 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. <code>los
 </tr>
 </tbody>
 </table>
+<h2 id="random-effects">Random effects<a class="headerlink" href="#random-effects" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>random_effects</code></td>
+<td><code>False</code></td>
+<td>Fit one shrunk intercept per <code>groups=</code> label on top of the trees (regressor, RMSE single-model only). Small groups pool toward zero; unseen groups predict trees-only. See the User Guide: <a href="../recipes/#grouped-data-random-intercepts">grouped data</a>.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="system">System<a class="headerlink" href="#system" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1846,7 +1885,7 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. <code>los
 </tr>
 <tr>
 <td><code>groups</code></td>
-<td>Group labels. Keeps each group entirely in train or validation when auto-splitting.</td>
+<td>Group labels. With the flag off, keeps each group entirely in train or validation when auto-splitting; with <code>random_effects=True</code> the split is random and each group gets one shrunk intercept.</td>
 </tr>
 <tr>
 <td><code>sample_weight</code></td>
@@ -1886,6 +1925,18 @@ your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. <code>los
 <tr>
 <td><code>quantile_offset_</code> <em>(regressor)</em></td>
 <td>Split-conformal correction added to <code>loss="Quantile"</code> predictions, fitted on the validation split. 0.0 for other losses or without a split.</td>
+</tr>
+<tr>
+<td><code>group_intercepts_</code> <em>(regressor)</em></td>
+<td>Fitted random intercept per group, in <code>group_labels_</code> order. <code>None</code> unless fit with <code>random_effects=True</code>.</td>
+</tr>
+<tr>
+<td><code>group_labels_</code> <em>(regressor)</em></td>
+<td>Group labels the intercepts align with. <code>None</code> unless fit with <code>random_effects=True</code>.</td>
+</tr>
+<tr>
+<td><code>group_ratio_</code> <em>(regressor)</em></td>
+<td>Fitted noise-to-group variance ratio (<code>inf</code> means no group signal found). <code>None</code> unless fit with <code>random_effects=True</code>.</td>
 </tr>
 <tr>
 <td><code>expected_value_</code></td>
