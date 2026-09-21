@@ -25,7 +25,15 @@ The overhead lands in the PARENT's exclusive time (the hook's bookkeeping runs
 on the caller's clock), i.e. in the two "(self)" loop rows -- discount those by
 the instrument row.
 
+`--prep-detail` (CAMPAIGN_PLAN I026) pushes the same hooks INSIDE the `prep`
+row, which is a third of the fit on high-cardinality sets: factorize, the
+numeric-block unboxing of the object array every categorical dataset arrives
+as, the ordered-TS fit with its numba kernel hooked separately (so the
+remainder is the permutation draws and the averaging), binning, and the
+preprocessor's own remainder (stacking, the feature-major transposes).
+
 Run: python benchmarks/f4_other_walltime.py [--datasets KEY ...] [--out NAME]
+         [--prep-detail] [--reps 5]
 """
 import argparse
 import collections
@@ -41,9 +49,12 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_benchmarks as rb
 
+import chimeraboost.binning as bnmod
 import chimeraboost.booster as bmod
 import chimeraboost.losses as lmod
+import chimeraboost.preprocessing as pmod
 import chimeraboost.sklearn_api as skmod
+import chimeraboost.target_encoding as temod
 from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
 
 # The August attribution panel, unchanged, so the two reads line up row for row.
@@ -65,7 +76,12 @@ KERNEL_ROWS = ("grow", "replay")
 
 # Column order of the phase table. "(self)" rows are what is left of a wrapped
 # region after its wrapped children are taken out.
-PHASES = ["grow", "replay", "prep", "grad_hess", "train_update",
+PREP_ROWS = ["factorize", "combo", "eval_codes", "numeric_block",
+             "ts_fit(self)", "ts_kernel", "ts_transform", "bin_fit",
+             "bin_transform", "cross_block", "prep_fit(self)",
+             "prep_tf(self)", "prep"]
+PHASES = ["grow", "replay", *PREP_ROWS[:-1], "prep", "grad_hess",
+          "train_update",
           "eval_advance", "val_score", "epilogue(self)", "loop(self)",
           "centers_std", "setup", "subsample", "fmask", "sketch", "callbacks",
           "as_array", "importances", "cross_screen", "calibrate", "es_split",
@@ -168,18 +184,55 @@ def _targets():
     ]
 
 
+def _prep_targets():
+    """The hooks `--prep-detail` adds inside the `prep` row. With them on,
+    `prep` itself shrinks to the booster-level remainder: the feature-major
+    transposes and the cache splice."""
+    P, E, Bn = (pmod.FeaturePreprocessor, temod.OrderedTargetEncoder,
+                bnmod.Binner)
+    return [
+        (pmod.CatTransformCache, "column", "factorize"),
+        (pmod.CatTransformCache, "combo", "combo"),
+        (P, "_numeric_block", "numeric_block"),
+        (P, "_codes_for_transform", "eval_codes"),
+        (P, "_combo_codes_for_transform", "eval_codes"),
+        (P, "_cross_block", "cross_block"),
+        (P, "_fit_gdiff", "cross_block"),
+        (P, "fit_transform", "prep_fit(self)"),
+        (P, "transform", "prep_tf(self)"),
+        (P, "from_base_with_cross", "prep_fit(self)"),
+        (E, "fit_transform", "ts_fit(self)"),
+        (E, "transform", "ts_transform"),
+        (temod, "_ordered_ts", "ts_kernel"),
+        (temod, "_ordered_ts_weighted", "ts_kernel"),
+        (Bn, "fit_transform", "bin_fit"),
+        (Bn, "transform", "bin_transform"),
+    ]
+
+
 _INSTALLED = []
+_PREP_DETAIL = [False]
+_DECISION_FLOOR = [5.0]
+
+
+def _wrap(key, orig):
+    """Hook a plain function, or the function inside a class/static method."""
+    if isinstance(orig, classmethod):
+        return classmethod(_hook(key, orig.__func__))
+    if isinstance(orig, staticmethod):
+        return staticmethod(_hook(key, orig.__func__))
+    return _hook(key, orig)
 
 
 def _install():
-    for owner, name, key in _targets():
-        # Classes: take the raw function out of __dict__ so restoring it puts
-        # back exactly what was there (getattr would do for plain methods, but
-        # not for anything wrapped in a descriptor).
+    targets = _targets() + (_prep_targets() if _PREP_DETAIL[0] else [])
+    for owner, name, key in targets:
+        # Classes: take the raw attribute out of __dict__ so restoring it puts
+        # back exactly what was there, descriptors included.
         orig = owner.__dict__.get(name) if isinstance(owner, type) else None
         if orig is None:
             orig = getattr(owner, name)
-        setattr(owner, name, _hook(key, orig))
+        setattr(owner, name, _wrap(key, orig))
         _INSTALLED.append((owner, name, orig))
     for cls in (bmod.GradientBoosting, bmod.MulticlassBoosting):
         orig = cls.__dict__["_fit_impl"]
@@ -271,6 +324,7 @@ def run_dataset(key, reps, hook_cost):
         "instrument_est_s": n_calls * hook_cost,
         "hook_calls": n_calls,
         "phase_s": {f"{leg}|{k}": v for (leg, k), v in phase.items()},
+        "phase_calls": {f"{leg}|{k}": v / reps for (leg, k), v in calls.items()},
         "legs": fits,
     }
     print(f"  plain {rec['plain_median_s']:.3f}s  wrapped "
@@ -284,6 +338,57 @@ def run_dataset(key, reps, hook_cost):
 def _share(rec, key, legs=("est", "es", "refit")):
     s = sum(rec["phase_s"].get(f"{leg}|{key}", 0.0) for leg in legs)
     return 100.0 * s / rec["fit_s"]
+
+
+def _perm_seconds(n, passes, reps=3):
+    """Seconds `passes` draws of `rng.permutation(n)` cost -- the part of
+    ts_fit(self) that is not averaging. A microbench, reported beside the
+    in-fit number and never instead of it."""
+    rng = np.random.default_rng(0)
+    best = float("inf")
+    for _ in range(reps):
+        t0 = _pc()
+        for _ in range(passes):
+            rng.permutation(n)
+        best = min(best, _pc() - t0)
+    return best
+
+
+def _prep_tables(rows):
+    out = ["", "## The preprocessing split, % of estimator fit (all legs)", ""]
+    used = [p for p in PREP_ROWS if any(_share(r, p) >= 0.05 for r in rows)]
+    out.append("| dataset | prep total | " + " | ".join(used) + " |")
+    out.append("|---|--:|" + "--:|" * len(used))
+    for r in rows:
+        tot = sum(_share(r, p) for p in PREP_ROWS)
+        cells = " | ".join(f"{_share(r, p):.1f}" for p in used)
+        out.append(f"| {r['dataset']} | {tot:.1f} | {cells} |")
+
+    out += ["", "## The same split inside the refit leg only", ""]
+    out.append("| dataset | refit prep | " + " | ".join(used) + " |")
+    out.append("|---|--:|" + "--:|" * len(used))
+    for r in rows:
+        tot = sum(_share(r, p, ("refit",)) for p in PREP_ROWS)
+        cells = " | ".join(f"{_share(r, p, ('refit',)):.1f}" for p in used)
+        out.append(f"| {r['dataset']} | {tot:.1f} | {cells} |")
+
+    out += ["", "## Ordered-TS passes: kernel vs the permutation draws", "",
+            "| dataset | kernel passes per fit | ts_kernel % | ts_fit(self) % "
+            "| permutation draws, microbench % |",
+            "|---|--:|--:|--:|--:|"]
+    for r in rows:
+        passes = sum(v for k, v in r["phase_calls"].items()
+                     if k.endswith("|ts_kernel"))
+        if not passes:
+            continue
+        # The selection legs encode the 80% split and the refit every row, so
+        # price the draws at the mean of the two row counts.
+        n_mean = int(r["n_train"] * 0.9)
+        perm = 100.0 * _perm_seconds(n_mean, int(passes)) / r["fit_s"]
+        out.append(f"| {r['dataset']} | {passes:.0f} | "
+                   f"{_share(r, 'ts_kernel'):.1f} | "
+                   f"{_share(r, 'ts_fit(self)'):.1f} | {perm:.1f} |")
+    return out
 
 
 def report(rows, hook_cost):
@@ -312,6 +417,9 @@ def report(rows, hook_cost):
         cells = " | ".join(f"{_share(r, p, ('refit',)):.1f}" for p in used_r)
         out.append(f"| {r['dataset']} | {tot:.1f} | {cells} |")
 
+    if _PREP_DETAIL[0]:
+        out += _prep_tables(rows)
+
     out += ["", "## Legs (booster fits in order; inclusive seconds, trees)", ""]
     for r in rows:
         legs = ", ".join(f"{f['role']} {f['secs']:.2f}s/{f['trees']}t"
@@ -328,10 +436,12 @@ def report(rows, hook_cost):
                    f"| {r['wrapped_median_s'] / r['plain_median_s']:.3f} "
                    f"| {r['hook_calls']:.0f} |")
 
-    out += ["", "## Decision read: non-kernel rows at or above 5% of fit", ""]
+    floor = _DECISION_FLOOR[0]
+    out += ["", f"## Decision read: non-kernel rows at or above {floor:g}% "
+            "of fit", ""]
     for r in rows:
         big = [(p, _share(r, p)) for p in PHASES
-               if p not in KERNEL_ROWS and _share(r, p) >= 5.0]
+               if p not in KERNEL_ROWS and _share(r, p) >= floor]
         txt = ", ".join(f"{p} {s:.1f}%" for p, s in
                         sorted(big, key=lambda t: -t[1])) or "none"
         out.append(f"- {r['dataset']}: {txt}")
@@ -344,7 +454,13 @@ def main():
     ap.add_argument("--datasets", nargs="+", default=PANEL)
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--out", default="campaign-f4s1-other")
+    ap.add_argument("--prep-detail", action="store_true",
+                    help="hook inside the prep row (I026)")
+    ap.add_argument("--decision-floor", type=float, default=5.0,
+                    help="percent of fit a row needs to be listed")
     args = ap.parse_args()
+    _PREP_DETAIL[0] = args.prep_detail
+    _DECISION_FLOOR[0] = args.decision_floor
 
     rb._add_grinsztajn_datasets()
     rb._add_highcard_datasets()
