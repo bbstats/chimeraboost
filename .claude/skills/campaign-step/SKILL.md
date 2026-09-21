@@ -77,7 +77,12 @@ pre-authorized form and anything wrapped around it gets blocked.
 - Write the verdict into the plan file's log entry (hit/miss vs the forecast,
   both axes, next rung or KILLED). No PENDING left behind.
 - Pass: commit on the branch, push, open a PR with `gh` (token via
-  `git credential fill`). PRs only — never merge, never release.
+  `git credential fill`). Never release. Merge a PR yourself ONLY when every
+  changed path is a `.md` file and `chimeraboost/` + `tests/` match main (the
+  maintainer, 2026-09-21: record-only learnings need no input from him):
+  `bash campaign_tasks/gh.sh api -X PUT repos/bbstats/chimeraboost/pulls/N/merge
+  -f merge_method=merge`, then delete the branch and fast-forward main. Any
+  code in the diff, a `benchmarks/` script included, waits for his merge.
 - Fail: `git checkout -- .; git clean -fd chimeraboost tests` and
   delete the branch. The plan-file entry is the record.
 - `git checkout main`. Delete the task's `.log` and `RESULT.md` only after the

@@ -291,6 +291,43 @@ set) → I017 (S2 5/5 flat, killed); screen `results/f2s2-20260918.json`.
 
 ---
 
+### B18 — The ordered-TS train/test asymmetry is real, and fixing it at transform moves one dataset
+tags: target-statistics, ordered-ts, encoder, transform, smoothing, shrinkage, rare, high-cardinality, count, prior, train-test, mismatch
+
+`fit_transform` encodes a training row from a permutation prefix (expected
+weight on the category mean 0.54 at m = 5, exactly 0 for a singleton);
+`transform` encodes every other row from full totals (0.83, and 0.5). Measured
+2026-09-21: on high-card columns a held-out row of a rare category (m ≤ 5)
+reads an encoding 1.9–5.2× more spread than a training row of the same
+stratum, and the target's slope on it is 0.63–0.70 of the training slope —
+the trees over-trust rare categories. In big categories it runs the other
+way (1.10–1.29). The mean never moves (≤ 0.03 SD), so a first-moment check
+misses all of it.
+
+Two transform-side fixes were tried, both zero-library-change and both
+pre-registered. Matching the weight for every category: 7W-5L of 12 against a
+bar of 8 — it gains where rare held-out rows are common (sf-police +0.31%,
+3/3 seeds) and costs a little where they are not (kick 0/3). Matching it for
+rare categories only, tested with the training rows subsampled so every
+category gets rarer: 7W-5L again, and without sf-police the other three sets
+read −0.03% (4W-5L). sf-police itself is 9 of 9 fits, +0.29% growing to
++0.53% — because 27–41% of its held-out rows sit in categories of five or
+fewer training rows. No other set in the high-card suite has such a column.
+
+Consequence: do not propose re-weighting, re-smoothing or count-matching the
+transform side of the target encoder. The change would re-score every
+categorical model and every categorical golden for one dataset in fourteen.
+The door that stays open is a different mechanism — letting the trees SEE the
+count, which is how CatBoost lives with the same asymmetry — and it goes
+through the CatBoost ablation (shortlist R3) and B3 first. `cat_smoothing`
+is a separate, already-closed axis: it moves both sides together.
+
+*Incident*: `CAMPAIGN_PLAN.md` F6, I024 (S1, uniform weight) → I025 (S1b,
+rare-only, killed); `benchmarks/probe_ts_mismatch.py`; results
+`probe-ts-mismatch-20260921.json`, `probe-ts-mismatch-s1b-20260921.json`.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured

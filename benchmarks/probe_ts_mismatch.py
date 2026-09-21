@@ -32,12 +32,21 @@ split seeds, under three transform weights --
                          data: permutation averaging makes train encodings
                          less noisy than one prefix, so A1 should over-correct)
 
+S1b (CAMPAIGN_PLAN I025) adds two arms that move the weight only where Part 1
+measured the mismatch, the rare stratum, and a regime to test them in:
+
+    A3  rare-only matched    g(m) where m <= 5, shipped above
+    A4  rare-only half       the A2 weight where m <= 5, shipped above
+    --train-fracs 1 0.5 0.25 subsamples the TRAINING rows (test rows
+                             unchanged), which makes every category rarer
+
 Unseen categories read the prior in every arm and `fit_transform` is untouched,
 so the trees are grown identically; only what they are stopped, calibrated and
 scored on moves. A0 calls the library's own `transform`, so it is the shipped
 arithmetic exactly.
 
 Run: python benchmarks/probe_ts_mismatch.py [--datasets KEY ...] [--seeds 3]
+         [--arms A0 A3 A4] [--train-fracs 1 0.5 0.25]
 """
 import argparse
 import json
@@ -67,7 +76,8 @@ PANEL = GAP + SECONDARY + CONTROL
 HIGH_CARD = 1000          # a "high-card" column, as the shortlist defined it
 LOW_CARD = 200            # the in-dataset control columns
 STRATA = (("m<=5", 1, 5), ("m6-50", 6, 50), ("m>50", 51, np.inf))
-ARMS = ("A0", "A1", "A2")
+ARMS = ("A0", "A1", "A2")     # the I024 default; --arms overrides
+RARE_EDGE = 5                 # A3/A4 move the weight only where m <= this
 
 _ORIG_TRANSFORM = temod.OrderedTargetEncoder.transform
 _MODE = ["A0"]
@@ -96,10 +106,16 @@ def _patched_transform(self, codes_matrix):
         m = counts[c]
         seen = m > 0
         w = matched_weight(m, a)
-        if _MODE[0] == "A2":
+        if _MODE[0] in ("A2", "A4"):
             w = 0.5 * (w + m / (m + a))
         mean_c = np.where(seen, sums[c] / np.where(seen, m, 1.0), self.prior_)
-        enc[valid] = self.prior_ + (mean_c - self.prior_) * w
+        vals = self.prior_ + (mean_c - self.prior_) * w
+        if _MODE[0] in ("A3", "A4"):
+            # Outside the rare stratum keep the library's own arithmetic, so
+            # these arms are bit-identical to A0 wherever they claim to be.
+            vals = np.where(m <= RARE_EDGE, vals,
+                            (sums[c] + self.prior_ * a) / (m + a))
+        enc[valid] = vals
         out[:, j] = enc
     return out
 
@@ -121,15 +137,27 @@ def _targets_for(task, ytr, yte):
             [f"y=={k}" for k in classes])
 
 
+def split(X, y, task, seed, frac):
+    """The probe's 75/25 split, then the TRAINING rows cut to `frac` (test rows
+    unchanged) -- the harness's @sus design, seeded by the split seed and
+    stratified for classification so no class disappears."""
+    strat = y if task != "regression" else None
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                          random_state=seed, stratify=strat)
+    if frac < 1.0:
+        strat = ytr if task != "regression" else None
+        Xtr, _, ytr, _ = train_test_split(Xtr, ytr, train_size=frac,
+                                          random_state=seed, stratify=strat)
+    return Xtr, Xte, ytr, yte
+
+
 def _slope(t, e):
     v = e.var()
     return float(np.cov(t, e, bias=True)[0, 1] / v) if v > 0 else float("nan")
 
 
-def moment_read(key, X, y, cat, task):
-    strat = y if task != "regression" else None
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
-                                          random_state=0, stratify=strat)
+def moment_read(key, X, y, cat, task, frac=1.0):
+    Xtr, Xte, ytr, yte = split(X, y, task, 0, frac)
     Xtr = as_model_array(Xtr, bool(cat))
     Xte = as_model_array(Xte, bool(cat))
     t_tr, t_te, t_names = _targets_for(task, np.asarray(ytr), np.asarray(yte))
@@ -220,6 +248,7 @@ def moment_summary(key, cols):
                "sd_ratio": _med([c["sd_ratio"] for c in sel]),
                "ks": _med([c["ks"] for c in sel]),
                "heldout_m_le2": _med([c["heldout_m_le2"] for c in sel]),
+               "heldout_m_le5": _med([c["heldout_m_le5"] for c in sel]),
                "unseen": _med([c["unseen_frac"] for c in sel])}
         for sname, _, _ in STRATA:
             row[f"spread[{sname}]"] = _med(
@@ -248,16 +277,15 @@ def _metrics(task, model, Xte, yte):
             "logloss": float(-np.mean(np.log(P[Y.astype(bool)])))}
 
 
-def ab_read(key, X, y, cat, task, seeds):
+def ab_read(key, X, y, cat, task, seeds, arms=ARMS, frac=1.0):
     Est = ChimeraBoostRegressor if task == "regression" \
         else ChimeraBoostClassifier
     rows = []
     for seed in range(seeds):
-        strat = y if task != "regression" else None
-        Xtr, Xte, ytr, yte = train_test_split(
-            X, y, test_size=0.25, random_state=seed, stratify=strat)
-        rec = {"dataset": key, "seed": seed}
-        for arm in ARMS:
+        Xtr, Xte, ytr, yte = split(X, y, task, seed, frac)
+        rec = {"dataset": key, "seed": seed, "frac": frac,
+               "n_train": int(len(Xtr))}
+        for arm in arms:
             _MODE[0] = arm
             t0 = time.perf_counter()
             model = Est(random_state=0).fit(Xtr, ytr, cat_features=cat)
@@ -267,9 +295,9 @@ def ab_read(key, X, y, cat, task, seeds):
         _MODE[0] = "A0"
         rows.append(rec)
         base = rec["A0"]["primary"]
-        print(f"  seed {seed}: A0 {base:.6f}  " + "  ".join(
+        print(f"  frac {frac:g} seed {seed}: A0 {base:.6f}  " + "  ".join(
             f"{arm} {100.0 * (base - rec[arm]['primary']) / base:+.3f}%"
-            for arm in ARMS[1:]), flush=True)
+            for arm in arms[1:]), flush=True)
     return rows
 
 
@@ -280,14 +308,11 @@ def _gain(rec, arm, metric="primary"):
     return 100.0 * (base - rec[arm][metric]) / base
 
 
-def report(moments, ab):
-    out = ["# F6 probe: ordered-TS train vs held-out mismatch", "",
-           "## Part 1. Moments, medians over each dataset's columns "
-           "(held-out / train)", "",
-           "| dataset | cols | n | max card | |dmean|/SD | SD ratio | KS "
-           "| held-out rows m<=2 | unseen | spread m<=5 | spread m6-50 "
+def _part1_rows(moments):
+    out = ["| dataset | cols | n | max card | |dmean|/SD | SD ratio | KS "
+           "| held-out rows m<=2 | m<=5 | unseen | spread m<=5 | spread m6-50 "
            "| spread m>50 | reliab m<=5 | reliab m6-50 | reliab m>50 |",
-           "|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
+           "|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
     for key, summ in moments.items():
         for label in ("high", "low"):
             r = summ[label]
@@ -297,38 +322,41 @@ def report(moments, ab):
                 f"| {key} | {label} | {r['n_cols']} | {r['max_card']} "
                 f"| {r['dmean_sd']:.3f} | {r['sd_ratio']:.3f} "
                 f"| {r['ks']:.3f} | {100 * r['heldout_m_le2']:.1f}% "
+                f"| {100 * r['heldout_m_le5']:.1f}% "
                 f"| {100 * r['unseen']:.1f}% "
                 + " ".join(f"| {r[f'spread[{s}]']:.2f}" for s, _, _ in STRATA)
                 + " "
                 + " ".join(f"| {r[f'reliab[{s}]']:.2f}" for s, _, _ in STRATA)
                 + " |")
-    out += ["", "cols: high = card >= 1000, low = card < 200 (the in-dataset "
-            "control). spread = E|e - prior|, reliab = OLS slope of the "
-            "target on the encoding; both are held-out over train, so 1.00 "
-            "is no mismatch and reliab < 1 is over-trust.", "",
-            "## Part 2. Transform-only A/B, % improvement in the primary "
-            "metric over A0 (Brier / RMSE; positive = better)", "",
-            "| dataset | role | A0 primary | A1 per seed | A1 mean "
-            "| A2 per seed | A2 mean | trees A0/A1/A2 (seed 0) |",
-            "|---|---|--:|---|--:|---|--:|---|"]
+    return out
+
+
+def _role(key):
+    return ("gap" if key in GAP else
+            "secondary" if key in SECONDARY else "control")
+
+
+def _part2_rows(ab, arms):
+    alts = arms[1:]
+    out = ["| dataset | role | n_train | A0 primary | "
+           + " | ".join(f"{a} per seed | {a} mean" for a in alts)
+           + " | trees " + "/".join(arms) + " (seed 0) |",
+           "|---|---|--:|--:|" + "---|--:|" * len(alts) + "---|"]
     for key, rows in ab.items():
-        role = ("gap" if key in GAP else
-                "secondary" if key in SECONDARY else "control")
         cells = []
-        for arm in ARMS[1:]:
+        for arm in alts:
             g = [_gain(r, arm) for r in rows]
             cells.append(" ".join(f"{v:+.3f}" for v in g))
             cells.append(f"{np.mean(g):+.3f}")
         t = rows[0]
-        out.append(f"| {key} | {role} "
+        out.append(f"| {key} | {_role(key)} | {t['n_train']} "
                    f"| {np.mean([r['A0']['primary'] for r in rows]):.5f} | "
-                   + " | ".join(cells)
-                   + f" | {t['A0']['trees']}/{t['A1']['trees']}/"
-                     f"{t['A2']['trees']} |")
-    out += ["", "## Part 2 sign read", ""]
+                   + " | ".join(cells) + " | "
+                   + "/".join(str(t[a]["trees"]) for a in arms) + " |")
+    out += ["", "sign read:", ""]
     for group, keys in (("gap sets", GAP), ("secondary", SECONDARY),
                         ("controls", CONTROL)):
-        for arm in ARMS[1:]:
+        for arm in alts:
             g = [_gain(r, arm) for k in keys if k in ab for r in ab[k]]
             if not g:
                 continue
@@ -337,6 +365,40 @@ def report(moments, ab):
             out.append(f"- {group}, {arm}: {w}W-{l}L-{len(g) - w - l}T over "
                        f"{len(g)} (set, seed) pairs, median "
                        f"{np.median(g):+.3f}%, mean {np.mean(g):+.3f}%")
+    return out
+
+
+def report(moments, ab, arms, fracs):
+    out = ["# F6 probe: ordered-TS train vs held-out mismatch", "",
+           "Part 1 columns: high = card >= 1000, low = card < 200 (the "
+           "in-dataset control). spread = E|e - prior|, reliab = OLS slope of "
+           "the target on the encoding; both are held-out over train, so 1.00 "
+           "is no mismatch and reliab < 1 is over-trust. Part 2: % "
+           "improvement in the primary metric over A0 (Brier / RMSE; positive "
+           "= better)."]
+    for frac in fracs:
+        fk = f"{frac:g}"
+        out += ["", f"## Training rows at {100 * frac:g}% (test rows unchanged)",
+                "", "### Part 1. Moments, medians over each dataset's columns "
+                "(held-out / train)", ""]
+        out += _part1_rows(moments[fk])
+        if ab.get(fk):
+            out += ["", "### Part 2. Transform-only A/B", ""]
+            out += _part2_rows(ab[fk], arms)
+    if len(fracs) > 1 and all(ab.get(f"{f:g}") for f in fracs):
+        out += ["", "## Mean gain by training size (% over A0, mean of seeds)",
+                "", "| dataset | role | arm | "
+                + " | ".join(f"{100 * f:g}%" for f in fracs) + " |",
+                "|---|---|---|" + "--:|" * len(fracs)]
+        for key in ab[f"{fracs[0]:g}"]:
+            for arm in arms[1:]:
+                cells = []
+                for f in fracs:
+                    rows = ab[f"{f:g}"].get(key)
+                    cells.append(f"{np.mean([_gain(r, arm) for r in rows]):+.3f}"
+                                 if rows else "--")
+                out.append(f"| {key} | {_role(key)} | {arm} | "
+                           + " | ".join(cells) + " |")
     out.append("")
     return "\n".join(out)
 
@@ -345,34 +407,52 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=PANEL)
     ap.add_argument("--seeds", type=int, default=3)
+    ap.add_argument("--arms", nargs="+", default=list(ARMS),
+                    choices=["A0", "A1", "A2", "A3", "A4"])
+    ap.add_argument("--train-fracs", nargs="+", type=float, default=[1.0])
+    ap.add_argument("--full-size-only", nargs="*", default=[],
+                    help="datasets to run at 100% only (exact-tie controls)")
     ap.add_argument("--out", default="probe-ts-mismatch")
     ap.add_argument("--skip-ab", action="store_true")
     args = ap.parse_args()
+    if args.arms[0] != "A0":
+        raise SystemExit("--arms must start with A0, the shipped baseline")
+    arms, fracs = tuple(args.arms), list(args.train_fracs)
 
     rb._add_highcard_datasets()
     print(f"chimeraboost from {os.path.dirname(temod.__file__)}", flush=True)
     temod.OrderedTargetEncoder.transform = _patched_transform
 
-    moments, columns, ab = {}, {}, {}
+    moments = {f"{f:g}": {} for f in fracs}
+    columns = {f"{f:g}": {} for f in fracs}
+    ab = {f"{f:g}": {} for f in fracs}
     for key in args.datasets:
         X, y, cat, task = rb.DATASETS[key](1, np.random.default_rng(0))
         print(f"\n=== {key} ({task}, n={len(X)}, cats="
               f"{len(cat) if cat else 0}) ===", flush=True)
-        columns[key] = moment_read(key, X, y, cat, task)
-        moments[key] = moment_summary(key, columns[key])
-        hi = moments[key]["high"]
-        print(f"  high-card cols {hi['n_cols']}: SD ratio {hi['sd_ratio']:.3f}"
-              f"  spread m<=5 {hi['spread[m<=5]']:.2f}"
-              f"  reliab m<=5 {hi['reliab[m<=5]']:.2f}", flush=True)
-        if not args.skip_ab:
-            ab[key] = ab_read(key, X, y, cat, task, args.seeds)
+        for frac in fracs:
+            if frac < 1.0 and key in args.full_size_only:
+                continue
+            fk = f"{frac:g}"
+            columns[fk][key] = moment_read(key, X, y, cat, task, frac)
+            moments[fk][key] = moment_summary(key, columns[fk][key])
+            hi = moments[fk][key]["high"]
+            print(f"  frac {frac:g} high-card cols {hi['n_cols']}: m<=5 share "
+                  f"{100 * hi['heldout_m_le5']:.1f}%  unseen "
+                  f"{100 * hi['unseen']:.1f}%  SD ratio {hi['sd_ratio']:.3f}"
+                  f"  spread m<=5 {hi['spread[m<=5]']:.2f}"
+                  f"  reliab m<=5 {hi['reliab[m<=5]']:.2f}", flush=True)
+            if not args.skip_ab:
+                ab[fk][key] = ab_read(key, X, y, cat, task, args.seeds,
+                                      arms, frac)
 
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "results", args.out)
     os.makedirs(os.path.dirname(base), exist_ok=True)
     with open(base + ".json", "w") as f:
-        json.dump({"moments": moments, "columns": columns, "ab": ab}, f)
-    text = report(moments, ab)
+        json.dump({"arms": arms, "fracs": fracs, "moments": moments,
+                   "columns": columns, "ab": ab}, f)
+    text = report(moments, ab, arms, fracs)
     with open(base + ".md", "w", newline="\n") as f:
         f.write(text)
     print("\n" + text)
