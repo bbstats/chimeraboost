@@ -82,15 +82,17 @@ def _quality_overrides(estimator, level):
     without their race (cross_features="always", the forced top-4 block): the
     race picks the augmented candidate on 20 of 21 selections, and forced-on
     passed the full gate at 2.7x within-run (benchmarks/SELECT_PLAN.md E2). The
-    classifier has no forced mode, so it pins cross off as before.
+    classifier has a forced mode too, but the rung still pins cross off there
+    (``_QUALITY_PINS_FORCED_CROSS`` is False on the classifier) -- whether the
+    fast operating point wants it is a later gate's question.
 
     Rungs 4 and 5 sit on top of the plain defaults, NOT on top of rung 3:
     refit_full is a deliberate no-op inside bag members (their out-of-bag rows
     are already an eval set), so the rungs do not stack. See REFIT_PLAN.md.
     """
     if level == 1:
-        forced_ok = getattr(estimator, "_FORCED_CROSS_OK", False)
-        ov = {"cross_features": "always" if forced_ok else False,
+        pin_forced = estimator._QUALITY_PINS_FORCED_CROSS
+        ov = {"cross_features": "always" if pin_forced else False,
               "refit_full": False}
         if estimator._QUALITY_PINS_LINEAR_LEAVES:
             ov["linear_leaves"] = True
@@ -245,9 +247,7 @@ def _check_flag_params(estimator, p):
             f'cross_features must be True, False, "always" or None; got {v!r}.')
     if v == "always" and not getattr(estimator, "_FORCED_CROSS_OK", False):
         raise ValueError(
-            'cross_features="always" is only supported on the regressor; '
-            "the classifier's cross features are validation-raced "
-            "(cross_features=None or True).")
+            'cross_features="always" is not supported on this estimator.')
 
     v = p.get("quality")
     if v is not None:
@@ -1478,7 +1478,7 @@ CROSS_MIN_SAMPLES = 2000
 CROSS_GDIFF_TOP_NUM = 4
 CROSS_GDIFF_TOP_CAT = 3
 
-# Forced mode (cross_features="always", regressor only): no race referees the
+# Forced mode (cross_features="always"): no race referees the
 # block, so it must be leaner than the raced default. benchmarks/SELECT_PLAN.md
 # E2 step 1: top-6 costs 1.74x a plain fit (bar 1.5), top-4 costs 1.39x with no
 # strength loss (oracle median +2.6% either way). The importance probe only
@@ -2163,10 +2163,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         was found). ``None`` unless fit with ``random_effects=True``.
     """
 
-    # cross_features="always" (the unrefereed forced mode) is regressor-only:
-    # the evidence behind it (SELECT_PLAN.md E2) is regression-only, and the
-    # classifier's race has no measured forced counterpart.
+    # Both estimators accept cross_features="always" (the unrefereed forced
+    # mode); only the regressor's fast-rung pin is evidence-backed
+    # (SELECT_PLAN.md E2), so only it sets _QUALITY_PINS_FORCED_CROSS.
     _FORCED_CROSS_OK = True
+    _QUALITY_PINS_FORCED_CROSS = True
 
     # quality=1 pins linear leaves here: on the regressor, linear_leaves=None
     # means "audition const vs linear", the search the fast rung declines.
@@ -3042,7 +3043,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         -- ``validation_history_`` then records negated values so the
         internal lower-is-better machinery is unchanged. Temperature scaling
         still calibrates on log loss.
-    cross_features : bool or None, default None
+    cross_features : bool, "always" or None, default None
         Numeric interaction columns. ``None`` (the default) refits the model
         with difference and product columns for the pairs of the top numeric
         features of the base fit and keeps whichever model reaches the lower
@@ -3050,7 +3051,11 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         ``cross_pairs_`` the columns kept); needs >= 2000 rows and >= 2
         numeric features. Binary judges on binary log loss, multiclass on
         softmax log loss. ``False`` turns it off. Costs up to ~2x fit time
-        when the refit runs.
+        when the refit runs. ``"always"`` skips the validation race and keeps
+        the cross columns unconditionally (a narrower top-4 block, ranked by
+        a short importance probe): one full fit instead of the race, for the
+        fast one-fit operating point. Binary only -- inert on multiclass and
+        where the gates fail. ``quality=1`` does not pin it on the classifier.
     cross_top_columns : int or None, default None
         Cap on how many candidate cross columns the augmented fit carries.
         ``None`` (the default) carries all of them. An integer ``k`` keeps only
@@ -3187,6 +3192,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
     # (on for binary, off for multiclass -- where an explicit True raises) and
     # costs no extra fit, so quality=1 leaves it alone.
     _QUALITY_PINS_LINEAR_LEAVES = False
+
+    # The classifier accepts cross_features="always" (the binary forced mode),
+    # but quality=1 still pins cross off here -- that pin is a later gate's
+    # decision, not this mode's.
+    _FORCED_CROSS_OK = True
+    _QUALITY_PINS_FORCED_CROSS = False
 
     def __init__(self, n_estimators=2000, learning_rate=None, depth=6,
                  l2_leaf_reg=1.0, max_bins=128, subsample=1.0, colsample=None,
@@ -3461,6 +3472,35 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             return MulticlassBoosting(**extra, **kw)
         return GradientBoosting(loss="Logloss", **extra, **kw)
 
+    def _arm_forced_cross_cls(self, kw, X, y_fit, cat_features, eval_set,
+                              sample_weight, callbacks, prep_cache, cal_y):
+        """Forced cross features for the binary classifier: the regressor's
+        SELECT_PLAN.md E2 mode -- no validation race, a short importance
+        probe ranks the features, and the narrower FORCED_CROSS_TOP_M block
+        is kept unconditionally with one full fit. Binary only; the caller
+        keeps multiclass and gate failures on the plain fit (inert, no
+        race). Assigns ``model_`` / ``cross_features_selected_`` /
+        ``cross_pairs_``."""
+        self.cross_features_selected_ = None
+        self.cross_pairs_ = None
+        probe = self._make_booster(kw)
+        probe.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
+                  sample_weight=sample_weight,
+                  callbacks=_add_callback(
+                      callbacks, _stop_after(FORCED_CROSS_PROBE_ROUNDS)),
+                  prep_cache=prep_cache)
+        pairs = _screened_cross_pairs(
+            _cross_candidate_pairs(probe.feature_importances_, cat_features,
+                                   X.shape[1], top_m=FORCED_CROSS_TOP_M),
+            self.cross_top_columns, probe, eval_set[0], cal_y)
+        if pairs:
+            self.cross_features_selected_ = True
+            self.cross_pairs_ = pairs
+        self.model_ = self._make_booster(kw, cross_pairs=pairs or None)
+        self.model_.fit(X, y_fit, cat_features=cat_features,
+                        eval_set=eval_set, sample_weight=sample_weight,
+                        callbacks=callbacks, prep_cache=prep_cache)
+
     def _race_cross_features(self, kw, X, y_fit, cat_features, eval_set,
                              sample_weight, callbacks, prep_cache, cal_y,
                              fast):
@@ -3473,7 +3513,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         self.cross_features_selected_ = None
         self.cross_pairs_ = None
 
+        # "always" never reaches the race: the forced arm keeps its block
+        # without one, and where that arm's gates fail the mode is inert.
         if not (self.cross_features is not False
+                and self.cross_features != "always"
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES):
             return
         pairs = _screened_cross_pairs(
@@ -3569,8 +3612,15 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # cap it. It is refit in full below only if the augmented model loses.
         n_cats = len(cat_features) if cat_features else 0
         n_nums = X.shape[1] - n_cats
+        forced = (self.cross_features == "always" and not self._multiclass
+                  and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
+                  and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
+        # "always" never auditions: the forced arm probes instead, and the
+        # inert arm ("always" where the gates fail, or multiclass) is a plain
+        # full fit with no race to audition for.
         fast = (self.selection_rounds is not None
                 and self.cross_features is not False
+                and self.cross_features != "always"
                 and eval_set is not None and len(X) >= CROSS_MIN_SAMPLES
                 and (n_nums >= 2 or (n_nums >= 1 and n_cats >= 1)))
         stop = _stop_after(self.selection_rounds) if fast else None
@@ -3595,20 +3645,26 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 cal_w = sw_v
                 eval_set = (cal_Xv, cal_y, sw_v)
 
-        self.model_ = self._make_booster(kw)
-        self.model_.fit(X, y_fit, cat_features=cat_features, eval_set=eval_set,
-                        sample_weight=sample_weight,
-                        callbacks=_add_callback(callbacks, stop),
-                        prep_cache=prep_cache)
+        if forced:
+            self._arm_forced_cross_cls(kw, X, y_fit, cat_features, eval_set,
+                                       sample_weight, callbacks, prep_cache,
+                                       cal_y)
+        else:
+            self.model_ = self._make_booster(kw)
+            self.model_.fit(X, y_fit, cat_features=cat_features,
+                            eval_set=eval_set, sample_weight=sample_weight,
+                            callbacks=_add_callback(callbacks, stop),
+                            prep_cache=prep_cache)
 
-        if self._multiclass:
-            self.classes_ = self.model_.classes_
-            if eval_set is not None:
-                cal_y = np.searchsorted(self.classes_, np.asarray(eval_set[1]))
+            if self._multiclass:
+                self.classes_ = self.model_.classes_
+                if eval_set is not None:
+                    cal_y = np.searchsorted(self.classes_,
+                                            np.asarray(eval_set[1]))
 
-        self._race_cross_features(kw, X, y_fit, cat_features, eval_set,
-                                  sample_weight, callbacks, prep_cache, cal_y,
-                                  fast)
+            self._race_cross_features(kw, X, y_fit, cat_features, eval_set,
+                                      sample_weight, callbacks, prep_cache,
+                                      cal_y, fast)
 
         # The winner is chosen; free the cached binned matrices rather than
         # holding them through temperature scaling below.

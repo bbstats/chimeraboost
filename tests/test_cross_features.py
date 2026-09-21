@@ -309,11 +309,54 @@ def test_always_inert_where_gates_fail():
     assert m.cross_features_selected_ is None
 
 
-def test_always_rejected_on_classifier():
+def test_always_forces_crosses_on_binary_classifier():
     X, y = _interaction_clf(n=2500)
-    with pytest.raises(ValueError, match="always"):
-        ChimeraBoostClassifier(n_estimators=30,
+    m = ChimeraBoostClassifier(n_estimators=200, random_state=0,
+                               refit_full=False,
                                cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is True
+    assert m.cross_pairs_
+    arith = {f for i, j, op in m.cross_pairs_ if op != "gdiff"
+             for f in (i, j)}
+    assert len(arith) <= FORCED_CROSS_TOP_M
+    base = ChimeraBoostClassifier(n_estimators=200, random_state=0,
+                                  refit_full=False,
+                                  cross_features=False).fit(X, y)
+    Xte, yte = _interaction_clf(n=2500, seed=1)
+    def brier(mm):
+        return np.mean((yte - mm.predict_proba(Xte)[:, 1]) ** 2)
+    assert brier(m) < brier(base)
+
+
+def test_always_inert_on_classifier_where_gates_fail():
+    # Below CROSS_MIN_SAMPLES, and without a validation split, the forced
+    # mode is exactly as inert as False is: a plain fit, no race.
+    X, y = _interaction_clf(n=900)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is None
+
+    X, y = _interaction_clf(n=3000)
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               cross_features="always",
+                               early_stopping=False).fit(X, y)
+    assert m.cross_features_selected_ is None
+
+
+def test_always_inert_on_multiclass():
+    X, y = _interaction_mc()
+    m = ChimeraBoostClassifier(n_estimators=60, random_state=0,
+                               cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is None
+
+
+def test_always_skips_the_race_on_classifier():
+    X, y = _interaction_clf(n=2500)
+    m = ChimeraBoostClassifier(n_estimators=200, random_state=0,
+                               selection_rounds=20, refit_full=False,
+                               cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is True
+    assert len(m.model_.valid_history_) > 20
 
 
 def test_cross_features_bad_value_rejected():

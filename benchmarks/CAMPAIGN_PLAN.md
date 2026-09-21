@@ -93,6 +93,8 @@ fact: 2026-09-18 | HARNESS WART (fix wanted, out of this program's scope): `--sa
 fact: 2026-09-18 | sub-gate 3-fold CV race costs 3-7x the base fit on engaging sets (mean ~5x; declined-after-folds sets pay too, no-pairs sets are free) — B12 instance, measured in `results/f2s2-20260918.json`
 fact: 2026-09-21 | F4 C1b SHIPPED as PR (I018): fused grad/hess kernel, `identity_snapshot` 155/155, same-process fit A/B okcupid-stem −4.6% / Traffic_violations −5.7% / cjs −4.1%, binary control +0.2% (`results/campaign-f4c1b-speed-20260921.txt`); test suite on the branch = 1081 passed, 1 skipped, 125 s
 fact: 2026-09-21 | F3 S1 classifier forced-cross probe (I019, 16 clf_num sets × 3 seeds, rung-1 config, top-4 block): oracle Brier headroom median +0.360% (29W-19L), probe fidelity paired median +0.000%, cost median 1.33x; gains concentrate on covertype +15.8% / pol +3.4% / eye_movements +1.5% / MagicTelescope +1.4% / jannis +1.1%, losses bank-marketing −1.0% / electricity −0.9% (`results/probe-cross-pairs-f3-clf.jsonl`)
+fact: 2026-09-21 | F3 S2 synth screen (I020, `results/20260921-075304.json`, OneLin vs OneLinXC): 119/136 exact ties (regression, multiclass, n<2000 all 0-0), engaged binary 13W-4L median +0.16% Brier (p=0.049), canary 0-0-3, engaged fit ratio median 1.27 (mean 1.60, one 5.35 outlier)
+fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
 ## Beam
@@ -102,7 +104,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped) | C1b SHIPPED as a PR (I018): fused grad/hess into the softmax kernel, bit-identical 155/155, multiclass fit −4 to −6%. No measured candidate left; next unit owes a fresh profile |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
-| F3 | Classifier forced-cross | ACTIVE (S1 passed thin, I019) | S2 = muse implements the classifier "always" mode default-off, then one synth screen with `--expect-inert` (bars in I019) |
+| F3 | Classifier forced-cross | ACTIVE (S2 passed, I020; knob shipped opt-in as a PR) | S3 = one `--decide` run, OneLin vs OneLinXC, per-stratum bars in I020; pass ⇒ propose the rung-1 classifier pin via /experiment |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
 
 ### F1 — Cross-feature cost trim v2
@@ -170,6 +172,98 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I020 2026-09-21 F3 S2 (classifier "always" mode, default-off, + synth screen; pre-registered)
+why now: I019 passed its bars. Muse task
+`campaign_tasks/20260921-f3-s2-clf-forced-cross.md` (gitignored; the
+verdict cites it). Branch `campaign/f3-s2-clf-forced-cross` stacked on
+`campaign/f3-s1-clf-cross-probe` (PR #116) — merge order #115, #116, then
+this rung's PR.
+design (what muse builds): `ChimeraBoostClassifier` accepts
+`cross_features="always"`. Binary path, mirroring the regressor's
+`_arm_forced_cross`: under the existing gates (eval set present, ≥ 2000
+rows, ≥ 2 numerics or 1 numeric + 1 cat) fit a `FORCED_CROSS_PROBE_ROUNDS`
+(25) importance probe, take `_cross_candidate_pairs(..., top_m=
+FORCED_CROSS_TOP_M)` through the existing `_screened_cross_pairs`, then ONE
+full fit on the augmented matrix; no race, `selection_rounds` audition
+skipped; `cross_features_selected_=True`, `cross_pairs_` set. Where the
+gates fail, and on multiclass, the mode is inert (plain fit, `selected_ =
+None`) — the regressor's "inert where gates fail" rule, chosen over raising
+so a later `quality=1` pin cannot blow up on multiclass. The `quality=1`
+classifier pin stays `cross_features=False` (a new class flag separates
+"accepts always" from "quality pins always"; the regressor keeps both
+True). The raced default path is untouched: goldens + `identity_snapshot`
+must stay 155/155 (the knob unset is inert by construction).
+harness (Claude, after muse): new arm `ChimeraBoostOneLinXC` = rung 1 with
+`cross_features="always"` on classification rows and `False` on regression
+rows, paired against `ChimeraBoostOneLin` in ONE synth run. Regression,
+multiclass and sub-2000 rows are then exact ties by construction (the
+`--expect-inert` control); binary ≥ 2000-row rows are the engaged slice.
+Docs (`parameters.md`, `recipes.md`, PROJECT_STATUS) lose "regressor only".
+barrier: as I019 (B16/B12/B17/B1/B2/B14 arguments unchanged; the unit adds
+no mechanism the probe did not already run). B12 is priced by the same
+screen (fit-time per engaged set recorded).
+forecast, before any code: strength — engaged binary slice positive by
+majority with engaged median **+0.2 to +0.8%** Brier (the probe's +0.36%
+median headroom, minus the probe-vs-oracle give-back on divergent pair
+sets); every non-engaged row an exact tie. Cost — engaged sets ~**1.3x** the
+OneLin fit (probe read 1.33 median). Where wrong: the synth generator's
+binary sets may carry less interaction structure than Grinsztajn's, reading
+flat; or the ties control fails, which is a bug not a result.
+bars, in order: 1 exact-tie control — every regression, multiclass and
+sub-2000 row an exact tie (`--expect-inert`); one non-tie voids the screen.
+2 direction — engaged binary slice: wins ≥ half + 1 AND median > 0 on
+Brier. 3 canary slice not positive. 4 cost recorded. Bar 2 failing kills
+F3 ("the race was earning its fee on the classifier").
+ran: muse exit 0 in one pass (~25 min); its `RESULT.md` reported 139
+focused + 1084 full-suite tests green, ruff clean on the CI-gated
+`chimeraboost/` scope (23 pre-existing hits in untouched test files).
+Reviewed the diff by hand: acceptance flag `_FORCED_CROSS_OK` now True on
+both estimators, new `_QUALITY_PINS_FORCED_CROSS` (regressor True,
+classifier False) drives the rung-1 pin; `_arm_forced_cross_cls` = probe
+capped at `FORCED_CROSS_PROBE_ROUNDS`, top-4 pairs through the screen, one
+full fit; `fast` and the race both exclude "always", so the inert arm
+(multiclass, failed gates) is a plain full fit — muse's one deliberate
+deviation from the task text, argued in RESULT.md and right (the task's
+literal formula would have left multiclass+always with a truncated
+audition). Five tests replaced/added as specified. Reviewer gates:
+`identity_snapshot` **155/155 identical** (raced default untouched), full
+suite **1084 passed, 1 skipped** rerun under the conda python.
+screen: `run_benchmarks.py --synth --seeds 3 --save --models ChimeraBoost
+ChimeraBoostOneLin ChimeraBoostOneLinXC` (the harness requires the default
+arm as baseline; first launch without it exited 2 on the argparse check) →
+`results/20260921-075304.json`, scored with `compare_runs.py --model
+ChimeraBoostOneLin --model-new ChimeraBoostOneLinXC --expect-inert` and
+`synth_report.py` on the same file. Bar 1 exact-tie control **PASS** —
+regression 0-0-48, multiclass 0-0-34, n<2000 0-0-48, 119 of 136 exact
+ties in all; every non-tie is a binary set with n_train ≥ 2800. Bar 2
+direction **PASS** — engaged 13W-4L (bar 9+), engaged median **+0.16%**
+Brier, binary slice p=0.049; two of the 13 wins are +0.00% (near-perfect
+sets), so read it as 11 real wins to 4 losses; largest mover syn:v2/447
++1.59%, worst loss syn:v2/390 −0.88%. Bar 3 canary&cats 0-0-3 **PASS**
+(saturated slice 5-0-12 noted, gains there are +0.1% on near-perfect
+scores). Bar 4 cost recorded — engaged median fit ratio **1.27** (mean
+1.60; one 5.35 outlier, syn:v2/697, where the augmented fit ran ES long;
+inert slice median 1.00 = the timing floor). Synth timings are not
+decision-grade (standing rule); the decide run prices it.
+verdict: **PASS → S3**. Forecast: direction and control HIT; engaged
+median +0.16% is a **MISS below the +0.2 to +0.8% band** — smaller than
+the Grinsztajn probe's +0.36% headroom, consistent with synth binary sets
+carrying less interaction structure than the real panel, exactly the
+"where wrong" I wrote; cost 1.27 HIT. The mode ships in this PR as an
+opt-in knob (default-off, `quality=1` classifier unchanged). Whether
+rung 1 should pin it on the classifier is S3's question and the honest
+prior is "small": +0.16% median on synth, +0.36% on Grinsztajn.
+next: S3 = ONE `--decide --seeds 3 --save` run with `ChimeraBoostOneLin`
+and `ChimeraBoostOneLinXC` (plus the default as baseline), scored
+`--by-suite` and `--expect-inert`; bars per stratum: gr binary engaged
+sign test wins ≥ half + 1 with positive engaged median on Brier, hc
+binary at worst flat (pointer, not gate, at its size), all regression /
+multiclass / sub-gate rows exact ties, engaged fit ratio ≤ 1.5 median.
+Pass ⇒ propose the `quality=1` classifier pin as a separate /experiment
+(a released-preset change needs the full gate and the maintainer's go);
+fail ⇒ the knob stays opt-in and F3 closes as "measured, not worth the
+pin".
 
 #### I019 2026-09-21 F3 S1 (classifier forced-cross probe; pre-registered)
 why now: F4 has no measured candidate left after I018; F3 is the only other
