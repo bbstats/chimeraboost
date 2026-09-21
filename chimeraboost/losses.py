@@ -415,6 +415,38 @@ def _softmax_kernel(F):
     return out
 
 
+@njit(cache=True, parallel=True)
+def _softmax_grad_hess_kernel(F, Y):
+    # Fused grad_hess for MultiSoftmax: the softmax row above plus
+    # `grad = P - Y` and `hess = max(P * (1 - P), 1e-6)` in one pass, so the
+    # output is bit-identical to `_grad_hess_numpy` on the same machine. The
+    # exp loop is `_softmax_kernel`'s verbatim (same max, same accumulation
+    # order into `s`; the exps rest in the grad buffer until the final loop
+    # overwrites them). The divide stays a divide -- a hoisted reciprocal
+    # does not round like a divide. The 1e-6 floor is a comparison because
+    # that is `np.maximum(h, 1e-6)` on non-NaN input, and `h` cannot be NaN:
+    # `p` is in [0, 1], so `h = p * (1 - p)` lands in [0, 0.25].
+    n, K = F.shape
+    grad = np.empty((n, K), dtype=np.float64)
+    hess = np.empty((n, K), dtype=np.float64)
+    for i in prange(n):
+        m = F[i, 0]
+        for k in range(1, K):
+            if F[i, k] > m:
+                m = F[i, k]
+        s = 0.0
+        for k in range(K):
+            e = np.exp(F[i, k] - m)
+            grad[i, k] = e
+            s += e
+        for k in range(K):
+            p = grad[i, k] / s
+            grad[i, k] = p - Y[i, k]
+            h = p * (1.0 - p)
+            hess[i, k] = h if h >= 1e-6 else 1e-6
+    return grad, hess
+
+
 def _softmax_numpy(F):
     """The reference implementation, and the live path for K > 7.
 
@@ -448,11 +480,22 @@ class MultiSoftmax:
         p = np.clip(np.average(Y, axis=0, weights=sample_weight), 1e-6, 1.0)
         return np.log(p)  # (K,)
 
-    def grad_hess(self, Y, F):  # F (n, K)
+    def _grad_hess_numpy(self, Y, F):  # F (n, K)
         P = _softmax(F)
         grad = P - Y
         hess = np.maximum(P * (1.0 - P), 1e-6)
         return grad, hess
+
+    def grad_hess(self, Y, F):  # F (n, K)
+        if (F.dtype == np.float64 and Y.dtype == np.float64
+                and F.shape == Y.shape
+                and 0 < F.shape[1] <= _SOFTMAX_MAX_K):
+            if not F.flags.c_contiguous:
+                F = np.ascontiguousarray(F)
+            if not Y.flags.c_contiguous:
+                Y = np.ascontiguousarray(Y)
+            return _softmax_grad_hess_kernel(F, Y)
+        return self._grad_hess_numpy(Y, F)
 
     def eval(self, Y, F, sample_weight=None):
         P = np.clip(_softmax(F), 1e-12, 1.0)

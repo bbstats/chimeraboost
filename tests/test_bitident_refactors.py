@@ -377,6 +377,133 @@ def test_multiclass_grad_hess_and_eval_go_through_the_kernel():
 
 
 # ---------------------------------------------------------------------------
+# _softmax_grad_hess fused kernel (F4 C1b): the softmax row plus the grad and
+# hess elementwise passes in one numba kernel. The oracle is the OLD code
+# (`MultiSoftmax._grad_hess_numpy`), kept byte for byte -- and since both
+# sides run the same numba exp() on the same machine, the comparison is EXACT
+# equality, unlike the cross-libm softmax tests above.
+# ---------------------------------------------------------------------------
+
+def _one_hot(rng, n, K):
+    return np.eye(K)[rng.integers(0, K, n)]
+
+
+def test_fused_grad_hess_matches_oracle_exactly(monkeypatch):
+    # K = 2..7 at tiny, ordinary and near-overflow scales. The spy proves the
+    # fused kernel -- not the numpy fallback -- produced every one of these.
+    import chimeraboost.losses as losses
+
+    calls = []
+    orig = losses._softmax_grad_hess_kernel
+
+    def spy(F, Y):
+        calls.append(F.shape)
+        return orig(F, Y)
+
+    monkeypatch.setattr(losses, "_softmax_grad_hess_kernel", spy)
+    rng = np.random.default_rng(11)
+    for K in range(2, _SOFTMAX_MAX_K + 1):
+        loss = MultiSoftmax(K)
+        for scale in (1e-3, 1.0, 30.0):
+            F = rng.normal(scale=scale, size=(4000, K))
+            Y = _one_hot(rng, 4000, K)
+            grad, hess = loss.grad_hess(Y, F)
+            egrad, ehess = loss._grad_hess_numpy(Y, F)
+            np.testing.assert_array_equal(grad, egrad)
+            np.testing.assert_array_equal(hess, ehess)
+    assert len(calls) == len(range(2, _SOFTMAX_MAX_K + 1)) * 3
+
+
+def test_fused_grad_hess_matches_oracle_on_degenerate_rows():
+    # Constant rows, huge negatives, duplicate maxima, a single column --
+    # each with an all-zero Y and a one-hot Y.
+    cases = [np.zeros((5, 3)),
+             np.full((4, 3), -1e5),
+             np.array([[800.0, 800.0, -800.0], [-1e300, 1e-300, 0.0]]),
+             np.array([[1.0], [2.0]]),
+             np.repeat(np.array([[3.0, 3.0, 3.0]]), 7, axis=0)]
+    rng = np.random.default_rng(12)
+    for F in cases:
+        n, K = F.shape
+        loss = MultiSoftmax(K)
+        for Y in (np.zeros((n, K)), _one_hot(rng, n, K)):
+            grad, hess = loss.grad_hess(Y, F)
+            egrad, ehess = loss._grad_hess_numpy(Y, F)
+            np.testing.assert_array_equal(grad, egrad)
+            np.testing.assert_array_equal(hess, ehess)
+
+
+def test_fused_grad_hess_handles_non_contiguous_inputs():
+    # Fortran-order and strided views still take the fused path (copied to
+    # C-contiguous first, which changes layout, not values).
+    rng = np.random.default_rng(13)
+    n, K = 3000, 5
+    loss = MultiSoftmax(K)
+    F = rng.normal(size=(n, K))
+    Y = _one_hot(rng, n, K)
+    views = [(np.asfortranarray(F), Y),
+             (F, np.asfortranarray(Y)),
+             (np.asfortranarray(F), np.asfortranarray(Y)),
+             (F[::2], Y[::2])]
+    for Fv, Yv in views:
+        assert not Fv.flags.c_contiguous or not Yv.flags.c_contiguous
+        grad, hess = loss.grad_hess(Yv, Fv)
+        egrad, ehess = loss._grad_hess_numpy(Yv, Fv)
+        np.testing.assert_array_equal(grad, egrad)
+        np.testing.assert_array_equal(hess, ehess)
+
+
+def test_fused_grad_hess_above_the_guard_uses_numpy_untouched(monkeypatch):
+    # K >= 8 must never reach the fused kernel. If it does, the test explodes
+    # instead of silently comparing two numpy paths.
+    import chimeraboost.losses as losses
+
+    def boom(F, Y):
+        raise AssertionError("fused kernel must not run for K > 7")
+
+    monkeypatch.setattr(losses, "_softmax_grad_hess_kernel", boom)
+    rng = np.random.default_rng(14)
+    for K in (_SOFTMAX_MAX_K + 1, 12):
+        loss = MultiSoftmax(K)
+        F = rng.normal(size=(2000, K))
+        Y = _one_hot(rng, 2000, K)
+        grad, hess = loss.grad_hess(Y, F)
+        egrad, ehess = loss._grad_hess_numpy(Y, F)
+        np.testing.assert_array_equal(grad, egrad)
+        np.testing.assert_array_equal(hess, ehess)
+
+
+def test_fused_grad_hess_float32_falls_back_to_numpy(monkeypatch):
+    # Either input in float32 takes the numpy path (same tripwire as above).
+    import chimeraboost.losses as losses
+
+    def boom(F, Y):
+        raise AssertionError("fused kernel must not run on float32")
+
+    monkeypatch.setattr(losses, "_softmax_grad_hess_kernel", boom)
+    rng = np.random.default_rng(15)
+    F64 = rng.normal(size=(500, 4))
+    Y64 = _one_hot(rng, 500, 4)
+    loss = MultiSoftmax(4)
+    for F, Y in ((F64.astype(np.float32), Y64),
+                 (F64, Y64.astype(np.float32))):
+        grad, hess = loss.grad_hess(Y, F)
+        egrad, ehess = loss._grad_hess_numpy(Y, F)
+        np.testing.assert_array_equal(grad, egrad)
+        np.testing.assert_array_equal(hess, ehess)
+
+
+def test_fused_grad_hess_invariants():
+    rng = np.random.default_rng(16)
+    loss = MultiSoftmax(5)
+    F = rng.normal(scale=5.0, size=(1000, 5))
+    Y = _one_hot(rng, 1000, 5)
+    grad, hess = loss.grad_hess(Y, F)
+    assert np.all(hess >= 1e-6)
+    np.testing.assert_allclose(grad.sum(axis=1), 0.0, rtol=0, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
 # Complexity-refactor guards (stage 0 of the C901 program). The identity
 # snapshot pins model outputs exactly, but two behavior surfaces are invisible
 # to it: which file/line a warning is attributed to (an extracted helper adds
