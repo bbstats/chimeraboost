@@ -28,6 +28,7 @@ A shipped preset is a frontier win but not a default win.
 - Standing numerical-drift policy (the maintainer, 2026-09-18): an algorithm-changing revision may carry last-bit drift provided it is monitored (identity-snapshot diff quantified, not silently absorbed), reported (both axes in the verdict), and gate-evidenced to improve over time. Pure rewrites that drift without changing the algorithm stay on the ladder above.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
+- WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
 
 ## Screening ladder
 
@@ -105,6 +106,10 @@ fact: 2026-09-21 | main settled at 486e563. PRs #116–#119 (F3 S1/S2/S3 + the r
 fact: 2026-09-21 | ordered-TS asymmetry MEASURED (I024, `results/probe-ts-mismatch-20260921.{md,json}`): on high-card columns a held-out row of a rare category (m ≤ 5) reads an encoding 1.9–5.2× more spread around the prior than a training row of the same stratum, and the target's slope on it is 0.63–0.70 of the training slope (over-trust) on sf-police / okcupid-stem / Traffic_violations, 1.01 on kick; wine-reviews 0.71, colleges 0.42. In big categories (m > 50) it runs the other way, reliability 1.10–1.29 (prefix noise on training rows). Mean shift is ≤ 0.03 SD everywhere — the mismatch lives in the second moment and by count, never in the mean
 fact: 2026-09-21 | share of held-out rows in categories of train count m ≤ 2, the quantity that decided the SIGN of the transform fix: sf-police 13.1%, wine-reviews 13–20%, colleges 18–20%, okcupid-stem 4.0%, Traffic_violations 1.5–2.8% per column over its 3 high-card columns (the probe's column count of 9 is 3 columns × 3 class targets), kick 0.8%
 fact: 2026-09-21 | transform-only A/B, default estimator, 3 seeds (I024): count-matched weight A1 / half-matched A2 vs shipped — sf-police +0.31% / +0.28% Brier (3/3 seeds both), Traffic_violations +0.46% / +0.75% (3/3), okcupid-stem +0.09% / 0.00% (1/3), kick −0.05% / −0.04% (0/3); wine-reviews +0.08% / +0.29% RMSE; porto-seguro exact to ±0.003%. Gap-set pairs 7W-5L for both arms against a bar of 8. Matched arms early-stop later (sf-police 45→62 trees), fit ×0.97–1.14, report-only
+fact: 2026-09-21 | hc `prep` split (I026, `results/campaign-f4c4-prep-20260921.{md,json}`; % of default fit, kick / wine-reviews / okcupid-stem / sf-police / Traffic_violations / porto-seguro): factorize 14.7 / 16.9 / 14.1 / 29.8 / 11.3 / 29.9; ordered-TS draws+averaging 5.5 / 4.2 / 15.0 / 4.6 / 14.7 / 8.6 with the numba kernel only 1.4 / 1.3 / 4.0 / 1.4 / 4.0 / 2.4; `_numeric_block` 4.7 / 0.4 / 0.6 / 0.9 / 0.2 / 10.1; cross block 4.5 / 5.0 / 1.4 / 2.2 / 1.0 / 2.2; binning 0.8–3.4; `prep` total 30–58%
+fact: 2026-09-21 | one default fit factorizes overlapping rows ~2.2× the matrix: selection-leg training rows (80%), validation rows for the eval transform (20%), validation rows again when calibration predicts from raw X, then all rows in the refit — kick 154 + 36 + 129 ms of a 2.17 s fit. The numeric block of an object array is unboxed once per leg AND once more inside `_validate_fit_input` (porto-seguro: 10.1% + 3.2% of fit)
+fact: 2026-09-21 | `_factorize_numeric` is not cheap on an object array: porto-seguro's 31 integer-coded categoricals cost 29.9% of fit (a per-element float cast, then a boxed `==` audit). The harness hands EVERY categorical dataset to fit as a numpy object array, so this is what users with mixed-type frames pay too
+fact: 2026-09-21 | ordered-TS cost is the permutation draws, not the kernel: one `rng.permutation(n)` per column per permutation per class encoder (408–456 draws per multiclass fit) is 75–80% of the row by microbench. The draws are slices of a golden-frozen generator stream, so no bit-identical rewrite can remove them
 fact: 2026-09-21 | F6 S1b (I025, `results/probe-ts-mismatch-s1b-20260921.{md,json}`): rare-only matched weight (m ≤ 5) at 100/50/25% training rows — sf-police +0.29 / +0.29 / +0.53% Brier, 9 of 9 fits; okcupid-stem +0.01 / +0.05 / +0.01; Traffic_violations +0.04 / −0.02 / −0.21; kick −0.01 / −0.04 / +0.10; wine-reviews −0.07 / +0.19 / +0.27% RMSE; porto-seguro an exact tie. Gap pairs at 25%: 7W-5L (bar 8); without sf-police −0.03%, 4W-5L ⇒ F6 KILLED, barrier B18
 fact: 2026-09-21 | share of held-out rows in categories of m ≤ 5 training rows, by training size 100/50/25%: sf-police 27.0/35.7/41.1%, okcupid-stem 6.5/7.3/8.6%, Traffic_violations 3.0/4.7/8.8%, wine-reviews 28–35%; unseen share on sf-police 6.6/12.8/21.8%. Only address-like columns put a quarter of their rows in rare categories: in the hc suite that is sf-police's Address and wine-reviews' two largest columns
 fact: 2026-09-21 | Traffic_violations' +0.46% / +0.75% under the UNIFORM matched weights (I024) did not come from rare categories: the rare-only arms read +0.04% / +0.06%. It came from re-weighting categories of more than five rows, where Part 1 measured no over-trust. Unexplained, one dataset, post-hoc — a pointer for the R3 ablation, never a result
@@ -124,7 +129,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C3 + C4 measured) | Fresh profile read (I023). Two objects owe an S0, in ceiling order: **C4** hc `prep` (32–41% of hc fit, inside unsplit) then **C3** the binary Logloss layer (`grad_hess` + per-round validation `eval`, 8–10% of a gr binary fit). Class: exact-rewrite perf. Queued behind F6 (R1), which the maintainer picked to go first |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C4a ready for S1, C3 + C4b measured) | **C4a — prepare once per fit** (I026): one default fit factorizes overlapping rows ~2.2× and unboxes the numeric block four times; factorize alone is 11–30% of fit on all six hc sets. An exact rewrite exists (factorize the full matrix once, re-rank integer codes per leg). Forecast −5 to −12% of hc fit, bit-identical. Next: S1 as a muse task, library source, the maintainer's PR. Queued behind it: C3 binary Logloss layer (8–10% of a gr binary fit). Parked: C4b shared TS permutations (4–15% of hc fit, algorithm change, FP-drift class) |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
@@ -197,6 +202,15 @@ hc `prep` at 32–41% of fit with 14–20 points of it re-paid by the refit; and
 **C3**, the binary Logloss layer at 8–10% of fit across `grad_hess` and the
 per-round validation `eval`. C3 is the first F4 object that reaches Grinsztajn
 (23 binary sets of 59).
+C4 split 2026-09-21 (I026): hc `prep` is mostly **factorize, paid 2.2× per
+fit** (selection-leg training rows, validation rows twice, then every row in
+the refit) — 11–30% of fit on all six hc sets, porto-seguro's integer-coded
+categories included, because on an object array the "vectorized" numeric path
+is a per-element cast plus a boxed audit. **C4a, prepare once per fit**, is an
+exact rewrite with a −5 to −12% forecast and is the family's next unit. The
+ordered-TS row is three-quarters `rng.permutation` draws, which no exact
+rewrite can touch (golden-frozen stream); sharing permutations across columns
+(**C4b**) is an algorithm change worth 4–15% of hc fit and stays parked.
 
 ### F5 — hc-Brier gap vs CatBoost
 status: BLOCKED(needs B3-clearing mechanism from lens L3)
@@ -252,6 +266,138 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I026 2026-09-21 F4 S0 (candidate C4 — split hc `prep` by wall clock; measurement, pre-registered)
+why now: F6 closed (I025); under the 2026-09-21 ranking F4's measured
+objects go next, C4 first on ceiling (I023: `prep` is 34.8 / 31.8 / 41.1%
+of the default fit on kick / wine-reviews / okcupid-stem, the largest
+non-kernel number on the board, inside unsplit). Class: **measurement for
+exact-rewrite perf**; zero library change, no muse task. Branch
+`campaign/f4-c4-prep-split` from main at 10eccba (PR #123 merged by the
+maintainer). The PR will touch only `benchmarks/` and markdown, so under
+the widened 2026-09-21 rule the loop merges it itself.
+instrument: `benchmarks/f4_other_walltime.py` gains `--prep-detail`: the
+same exclusive-time hooks, pushed INSIDE `prep` — `CatTransformCache.column`
+(factorize), `_numeric_block` (unboxing the object array the harness hands
+every categorical dataset), the ordered-TS `fit_transform` with its numba
+kernel hooked separately (so the remainder is the permutation draws),
+`OrderedTargetEncoder.transform`, `_codes_for_transform`, `Binner`
+fit/transform, the cross block, and the preprocessor's own remainder
+(stack, feature map, the feature-major transposes). Rows still partition
+the fit, still split by leg; 5 reps and per-rep times kept (I023's
+lesson). Panel: the three I023 hc sets plus sf-police, Traffic_violations
+and porto-seguro — string-coded and numeric-coded categoricals, binary,
+multiclass and regression.
+barrier: `barrier_check.py` matched seven, all keywords, none binds a
+timing read: B4/B18/B3 (ordered TS appears only as a timed object; what it
+computes is untouched — B18 closes changing the transform's VALUES, an
+exact rewrite changes none), B2/B13/B12 ("refit", "selection" as leg
+names), B10 (binds objects inside `build_oblivious_tree`; its method,
+ceiling before code, is this rung).
+forecast, before any run (share of the default fit, all legs): factorize
+plus eval-row codes **10–18%** on the string-coded sets (kick, okcupid,
+wine-reviews, sf-police, Traffic) and under 3% on porto-seguro, whose
+integer categories take the vectorized path — what C2 left, paid three
+times per fit (train rows, validation rows, then every row again in the
+refit). Ordered-TS fit **5–8%** on binary/regression and **15–20%** on
+multiclass (one encoder per class: 3 × 17 columns × 4 permutations = 204
+sequential passes on okcupid), with the permutation draws 40–50% of it.
+`_numeric_block` 3–6% where numerics are many (kick, porto-seguro), under
+1% on category-dominated sets. Binning 3–6%. The preprocessor's own
+remainder 1–3%. Where I expect to be wrong: wine-reviews — my pieces sum to
+~21% of a measured 31.8%, so something on a 26k-category column (building
+`cat_maps_`, remapping validation codes) is bigger than I think.
+bars: (a) instrument — wrapped/plain ≤ 1.05 per set. (b) candidate — a
+named piece ≥ 8% of fit on ≥ 2 hc sets gets its exact-rewrite question
+answered in this entry (is there a rewrite that provably returns the same
+arrays, and what is its ceiling); (c) parked — 4–8% on ≥ 2 sets, recorded
+with ceilings; (d) nothing ≥ 4% on 2 sets ⇒ C4 closes as "diffuse", F4
+moves to C3.
+ran: `f4_other_walltime.py --prep-detail --reps 5`, 6 hc sets × (1 warm +
+5 plain + 5 wrapped fits), one pass, ~6 min →
+`results/campaign-f4c4-prep-20260921.{md,json,log}`. Bar (a) instrument
+**PASS**: wrapped/plain 0.976–1.010 on all six.
+result (% of the default fit, all legs; kick / wine-reviews / okcupid-stem
+/ sf-police / Traffic_violations / porto-seguro):
+  `prep` total          35.5 / 30.2 / 41.2 / 42.2 / 36.2 / **58.3**
+  **factorize**         14.7 / 16.9 / 14.1 / **29.8** / 11.3 / **29.9**
+  ordered-TS draws+avg   5.5 /  4.2 / **15.0** / 4.6 / **14.7** / 8.6
+  ordered-TS kernel      1.4 /  1.3 /  4.0 /  1.4 /  4.0 /  2.4
+  `_numeric_block`       4.7 /  0.4 /  0.6 /  0.9 /  0.2 / **10.1**
+  cross block            4.5 /  5.0 /  1.4 /  2.2 /  1.0 /  2.2
+  binning (fit+apply)    2.0 /  0.8 /  3.4 /  1.2 /  2.7 /  2.0
+  preprocessor remainder 2.4 /  1.3 /  1.7 /  1.6 /  1.4 /  2.9
+**factorize is the largest non-kernel object on every high-card set**, and
+the reason is structural: one default fit factorizes overlapping rows
+three to four times — the selection legs' training rows (80%), the
+validation rows for the eval transform (20%), the validation rows AGAIN
+when calibration predicts from raw X, then every row in the refit (100%) —
+about 2.2× the matrix (kick: 154 ms selection + 36 ms calibration + 129 ms
+refit of a 2.17 s fit). Porto-seguro is where my forecast broke: its
+integer-coded categories take `_factorize_numeric`, which I priced as
+free, and on the object array the harness hands every categorical dataset
+that path is a per-element float cast plus a boxed equality audit — 29.9%
+of fit, plus 10.1% unboxing the numeric block and 3.2% unboxing it once
+more in input validation. The ordered-TS row is mostly NOT its numba
+kernel: the kernel is 1.3–4.0% and the `rng.permutation` draws (one per
+column per permutation per class encoder; 408–456 draws per fit on the two
+multiclass sets) are three times that — the microbench prices the draws at
+75–80% of the row.
+verdict: **PASS bar (b), two candidates; one has an exact rewrite.**
+  **C4a — prepare once per fit** (factorize, 6 of 6 sets ≥ 11%). Exact
+  rewrite EXISTS: factorize each categorical column once on the full
+  matrix, then derive each leg's factorization by re-ranking the integer
+  codes to first-appearance order inside the leg's rows — which is what
+  `_factorize_int` already does, exactly, for combo keys (an O(n) numba
+  re-rank would make it free). Codes and category order come out identical
+  to `factorize(X_leg[:, f])`, so encodings, bins, trees and predictions
+  are bit-identical; the only observable difference is which of several
+  ==-equal objects (`1` vs `1.0`) a category map keeps as its key, which no
+  lookup can see. The same context carries the numeric block as float64,
+  converted once (it is converted a fourth time in `_validate_fit_input`
+  today and thrown away). Ceiling: ~55% of the factorize row —
+  **8 / 9 / 8 / 16 / 6 / 16%** of fit — plus 2.6% (kick) and 5.5% (porto)
+  from the numeric block; honest forecast by the C2/C1b conversion rate,
+  **−5 to −12% of fit on high-card sets**, zero on Grinsztajn (no
+  categoricals survive its curation) and on a user-supplied `eval_set`
+  (separate matrix, nothing to share). The reach that matters is off the
+  benchmark: string categoricals are the common real-world input. Class:
+  exact-rewrite perf, pure-speed ladder. Risk: it threads a per-fit context
+  from `_auto_es_split` through the booster into the preprocessor —
+  three library files, the most invasive F4 unit so far.
+  **C4b — ordered-TS permutation draws** (15.0 / 14.7 / 8.6% on okcupid /
+  Traffic / porto). NO exact rewrite: every draw is a distinct slice of a
+  golden-frozen generator stream, per column, per permutation, per class
+  seed; overlapping draws with the kernel would save at most the kernel's
+  1–4%. The object that exists is an ALGORITHM change — one set of four
+  permutations shared across columns (CatBoost shares its permutations
+  across features too), draws 408 → 4 — ceiling ≈ the whole row, **4–15%
+  of hc fit**, FP-drift class: every categorical golden moves and the
+  correlated prefix noise across columns is a strength question that owes
+  the full ladder. Parked with its ceiling, behind C4a.
+  parked under bar (c): `_numeric_block` (folded into C4a), the cross block
+  at 4.5–5.0% on kick and wine-reviews (unsplit), the TS kernel at 4.0% on
+  the multiclass sets.
+Forecast: factorize 10–18% HIT on four string sets, MISSED high on
+sf-police (29.8) and MISSED outright on porto-seguro (29.9 against "under
+3%"); ordered TS HIT in both bands, draws' share MISSED low (I said 40–50%
+of the row, it is 75–80%); numeric block HIT where numerics are many
+(porto over the band); binning MISSED low (0.8–3.4 against 3–6 — the
+parallel binner is cheaper than I priced); wine-reviews resolved as
+predicted-wrong: the missing ten points were factorize (16.9, not 11.5)
+and the cross block (5.0). Caveat (GATE_ROBUSTNESS #6): one split,
+threads unpinned — these shares choose the next unit and gate nothing.
+next: **C4a S1 — a muse task** (library source, so the PR waits for the
+maintainer): a per-fit prepared-columns context built where the estimator
+validates X — categorical factorizations of the full matrix plus the
+float64 numeric block — consumed by the selection legs through row indices
+and by the refit as is; `factorize` stays the definition and the oracle.
+Gates: `identity_snapshot` 155/155, full suite, new exact-equality tests
+(leg factorization from the context == `factorize` on the leg's rows, incl.
+mixed-type and missing categories), same-process fit A/B on kick /
+sf-police / porto-seguro with a Grinsztajn numeric set as the zero-change
+control. Kill: any identity drift, or under 3% on all three sets. C3
+(binary Logloss layer) queues behind it; C4b stays parked.
 
 #### I025 2026-09-21 F6 S1b (rare-only transform weight, tested where it can fail; pre-registered in I024)
 why now: I024's `next:`; PR #122 merged by the maintainer (516ab12), no

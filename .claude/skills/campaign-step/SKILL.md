@@ -78,11 +78,14 @@ pre-authorized form and anything wrapped around it gets blocked.
   both axes, next rung or KILLED). No PENDING left behind.
 - Pass: commit on the branch, push, open a PR with `gh` (token via
   `git credential fill`). Never release. Merge a PR yourself ONLY when every
-  changed path is a `.md` file and `chimeraboost/` + `tests/` match main (the
-  maintainer, 2026-09-21: record-only learnings need no input from him):
-  `bash campaign_tasks/gh.sh api -X PUT repos/bbstats/chimeraboost/pulls/N/merge
-  -f merge_method=merge`, then delete the branch and fast-forward main. Any
-  code in the diff, a `benchmarks/` script included, waits for his merge.
+  changed path is a `.md` file or lives under `benchmarks/` (never
+  `benchmarks/tabarena/`) and `chimeraboost/` + `tests/` match main (the
+  maintainer, 2026-09-21: learnings and benchmark scripts need no input from
+  him): `bash campaign_tasks/gh.sh api -X PUT
+  repos/bbstats/chimeraboost/pulls/N/merge -f merge_method=merge`, then delete
+  the branch and fast-forward main. Anything in `chimeraboost/`, `tests/` or
+  packaging/CI config waits for his merge. If a self-merged PR changes how a
+  gate scores or edits a policy file, say so in the step report.
 - Fail: `git checkout -- .; git clean -fd chimeraboost tests` and
   delete the branch. The plan-file entry is the record.
 - `git checkout main`. Delete the task's `.log` and `RESULT.md` only after the
