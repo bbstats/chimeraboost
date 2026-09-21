@@ -99,8 +99,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   to do about it.
 
 ### Changed
-- Nothing about how any model fits. Every item above is additive, and the
-  exact-output snapshot is bit-identical on all 155 configurations.
+- **Multiclass fits are another 4–6% faster; predictions are bit-identical.**
+  After the 0.31 softmax kernel, the multiclass gradient step still made two
+  more full passes over the probability matrix in numpy, one for the gradient
+  and one for the floored hessian, each with its own allocation. Those now
+  happen inside the same numba kernel, in the pass that already computes the
+  softmax row, with every element produced by the same operations in the
+  same order as before. Same-process A/B on the three multiclass shapes the
+  benchmark tier contains: 4.6%, 5.7% and 4.1% off end-to-end fit time, and
+  a flat binary control, where this code never runs. The exact-output
+  snapshot passes 155 of 155 configurations; above seven classes the numpy
+  path is kept, for the same reason as before.
+- Otherwise nothing about how any model fits. Every other item above is
+  additive, and the exact-output snapshot is bit-identical on all 155
+  configurations.
 
 ## [0.31.0] - 2026-08-30
 ### Changed

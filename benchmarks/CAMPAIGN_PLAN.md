@@ -91,13 +91,15 @@ fact: 2026-09-18 | tree state at kickoff: branch `whitepaper` (13 ahead / 1 behi
 fact: 2026-09-18 | bench lane clear (no run in flight); `results/` newer than last entry: `quantile-20260830-175359.json` (quantile-suite instrument, 0.32 record lives in CHANGELOG — not a default-loop run)
 fact: 2026-09-18 | HARNESS WART (fix wanted, out of this program's scope): `--save <explicit .json path>` points the console tee and the JSON sidecar at the same file and corrupts the write (I017 attempt 1). Until fixed: always use bare `--save` and copy/rename after. A rejected-or-derived guard belongs in run_benchmarks.py with a test.
 fact: 2026-09-18 | sub-gate 3-fold CV race costs 3-7x the base fit on engaging sets (mean ~5x; declined-after-folds sets pay too, no-pairs sets are free) — B12 instance, measured in `results/f2s2-20260918.json`
+fact: 2026-09-21 | F4 C1b SHIPPED as PR (I018): fused grad/hess kernel, `identity_snapshot` 155/155, same-process fit A/B okcupid-stem −4.6% / Traffic_violations −5.7% / cjs −4.1%, binary control +0.2% (`results/campaign-f4c1b-speed-20260921.txt`); test suite on the branch = 1081 passed, 1 skipped, 125 s
+fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
 ## Beam
 
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 shipped) | C1 SHIPPED (I012/I013): fused softmax kernel, bit-identical, multiclass fit −37 to −44%. C1b measured and PARKED (I014): ceiling 4.4–7.5%, cheap but hc-only — Nathan's call vs F2 |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped) | C1b SHIPPED as a PR (I018): fused grad/hess into the softmax kernel, bit-identical 155/155, multiclass fit −4 to −6%. No measured candidate left; next unit owes a fresh profile |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | ACTIVE | S1 probe of classifier pair fidelity (S0 done, I004); behind F4/F2 |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
@@ -167,6 +169,71 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I018 2026-09-21 F4 S0+S1 (candidate C1b — grad_hess fusion; the parked unit, taken)
+why now: F2 died at I017, so the ordering call I014 left open ("C1b vs F2")
+resolves itself. C1b is the only measured, unblocked, cheap unit on the beam.
+Loop mechanics, first rung driven by Muse Code from a task file
+(`campaign_tasks/20260921-f4-c1b-gradhess-fusion.md`, gitignored; the
+verdict below cites what it produced). Branch based on `loop-scaffolding`
+(PR #114 open, not merged) rather than main, because main lacks `AGENTS.md`
+and muse reads its rules from there; the rung PR targets main and its diff
+collapses to the rung once #114 lands.
+barrier: `barrier_check.py` matched B10 only (words: kernel, numba). Does
+not apply — B10 binds objects INSIDE `build_oblivious_tree`; this is the
+loss layer, the same object I012 cleared. B10's disqualifier (cannot be made
+bit-identical) is cleared by construction: both fused ops are elementwise,
+computed per element in the same order as numpy (`P − Y`, then
+`max(P·(1−P), 1e-6)`), and P itself comes from the already-shipped K ≤ 7
+kernel — the same exp() on the same machine. B10's method (ceiling first) is
+obeyed: I014 measured the object at 4.4% (okcupid-stem) / 7.5% (cjs) of fit.
+forecast, written before any code: fit-time — hc:okcupid-stem −2 to −4%,
+hc:cjs −3 to −5% (ceilings 4.4/7.5%, discounted because the kernel still has
+to write grad and hess); binary and regression exactly 0 (`MultiSoftmax` is
+the only caller); Grinsztajn 0 (no multiclass task). strength — exactly zero
+by construction; same-machine bit-identity on `identity_snapshot.py` + the
+multiclass goldens; cross-libm the existing ≤ 4 ULP softmax bound.
+class: bit-identical speed refactor ⇒ pure-speed ladder (`identity_snapshot`
+exact, full suite, same-process fit A/B). No strength screen owed.
+kill: (a) `identity_snapshot.py check` not 155/155 identical (baseline
+re-saved at the base commit this rung, since 079c312 landed after the
+2026-09-18 save); (b) same-process A/B on okcupid-stem + cjs saves under 1%
+(the same-process floor) or any multiclass set gets slower; (c) the binary
+control moves beyond ~1%.
+ran: muse exit 0 in one pass; its `RESULT.md` reported 69 focused tests
+green, full suite 1081 passed + 1 skipped, ruff clean on the two edited
+files (23 pre-existing tree-wide errors left alone, all outside the edit
+list). Reviewed the diff by hand: kernel is `_softmax_kernel` verbatim plus
+the two elementwise ops in the specified order; old body kept as
+`_grad_hess_numpy`; dispatch guard matches `_softmax`'s plus a shape and
+contiguity check; six new exact-equality tests with tripwires for the K > 7
+and float32 fallbacks. Muse quirks worth knowing: its edit tool cannot match
+CRLF files, so it patched via a byte-exact script; its sandbox CWD carries a
+`\\?\` prefix that breaks `..` in three test files' sys.path (rerun from a
+plain path); it leaves a `pytest-of-Nathan/` temp dir in the repo root that
+the main user cannot delete (owned by the sandbox user, harmless, untracked).
+gate 1, identity: `identity_snapshot.py check` **155/155 identical**
+(baseline re-saved at 7f7b276 with the library untouched, then checked).
+gate 2, tests: **1081 passed, 1 skipped** rerun by the reviewer under the
+conda python (muse's own run agreed).
+gate 3, speed (`benchmarks/f4_c1b_speed.py`, new, same-process A/B, OFF arm
+= `_grad_hess_numpy`, median of 3; `results/campaign-f4c1b-speed-20260921.txt`):
+hc:okcupid-stem **−4.6%** (grad_hess leg 0.148s → 0.087s), hc:Traffic_violations
+**−5.7%** (0.257s → 0.100s), hc:cjs **−4.1%** (0.236s → 0.145s), binary
+control hc:kick **+0.2%** on zero calls. The leg itself accounts for
+2.4–6.6 points of those; the remainder sits inside the ~1% same-process floor
+plus whatever two fewer (n, K) allocations per round buy the rest of the fit.
+verdict: **PASS → PR** (forecast HIT on both axes: okcupid landed at the top
+of its −2 to −4% band and a touch past it, cjs inside −3 to −5%, controls
+flat, strength exactly zero by construction and by snapshot). Kill bars
+(a)(b)(c) all clear. Shipped as a pull request per the standing PRs-only
+rule; CHANGELOG entry added under Unreleased. Reach caveat carried from I013:
+multiclass-only, so the hc and synth strata move and Grinsztajn cannot.
+next: F4's measured candidates are exhausted (C2, C1, C1b all shipped). F3 S1
+takes the top slot (`probe_cross_pairs.py` on engaged binary sets, classifier
+pair fidelity, I004). Beam is at 2 ACTIVE (F3, F4) — staleness rule says a
+refill is due; that needs the maintainer to pick entrants, so the loop runs
+F3 S1 first and raises the refill in its report.
 
 #### I017 2026-09-18 F2 S2 (synth screen of the sub-gate flag; pre-registered)
 barrier re-check on the concrete design: B16 inapplicable (the full
