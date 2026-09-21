@@ -94,6 +94,8 @@ fact: 2026-09-18 | sub-gate 3-fold CV race costs 3-7x the base fit on engaging s
 fact: 2026-09-21 | F4 C1b SHIPPED as PR (I018): fused grad/hess kernel, `identity_snapshot` 155/155, same-process fit A/B okcupid-stem −4.6% / Traffic_violations −5.7% / cjs −4.1%, binary control +0.2% (`results/campaign-f4c1b-speed-20260921.txt`); test suite on the branch = 1081 passed, 1 skipped, 125 s
 fact: 2026-09-21 | F3 S1 classifier forced-cross probe (I019, 16 clf_num sets × 3 seeds, rung-1 config, top-4 block): oracle Brier headroom median +0.360% (29W-19L), probe fidelity paired median +0.000%, cost median 1.33x; gains concentrate on covertype +15.8% / pol +3.4% / eye_movements +1.5% / MagicTelescope +1.4% / jannis +1.1%, losses bank-marketing −1.0% / electricity −0.9% (`results/probe-cross-pairs-f3-clf.jsonl`)
 fact: 2026-09-21 | F3 S2 synth screen (I020, `results/20260921-075304.json`, OneLin vs OneLinXC): 119/136 exact ties (regression, multiclass, n<2000 all 0-0), engaged binary 13W-4L median +0.16% Brier (p=0.049), canary 0-0-3, engaged fit ratio median 1.27 (mean 1.60, one 5.35 outlier)
+fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLin vs OneLinXC): gr binary engaged 23 sets 10W-13L median −0.04% Brier, engaged fit 1.43x median; hc binary 2W-2L within ±0.14%; every regression/multiclass row an exact tie; gr@sus25 2W-2L, gr@sus50 0W-2L, hc@time 2W-0L (pointers) → F3 KILLED
+fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
@@ -104,7 +106,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped) | C1b SHIPPED as a PR (I018): fused grad/hess into the softmax kernel, bit-identical 155/155, multiclass fit −4 to −6%. No measured candidate left; next unit owes a fresh profile |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
-| F3 | Classifier forced-cross | ACTIVE (S2 passed, I020; knob shipped opt-in as a PR) | S3 = one `--decide` run, OneLin vs OneLinXC, per-stratum bars in I020; pass ⇒ propose the rung-1 classifier pin via /experiment |
+| F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
 
 ### F1 — Cross-feature cost trim v2
@@ -134,7 +136,11 @@ slices is chance-level (B17); the family is closed, the branch goes
 unmerged.
 
 ### F3 — Classifier forced-cross ("always")
-status: ACTIVE
+status: KILLED 2026-09-21 at S3 (I021) — the classifier's cross-feature
+headroom is too small to survive losing the referee: probe +0.36% median
+(I019), synth engaged +0.16% (I020), decide gr binary engaged 10W-13L at
+−0.04% median. The opt-in knob shipped in PR #117 stays; the rung-1
+classifier recipe keeps cross features off.
 hypothesis: E2's forced-cross result (rung-1 regressor: 28W-8L engaged, +0.60% median) transfers to the classifier, whose `_FORCED_CROSS_OK=False` today
 parent-evidence: `SELECT_PLAN.md` E2 verdict (merged 7684655); binary crosses earn under the raced default (covertype +12.8% Brier on top of linear leaves, 2026-07-13)
 barriers: none expected (E2 itself cleared this family for the regressor); recorded caveat: E2 hc-vs-LightGBM was a coin flip at 7W-6L — classifier bars must pre-register the hc stratum honestly
@@ -172,6 +178,83 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I021 2026-09-21 F3 S3 (decide run, OneLin vs OneLinXC per stratum; pre-registered)
+why now: I020 passed. Measurement rung, no library change, no muse task.
+Branch `campaign/f3-s3-clf-decide` stacked on `campaign/f3-s2-clf-forced-cross`
+(PR #117; merge order #115, #116, #117, then this).
+ran (planned): `run_benchmarks.py --decide --seeds 3 --save --models
+ChimeraBoost ChimeraBoostOneLin ChimeraBoostOneLinXC` — Grinsztajn +
+high-card + their `@sus25`/`@sus50`/`@time` variants, three arms in ONE run,
+scored `compare_runs.py --by-suite --model ChimeraBoostOneLin --model-new
+ChimeraBoostOneLinXC --expect-inert`. Read per stratum, never pooled
+(GATE_ROBUSTNESS: strata under ~8 decided sets are pointers, `@time` seeds
+duplicate).
+forecast, before the run: strength — gr binary engaged slice (23 clf sets,
+most above 2000 rows) positive by majority with engaged median **+0.2 to
++0.5%** Brier (the I019 probe read +0.36% on these very sets at the same
+config, so this is close to in-sample for the direction; the decide run's
+split and seeds differ). hc binary: the probe never covered it; forecast
+**flat to slightly negative** (hc is categorical-heavy, the block is
+numeric pairs plus gdiff, and E2's regressor read on hc-vs-LightGBM was a
+coin flip). `@sus25`/`@sus50` binary: gates cut many sets below 2000 rows
+so mostly ties; where engaged, direction as gr. `@time`: pointer only.
+Every regression, multiclass and sub-gate row an exact tie. Cost — engaged
+fit ratio median **1.2 to 1.5** (probe 1.33, synth 1.27).
+bars, per stratum, in order: 1 control — regression, multiclass and
+sub-2000 rows exact ties in every stratum (`--expect-inert`); a non-tie
+voids the read. 2 gr binary engaged — wins ≥ half + 1 AND engaged median
+> 0 on Brier; this is the gate. 3 hc binary engaged — at worst flat
+(wins ≥ losses); a loss here is a documented caveat unless decisive at its
+size (≤ 8 sets ⇒ pointer). 4 cost — engaged fit ratio median ≤ 1.5. Pass
+⇒ propose the `quality=1` classifier pin as its own /experiment (released
+preset change: full gate, the maintainer's go). Fail on bar 2 ⇒ F3 closes
+"measured, not worth the pin", knob stays opt-in.
+ran: as planned, one pass, ~35 min → `results/20260921-080246.json`
+(103 dataset rows × 3 arms × 3 seeds), scored `compare_runs.py --by-suite
+--model ChimeraBoostOneLin --model-new ChimeraBoostOneLinXC --expect-inert`;
+engaged fit ratios from the per-record fit times.
+result, per stratum: bar 1 control **PASS** — every regression and
+multiclass row an exact tie in every stratum (gr 36/36 regression ties, hc
+10/14 ties incl. all four multiclass sets, variants likewise); the arm
+engaged only on binary rows above the gate. Bar 2 gr binary engaged
+**FAIL** — 23 engaged sets, **10W-13L** (bar 12+), engaged median
+**−0.04%** Brier. Wins: covertype +1.15% (num) / +0.42% (cat),
+MagicTelescope +0.52%, house_16H +0.39%, jannis +0.20%, credit +0.15%,
+Higgs +0.13%; losses: eye_movements −1.02% (cat) / −0.86% (num),
+electricity −0.72% (cat), default-of-credit −0.34% / −0.23%, Bioresponse
+−0.25%, Diabetes −0.22%. Bar 3 hc binary: 4 engaged, 2W-2L, all within
+±0.14% — flat, pointer. Variants: gr@sus25 2W-2L, gr@sus50 0W-2L,
+hc@time 2W-0L (n ≤ 4 each, pointers; none contradicts the gr read). Bar 4
+cost — gr engaged median **1.43x** (range 1.07–1.82), hc engaged 1.55x,
+inert slice 0.99x; whole-suite harness slowdown 1.2x vs OneLin's 1.0x.
+verdict: **FAIL on the gate → KILL F3.** Forecast: control HIT, cost HIT
+(1.43 inside 1.2–1.5), hc "flat" HIT — and the strength bet MISSED
+outright: the probe's +0.36% median headroom on these same 16 clf_num sets
+did not survive a different split and seeds, and the seven clf_cat sets
+(never probed) went 2W-5L. Mechanism of death, and it is the one E2
+recorded on the regressor at tolerable size: without the referee the mode
+eats the losses the race dodges, and on the classifier those losses
+(eye_movements, electricity, default-of-credit) are the same size as the
+wins, so the median lands at zero. The regressor got away with it because
+its headroom was 7x larger (+2.6% vs +0.36%). Reading the I019 probe
+again with this in hand: 29W-19L at p≈0.19 was never decisive, and the
+bar it cleared (+0.3%) was set for the regressor's prize, not this one.
+consequence: the classifier "always" mode stays as shipped in PR #117 —
+opt-in, default-off, documented with its measured evidence — per the bar
+pre-registered in I020/I021 ("fail ⇒ knob stays opt-in"). The `quality=1`
+classifier recipe keeps `cross_features=False`; no /experiment is
+proposed. The maintainer may prefer to close #117 unmerged (nothing ships
+from a killed family, the F2 precedent); if so, this rung's plan-file
+record must be rescued onto a branch of its own, since it is stacked on
+#117. Barrier candidate: none new — B1's mechanism (the race is what
+makes cross features safe) already covers this; recorded as an instance.
+next: F3 closed. The beam is at one ACTIVE family (F4, no measured
+candidate) — the staleness rule fires: beam refill (four read-only idea
+lenses L1–L4, funnel through `barrier_check.py`, dedup against this log
+and `research/SUMMARY.md`), survivors to the maintainer, who picks
+entrants. The next rung produces that shortlist and the loop pauses on
+the pick.
 
 #### I020 2026-09-21 F3 S2 (classifier "always" mode, default-off, + synth screen; pre-registered)
 why now: I019 passed its bars. Muse task
