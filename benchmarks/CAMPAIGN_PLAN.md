@@ -101,6 +101,11 @@ fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`cam
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
 fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
 fact: 2026-09-21 | main settled at 486e563. PRs #116–#119 (F3 S1/S2/S3 + the refill shortlist) were each merged into the rung branch below them rather than into main — stacked PR bases, and the base branches were not deleted on merge, so GitHub never retargeted them; main received only #115. Recovered the same morning as PR #120 (the four commits, unchanged). The PR #56 trap a second time. Rule since: every rung branch is cut from main, PR base is always main, one campaign PR open at a time (now step 0 of the `campaign-step` skill). A stale local main hid the recovery from the next session until it fetched — fetch before reading the log
+fact: 2026-09-21 | ordered-TS asymmetry MEASURED (I024, `results/probe-ts-mismatch-20260921.{md,json}`): on high-card columns a held-out row of a rare category (m ≤ 5) reads an encoding 1.9–5.2× more spread around the prior than a training row of the same stratum, and the target's slope on it is 0.63–0.70 of the training slope (over-trust) on sf-police / okcupid-stem / Traffic_violations, 1.01 on kick; wine-reviews 0.71, colleges 0.42. In big categories (m > 50) it runs the other way, reliability 1.10–1.29 (prefix noise on training rows). Mean shift is ≤ 0.03 SD everywhere — the mismatch lives in the second moment and by count, never in the mean
+fact: 2026-09-21 | share of held-out rows in categories of train count m ≤ 2, the quantity that decided the SIGN of the transform fix: sf-police 13.1%, wine-reviews 13–20%, colleges 18–20%, okcupid-stem 4.0%, Traffic_violations 1.5–2.8% per column over its 3 high-card columns (the probe's column count of 9 is 3 columns × 3 class targets), kick 0.8%
+fact: 2026-09-21 | transform-only A/B, default estimator, 3 seeds (I024): count-matched weight A1 / half-matched A2 vs shipped — sf-police +0.31% / +0.28% Brier (3/3 seeds both), Traffic_violations +0.46% / +0.75% (3/3), okcupid-stem +0.09% / 0.00% (1/3), kick −0.05% / −0.04% (0/3); wine-reviews +0.08% / +0.29% RMSE; porto-seguro exact to ±0.003%. Gap-set pairs 7W-5L for both arms against a bar of 8. Matched arms early-stop later (sf-police 45→62 trees), fit ×0.97–1.14, report-only
+fact: 2026-09-21 | the harness scores ALL classification Brier as mean Σ_k (p_k − onehot_k)², so its BINARY Brier is 2× the textbook `mean((p₁ − y)²)`; relative gaps are unaffected, absolute ones need the factor when a probe computes its own
+fact: 2026-09-21 | KS distance is useless for comparing ordered (training) and full-total (held-out) encodings: held-out values are one atom per category and training values are smeared by the prefix, so KS reads 0.3–0.6 on low-card columns whose moments match to 1%
 fact: 2026-09-21 | test suite on main 486e563 (after the #120 recovery; rung branch adds harness + docs only) = 1084 passed, 1 skipped, 114 s — the F3 S2 count, so the recovery landed the library intact
 fact: 2026-09-21 | F4 fresh profile (I023, `results/campaign-f4s1-other-20260921.{md,json}`; exclusive wall clock, default estimator, the August panel): on the 6 gr sets `grow` is 63.5–71.8% of fit and the full-data refit leg is 25–35% — replayed rounds 10.7–19.3% plus the 1.25× extra rounds grown from scratch 9.6–12.3%. August's unnamed 23–30% "other" was mostly those replayed rounds, which that instrument never wrapped
 fact: 2026-09-21 | binary Logloss layer = 8.3–10.0% of a gr binary fit: `grad_hess` 4.9/4.2/4.4% + per-round validation `eval` 5.1/4.3/4.0% (MagicTelescope/Higgs/road-safety; a 7-rep rerun replicates within 0.1 point). Regression: `grad_hess` 0.6–0.7%, `val_score` 0.8–2.1%; no non-kernel row reaches 5% on any gr regression set
@@ -118,7 +123,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
-| F6 | Ordered-TS train/test moment mismatch (shortlist R1) | ACTIVE — the maintainer's pick, goes FIRST | S0 (`barrier_check.py`, forecast) then the zero-library-change probe: fit the preprocessor on hc:sf-police and hc:kick, compare per-column mean/SD of `fit_transform` vs `transform` on the same rows; kill if the standardized shift is under 0.05 SD. Class: defect probe |
+| F6 | Ordered-TS train/test moment mismatch (shortlist R1) | ACTIVE — the maintainer's pick; S1 read, fix as registered FAILED by one pair (I024) | The defect is measured and real (rare categories, over-trust, a quarter of the CatBoost gap on sf-police and Traffic_violations) but the uniform count-matched transform went 7W-5L against a bar of 8: it helps where rare held-out rows are common and costs a little where they are not. Next: S1b, the rare-only weight (m ≤ 5) tested where it can fail — training rows subsampled to 25% / 50% — bars in I024. Class: defect probe, zero library change |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -236,6 +241,170 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I024 2026-09-21 F6 S0+S1 (ordered-TS train/test mismatch: moment read + a transform-only A/B; pre-registered)
+why now: the maintainer's pick (shortlist R1, goes first). Class: **defect
+probe**, zero library change — the script is harness code, so it is
+Claude's and muse gets no task. Branch `campaign/f6-s1-ts-mismatch-probe`
+cut from main at 8dd34c1 (PR #121 merged; no campaign PR open).
+the object, read from `target_encoding.py` before forecasting:
+`fit_transform` gives a train row `(S_k + prior·a)/(k + a)` from the k
+rows of its category that precede it in a random permutation, averaged
+over 4 permutations — k is uniform on 0..m−1 for a category of m rows, so
+the expected weight on the category's own mean is
+`h(m) = mean_{k<m} k/(k+a)` (m=5, a=1: 0.54; a singleton: exactly 0, the
+row always reads the bare prior). `transform` gives validation, test and
+calibration rows the full totals, weight `m/(m+a)` (m=5: 0.83; a
+singleton: 0.5). The trees are grown on the first distribution and
+early-stopped, calibrated and scored on the second. CatBoost has the same
+asymmetry but also hands its trees a Counter feature, so they can learn
+reliability by count; ours cannot.
+barrier: `barrier_check.py` matched three. B3 (partial CatBoost ports) —
+not a port: CatBoost shares this asymmetry, the question is our encoder's
+self-consistency, and nothing is added (no feature, no knob). Dedup
+against the record: `cat_smoothing` was killed on hc twice (PARETO_PLAN,
+2026-07-15) — a different axis; `a` moves both sides together and cannot
+close a prefix-vs-total gap that exists at every `a`. B4 — keywords only
+(ordered TS is the encoder, not ordered boosting). **B5 binds and sets the
+design**: a shrink can only fix a component that VARIES across the units
+shrunk, so the read is stratified by category count, and a mismatch that
+does not concentrate in the rare stratum kills the fix at S0 whatever the
+headline says.
+instrument: `benchmarks/probe_ts_mismatch.py` (new). Part 1, no model —
+the default preprocessor on the 75% split, raw encodings captured before
+binning: per TS column Δmean/SD, SD ratio and KS distance between train
+rows (`fit_transform`) and held-out rows (`transform`); then by stratum of
+category train count (m ≤ 5 / 6–50 / > 50) the spread `E|e − prior|` and
+the reliability slope (OLS of the target on the encoding; honest on train
+rows because ordered TS never sees the row's own label). Part 2 — a
+transform-only A/B by monkeypatch, default estimator, 3 split seeds,
+paired: A0 shipped weight `m/(m+a)`; **A1 count-matched** `g(m) =
+mean_{k≤m} k/(k+a)` (what the row would have read had it been a training
+row of that category); **A2 half-matched**, the mean of the two weights —
+registered before any data on a toy-model argument: permutation averaging
+makes train encodings less noisy than one prefix, so full matching should
+over-correct. Unseen categories read the prior in every arm;
+`fit_transform` is untouched. Panel: the four gap sets (sf-police 15165,
+okcupid-stem 7019, Traffic_violations 3830, kick 1063), two high-card
+regressions as secondary reads (wine-reviews 15633, colleges 6039), two
+low-card controls (kdd_ipums 191, porto-seguro 104).
+forecast, before any run: moments — mean shift under 0.05 SD on every
+column (both sides shrink toward one prior, so the shortlist's literal
+"standardized shift" bar would kill a real effect; the second moment is
+where it shows); held-out/train **SD ratio 1.1–1.4** on columns with card
+≥ 1000 and 0.98–1.02 under card 200; rare-stratum spread ratio
+**1.3–1.8**, and 0.95–1.05 in the m > 50 stratum (the B5 read). Direction
+— rare-stratum reliability ratio (held-out slope / train slope)
+**0.7–0.9**: the trees learn a slope from compressed train encodings and
+apply it to wider held-out ones, which is over-trust. Strength — small:
+the better arm **+0.05 to +0.3%** on the gap sets' primary metric, A2 ≥
+A1, controls flat. The shortlist's "+2 to +5 hc points" was a win-rate
+guess; on Brier I expect a tenth of a percent, because only the few
+percent of held-out rows in categories of m ≤ 2 are badly served.
+bars, in order: 1 mismatch — high-card columns on the gap sets show SD
+ratio ≥ 1.05 or rare spread ratio ≥ 1.25, else KILL "no mismatch". 2 B5 —
+m > 50 spread ratio inside 0.95–1.05, else KILL "common component, a
+count-dependent shrink cannot be the fix". 3 direction — rare reliability
+ratio < 0.9 on ≥ 3 of 4 gap sets; ≥ 1.0 means the asymmetry is benign and
+the family dies as "real, harmless". 4 strength (S1) — A1 or A2 wins ≥ 8
+of the 12 gap (set, seed) pairs with a positive median, controls' median
+inside ±0.05%. 1–3 pass and 4 fails ⇒ "mismatch real, matching at
+transform does not convert", family narrows to the Counter-feature
+question R3 already owns. All four pass ⇒ S2: muse implements the chosen
+weight in `OrderedTargetEncoder.transform` (goldens WILL move on cat
+fixtures — an algorithm change under the 2026-09-18 drift policy), synth
+screen with the cat-scope slice pre-registered.
+ran: `probe_ts_mismatch.py`, 8 sets, Part 1 on split seed 0 then 3 seeds ×
+3 arms = 72 default fits, one pass, ~12 min →
+`results/probe-ts-mismatch-20260921.{md,json,log}`.
+bar 1 mismatch **PASS, 4 of 4** — medians over each gap set's high-card
+columns, held-out over train: SD ratio 1.23 / 1.18 / 1.08 / 1.00
+(sf-police / okcupid-stem / Traffic_violations / kick); rare-stratum (m ≤
+5) spread ratio **1.99 / 5.15 / 3.12 / 1.86**. Mean shift ≤ 0.03 SD on
+every high-card column, as forecast — the shortlist's literal bar would
+have killed a real effect. The rare spread is far over my 1.3–1.8 band:
+four-permutation averaging keeps a rare training row's encoding pinned
+near the prior, while a held-out row of the same category reads half to
+five-sixths of a one-to-five-label mean.
+bar 3 direction **PASS, 3 of 4** — rare-stratum reliability ratio (OLS
+slope of the target on the encoding, held-out over train) **0.63 / 0.67 /
+0.70** and 1.01 on kick; the two secondary regressions agree (wine-reviews
+0.71, colleges 0.42). Stronger over-trust than the 0.7–0.9 forecast. Kick
+has almost nothing to fix: 0.8% of its held-out rows sit in categories of
+m ≤ 2, against 13.1% on sf-police and 13–20% on wine-reviews' two big
+columns. The same
+asymmetry runs the OTHER way in big categories (m > 50 reliability
+1.10–1.29): training rows carry prefix noise that held-out rows do not,
+so there the trees under-trust.
+bar 2 (B5) **FAIL by the letter, and the letter was mis-specified** — m >
+50 spread ratio 0.99 / 0.91 / 0.96 / 0.94 against a 0.95–1.05 band, two
+sets under the floor. What the bar was written to detect, a shift common
+to all counts, is decisively absent: the ratio runs from 1.9–5.2 in rare
+categories to 0.9–1.0 in large ones. The band did not anticipate that
+prefix noise makes TRAIN encodings slightly wider in large categories.
+Recorded as a deviation at the time it was seen (GATE_ROBUSTNESS #8), not
+quietly reread; it does not rescue bar 4.
+bar 4 strength **FAIL, by one pair** — gap sets, 12 (set, seed) pairs:
+A1 **7W-5L**, median +0.298%, mean +0.202%; A2 **7W-5L**, median +0.143%,
+mean +0.247%; the bar was 8. Controls' medians −0.001% / +0.001%, inside
+±0.05% (porto-seguro exact to ±0.003%; kdd_ipums is 7k rows at Brier 0.017
+and swings ±1.6% by seed — it is not an inert control, its categories
+average m ≈ 27 where the weights differ by 0.1). The 12 pairs are four
+datasets, and the datasets disagree in the way Part 1 predicts:
+  sf-police          A1 +0.31% (3/3 seeds)   A2 +0.28% (3/3)
+  Traffic_violations A1 +0.46% (3/3)         A2 +0.75% (3/3)
+  okcupid-stem       A1 +0.09% (1/3)         A2  0.00% (1/3)
+  kick               A1 −0.05% (0/3)         A2 −0.04% (0/3)
+  secondary: wine-reviews A1 +0.08% (2/3), A2 +0.29% (3/3); colleges flat.
+In harness Brier units the two winners recover roughly a quarter of the
+CatBoost gap (sf-police +0.0015 of 0.0056; Traffic +0.0013 to +0.0021 of
+0.0053; different splits, so a rough read); kick gives back 4% of its
+gap. Log loss agrees with Brier in the sign of every gap set's mean,
+smaller on Traffic under A1 (+0.10% against +0.46%). Cost axis,
+report-only (one process, threads unpinned): the matched arms early-stop
+LATER — sf-police 45 → 62 and 50 → 85 trees, wine-reviews 325 → 492 — so
+fit time reads ×0.97–1.14, median about ×1.05.
+That is itself evidence for the mechanism: under the shipped transform the
+validation curve turns up early because the validation rows' rare
+encodings are over-trusted.
+verdict: **S1 FAIL on the registered bar (7 of 12, bar 8) — the uniform
+count-matched transform does NOT go to S2.** Forecast: moments HIT on
+direction and MISSED low on size (rare spread 1.9–5.2 against 1.3–1.8),
+direction HIT and stronger than forecast, strength at and above its band
+where it converts (+0.3 to +0.75% against +0.05–0.3%) and MISSED on
+breadth — I
+expected the rare-row share to set the SIZE of a uniformly positive
+effect, and instead it decides the SIGN. "A2 ≥ A1" split: true on Traffic
+and wine-reviews, false on sf-police and okcupid. The defect itself is
+established: real, concentrated in rare categories, over-trust in
+direction, and worth a quarter of the CatBoost gap on the two sets where
+rare held-out rows are common. What failed is the FIX AS REGISTERED: it
+re-weights every category, and in mid and large categories the evidence
+says held-out encodings are already as reliable as training ones or more
+so, so extra shrink there is a small loss (kick 0/3). Per the registered
+consequence the family narrows; it does not die, because the narrowing is
+not the Counter feature I wrote down — it is the weight's reach.
+next: ONE pre-registered follow-up. The rare-only idea is post-hoc to this
+run (GATE_ROBUSTNESS #8), so it is tested where it can FAIL, and it earns
+nothing until independent data agrees (the synth screen at S2; never the
+`pub:` suite, which a design choice would contaminate). F6 S1b, same
+script, zero library change: arm **A3 = count-matched weight only where
+m ≤ 5, shipped weight above** (the edge is Part 1's pre-registered
+stratum, not tuned; A4 = the half-matched weight on the same stratum rides
+along as the secondary arm), run in a regime this run did not visit — the
+same splits with the TRAINING rows subsampled to 25% and to 50%, test rows
+unchanged. Subsampling shrinks every m, so the mechanism makes a sharp
+prediction: the rare share rises, A3's gain must GROW against this run's,
+and kick must turn from slightly negative to flat or positive. Bars: A3
+wins ≥ 8 of 12 gap pairs at 25% with a positive median; its mean gain at
+25% exceeds its mean gain at full size on ≥ 3 of 4 gap sets; kick negative
+on at most 1 of 3 seeds; full-size porto-seguro still exact. Fail ⇒ F6
+KILLED as "real defect, no transform-side fix converts", and the
+Counter-feature question stays with R3. Pass ⇒ S2 (muse: the rare-only
+weight in `OrderedTargetEncoder.transform` behind a fitted-state flag so
+old pickles keep their predictions; cat goldens move under the 2026-09-18
+drift policy; synth screen with the cat-scope slice pre-registered). Class
+stays defect fix: no new parameter.
 
 #### I023 2026-09-21 F4 S1 (fresh profile: name the Grinsztajn "other" column; measurement, pre-registered)
 why now: the refill shortlist (I022) waits on the maintainer's pick, and F4
