@@ -1,10 +1,11 @@
 ---
 name: campaign-step
-description: One rung of the campaign loop — plan the next idea, hand the code work to the muse-worker, review and gate the result, record the verdict, open a PR or revert. Designed to run under /loop.
+description: One rung of the campaign loop — plan the next idea, hand the code work to Muse Code (headless), review and gate the result, record the verdict, open a PR or revert. Designed to run under /loop.
 ---
 
-You are the planner and reviewer. Muse Code (via the `muse-worker` agent)
-is the only thing that edits library source in this loop.
+You are the planner and reviewer. Muse Code (headless, launched by you in
+step 4) is the only thing that edits library source in this loop. You never
+edit library source yourself, and you never judge a rung before step 5.
 
 ## 0. Is it safe to start?
 - `A:\code\miniconda3\python.exe benchmarks\bench_status.py` — a run in flight
@@ -32,11 +33,31 @@ the exact benchmark or test command (one, with the conda python path), what
 Anything not in the file, muse must not do — say so in the file.
 
 ## 4. Hand it off
-Spawn `muse-worker` with the task path, `run_in_background: false`. Wait.
-A "busy" or "timed out" report means log it and end the step.
+Launch muse yourself, from the main session (a subagent spawn is blocked by
+the permission classifier here). The launch is a single PowerShell command
+that begins with `muse exec` and contains nothing else — no `cd`, no
+`Start-Process`, no variables, no second statement; that exact prefix is the
+pre-authorized form and anything wrapped around it gets blocked.
+
+1. `git rev-parse --short HEAD; git status --porcelain` — record both.
+2. Touch `<task>.running`.
+3. Run, with the tool's own run_in_background option and a 90-minute timeout:
+   ```
+   muse exec --prompt-file <task> --trust-workspace --disable-approval --user-input-auto-resolve --disable-web-tools --max-model-steps 200 --json *> <task>.log
+   ```
+   `--trust-workspace` is what makes muse read `AGENTS.md`. Never pass
+   `--yolo` or `--disable-sandbox`; the sandbox stays on. Muse's sandbox runs
+   as a different Windows user, so it will report a "dubious ownership" git
+   quirk and use a one-shot `-c safe.directory=` flag; that is expected.
+4. Wait for the task notification. Remove `<task>.running`. Record the exit
+   code (0 done, 1 failed or step cap, 2 usage error). Still running after
+   90 minutes: kill it, remove the marker, log "timed out", end the step.
+5. Collect: `git status --porcelain`, `git diff --stat`, the `RESULT.md` the
+   task told muse to write, the last 40 lines of `<task>.log`, and the test
+   command the task names run with `A:\code\miniconda3\python.exe`.
 
 ## 5. Review and gate
-- Read the worker report. Run `/code-review` on `git diff main...HEAD`.
+- Read what you collected in step 4. Run `/code-review` on `git diff main...HEAD`.
 - Run the full tests with the conda python; goldens must stay green on a
   bit-identical change.
 - If the rung produced a results JSON: score it with `compare_runs.py`
