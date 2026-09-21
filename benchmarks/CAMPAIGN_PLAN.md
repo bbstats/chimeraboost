@@ -23,6 +23,7 @@ A shipped preset is a frontier win but not a default win.
 - Aggregate table printed after every benchmark run, unprompted.
 - Environment: the working python is `A:\code\miniconda3\python.exe` (PATH `python` is a bare 3.10 with nothing installed).
 - No entry in this file may say PENDING once the underlying run is resolved.
+- A decision the maintainer gives in chat (a pick, a reorder, a kill confirmation) is written into THIS file in the same turn. Session memory notes are not the record: on 2026-09-21 the R1 pick lived only there, and the next session planned a rung against "awaiting the pick".
 - Int-exact per-histogram ≠ bit-identical end-to-end (op order feeds gains/tie-breaks). Any "exact" kernel change runs `identity_snapshot.py` first; identical → pure-speed ladder; not → FP-drift class → S2 with the Brier read.
 - Standing numerical-drift policy (the maintainer, 2026-09-18): an algorithm-changing revision may carry last-bit drift provided it is monitored (identity-snapshot diff quantified, not silently absorbed), reported (both axes in the verdict), and gate-evidenced to improve over time. Pure rewrites that drift without changing the algorithm stay on the ladder above.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
@@ -113,10 +114,11 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C3 + C4 measured) | Fresh profile read (I023). Two objects owe an S0, in ceiling order: **C4** hc `prep` (32–41% of hc fit, inside unsplit) then **C3** the binary Logloss layer (`grad_hess` + per-round validation `eval`, 8–10% of a gr binary fit). An ordering call against the I022 entrants; absent a pick the loop takes C4's S0 |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C3 + C4 measured) | Fresh profile read (I023). Two objects owe an S0, in ceiling order: **C4** hc `prep` (32–41% of hc fit, inside unsplit) then **C3** the binary Logloss layer (`grad_hess` + per-round validation `eval`, 8–10% of a gr binary fit). Class: exact-rewrite perf. Queued behind F6 (R1), which the maintainer picked to go first |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
+| F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
+| F6 | Ordered-TS train/test moment mismatch (shortlist R1) | ACTIVE — the maintainer's pick, goes FIRST | S0 (`barrier_check.py`, forecast) then the zero-library-change probe: fit the preprocessor on hc:sf-police and hc:kick, compare per-column mean/SD of `fit_transform` vs `transform` on the same rows; kill if the standardized shift is under 0.05 SD. Class: defect probe |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -194,7 +196,21 @@ barriers: B3 hard; B4 (ordered boosting closed)
 kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
-## Refill shortlist 2026-09-21 (awaiting the maintainer's pick; beam cap 5)
+## Refill shortlist 2026-09-21 (PICKED the same day: R1 first; beam cap 5)
+
+pick (the maintainer, 2026-09-21, in session after PR #119): **start with
+R1**, the ordered-TS train/test moment mismatch — a defect probe with zero
+library change. R2, R3, R4 and the harness items H stay queued behind it,
+and the queue is ranked by his standing rule from the same conversation:
+"adding functionality always comes at a cost", so defect probes,
+exact-identity speed rewrites and code removal go first and feature knobs
+go last; every rung's report names its class. The loop's reading of that
+rule, his to reorder: F4's two measured objects (I023: C4 hc prep, C3
+binary Logloss layer) are exact-rewrite perf units, so they queue directly
+behind R1 with the harness fixes H(1)(4)(5), then the zero-cost R2 and the
+measurement R3, and the rungs that add a flag (R4, R5) come last. The pick reached the session's memory notes and
+not this file, so the next session (I023) read "awaiting the pick" and
+profiled F4 instead of starting R1 — recorded here so it cannot recur.
 
 Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
 literature mechanisms, L3 opponent ablation, L4 harness measurement),
@@ -323,8 +339,14 @@ by the same argument; (ii) `Logloss.eval` takes two logs per row where
 `log(1−p)` when y ∈ {0,1}: the dead term is a signed zero) — a pure-numpy
 rewrite that owes an exact-equality check against the current output on
 real validation vectors, the mean kept in numpy. Honest prior: about half
-of each ceiling converts, 3–5% of binary fit. Both are an ordering call
-against the I022 entrants; absent a pick the loop takes C4's S0 next.
+of each ceiling converts, 3–5% of binary fit.
+correction, same day: this entry was planned on a false premise. The
+maintainer HAD picked from the I022 shortlist (R1 first) — the pick sat in
+the session's memory notes and never reached this file, which still read
+"awaiting the pick". The rung stands as a measurement (class: exact-rewrite
+perf, second in his ranking) but it jumped the queue. The pick is now
+recorded under the shortlist and R1 is on the beam as F6. **Next rung: F6
+S0 + probe.** C4 and C3 queue behind it.
 
 #### I022 2026-09-21 beam refill (staleness rule: one ACTIVE family, no candidate)
 ran: four read-only lens agents in parallel (L1 loss-slice profiling on
