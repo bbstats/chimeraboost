@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
-                      MulticlassBoosting, _thread_limit)
+                      MulticlassBoosting, _CAT_CTX_KEY, _thread_limit)
 from .preprocessing import CatTransformCache, as_model_array
 from .random_effects import (codes_for_labels, estimate_ratio_reml,
                              solve_intercepts)
@@ -854,11 +854,15 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
 
     Shared by the regressor (``stratify=None``) and the classifier
     (``stratify=y``); the classifier's lost-class check runs at its call site.
-    Returns ``(es_active, auto_split, X, y, sample_weight, eval_set)``. The
-    caller keeps the pre-split arrays for the optional full-data refit.
+    Returns ``(es_active, auto_split, X, y, sample_weight, eval_set,
+    split_idx)``. The caller keeps the pre-split arrays for the optional
+    full-data refit. ``split_idx`` is ``(train_idx, val_idx)`` when it made
+    the split, else None -- the shared categorical contexts index the
+    pre-split matrix with it.
     """
     es_active = bool(est.early_stopping)
     auto_split = False
+    split_idx = None
 
     if es_active and eval_set is None:
         split = _make_eval_split(
@@ -870,6 +874,7 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
         else:
             auto_split = True
             train_idx, val_idx = split
+            split_idx = (train_idx, val_idx)
 
             if est.verbose and not getattr(est, "_is_bag_member", False):
                 print(f"early_stopping=True: holding out {len(val_idx)} "
@@ -886,7 +891,36 @@ def _auto_es_split(est, X, y, sample_weight, eval_set, groups, stratify):
             if sample_weight is not None:
                 sample_weight = sample_weight[train_idx]
 
-    return es_active, auto_split, X, y, sample_weight, eval_set
+    return es_active, auto_split, X, y, sample_weight, eval_set, split_idx
+
+
+def _shared_cat_ctxs(X_full, split_idx, cat_features):
+    """Per-fit shared categorical factorization contexts.
+
+    One default fit factorizes overlapping rows three to four times -- the
+    training rows of the early-stopping split, the validation rows (twice for
+    the classifier: the eval transform plus the temperature calibration), then
+    every row again in the full-data refit. These three contexts cut that to a
+    single pass: ``full_ctx`` factorizes the full matrix once, the train/val
+    children derive their legs' factorizations from it by integer re-ranking
+    (see ``CatTransformCache``), and the refit reads the full matrix straight
+    out of ``full_ctx``'s cache. Codes and category order are bit-identical to
+    factorizing each leg on its own rows.
+
+    Inert -- all three None -- without categorical columns or without an
+    automatic early-stopping split (a user-supplied ``eval_set`` or
+    ``early_stopping=False`` takes the plain per-leg path exactly as before).
+    ``X_full`` must be the same array object the split indexed.
+    """
+    if not cat_features or split_idx is None:
+        return None, None, None
+    full_ctx = CatTransformCache()
+    train_idx, val_idx = split_idx
+    train_ctx = CatTransformCache(parent=full_ctx, parent_X=X_full,
+                                 rows=train_idx)
+    val_ctx = CatTransformCache(parent=full_ctx, parent_X=X_full,
+                               rows=val_idx)
+    return full_ctx, train_ctx, val_ctx
 
 
 def _factorize_groups(groups, n_rows):
@@ -1746,7 +1780,8 @@ def _bag_refit_rows(est):
 
 
 def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
-                   loss_kwargs=None, replay=False, train_frac=None):
+                   loss_kwargs=None, replay=False, train_frac=None,
+                   cat_ctx=None):
     """Retrain ``winner``'s configuration on all rows (benchmarks/REFIT_PLAN.md).
 
     Rounds scale by the train-size ratio and the resolved learning rate is
@@ -1762,6 +1797,10 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
     auto-split's ``1 - validation_fraction``; a bag member passes its
     ``max_samples`` instead, since what its leaf values never saw is the
     out-of-bag complement rather than a validation holdout.
+
+    ``cat_ctx`` (internal) is the full-matrix factorization cache the main fit
+    already populated; when given, the refit reuses it instead of
+    re-factorizing every categorical column. None refactorizes as before.
     """
     t_star = len(winner.trees_)
     frac = (1.0 - est.validation_fraction) if train_frac is None \
@@ -1811,7 +1850,11 @@ def _refit_on_full(est, winner, X_full, y_full, sw_full, cat_features, kw,
         print(f"refit_full: retraining on all {len(X_full)} rows for "
               f"{rounds} rounds (early stopping chose {t_star})")
 
-    b.fit(X_full, y_full, cat_features=cat_features, sample_weight=sw_full)
+    if cat_ctx is not None:
+        b.fit(X_full, y_full, cat_features=cat_features, sample_weight=sw_full,
+              prep_cache={_CAT_CTX_KEY: (cat_ctx, None)})
+    else:
+        b.fit(X_full, y_full, cat_features=cat_features, sample_weight=sw_full)
     b.train_history_ = winner.train_history_
     b.valid_history_ = winner.valid_history_
     return b
@@ -2461,9 +2504,12 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
-        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
+        (es_active, auto_split, X, y, sample_weight, eval_set,
+         split_idx) = _auto_es_split(
             self, X, y, sample_weight, eval_set, groups_for_split,
             stratify=None)
+        full_ctx, train_ctx, val_ctx = _shared_cat_ctxs(
+            X_full, split_idx, cat_features)
 
         self._warn_ll_shadow_knobs(X)
 
@@ -2494,6 +2540,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # see _RegBoosterFactory.
         fb = _RegBoosterFactory(self, loss_kwargs, kw, X, y, cat_features,
                                 eval_set, sample_weight, callbacks)
+        if train_ctx is not None:
+            fb.prep_cache[_CAT_CTX_KEY] = (train_ctx, val_ctx)
 
         self.linear_leaves_selected_ = None
         self.cross_features_selected_ = None
@@ -2530,7 +2578,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
             y_full_for_refit = (np.asarray(y_full, dtype=np.float64)
                                 - b_pre[group_codes_full])
         self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full_for_refit,
-                                 sw_full, cat_features, auto_split)
+                                 sw_full, cat_features, auto_split,
+                                 cat_ctx=full_ctx)
 
         if re_active:
             # The top-up: solve the intercepts once against the FINAL model
@@ -2719,7 +2768,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         return offset
 
     def _dispatch_reg_refit(self, kw, loss_kwargs, X_full, y_full, sw_full,
-                            cat_features, auto_split):
+                            cat_features, auto_split, cat_ctx=None):
         """Full-data refit (benchmarks/REFIT_PLAN.md). Once early stopping,
         selection and calibration have consumed the auto-split holdout it is a
         pure data tax, so retrain the winning configuration on 100% of the rows
@@ -2732,7 +2781,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 and self.model_.trees_):
             self.model_ = _refit_on_full(
                 self, self.model_, X_full, y_full, sw_full, cat_features, kw,
-                loss_kwargs=loss_kwargs, replay=self.refit_full == "replay")
+                loss_kwargs=loss_kwargs, replay=self.refit_full == "replay",
+                cat_ctx=cat_ctx)
         elif _bag_refit_rows(self) is not None and self.loss != "Quantile" \
                 and self.model_.trees_:
             bx, byy, bsw, bfrac = _bag_refit_rows(self)
@@ -3359,7 +3409,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
-        es_active, auto_split, X, y, sample_weight, eval_set = _auto_es_split(
+        (es_active, auto_split, X, y, sample_weight, eval_set,
+         split_idx) = _auto_es_split(
             self, X, y, sample_weight, eval_set, groups,
             stratify=y)  # always stratify for classification
 
@@ -3380,7 +3431,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                     "early_stopping=False.")
 
         return (X, y, sample_weight, eval_set, es_active, auto_split,
-                X_full, y_full, sw_full)
+                X_full, y_full, sw_full, split_idx)
 
     def _resolve_cls_kw(self, es_active, X, cat_features):
         """Resolve the booster kwargs' auto defaults on the FINAL training
@@ -3562,7 +3613,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                             prep_cache=prep_cache)
 
     def _dispatch_cls_refit(self, kw, X_full, y_full, sw_full, cat_features,
-                            auto_split):
+                            auto_split, cat_ctx=None):
         """Full-data refit (benchmarks/REFIT_PLAN.md): reclaim the auto-split
         data tax once early stopping, selection and temperature scaling have
         consumed the holdout. The temperature was calibrated on the
@@ -3573,7 +3624,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                        (y_full == self.classes_[1]).astype(np.float64))
             self.model_ = _refit_on_full(
                 self, self.model_, X_full, y_refit, sw_full, cat_features, kw,
-                replay=self.refit_full == "replay")
+                replay=self.refit_full == "replay", cat_ctx=cat_ctx)
         elif (_bag_refit_rows(self) is not None and self.model_.trees_
                 and not self._multiclass):
             # Binary only. Multiclass has no replay path -- `_refit_on_full`
@@ -3595,8 +3646,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         every ``self.model_`` assignment stays visible either here or in the
         named step that owns it."""
         (X, y, sample_weight, eval_set, es_active, auto_split,
-         X_full, y_full, sw_full) = self._resolve_classes_and_split(
+         X_full, y_full, sw_full, split_idx) = self._resolve_classes_and_split(
             X, y, cat_features, eval_set, groups, sample_weight)
+        full_ctx, train_ctx, val_ctx = _shared_cat_ctxs(
+            X_full, split_idx, cat_features)
 
         kw = self._resolve_cls_kw(es_active, X, cat_features)
         self._warn_inert_cls_knobs(kw, X)
@@ -3629,6 +3682,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # possible refit below: identical inputs, so preprocessing is computed
         # once (see _BaseBooster._prep_matrices).
         prep_cache = {}
+        if train_ctx is not None:
+            prep_cache[_CAT_CTX_KEY] = (train_ctx, val_ctx)
 
         if self._multiclass:
             y_fit = y
@@ -3675,12 +3730,12 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # better calibrated (lower log loss).
         self.temperature_ = 1.0
         if cal_Xv is not None:
-            raw = self.model_.predict_raw(cal_Xv)
+            raw = self.model_.predict_raw(cal_Xv, cat_ctx=val_ctx)
             self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass,
                                                  sample_weight=cal_w)
 
         self._dispatch_cls_refit(kw, X_full, y_full, sw_full, cat_features,
-                                 auto_split)
+                                 auto_split, cat_ctx=full_ctx)
 
         return self
 

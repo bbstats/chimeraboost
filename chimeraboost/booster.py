@@ -30,6 +30,24 @@ from .tree import (build_oblivious_tree, replay_oblivious_tree,
                    _mvs_lambda_scan, _mvs_weights, _mvs_weights_serial)
 
 
+# The per-fit ``prep_cache`` dict may carry ``(train_ctx, eval_ctx)`` categorical
+# factorization contexts under this key; every other key is a cross-pairs tuple,
+# so a string cannot collide.
+_CAT_CTX_KEY = "__cat_ctx__"
+
+
+def _prep_cache_ctxs(prep_cache):
+    """The ``(train_ctx, eval_ctx)`` pair stored under ``_CAT_CTX_KEY``.
+
+    ``(None, None)`` when the cache carries none -- no categorical columns, no
+    automatic early-stopping split, or no cache at all -- so every caller below
+    takes the plain per-leg path exactly as before.
+    """
+    if prep_cache is None:
+        return None, None
+    return prep_cache.get(_CAT_CTX_KEY) or (None, None)
+
+
 def _uniform_to_none(w):
     """Collapse all-equal weights to None.
 
@@ -474,12 +492,14 @@ class _BaseBooster:
         identical inputs must pass None.
         """
         key = tuple(self.cross_pairs) if self.cross_pairs else ()
+        train_ctx, eval_ctx = _prep_cache_ctxs(prep_cache)
 
         if prep_cache is not None and key in prep_cache:
             self.prep_, Xb, Xvb = prep_cache[key]
             if eval_set is not None and Xvb is None:
                 Xv = as_model_array(eval_set[0], bool(cat_features))
-                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+                Xvb = np.ascontiguousarray(
+                    self.prep_.transform(Xv, eval_ctx).T)
             return Xb, Xvb
 
         base = prep_cache.get(()) if (prep_cache is not None and key) else None
@@ -488,7 +508,8 @@ class _BaseBooster:
             base_prep, base_Xb, base_Xvb = base
             self.prep_, cross_binner, crossb = \
                 FeaturePreprocessor.from_base_with_cross(
-                    base_prep, list(self.cross_pairs), X, sample_weight)
+                    base_prep, list(self.cross_pairs), X, sample_weight,
+                    cat_ctx=train_ctx)
             nb = len(self.prep_.num_features_)
 
             # Stacked column order is [numeric | cross | TS]; splice the new
@@ -501,23 +522,26 @@ class _BaseBooster:
                 Xv = as_model_array(eval_set[0], bool(cat_features))
                 if base_Xvb is not None:
                     crossvb = cross_binner.transform(
-                        self.prep_._cross_block(Xv))
+                        self.prep_._cross_block(Xv, eval_ctx))
                     Xvb = np.concatenate(
                         [base_Xvb[:nb], crossvb.T, base_Xvb[nb:]], axis=0)
                 else:
-                    Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+                    Xvb = np.ascontiguousarray(
+                        self.prep_.transform(Xv, eval_ctx).T)
         else:
             self.prep_ = self._new_preprocessor()
 
             # Tree kernels consume a feature-major matrix; transpose once here.
             Xb = np.ascontiguousarray(
                 self.prep_.fit_transform(
-                    X, encode_targets, cat_features, sample_weight).T)
+                    X, encode_targets, cat_features, sample_weight,
+                    cat_ctx=train_ctx).T)
 
             Xvb = None
             if eval_set is not None:
                 Xv = as_model_array(eval_set[0], bool(cat_features))
-                Xvb = np.ascontiguousarray(self.prep_.transform(Xv).T)
+                Xvb = np.ascontiguousarray(
+                    self.prep_.transform(Xv, eval_ctx).T)
 
         if prep_cache is not None:
             prep_cache[key] = (self.prep_, Xb, Xvb)
@@ -918,6 +942,8 @@ class GradientBoosting(_BaseBooster):
         # and this booster is the one that gets pickled.
         self.replay_donor = None
 
+        train_ctx, eval_ctx = _prep_cache_ctxs(prep_cache)
+
         # Refit every data-dependent statistic on these rows as a
         # from-scratch refit would -- categories, gdiff group means, ordered
         # target statistics -- but ADOPT THE DONOR'S BINNER, because the
@@ -941,9 +967,11 @@ class GradientBoosting(_BaseBooster):
 
         Xb = np.ascontiguousarray(
             self.prep_.fit_transform(X, [y], cat_features, w,
-                                     binner=donor_prep.binner_).T)
+                                     binner=donor_prep.binner_,
+                                     cat_ctx=train_ctx).T)
         Xvb = (np.ascontiguousarray(self.prep_.transform(
-            as_model_array(eval_set[0], bool(cat_features))).T)
+            as_model_array(eval_set[0], bool(cat_features)),
+            eval_ctx).T)
             if eval_set is not None else None)
         return Xb, Xvb, donor_trees
 

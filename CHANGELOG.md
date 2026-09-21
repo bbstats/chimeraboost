@@ -44,6 +44,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   to carry one (any inter-level gap above 0.2, e.g. `quantiles=[0.1, 0.5,
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
+### Changed
+- **Fits on data with categorical columns are 8–19% faster; predictions are
+  bit-identical.** One default fit used to turn every categorical column
+  into integer codes three to four times over overlapping rows: for the
+  training rows of the early-stopping split, for the validation rows, for
+  the validation rows again when the classifier calibrates its temperature,
+  and then for every row again in the full-data refit. It now does that once
+  per fit on the full matrix and gives each step its own codes by
+  renumbering the integers in first-appearance order within that step's
+  rows, which reproduces exactly what factorizing those rows alone returns.
+  Same-process A/B on the default estimator: 9.4% (kick), 18.9% (sf-police),
+  18.1% (porto-seguro) and 8.2% (okcupid-stem) off end-to-end fit time, and a
+  flat numeric control, where no categorical column exists. The exact-output
+  snapshot passes 155 of 155 configurations. Nothing changes when you pass
+  your own `eval_set` or turn early stopping off, since there is no shared
+  matrix to reuse.
+- **Multiclass fits are another 4–6% faster; predictions are bit-identical.**
+  After the 0.31 softmax kernel, the multiclass gradient step still made two
+  more full passes over the probability matrix in numpy, one for the gradient
+  and one for the floored hessian, each with its own allocation. Those now
+  happen inside the same numba kernel, in the pass that already computes the
+  softmax row, with every element produced by the same operations in the
+  same order as before. Same-process A/B on the three multiclass shapes the
+  benchmark tier contains: 4.6%, 5.7% and 4.1% off end-to-end fit time, and
+  a flat binary control, where this code never runs. The exact-output
+  snapshot passes 155 of 155 configurations; above seven classes the numpy
+  path is kept, for the same reason as before. (This entry was first filed
+  under 0.32.0 by mistake; it shipped after that release.)
+
 ## [0.32.0] - 2026-08-30
 ### Added
 - **SHAP for the quantile head and for multiclass.** The SHAP kernel was
@@ -113,20 +142,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   to do about it.
 
 ### Changed
-- **Multiclass fits are another 4–6% faster; predictions are bit-identical.**
-  After the 0.31 softmax kernel, the multiclass gradient step still made two
-  more full passes over the probability matrix in numpy, one for the gradient
-  and one for the floored hessian, each with its own allocation. Those now
-  happen inside the same numba kernel, in the pass that already computes the
-  softmax row, with every element produced by the same operations in the
-  same order as before. Same-process A/B on the three multiclass shapes the
-  benchmark tier contains: 4.6%, 5.7% and 4.1% off end-to-end fit time, and
-  a flat binary control, where this code never runs. The exact-output
-  snapshot passes 155 of 155 configurations; above seven classes the numpy
-  path is kept, for the same reason as before.
-- Otherwise nothing about how any model fits. Every other item above is
-  additive, and the exact-output snapshot is bit-identical on all 155
-  configurations.
+- Nothing about how any model fits. Every item above is additive, and the
+  exact-output snapshot is bit-identical on all 155 configurations.
 
 ## [0.31.0] - 2026-08-30
 ### Changed

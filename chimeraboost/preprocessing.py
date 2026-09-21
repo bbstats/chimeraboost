@@ -85,17 +85,38 @@ class CatTransformCache:
 
     One cache is valid for one matrix ``X`` only -- entries are keyed by column
     index alone.
+
+    Child form: ``CatTransformCache(parent=..., parent_X=..., rows=...)`` is a
+    view of a ``parent`` cache over the full matrix ``parent_X``, restricted to
+    the row-index array ``rows``. A leg's factorization is derived from the one
+    parent pass by gathering and re-numbering in first-appearance order, so a
+    fit factorizes each categorical column once instead of once per leg. A
+    row-count guard falls back to a plain ``factorize`` whenever the matrix at
+    hand is not the leg this child was built for.
     """
 
-    def __init__(self):
+    def __init__(self, parent=None, parent_X=None, rows=None):
         self._columns = {}
         self._combos = {}
+        self._parent = parent
+        self._parent_X = parent_X
+        self._rows = rows
 
     def column(self, X, f):
         """(codes, categories) of raw column ``f``, first-appearance order."""
         out = self._columns.get(f)
         if out is None:
-            out = self._columns[f] = factorize(X[:, f])
+            parent, pX, rows = self._parent, self._parent_X, self._rows
+            if (parent is not None and pX is not None and rows is not None
+                    and X.shape[0] == rows.shape[0]):
+                pc, pcats = parent.column(pX, f)
+                codes, keys = _rerank_first_appearance(
+                    np.ascontiguousarray(pc[rows]), len(pcats))
+                if not isinstance(pcats, np.ndarray):
+                    pcats = np.asarray(pcats, dtype=object)
+                out = self._columns[f] = (codes, pcats[keys])
+            else:
+                out = self._columns[f] = factorize(X[:, f])
         return out
 
     def combo(self, X, f_a, f_b):
@@ -155,6 +176,33 @@ def _factorize_int(vals):
     codes = np.ascontiguousarray(rank[inv], dtype=np.int64)
     keys = [int(v) for v in su[order]]
     return codes, keys
+
+
+@njit(cache=True)
+def _rerank_first_appearance(codes, n_parent):
+    """Re-number parent codes in first-appearance order over a row subset.
+
+    ``codes`` holds the parent matrix's codes gathered at the subset rows
+    (values in ``[0, n_parent)``). Returns ``(out, keys)``: the subset's own
+    first-appearance codes plus the parent code behind each one, so
+    ``parent_categories[keys]`` is the subset's category array -- exactly what
+    ``factorize`` on the subset's rows returns. One pass with a lookup table
+    mapping parent code -> subset code.
+    """
+    if codes.shape[0] == 0 or n_parent <= 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    lut = np.full(n_parent, np.int64(-1), np.int64)
+    keys = np.empty(n_parent, dtype=np.int64)
+    out = np.empty(codes.shape[0], dtype=np.int64)
+    nxt = 0
+    for i in range(codes.shape[0]):
+        c = codes[i]
+        if lut[c] < 0:
+            lut[c] = nxt
+            keys[nxt] = c
+            nxt += 1
+        out[i] = lut[c]
+    return out, keys[:nxt]
 
 
 def _remap_codes(categories, mapping, default):
@@ -429,7 +477,7 @@ class FeaturePreprocessor:
     # ---- fit / transform -----------------------------------------------------
 
     def fit_transform(self, X, encode_targets, cat_features, sample_weight=None,
-                      binner=None):
+                      binner=None, cat_ctx=None):
         """Fit on ``X`` and return the binned matrix.
 
         ``encode_targets`` is the list of T 1-D arrays used for ordered TS.
@@ -447,7 +495,8 @@ class FeaturePreprocessor:
         split thresholds are bin INDICES into them. ``None`` fits a binner as
         before, bit-identically.
         """
-        cat_ctx = CatTransformCache()
+        if cat_ctx is None:
+            cat_ctx = CatTransformCache()
         num, codes = self._split_columns_fit(X, cat_features, cat_ctx)
 
         self._fit_gdiff(X, sample_weight, cat_ctx)
@@ -514,7 +563,8 @@ class FeaturePreprocessor:
         return self.binner_.transform(feat)
 
     @classmethod
-    def from_base_with_cross(cls, base, cross_pairs, X, sample_weight=None):
+    def from_base_with_cross(cls, base, cross_pairs, X, sample_weight=None,
+                             cat_ctx=None):
         """Refit ``base``'s configuration with ``cross_pairs`` added, cheaply.
 
         Every fit artifact is per-column -- category maps, TS encodings,
@@ -543,7 +593,8 @@ class FeaturePreprocessor:
         prep.combo_maps_ = base.combo_maps_
         prep.encoders_ = base.encoders_
 
-        cat_ctx = CatTransformCache()
+        if cat_ctx is None:
+            cat_ctx = CatTransformCache()
         prep._fit_gdiff(X, sample_weight, cat_ctx)
         cross = prep._cross_block(X, cat_ctx)
         cross_binner = Binner(base.max_bins).fit(cross, sample_weight)
