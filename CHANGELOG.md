@@ -5,6 +5,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **`cross_features="always"` on the classifier (opt-in).** The regressor's
+  forced cross-feature mode now exists for binary classification too: no
+  validation race, a 25-round importance probe ranks the features, the
+  narrow top-4 cross block is kept unconditionally, one full fit. Off by
+  default, and `quality=1` keeps cross features off on the classifier:
+  measured on the decision suites against the plain fast rung, the mode
+  won 10 and lost 13 of the 23 Grinsztajn binary datasets where it
+  engaged, at a median gain of zero and 1.4x the fit time, so the
+  validation race keeps its job there. Inert on multiclass and wherever
+  the usual gates fail (under 2000 rows, no validation split). The raced
+  default path is untouched: the exact-output snapshot is identical on all
+  155 configurations. Where it does help it helps clearly (covertype
+  +1.2% Brier, MagicTelescope +0.5%), which is why it stays available
+  (`benchmarks/CAMPAIGN_PLAN.md` I019 to I021).
 - **Random intercepts for grouped regression data (#109, slice 1).**
   `ChimeraBoostRegressor(random_effects=True)` plus the existing
   `fit(X, y, groups=...)` fits `F(X) + b_g`: trees for the global part

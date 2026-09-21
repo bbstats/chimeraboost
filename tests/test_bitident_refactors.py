@@ -585,16 +585,12 @@ def test_hyperparam_error_messages_are_pinned(params, expected):
     assert str(e.value) == expected
 
 
-def test_forced_cross_on_classifier_message_is_pinned():
+def test_classifier_accepts_always_and_stays_inert_below_the_gate():
     rng = np.random.default_rng(8)
     X = rng.normal(size=(50, 3))
     y = rng.integers(0, 2, 50)
-    with pytest.raises(ValueError) as e:
-        ChimeraBoostClassifier(cross_features="always").fit(X, y)
-    assert str(e.value) == (
-        'cross_features="always" is only supported on the regressor; '
-        "the classifier's cross features are validation-raced "
-        "(cross_features=None or True).")
+    m = ChimeraBoostClassifier(cross_features="always").fit(X, y)
+    assert m.cross_features_selected_ is None
 
 
 def test_fit_input_error_messages_are_pinned():

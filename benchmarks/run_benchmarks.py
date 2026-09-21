@@ -1093,6 +1093,10 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
         kw["cross_features"] = False
     elif cross_features == "always":
         kw["cross_features"] = "always" if task == "regression" else False
+    elif cross_features == "always_clf":
+        # CAMPAIGN_PLAN.md F3: the classifier's forced mode under test, with
+        # regression pinned OFF so those rows are exact ties against OneLin.
+        kw["cross_features"] = "always" if task != "regression" else False
     elif cross_features:
         kw["cross_features"] = True
     # None = the class default (carry every candidate cross column). An int caps
@@ -1224,6 +1228,20 @@ def _run_chimera_one_lin_x(task, Xtr, ytr, Xte, yte, cat, threads):
     """
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
                         linear_leaves=True, cross_features="always",
+                        refit_full="off")
+
+
+def _run_chimera_one_lin_xc(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Rung 1 plus the CLASSIFIER's forced cross block (CAMPAIGN_PLAN.md F3).
+
+    Same shape as OneLinX but on the other estimator: classification rows
+    carry `cross_features="always"` (binary engages above the gates,
+    multiclass is inert by the library's rule) and regression rows are
+    pinned OFF, so paired against ChimeraBoostOneLin in one run every
+    regression, multiclass and sub-gate row must read as an exact tie.
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        linear_leaves=True, cross_features="always_clf",
                         refit_full="off")
 
 
@@ -1447,6 +1465,7 @@ RUNNERS = {
     "ChimeraBoostOne": _run_chimera_one,
     "ChimeraBoostOneLin": _run_chimera_one_lin,
     "ChimeraBoostOneLinX": _run_chimera_one_lin_x,
+    "ChimeraBoostOneLinXC": _run_chimera_one_lin_xc,
     "ChimeraBoostSel25": _run_chimera_sel25,
     "ChimeraBoostRefit": _run_chimera_refit,
     "ChimeraBoostFlatLR": _run_chimera_flatlr,
@@ -1469,7 +1488,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostEns8RM", "ChimeraBoostEns5RM",
                    "ChimeraBoostEns3RM",
                    "ChimeraBoostOne", "ChimeraBoostOneLin",
-                   "ChimeraBoostOneLinX",
+                   "ChimeraBoostOneLinX", "ChimeraBoostOneLinXC",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
                    "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
