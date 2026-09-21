@@ -27,6 +27,7 @@ A shipped preset is a frontier win but not a default win.
 - Int-exact per-histogram ≠ bit-identical end-to-end (op order feeds gains/tie-breaks). Any "exact" kernel change runs `identity_snapshot.py` first; identical → pure-speed ladder; not → FP-drift class → S2 with the Brier read.
 - Standing numerical-drift policy (the maintainer, 2026-09-18): an algorithm-changing revision may carry last-bit drift provided it is monitored (identity-snapshot diff quantified, not silently absorbed), reported (both axes in the verdict), and gate-evidenced to improve over time. Pure rewrites that drift without changing the algorithm stay on the ladder above.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
+- AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 
 ## Screening ladder
 
@@ -104,6 +105,10 @@ fact: 2026-09-21 | main settled at 486e563. PRs #116–#119 (F3 S1/S2/S3 + the r
 fact: 2026-09-21 | ordered-TS asymmetry MEASURED (I024, `results/probe-ts-mismatch-20260921.{md,json}`): on high-card columns a held-out row of a rare category (m ≤ 5) reads an encoding 1.9–5.2× more spread around the prior than a training row of the same stratum, and the target's slope on it is 0.63–0.70 of the training slope (over-trust) on sf-police / okcupid-stem / Traffic_violations, 1.01 on kick; wine-reviews 0.71, colleges 0.42. In big categories (m > 50) it runs the other way, reliability 1.10–1.29 (prefix noise on training rows). Mean shift is ≤ 0.03 SD everywhere — the mismatch lives in the second moment and by count, never in the mean
 fact: 2026-09-21 | share of held-out rows in categories of train count m ≤ 2, the quantity that decided the SIGN of the transform fix: sf-police 13.1%, wine-reviews 13–20%, colleges 18–20%, okcupid-stem 4.0%, Traffic_violations 1.5–2.8% per column over its 3 high-card columns (the probe's column count of 9 is 3 columns × 3 class targets), kick 0.8%
 fact: 2026-09-21 | transform-only A/B, default estimator, 3 seeds (I024): count-matched weight A1 / half-matched A2 vs shipped — sf-police +0.31% / +0.28% Brier (3/3 seeds both), Traffic_violations +0.46% / +0.75% (3/3), okcupid-stem +0.09% / 0.00% (1/3), kick −0.05% / −0.04% (0/3); wine-reviews +0.08% / +0.29% RMSE; porto-seguro exact to ±0.003%. Gap-set pairs 7W-5L for both arms against a bar of 8. Matched arms early-stop later (sf-police 45→62 trees), fit ×0.97–1.14, report-only
+fact: 2026-09-21 | F6 S1b (I025, `results/probe-ts-mismatch-s1b-20260921.{md,json}`): rare-only matched weight (m ≤ 5) at 100/50/25% training rows — sf-police +0.29 / +0.29 / +0.53% Brier, 9 of 9 fits; okcupid-stem +0.01 / +0.05 / +0.01; Traffic_violations +0.04 / −0.02 / −0.21; kick −0.01 / −0.04 / +0.10; wine-reviews −0.07 / +0.19 / +0.27% RMSE; porto-seguro an exact tie. Gap pairs at 25%: 7W-5L (bar 8); without sf-police −0.03%, 4W-5L ⇒ F6 KILLED, barrier B18
+fact: 2026-09-21 | share of held-out rows in categories of m ≤ 5 training rows, by training size 100/50/25%: sf-police 27.0/35.7/41.1%, okcupid-stem 6.5/7.3/8.6%, Traffic_violations 3.0/4.7/8.8%, wine-reviews 28–35%; unseen share on sf-police 6.6/12.8/21.8%. Only address-like columns put a quarter of their rows in rare categories: in the hc suite that is sf-police's Address and wine-reviews' two largest columns
+fact: 2026-09-21 | Traffic_violations' +0.46% / +0.75% under the UNIFORM matched weights (I024) did not come from rare categories: the rare-only arms read +0.04% / +0.06%. It came from re-weighting categories of more than five rows, where Part 1 measured no over-trust. Unexplained, one dataset, post-hoc — a pointer for the R3 ablation, never a result
+fact: 2026-09-21 | a monkeypatched probe arm's fit time is not a cost read: the patched transform (a digamma per row) made fits read ×1.04–1.21 with identical tree counts
 fact: 2026-09-21 | the harness scores ALL classification Brier as mean Σ_k (p_k − onehot_k)², so its BINARY Brier is 2× the textbook `mean((p₁ − y)²)`; relative gaps are unaffected, absolute ones need the factor when a probe computes its own
 fact: 2026-09-21 | KS distance is useless for comparing ordered (training) and full-total (held-out) encodings: held-out values are one atom per category and training values are smeared by the prefix, so KS reads 0.3–0.6 on low-card columns whose moments match to 1%
 fact: 2026-09-21 | test suite on main 486e563 (after the #120 recovery; rung branch adds harness + docs only) = 1084 passed, 1 skipped, 114 s — the F3 S2 count, so the recovery landed the library intact
@@ -123,7 +128,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
-| F6 | Ordered-TS train/test moment mismatch (shortlist R1) | ACTIVE — the maintainer's pick; S1 read, fix as registered FAILED by one pair (I024) | The defect is measured and real (rare categories, over-trust, a quarter of the CatBoost gap on sf-police and Traffic_violations) but the uniform count-matched transform went 7W-5L against a bar of 8: it helps where rare held-out rows are common and costs a little where they are not. Next: S1b, the rare-only weight (m ≤ 5) tested where it can fail — training rows subsampled to 25% / 50% — bars in I024. Class: defect probe, zero library change |
+| F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -217,6 +222,12 @@ measurement R3, and the rungs that add a flag (R4, R5) come last. The pick reach
 not this file, so the next session (I023) read "awaiting the pick" and
 profiled F4 instead of starting R1 — recorded here so it cannot recur.
 
+status of the shortlist, 2026-09-21: **R1 RESOLVED — KILLED** at S1b
+(I024 → I025, barrier B18): the asymmetry is real, a transform-side fix
+moves one dataset. R3 inherits one pointer from it (the Counter feature,
+and Traffic_violations' unexplained response to uniform re-weighting).
+R2–R8 and H stay queued; F4's C4 and C3 go next under the ranking above.
+
 Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
 literature mechanisms, L3 opponent ablation, L4 harness measurement),
 funnelled through `barrier_check.py` and de-duplicated against this log and
@@ -241,6 +252,113 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I025 2026-09-21 F6 S1b (rare-only transform weight, tested where it can fail; pre-registered in I024)
+why now: I024's `next:`; PR #122 merged by the maintainer (516ab12), no
+campaign PR open. Class: **defect probe**, zero library change — the rung
+edits the probe script only, so it is Claude's. A `benchmarks/` script is
+code under the 2026-09-21 merge rule, so this PR waits for the maintainer.
+design, fixed in I024 before this run: arm **A3** = the count-matched
+weight `g(m)` where the category's train count m ≤ 5, the shipped
+`m/(m+a)` above; **A4** = the half-matched weight on the same stratum
+(secondary). The edge is Part 1's pre-registered stratum, not tuned.
+Regime: the I024 splits with the TRAINING rows subsampled to 50% and 25%
+(stratified for classification, seeded by the split seed), test rows
+unchanged — the `@sus` design, run inside the probe so all five sets have
+it. Full size is rerun with A3/A4 because bar 2 needs A3's full-size gain,
+which I024 never measured. Panel: the four gap sets + wine-reviews at
+three sizes, porto-seguro at full size as the exact-tie control; 3 seeds ×
+arms A0/A3/A4. Part 1's rare share (held-out rows with m ≤ 5) is printed
+per size so the premise "subsampling makes categories rarer" is checked,
+not assumed.
+barrier: `barrier_check.py` matched four. B3/B4/B5 as argued in I024 (B5
+is now satisfied by construction: the weight moves only in the stratum
+where the mismatch was measured). B8 — keyword only: "subsample" here is
+the probe's training-size regime, not the booster's row-sampling knob.
+forecast, before any run: premise — the m ≤ 5 share of held-out rows on
+the high-card columns roughly doubles from full size to 25% (sf-police
+27% → 45–60%), while the unseen share also rises (6.6% → 15–25%) and
+unseen rows read the prior in every arm, which caps the growth. Strength,
+A3 at full size: **sf-police +0.2 to +0.3%** (most of A1's +0.31%, its
+rare rows are where the gain was); **Traffic_violations +0.1 to +0.3%**,
+under A1's +0.46%, because only 2–5% of its rows per column are rare and
+part of A1/A2's gain there must have come from the mid stratum; okcupid
+0 to +0.1%; **kick inside ±0.02%** (2% rare rows — the loss A1 paid in
+mid and large categories is gone); wine-reviews +0.05 to +0.2%. At 25%:
+gains grow on sf-police (+0.4 to +0.8%), Traffic (+0.3 to +0.8%) and
+wine-reviews, okcupid turns positive (+0.1 to +0.3%), kick flat to
+slightly positive (0 to +0.1%). A4 lands between A0 and A3. Where I expect
+to be wrong: Traffic — if its gain lived in categories of 6–50 rows, the
+rare-only weight loses it at full size and the 25% read decides the
+family; and the weight's hard step at m = 5 → 6 (0.59 → 0.86) may cost a
+little everywhere. Cost: later early stopping again, fit ×1.0–1.1,
+report-only.
+bars (as registered in I024): 1 — A3 wins ≥ 8 of the 12 gap (set, seed)
+pairs at 25% with a positive median. 2 — A3's mean gain at 25% exceeds
+its mean gain at full size on ≥ 3 of 4 gap sets. 3 — kick negative on at
+most 1 of 3 seeds at 25%. 4 — full-size porto-seguro exact (|Δ| ≤
+0.005%). Any fail ⇒ F6 KILLED as "real defect, no transform-side fix
+converts"; the Counter-feature question stays with R3. All pass ⇒ S2.
+ran: `probe_ts_mismatch.py --arms A0 A3 A4 --train-fracs 1 0.5 0.25`, 5
+sets × 3 sizes × 3 seeds × 3 arms + porto-seguro at full size = 144
+default fits, one pass, ~25 min →
+`results/probe-ts-mismatch-s1b-20260921.{md,json,log}`.
+premise **HELD**: the share of held-out rows in categories of m ≤ 5 rises
+as the training rows are cut — sf-police 27.0 → 35.7 → 41.1%, okcupid-stem
+6.5 → 7.3 → 8.6%, Traffic_violations 3.0 → 4.7 → 8.8% — under my 45–60%
+forecast for sf-police because the unseen share climbs with it (6.6 →
+21.8%) and unseen rows read the prior in every arm.
+bars, A3 (the registered primary arm):
+  1 **FAIL** — gap pairs at 25%: **7W-5L**, median +0.096%, mean +0.107%;
+    the bar was 8. By set: sf-police 3/3 (+0.53%), kick 2/3 (+0.10%),
+    okcupid-stem 1/3 (+0.01%), Traffic_violations 1/3 (−0.21%).
+  2 **FAIL** — gain at 25% over gain at full size: sf-police +0.53 vs
+    +0.29 ✓, kick +0.10 vs −0.01 ✓, okcupid-stem +0.01 vs +0.01 ✗,
+    Traffic_violations −0.21 vs +0.04 ✗ — 2 of 4, the bar was 3.
+  3 PASS — kick at 25%: +0.23, +0.07, −0.01, one negative seed.
+  4 PASS — full-size porto-seguro an exact tie on all three seeds, both
+    arms (0W-0L-3T): outside the rare stratum the arms are bit-identical
+    to the shipped transform, as built.
+the secondary arm, reported because it reads better and changes nothing:
+A4 went 9W-3L at every size and would have cleared bars 1 and 2 by their
+letter — with a median gain of **+0.04%**, a tenth of anything that would
+matter. GATE_ROBUSTNESS question 2 settles both arms: drop sf-police and
+the other three gap sets at 25% read A3 −0.03% (4W-5L of 9) and A4 −0.02%
+(6W-3L). The effect is one dataset.
+what the run does establish: on sf-police the rare-only weight is worth
++0.29% Brier at full size and +0.53% at a quarter of the rows, **9 of 9
+fits**, log loss agreeing (+0.22 to +0.40%), and it carries the whole of
+the uniform fix's gain there (A1 read +0.31%). That is what a column with
+27–41% of its held-out rows in categories of five or fewer training rows
+looks like, and no other set on the panel has one: wine-reviews comes
+closest (28–35%) and gains at the two smaller sizes (+0.19%, +0.27%, 5 of
+6 fits) but not at full size. Traffic_violations answered the question I
+flagged: its +0.46% / +0.75% under the uniform arms did NOT come from rare
+categories — the rare-only arms read +0.04% / +0.06% — so it came from
+re-weighting categories of more than five rows, where Part 1 found no
+over-trust to correct. Unexplained, one dataset, post-hoc; recorded for
+R3 (the CatBoost ablation's CTR-border and prior arms are the sanctioned
+place to look), not pursued here. Cost column void this time: the
+monkeypatched transform evaluates a digamma per row, so fit reads
+×1.04–1.21 even where the tree counts are identical.
+verdict: **FAIL (bars 1 and 2) → F6 KILLED**, as registered: "real defect,
+no transform-side fix converts". Forecast: premise HIT; sf-police HIT at
+both sizes (+0.29 in a +0.2–0.3 band, +0.53 in +0.4–0.8); kick HIT (flat,
+then +0.10); Traffic MISSED with the wrong sign at 25% — the failure I
+named in advance and still under-weighted; okcupid-stem and wine-reviews
+at full size MISSED low. The two-rung record in one line: the encoder's
+train/test asymmetry is real and over-trusts rare categories, and
+correcting it at transform moves exactly the datasets whose rows mostly
+live in rare categories — one of our fourteen. A change that re-scores
+every categorical model, moves every categorical golden and needs a
+fitted-state flag for old pickles does not get built for one dataset.
+Closed as barrier **B18**. Nothing ships; the probe and this record are
+the durable artifacts.
+next: F6 closed. The queue under the 2026-09-21 pick puts F4's measured
+objects next: **C4 S0** — split hc `prep` (32–41% of fit) by wall clock
+into factorize, ordered TS, binning, array conversion, per leg, then ask
+the exact-rewrite question of the top piece — then C3 (binary Logloss
+layer). Class: exact-rewrite perf.
 
 #### I024 2026-09-21 F6 S0+S1 (ordered-TS train/test mismatch: moment read + a transform-only A/B; pre-registered)
 why now: the maintainer's pick (shortlist R1, goes first). Class: **defect
