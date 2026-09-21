@@ -13,6 +13,14 @@ edit library source yourself, and you never judge a rung before step 5.
 - `campaign_tasks/*.running` present — same: a worker is live, stop.
 - One benchmark at a time is the standing rule; the worker runs benchmarks, so
   you never start one while a task is out.
+- `git fetch origin` and fast-forward `main` first; a stale local `main` hides
+  merges. Then list open PRs (`bash campaign_tasks/gh.sh api
+  "repos/bbstats/chimeraboost/pulls?state=open"`): an open `campaign/*` PR means
+  the last rung still awaits its merge — do nothing this step, wake in 30
+  minutes. One campaign PR open at a time, every rung branch cut from `main`,
+  PR base always `main`. Stacking rung branches on each other orphaned #116 to
+  #119 (each merged into the branch below it, none reached `main`; recovered
+  as #120).
 
 ## 1. Resume
 Run steps 1–5 of the RESUME protocol in `benchmarks/CAMPAIGN_PLAN.md`

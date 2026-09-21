@@ -99,6 +99,13 @@ fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel f
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
 fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
+fact: 2026-09-21 | main settled at 486e563. PRs #116–#119 (F3 S1/S2/S3 + the refill shortlist) were each merged into the rung branch below them rather than into main — stacked PR bases, and the base branches were not deleted on merge, so GitHub never retargeted them; main received only #115. Recovered the same morning as PR #120 (the four commits, unchanged). The PR #56 trap a second time. Rule since: every rung branch is cut from main, PR base is always main, one campaign PR open at a time (now step 0 of the `campaign-step` skill). A stale local main hid the recovery from the next session until it fetched — fetch before reading the log
+fact: 2026-09-21 | test suite on main 486e563 (after the #120 recovery; rung branch adds harness + docs only) = 1084 passed, 1 skipped, 114 s — the F3 S2 count, so the recovery landed the library intact
+fact: 2026-09-21 | F4 fresh profile (I023, `results/campaign-f4s1-other-20260921.{md,json}`; exclusive wall clock, default estimator, the August panel): on the 6 gr sets `grow` is 63.5–71.8% of fit and the full-data refit leg is 25–35% — replayed rounds 10.7–19.3% plus the 1.25× extra rounds grown from scratch 9.6–12.3%. August's unnamed 23–30% "other" was mostly those replayed rounds, which that instrument never wrapped
+fact: 2026-09-21 | binary Logloss layer = 8.3–10.0% of a gr binary fit: `grad_hess` 4.9/4.2/4.4% + per-round validation `eval` 5.1/4.3/4.0% (MagicTelescope/Higgs/road-safety; a 7-rep rerun replicates within 0.1 point). Regression: `grad_hess` 0.6–0.7%, `val_score` 0.8–2.1%; no non-kernel row reaches 5% on any gr regression set
+fact: 2026-09-21 | hc `prep` = 34.8% (kick) / 31.8% (wine-reviews) / 41.1% (okcupid-stem) of the default fit AFTER C2, of which 15.5/13.7/19.9 points are the refit's full-row `fit_transform` — the largest non-kernel object measured, hc-only, inside unsplit
+fact: 2026-09-21 | a replayed round costs ~40–45% of a grown round on linear-leaf regression sets (nyc-taxi 0.97 vs 2.45 ms, diamonds 1.09 vs 2.4 ms); `_assign_leaves` / `_leaf_values` / `_linear_leaf_fit` unsplit, ridge accumulator B10-closed
+fact: 2026-09-21 | exclusive-time hook instrument (`f4_other_walltime.py`): 0.85 µs per hook call, 0.1–1.2% of fit, wrapped/plain 0.99–1.03; on the first pass MagicTelescope's PLAIN arm read a 3-rep median 22% slow (1.067 s; all seven rerun fits 0.87–0.91 s), so 3 reps is thin for sub-second fits — use 7 and keep the per-rep times
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
 ## Beam
@@ -106,7 +113,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped) | C1b SHIPPED as a PR (I018): fused grad/hess into the softmax kernel, bit-identical 155/155, multiclass fit −4 to −6%. No measured candidate left; next unit owes a fresh profile |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C3 + C4 measured) | Fresh profile read (I023). Two objects owe an S0, in ceiling order: **C4** hc `prep` (32–41% of hc fit, inside unsplit) then **C3** the binary Logloss layer (`grad_hess` + per-round validation `eval`, 8–10% of a gr binary fit). An ordering call against the I022 entrants; absent a pick the loop takes C4's S0 |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
@@ -170,6 +177,14 @@ C1b (fusing `grad_hess`'s remaining `P - Y` and `max(P*(1-P), 1e-6)` passes into
 the kernel that now exists) was measured at S0 and PARKED (I014): ceiling
 4.4–7.5% of a multiclass fit, cheap and bit-identical, but hc-only. It is on the
 record so it need not be re-derived; taking it is an ordering call against F2.
+(Taken and shipped 2026-09-21, I018.)
+Fresh profile 2026-09-21 (I023): August's unnamed Grinsztajn "other" was the
+refit's replayed rounds, and nothing at the Python/numpy layer reaches 5% of a
+Grinsztajn regression fit. Two objects are measured and owe an S0 each: **C4**,
+hc `prep` at 32–41% of fit with 14–20 points of it re-paid by the refit; and
+**C3**, the binary Logloss layer at 8–10% of fit across `grad_hess` and the
+per-round validation `eval`. C3 is the first F4 object that reaches Grinsztajn
+(23 binary sets of 59).
 
 ### F5 — hc-Brier gap vs CatBoost
 status: BLOCKED(needs B3-clearing mechanism from lens L3)
@@ -205,6 +220,111 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I023 2026-09-21 F4 S1 (fresh profile: name the Grinsztajn "other" column; measurement, pre-registered)
+why now: the refill shortlist (I022) waits on the maintainer's pick, and F4
+is the one ACTIVE family; its `next:` owes a fresh profile. All three F4
+ships came out of the hc/multiclass "other" and none can move Grinsztajn,
+the headline stratum — so the profile is aimed there. The August
+attribution (`results/campaign-attr-20260816.md`) left **23–30% of every
+Grinsztajn fit** in an unnamed "other" column; its instrument wrapped
+`build_oblivious_tree` but not `replay_oblivious_tree`, the loss, the
+validation score or the round loop, so that column has never been read.
+Measurement rung, zero library change, no muse task (the I019/I021
+precedent: harness code is Claude's per AGENTS.md). Branch
+`campaign/f4-s1-gr-other-profile`, based on main at 486e563.
+instrument: `benchmarks/f4_other_walltime.py` (new). Exclusive-time
+`perf_counter` hooks — a hook's clock stops while a nested hook runs, so
+the rows partition the estimator fit and sum to it — on the default
+estimator over the August panel unchanged (6 gr + 3 hc), rows split by leg
+(early-stopped selection fits vs the full-data refit). Not cProfile: every
+object here is few-fat-calls, the shape I012 showed cProfile understates.
+The instrument is priced two ways: hook bookkeeping calibrated on a no-op
+and reported as its own row, and every wrapped fit alternates with an
+unwrapped one in the same process (median of 3 each).
+barrier: `barrier_check.py` matched five, all on keywords, none binds a
+measurement. B10/B15 — the grow kernel stays one opaque row and is
+excluded from the candidate read; B10's METHOD (ceiling before code) is
+what this rung is. B2/B13 — replay appears only as a timed leg; no
+audition, selection or tuning decision is touched. B6 — no tuning.
+forecast, written before any run (shares of estimator fit): `grow` 55–70%
+on gr. `replay` (the refit's rounds) is the largest piece of the old
+"other", **8–15%** on gr. `prep` 1–3% on gr numeric sets, 15–30% on hc.
+`grad_hess` 1–2% regression, **3–6% binary** (the numba sigmoid plus two
+numpy passes — the C1b shape on the scalar path). `train_update` 2–4%,
+`eval_advance` 1–2%, `val_score` under 1% regression and 2–4% binary (two
+logs and a clip over the validation rows every round). The two Python
+loop rows 2–5% combined, a point or two of it the instrument's own.
+Estimator-level rows (split, validation, cross screen, importances,
+calibration) 1–4% combined on gr. The bet: on Grinsztajn **no non-kernel
+row reaches 5%**, and the old "other" is mostly the replay leg plus a tail
+of 1–4% rows; the likeliest object at or above 3% is binary `grad_hess`.
+bars: (a) instrument — wrapped/plain fit ratio ≤ 1.05 per set, else that
+set's read is void. (b) candidate — a non-kernel row ≥ 5% of fit on ≥ 2
+Grinsztajn sets of one task type becomes the next F4 candidate and owes
+its own S0 (exact-rewrite question, ceiling, forecast). (c) parked — rows
+at 3–5% on ≥ 2 sets are recorded with their ceilings, the C1b treatment.
+(d) family — no non-kernel row ≥ 3% on any Grinsztajn set means F4 has no
+Python/numpy-layer object left on the headline stratum: F4 goes DORMANT
+(reopen on a structural change), the beam holds zero ACTIVE families and
+the loop waits on the I022 pick.
+ran: `f4_other_walltime.py`, 9 sets × (1 warm + 3 plain + 3 wrapped fits),
+one pass, ~6 min → `results/campaign-f4s1-other-20260921.{md,json,log}`.
+Bar (a) instrument **PASS**: hook bookkeeping 0.85 µs per call = 0.1–1.2%
+of fit; wrapped/plain ratio 0.99–1.03 on eight sets. MagicTelescope read
+0.869 — noise in the PLAIN arm (a 3-rep median of 1.067 s; all seven
+rerun fits 0.87–0.91 s) — so the two numeric binary sets were rerun at 7 reps
+(`…-binary7.{md,json}`): ratio 1.026, every phase share within 0.1 point
+of the first read.
+result, Grinsztajn (% of estimator fit, exclusive wall clock):
+  the old "other" has a name, and it is the refit. The full-data refit leg
+  is **25–35% of every fit**: replayed rounds 10.7–19.3% (`replay`, never
+  wrapped in August) plus the 1.25× extra rounds grown from scratch
+  9.6–12.3% (counted under `grow`; earning, per REFIT_PLAN's 8/10). `grow`
+  in all legs 63.5–71.8%. A replayed round costs ~40–45% of a grown one on
+  the linear-leaf regression sets (nyc-taxi 0.97 vs 2.45 ms, diamonds 1.09
+  vs 2.4 ms); its three kernels are unsplit and the ridge accumulator is
+  B10-closed — a pointer, not a candidate.
+  regression: nothing. `grad_hess` 0.6–0.7%, `val_score` 0.8–2.1%,
+  `train_update` 2.7–3.2%, `prep` 1.2–4.4%, `centers_std` 0.8–1.7%, both
+  loop rows together 1.6–4.7% (1.2 of cpu_act's is the instrument).
+  binary: the Logloss layer is two rows of one object. `grad_hess`
+  **4.9 / 4.2 / 4.4%** and the per-round validation `eval` (`val_score`)
+  **5.1 / 4.3 / 4.0%** on MagicTelescope / Higgs / road-safety —
+  **8.3–10.0% combined**. Everything else under 3.5%.
+result, hc (outside the pre-registered Grinsztajn scope, recorded because
+it is the largest non-kernel number on the board): `prep` is **34.8%**
+(kick) / **31.8%** (wine-reviews) / **41.1%** (okcupid-stem) of the fit
+post-C2, and 15.5 / 13.7 / 19.9 points of that are the refit re-running
+`fit_transform` on all rows (ordered statistics are row-set dependent, so
+the re-run is owed; what it costs inside is unmeasured).
+verdict: **READ — no Grinsztajn row clears bar (b); two clear bar (c).**
+(b) FAIL: the one ≥ 5% reading is `val_score` 5.1% on MagicTelescope,
+alone. (c) PASS twice, binary `grad_hess` and binary `val_score`, parked
+with ceilings 4.2–4.9% and 4.0–5.1%. (d) not met — F4 stays ACTIVE.
+Forecast: the bet HIT (no non-kernel row ≥ 5% on gr but one at 5.1;
+binary `grad_hess` the likeliest ≥ 3% object, 3–6% band HIT). MISSES:
+`replay` on regression 18–19% against 8–15% (binary inside); binary
+`val_score` at the top of and over its 2–4% band — I priced two logs over
+the validation rows too cheaply; hc `prep` 32–41% against 15–30%;
+regression `grad_hess` under its band. Instrument caveat (GATE_ROBUSTNESS
+#6): single split, threads unpinned — these shares choose what to measure
+next and gate nothing.
+next: F4 has two measured objects and each owes an S0, in ceiling order.
+**C4 hc prep** (32–41% of hc fit): split `prep` by wall clock — factorize,
+ordered TS, cat combinations, binning, array conversion, in the selection
+legs and in the refit — then ask the exact-rewrite question of the top
+piece; hc-only reach (14 sets + variants). **C3 binary Logloss layer**
+(8–10% of a binary fit; 23 of 59 gr sets plus hc binary): (i) fuse
+`p − y` and `max(p(1−p), 1e-6)` into the existing numba `_sigmoid`
+kernel — the C1b move on the scalar path, elementwise, so bit-identical
+by the same argument; (ii) `Logloss.eval` takes two logs per row where
+0/1 labels need one (`y·log p + (1−y)·log(1−p)` is exactly `log p` or
+`log(1−p)` when y ∈ {0,1}: the dead term is a signed zero) — a pure-numpy
+rewrite that owes an exact-equality check against the current output on
+real validation vectors, the mean kept in numpy. Honest prior: about half
+of each ceiling converts, 3–5% of binary fit. Both are an ordering call
+against the I022 entrants; absent a pick the loop takes C4's S0 next.
 
 #### I022 2026-09-21 beam refill (staleness rule: one ACTIVE family, no candidate)
 ran: four read-only lens agents in parallel (L1 loss-slice profiling on
@@ -945,12 +1065,13 @@ next: F1 S0 entry, then step-0 compute items in sequence (tests → attribution 
 
 ## Open items (owner named, close-the-loop)
 
-- Remote branch deletion blocked by tool permissions this session: `git push origin --delete e2/forced-cross-features method/e2-prereg` — Nathan or a session with push-delete permission. Also stale remotes worth a look: `bench/portable-no-openml-api`, `docs/attribution-humility`, `docs/user-focused` (local copy unmerged), `refactor/readable-comments`, `worktree-tabarena-030-readiness`.
+- CLOSED 2026-09-21: remote `e2/forced-cross-features`, `method/e2-prereg`, `loop-scaffolding` and the five merged `campaign/*` rung branches deleted (each verified fully merged into main first; the four stacked rung branches carried only content-free merge commits on top of commits main already has). The local copies of the five went with them.
+- Stale remotes, the maintainer's call (status verified 2026-09-21). Fully merged into main, safe to delete: `bench/portable-no-openml-api`, `refactor/readable-comments`, `worktree-tabarena-030-readiness`, `issue106-predict-thresh` (its local copy is 1 commit ahead — the calibration study PR #108 carries), `record/f2-loop-20260918` (checked out in `.record-worktree`). NOT merged: `docs/attribution-humility` (5 ahead), `docs/user-focused` (4 ahead), `bbstats-patch-1` (1 ahead), `whitepaper` (PR #108, open). Local worktree branch `f2/subgate-race` still waits on the I017 kill being confirmed.
 
 ## RESUME protocol (a fresh session runs this, in order)
 
 1. Read this file top to bottom.
-2. `git status`; `git log --oneline -3` — confirm branch/sha match the last log entry (campaign baselines assume settled main).
+2. `git fetch origin`, fast-forward `main`, THEN `git status`; `git log --oneline -3` — confirm branch/sha match the last log entry (campaign baselines assume settled main). A stale local main reads as missing log entries (2026-09-21: it hid I019–I022 and the #120 recovery).
 3. `python benchmarks/bench_status.py` (miniconda python) — any run in flight or orphaned `.progress`?
 4. Grep this file for `PENDING`: a PENDING entry's results JSON (or `.progress`) is the resume point — score it with `compare_runs.py` / `synth_report.py`, write the verdict, THEN continue. Never relaunch first.
 5. Check `benchmarks/results/` for JSONs newer than the last log entry with no log line — score or record them before new work.
