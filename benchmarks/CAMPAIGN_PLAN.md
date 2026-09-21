@@ -96,6 +96,8 @@ fact: 2026-09-21 | F3 S1 classifier forced-cross probe (I019, 16 clf_num sets ×
 fact: 2026-09-21 | F3 S2 synth screen (I020, `results/20260921-075304.json`, OneLin vs OneLinXC): 119/136 exact ties (regression, multiclass, n<2000 all 0-0), engaged binary 13W-4L median +0.16% Brier (p=0.049), canary 0-0-3, engaged fit ratio median 1.27 (mean 1.60, one 5.35 outlier)
 fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLin vs OneLinXC): gr binary engaged 23 sets 10W-13L median −0.04% Brier, engaged fit 1.43x median; hc binary 2W-2L within ±0.14%; every regression/multiclass row an exact tie; gr@sus25 2W-2L, gr@sus50 0W-2L, hc@time 2W-0L (pointers) → F3 KILLED
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
+fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
+fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
 fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
@@ -177,7 +179,55 @@ barriers: B3 hard; B4 (ordered boosting closed)
 kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
+## Refill shortlist 2026-09-21 (awaiting the maintainer's pick; beam cap 5)
+
+Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
+literature mechanisms, L3 opponent ablation, L4 harness measurement),
+funnelled through `barrier_check.py` and de-duplicated against this log and
+`research/SUMMARY.md`. Keyword barrier matches are listed with the clearing
+argument each owes at S0. Ranked by expected win-rate movement per hour.
+Mark the entrants (up to 5) and the loop resumes with their S0.
+
+| # | candidate | slice it targets | mechanism, one line | barriers matched (clearing argument) | cheapest probe | prior |
+|---|---|---|---|---|---|---|
+| R1 | **Ordered-TS train/test moment mismatch** (L1) | max-card ≥ 1000 hc sets, CatBoost 4-of-4 on Brier (kick, sf-police, Traffic_violations, okcupid-stem) | `_ordered_ts` gives a train row the prefix statistic (expected count ≈ (m−1)/2) while `transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5, so trees are sited on one distribution and scored on another. Fix = count-matched smoothing at transform. | B3 (own encoder's self-consistency defect, not a CatBoost mechanism; CatBoost shares the asymmetry), B4/B11 (keyword only) | ZERO library change: fit the preprocessor on sf-police/kick, print per-column mean/SD of fit_transform vs transform on the same rows; kill if standardized shift < 0.05 SD | +2 to +5 hc Brier points if the shift is real; ~free to find out |
+| R2 | **Smoothed / 1-SE early-stopping round** (L2) | every stratum; small/noisy sets most | `_EarlyStopper` takes the raw argmin of a 20%-holdout curve and `_refit_on_full` replays it at 1.25×; pick the round by k-round moving average or earliest-within-1-SE instead. Cost exactly zero. | B2 (this IS judged at refit_full), B11 (in-sample isotonic ≠ smoothing an honest held-out curve), B13/B14 (audition budget k and replay fidelity are different decisions), B12 (no arms added) | ZERO library change: one fit per set, staged predictions, test metric at argmin vs each rule's round, ~20 gr sets × 3 seeds; kill if paired wins < half+1 or median ≤ 0 | +0.1 to +0.3% median; the only candidate that cannot lose the cost axis |
+| R3 | **F5 unblock: CatBoost hc ablation** (L3) | the hc Brier gap (+0.0030 mean over 5 sets, monotone in max cardinality) | measurement, not a port: turn CatBoost's CTR knobs off one at a time (`max_ctr_complexity=0/1/2`, `simple_ctr=['Borders']` i.e. no Counter, `CtrBorderCount=1`, `one_hot_max_size`, `ctr_leaf_count_limit`) and read the share of the gap each recovers; the SMALLDATA method that found the learning rate | B3/B4 bind only the follow-on native counterpart, argued separately | `probe_catboost_hc_ablation.py` forked from the existing ablation probe; 7 sets (5 gap + 2 controls), 3 seeds; Stage A four arms ≈ 2.5 h CatBoost compute; bar = ≥ 40% of gap recovered on the gap sets with controls < 10% | names the mechanism or closes F5 for good; native follow-ons ranked: frequency column (target-free), raced pairwise cat×cat combos on mixed data, per-TS-column bin grid |
+| R4 | **TS columns as linear-leaf terms** (L1) | cat-dominated hc sets: sf-police (5/6 cat), wine-reviews (9/10), kick | `_build_centers_std` zeroes every non-numeric column so `_fit_linear_leaf_tail` can never pick a target-encoded column; on sf-police the "linear" arm has one usable column. Populate `centers_std` for TS columns. | B3 (CatBoost has no linear leaves; not a port), B1 (targets are 54k–75k rows), B12/B14 (no new arm, no budget) | default-off flag + one synth run with a cats-heavy arm; kill if cat-scope not positive by majority or no-cats slice not an exact tie | +2 to +4 hc points, 0 on gr; leakage (coefficients fit on the encoding's own rows) is the risk |
+| R5 | **Multiclass sketch dimension s = 2** (L1) | multiclass, CatBoost 75% Brier win over 8 sets; hc only (gr has none) | `MulticlassBoosting` scores splits on ONE Rademacher projection; at K = 3 six directions exist. Sum gains over s ∈ {2,4}. A1_PLAN's registered, never-run contingency. | B10 (closes bit-identical speed objects; this is a strength change that buys cost — price it, B12) | flag, hc multiclass 4 sets × 6 seeds (A1's instrument); kill if pooled Brier ≤ 0 or cost > 1.5× | +1 to +3 hc points |
+| R6 | Ridge base margin (L2) | regression sets with a global linear trend | per-row init from a ridge on the numeric block instead of a scalar; `linear_leaves` is local and cannot carry a global trend | B14/B16 keyword only | zero-library: sklearn Ridge → residual → ChimeraBoost vs default on the regression panel | mixed-positive; Grinsztajn curates against linear tasks |
+| R7 | Refit gate on flat ES curves (L1) | 7 gr sets where NoRefit beats the default, 4 of them CatBoost losses (heloc, bank-marketing, default-of-credit, compas) | decline the 1.25× replay refit when the curve is flat at T* | **B13 and B2 bite** (the replay curve making a selection decision); clearing argument is thin: one bit, not a grid | analysis of existing JSONs first (which curve-shape statistic separates the 7 from the 52) | high ceiling (+5 gr points), low confidence: refit is 52W-7L |
+| R8 | Raced monotone target transform (L2) | skewed regression targets (houses, Brazilian_houses, nyc-taxi, diamonds) | race identity vs log1p / Yeo-Johnson on the ES split | B12 (cost), B14/B17 keyword | script: oracle headroom + pick fidelity (the E2 pattern); kill if oracle < +0.5% RMSE median | real oracle headroom on 4–8 sets; back-transform bias + cost the likely killer |
+| H | **Harness instruments** (L4), muse rungs, no ship gate | the loop's own decisions | (1) engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs` (3 h; I020/I021 gated on a number no tool prints); (2) probe→decide transfer footer: panel coverage + shipped-mode vs oracle read (5 h; the I019→I021 miss); (3) cost column in `compare_runs`, refused when not decision-grade (2 h); (4) POINTER label for strata under 8 decided sets (1 h); (5) `--save`/`--models` argparse guards (1 h) | none | each validated by re-reading `results/20260921-080246.json` to reproduce I021's hand-written verdict | prevents the wrong decision rather than moving the chart; (1), (4), (5) recommended regardless of the beam pick |
+
+Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low priors, B6/C4 adjacent); Counter/frequency column on its own (B3 hard; goes through R3 first); `cpu_act@sus25` and `eucalyptus@time` outliers (one win each, seed-unstable); random_strength / Bayesian bootstrap / DART-class noise (killed by the SMALLDATA ablation, ≈1 point).
+
+Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
+
 ## Iteration log (append-only)
+
+#### I022 2026-09-21 beam refill (staleness rule: one ACTIVE family, no candidate)
+ran: four read-only lens agents in parallel (L1 loss-slice profiling on
+`campaign-base-20260816.json` / `20260918-170822.json` via `hc_gap.py` and
+`compare_runs.py`; L2 literature mechanisms against the code and the
+barrier list; L3 CatBoost-knob ablation design for F5 with catboost 1.2.10
+parameter semantics; L4 harness warts from I018–I021 and GATE_ROBUSTNESS),
+then `barrier_check.py` over the nine survivors in one pass, dedup by hand
+against this log and `research/SUMMARY.md`.
+result: the shortlist above. Two findings worth recording as facts on
+their own: the hc Brier gap is monotone in max cardinality (sf-police
+15165 −0.0056, Traffic 3830 −0.0053, okcupid 7019 −0.0023, kick 1063
+−0.0019, porto 104 −0.0001, and we WIN on kdd_ipums 191 and eucalyptus
+27) — it points at per-level statistics, not at leaf estimation or gain
+noise; and the ordered-TS encoder hands train rows prefix statistics but
+test/ES rows full totals, an asymmetry nobody has measured (R1).
+Instrument note for the L1→L3 agreement: two lenses independently named
+the same four high-card sets from different files, which is the
+dedup working as intended, not double counting.
+verdict: SHORTLIST WRITTEN — the loop pauses here; entrants are the
+maintainer's pick (beam cap 5).
+next: on the pick, S0 for each entrant in shortlist order; R1's and R2's
+probes are zero-library-change scripts and go first.
 
 #### I021 2026-09-21 F3 S3 (decide run, OneLin vs OneLinXC per stratum; pre-registered)
 why now: I020 passed. Measurement rung, no library change, no muse task.
