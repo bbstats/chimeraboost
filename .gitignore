@@ -236,3 +236,5 @@ benchmarks/data_cache/
 
 # AutoGluon scratch dirs created when running the TabArena scripts locally
 AutogluonModels/
+campaign_tasks/*
+!campaign_tasks/TEMPLATE.md
