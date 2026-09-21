@@ -92,6 +92,7 @@ fact: 2026-09-18 | bench lane clear (no run in flight); `results/` newer than la
 fact: 2026-09-18 | HARNESS WART (fix wanted, out of this program's scope): `--save <explicit .json path>` points the console tee and the JSON sidecar at the same file and corrupts the write (I017 attempt 1). Until fixed: always use bare `--save` and copy/rename after. A rejected-or-derived guard belongs in run_benchmarks.py with a test.
 fact: 2026-09-18 | sub-gate 3-fold CV race costs 3-7x the base fit on engaging sets (mean ~5x; declined-after-folds sets pay too, no-pairs sets are free) — B12 instance, measured in `results/f2s2-20260918.json`
 fact: 2026-09-21 | F4 C1b SHIPPED as PR (I018): fused grad/hess kernel, `identity_snapshot` 155/155, same-process fit A/B okcupid-stem −4.6% / Traffic_violations −5.7% / cjs −4.1%, binary control +0.2% (`results/campaign-f4c1b-speed-20260921.txt`); test suite on the branch = 1081 passed, 1 skipped, 125 s
+fact: 2026-09-21 | F3 S1 classifier forced-cross probe (I019, 16 clf_num sets × 3 seeds, rung-1 config, top-4 block): oracle Brier headroom median +0.360% (29W-19L), probe fidelity paired median +0.000%, cost median 1.33x; gains concentrate on covertype +15.8% / pol +3.4% / eye_movements +1.5% / MagicTelescope +1.4% / jannis +1.1%, losses bank-marketing −1.0% / electricity −0.9% (`results/probe-cross-pairs-f3-clf.jsonl`)
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
 
 ## Beam
@@ -101,7 +102,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped) | C1b SHIPPED as a PR (I018): fused grad/hess into the softmax kernel, bit-identical 155/155, multiclass fit −4 to −6%. No measured candidate left; next unit owes a fresh profile |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
-| F3 | Classifier forced-cross | ACTIVE | S1 probe of classifier pair fidelity (S0 done, I004); behind F4/F2 |
+| F3 | Classifier forced-cross | ACTIVE (S1 passed thin, I019) | S2 = muse implements the classifier "always" mode default-off, then one synth screen with `--expect-inert` (bars in I019) |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill |
 
 ### F1 — Cross-feature cost trim v2
@@ -169,6 +170,89 @@ kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
 ## Iteration log (append-only)
+
+#### I019 2026-09-21 F3 S1 (classifier forced-cross probe; pre-registered)
+why now: F4 has no measured candidate left after I018; F3 is the only other
+ACTIVE family and its S0 (I004) cleared it. Zero library change — the rung
+is a probe script, harness code, so it is Claude's per AGENTS.md and muse
+gets no task this rung. Branch `campaign/f3-s1-clf-cross-probe` stacked on
+`campaign/f4-c1b-gradhess-fusion` (PR #115, unmerged), because this log
+lives there and main does not have I018 yet; merge #115 before this rung's
+PR. #114 (scaffolding) merged to main at cd57e03.
+design: `benchmarks/probe_cross_pairs_clf.py` (new), the E2 step-1 probe
+transplanted to binary log loss. Three arms per (dataset, seed) on the inner
+`GradientBoosting` at the rung-1 classifier config (Logloss, linear leaves
+on — the classifier's auto rule for binary — depth 6, 2000 rounds, ES 50 on
+a 0.2 split): plain; probe (pairs from a 25-round importance fit); oracle
+(pairs from the plain full fit). Both cross arms use the production pair
+rule at the SHIPPED forced width `FORCED_CROSS_TOP_M=4`, so the block is
+what a classifier "always" mode would carry. Panel: all 16 Grinsztajn
+clf_num sets × 3 seeds = 48 fits (clf_cat are the same sets with
+numerically-encoded extras, dropped to avoid double counting). No
+gap/control labels exist for the classifier; the oracle column IS the
+per-set headroom read. Metric: test Brier, log loss beside it.
+barrier: `barrier_check.py` matched six. B16 (pre-screening the candidate
+block) — inapplicable: no new screen; the pair rule is the production one at
+the width E2 shipped, and E2's step 1 measured that width on the regressor
+without triggering B16. B12 (portfolios die on cost) — applied, not
+contested: bar 3 prices the augmented fit directly before any knob exists.
+B17 (sub-gate CV race) — inapplicable, every panel set is above 2000 rows
+and no race runs. B1 — accepted: gates stay, sub-2000 classification stays
+inert. B2 — inapplicable at rung 1 (`refit_full=False`), as I004 recorded.
+B14 — inapplicable: no validation-curve decision at any budget; the 25-round
+fit only ranks features (E2's clearing argument, unchanged).
+forecast, written before the run: strength — oracle Brier headroom on the
+engaged binary slice smaller than the regressor's +2.6%: **+0.3 to +1.0%
+median**, because binary log loss with linear leaves already captures more
+of the smooth structure and the raced default's classification wins were
+modest (covertype F1 +3.1% the top of the 2026-07-13 record). Probe
+fidelity: paired probe-minus-oracle median **~0** (E2 read exactly 0.000).
+Cost — median aug/plain fit ratio **1.2 to 1.5** at top-4 (regressor read
+1.39). Where I expect to be wrong: headroom may sit under +0.3% on Brier
+even where log loss moves, which kills the family as "nothing to win" at
+rung 1; and Higgs/MiniBooNE/jannis-class wide sets may push cost past 1.5.
+bars, in order (the E2 bars with the classifier caveat): 1 headroom —
+oracle median ≥ +0.3% Brier over plain on ≥ 30 fits, else KILL. 2 fidelity
+— paired probe-minus-oracle median ≥ −0.1%, else KILL ("the probe cannot
+find the pairs"). 3 cost — median aug/plain ≤ 1.5, else KILL (no narrower
+retry is pre-authorized this time: top-4 already IS the narrow form).
+ran: `probe_cross_pairs_clf.py`, 16 sets × 3 seeds = 48 fits, one pass,
+~35 min (`results/probe-cross-pairs-f3-clf.jsonl` + console
+`results/probe-cross-pairs-f3-clf-20260921.txt`).
+result, the three bars in order: 1 headroom **PASS, thin** — oracle median
++0.360% Brier over plain (bar +0.3%), 29W-19L over 48 fits (sign test
+p≈0.19, not decisive on its own); mean +1.389% is one dataset — covertype
++15.8% — and reads ~+0.4% without it (GATE_ROBUSTNESS #3, so the median is
+the number). 2 fidelity **PASS** — paired probe-minus-oracle median exactly
++0.000%, probe median +0.260%; pair sets identical (Jaccard 1.00) on 10 of
+16 sets, and where they diverge the probe gives back part of the gain
+(eye_movements +0.10% vs +1.53%, pol +2.90% vs +3.43%) — E2's gdiff-style
+caveat, now on numeric-only sets. 3 cost **PASS** — median aug/plain fit
+ratio 1.33 (mean 1.33, no long tail this time; worst 2.04 on one
+eye_movements seed); the 25-round probe is 1–19% of arm time.
+per-set shape, which matters more than the medians: gains concentrate on
+five sets (covertype +15.8%, pol +3.4%, eye_movements +1.5%, MagicTelescope
++1.4%, jannis +1.1%) and the block costs on three (bank-marketing −1.0%,
+electricity −0.9%, california −0.1%); the other eight are within ±0.3%.
+Per-seed variance is wild where it is wild (pol s2 −8.6% vs s0 +12.3%,
+house_16H alternates ±1.0%) — the same dodged-losses pattern E2 recorded on
+the regressor, at similar size. Log loss agrees with Brier everywhere
+(oracle log-loss gain same sign on 15 of 16 sets).
+verdict: **PASS → S2**. Forecast HIT on all three: headroom +0.36% inside
+the +0.3 to +1.0% band (at its floor), fidelity 0.000 as predicted, cost
+1.33 inside 1.2–1.5. Honest reading: the prize is smaller and lumpier than
+the regressor's (+0.36% vs +2.6% median), so the family's ship case rests on
+the S2/S3 engaged sign tests, not on this probe. The kill I wrote for
+"nothing to win" did not fire, barely.
+next: S2 = implement the classifier forced mode (muse task): flip
+`_FORCED_CROSS_OK` on the classifier so `cross_features="always"` is
+accepted, wire a `_arm_forced_cross` counterpart into the binary path
+(25-round probe, `FORCED_CROSS_TOP_M` block, applicability gates kept,
+multiclass rejected), default OFF and quality=1 classifier pin UNCHANGED
+until S3; goldens must stay green (raced default untouched). Then ONE synth
+screen with an "always" classifier arm and `--expect-inert`; bars:
+classification engaged sign test ≥ half plus one AND engaged median > 0
+on Brier, regression/multiclass/sub-2000 exact ties, canary flat.
 
 #### I018 2026-09-21 F4 S0+S1 (candidate C1b — grad_hess fusion; the parked unit, taken)
 why now: F2 died at I017, so the ordering call I014 left open ("C1b vs F2")
