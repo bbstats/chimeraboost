@@ -73,6 +73,23 @@ def _grouped_kahan_sum(codes, vals, n_groups):
     return out
 
 
+def _cast_numeric_block(X, num_features):
+    """The numeric columns at positions ``num_features`` as float64.
+
+    When every column is numeric, ``num_features`` is exactly
+    range(n_features), so a plain asarray suffices -- the fancy-index
+    gather ``X[:, list]`` would copy the whole matrix, a large predict-time
+    tax on wide batches.
+    """
+    if not num_features:
+        return np.empty((X.shape[0], 0))
+
+    if len(num_features) == X.shape[1]:
+        return np.asarray(X, dtype=np.float64)
+
+    return np.asarray(X[:, num_features], dtype=np.float64)
+
+
 class CatTransformCache:
     """Canonical factorizations of one matrix's categorical and combo columns.
 
@@ -93,11 +110,17 @@ class CatTransformCache:
     fit factorizes each categorical column once instead of once per leg. A
     row-count guard falls back to a plain ``factorize`` whenever the matrix at
     hand is not the leg this child was built for.
+
+    The cache also carries the matrix's float64 numeric block, cast once per
+    fit on the parent and gathered per leg by row index. Consumers read the
+    block and never write into it -- that invariant is what makes the one
+    shared copy safe.
     """
 
     def __init__(self, parent=None, parent_X=None, rows=None):
         self._columns = {}
         self._combos = {}
+        self._numeric = {}
         self._parent = parent
         self._parent_X = parent_X
         self._rows = rows
@@ -153,6 +176,28 @@ class CatTransformCache:
         if out is None:
             out = self._combos[("str", f_a, f_b)] = factorize(
                 FeaturePreprocessor._combo_values(X, f_a, f_b))
+        return out
+
+    def numeric(self, X, num_features):
+        """The float64 numeric block of ``X`` at positions ``num_features``.
+
+        A child derives its leg's block from the one parent cast by gathering
+        ``rows`` -- the object-to-float64 cast is element-wise, so gathering
+        after the cast is bit-identical to casting the leg's own rows. The
+        row-count guard falls back to a plain cast whenever the matrix at hand
+        is not the leg this child was built for. Callers must not write into
+        the returned block.
+        """
+        key = tuple(num_features)
+        out = self._numeric.get(key)
+        if out is None:
+            parent, pX, rows = self._parent, self._parent_X, self._rows
+            if (parent is not None and pX is not None and rows is not None
+                    and X.shape[0] == rows.shape[0]):
+                out = self._numeric[key] = parent.numeric(
+                    pX, num_features)[rows]
+            else:
+                out = self._numeric[key] = _cast_numeric_block(X, num_features)
         return out
 
 
@@ -263,21 +308,16 @@ class FeaturePreprocessor:
 
     # ---- helpers -------------------------------------------------------------
 
-    def _numeric_block(self, X):
+    def _numeric_block(self, X, cat_ctx=None):
         """The numeric columns as float64.
 
-        When every column is numeric, ``num_features_`` is exactly
-        range(n_features), so a plain asarray suffices -- the fancy-index
-        gather ``X[:, list]`` would copy the whole matrix, a large predict-time
-        tax on wide batches.
+        With a ``cat_ctx`` the block comes from the per-fit cache -- cast once
+        on the parent matrix, gathered per leg -- else it is cast directly
+        (see ``_cast_numeric_block``). Callers must not write into it.
         """
-        if not self.num_features_:
-            return np.empty((X.shape[0], 0))
-
-        if len(self.num_features_) == X.shape[1]:
-            return np.asarray(X, dtype=np.float64)
-
-        return np.asarray(X[:, self.num_features_], dtype=np.float64)
+        if cat_ctx is not None:
+            return cat_ctx.numeric(X, self.num_features_)
+        return _cast_numeric_block(X, self.num_features_)
 
     @staticmethod
     def _combo_values(X, f_a, f_b):
@@ -304,7 +344,7 @@ class FeaturePreprocessor:
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
 
-        num = self._numeric_block(X)
+        num = self._numeric_block(X, cat_ctx)
 
         if self.cat_features_:
             codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
@@ -406,7 +446,7 @@ class FeaturePreprocessor:
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
         if num is None:
-            num = self._numeric_block(X)
+            num = self._numeric_block(X, cat_ctx)
 
         pos = {f: k for k, f in enumerate(self.num_features_)}
 
@@ -545,7 +585,7 @@ class FeaturePreprocessor:
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
 
-        num = self._numeric_block(X)
+        num = self._numeric_block(X, cat_ctx)
         cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross

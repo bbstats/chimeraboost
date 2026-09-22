@@ -133,7 +133,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b shipped; C4a in PR) | **C4a SHIPPED as a PR (I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. Next: C4a-2 (the numeric block on the same plumbing, ceiling 3–9% on numerics-heavy categorical sets), then C3 binary Logloss layer (8–10% of a gr binary fit). Parked: C4b shared TS permutations (4–15% of hc fit, algorithm change) |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a shipped; C4a-2 in PR) | **C4a-2 in PR (I028)**: the numeric block cast once per fit, bit-identical 155/155, porto-seguro −8.5% / kick −3.4%, sub-1% sets and the control flat; one extra full-size float64 copy retained at peak, flagged for review. Next: C3 binary Logloss layer (8–10% of a gr binary fit). Parked: C4b shared TS permutations. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
@@ -273,6 +273,120 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I028 2026-09-21 F4 S1 (candidate C4a-2 — the numeric block cast once per fit; muse task, pre-registered)
+why now: I027's `next:`. PR #125 (C4a) merged by the maintainer at a8f04c8,
+no campaign PR open, no run in flight. Class: **exact-rewrite perf**,
+pure-speed ladder. Library source, so muse implements it from
+`campaign_tasks/20260921-f4-c4a2-numeric-once.md` (gitignored; the verdict
+cites what it produced) and the PR waits for the maintainer. Branch
+`campaign/f4-c4a2-numeric-once` from main.
+scope: the float64 numeric block only, on C4a's plumbing. Today
+`FeaturePreprocessor._numeric_block` casts the object matrix's numeric
+columns to float64 on every leg — the selection legs' training rows, the
+validation rows for the eval transform, the cross candidate's
+`from_base_with_cross` (its `_cross_block` builds the block again because
+no `num=` is handed in), the cross candidate's validation block, the
+classifier's calibration predict, then the whole matrix in the refit —
+so a fit with categoricals casts about 2.2–3× the matrix. The validation
+cast in `_coerce_X_finite` (3.2% on porto-seguro) runs before
+`as_model_array` on the raw input through a different converter and stays
+OUT of this unit: an exact sharing argument would have to cover pandas
+nullable dtypes, float32 frames and object arrays separately, and 3% on
+one set is not worth that surface.
+design: `CatTransformCache` gains `numeric(X, num_features)`, a cached
+float64 block keyed by the tuple of numeric positions. Plain form: the
+cast `_numeric_block` does today, moved to a module-level
+`_cast_numeric_block`. Child form: gather the parent's block by `rows`
+under the same row-count guard `column()` uses, falling back to the plain
+cast on mismatch. `_numeric_block(X, cat_ctx=None)` delegates to the
+context when one is given. Exactness: numpy's object→float64 cast is
+element-wise, so `cast(X_full)[rows]` and `cast(X_full[rows])` are the
+same bits, NaN included. Nothing downstream writes into the block
+(`_stack` hstacks or returns it, `Binner.fit` sorts a copy,
+`_cross_block` reads columns), so one cached copy can serve every leg and
+the refit; a test pins that too. The estimator side needs no change: the
+three contexts already reach every `fit_transform`, `transform`,
+`_cross_block`, calibration `predict_raw` and the refit. Bonus, unforecast:
+a bagged predict shares one context across members, so the batch's numeric
+block is now cast once per predict instead of once per member.
+barrier: `barrier_check.py` matched seven, all keywords (refit,
+calibration, speed, selection). B2/B12/B13 — leg names only; no audition,
+race or replay behaviour moves. B5/B11 — the calibration keyword; the
+temperature step sees identical inputs. B10/B15 — kernel-side; this is
+preprocessing.
+forecast, before any code: fit time — `_numeric_block` was 4.7% of fit on
+kick and 10.1% on porto-seguro, under 1% on sf-police, okcupid-stem,
+wine-reviews and Traffic_violations (I026); one cast of the full matrix
+stays, so the ceiling is ~55–65% of the row: **kick −2 to −3%,
+porto-seguro −5 to −7%**, sf-police / okcupid-stem 0 to −1% (below the
+~1% same-process floor — reported, not gated), a Grinsztajn numeric
+control **0 ± 1%** (no categoricals, no context). Strength — exactly
+zero, by construction and by `identity_snapshot`. Memory: one float64
+copy of the numeric block per fit (porto-seguro ≈ 100k × 26 × 8 B ≈ 21
+MB), freed with the fit. Where I expect to be wrong: kick sits at the
+floor's edge, so its sign may read but its size will not; and porto-seguro
+converts at C4a's near-100% rate only if the cast really is the row —
+I026 priced the object-array cast per element, which is what the census
+will show or refute.
+kill: (a) `identity_snapshot.py check` not 155/155 or any golden red; (b)
+porto-seguro saves under 3% in the same-process A/B (kick is not a gate
+at its ceiling); (c) the numeric control moves beyond ~1%; (d) muse fails
+or times out — record what it left, revert, re-scope.
+ran: muse exit 0 in one pass, ~15 min; its `RESULT.md` reported 22 tests
+green in the target file, full suite 1106 passed + 1 skipped, ruff clean on
+the two files it touched (23 pre-existing hits elsewhere), and a read-only
+audit of every consumer of the block (binner sorts a masked copy, the cross
+block writes its own `out`, `_stack` hstacks or hands the block on). Diff
+reviewed by hand, 70 lines in `preprocessing.py`: `_cast_numeric_block` is
+the old `_numeric_block` body verbatim; `CatTransformCache.numeric` caches
+under the tuple of numeric positions with the same row-count guard as
+`column()`; `_numeric_block(X, cat_ctx=None)` delegates; its three callers
+pass the context they hold. No estimator or booster change was needed.
+`/code-review` (medium): no correctness finding; one memory note, below.
+gate 1, tests: **1106 passed, 1 skipped** rerun under the conda python
+(1097 + 9 new: child block vs the leg's own cast on three row subsets with
+Python/numpy floats, ints, bools and NaN mixed; the all-positions and empty
+cases; cache identity and a parent cast counted once; the guard; the block
+byte-equal to a fresh cast after full regressor and binary fits; end-to-end
+regressor / binary / 3-class with sharing monkeypatched off, `array_equal`
+predictions and strictly fewer casts).
+gate 2, identity: `identity_snapshot.py check` **155/155 identical**.
+gate 3, speed (`benchmarks/f4_c4a2_speed.py`, new; same-process A/B on the
+DEFAULT estimator, OFF arm = `_numeric_block` ignoring the context while
+C4a's categorical sharing stays on in both arms, median of 5;
+`results/campaign-f4c4a2-speed-20260921.txt`):
+  hc:kick          **−3.4%**  casts 6 → 1, 0.096 → 0.022 s
+  hc:sf-police     −0.8%      6 → 1, 0.007 → 0.002 s (under the floor)
+  hc:porto-seguro  **−8.5%**  6 → 1, 0.320 → 0.069 s
+  hc:okcupid-stem  +0.0%      6 → 1, 0.008 → 0.002 s (under the floor)
+  gr:clf_num/Higgs −0.4%      6 → 6, 0.000 s (the control; the all-numeric
+                              cast is a no-op view, nothing to save)
+The seconds saved in the cast account for the whole fit-time change on the
+two sets that move (porto-seguro 0.251 of 0.206 s, kick 0.074 of 0.064 s),
+so the read is the mechanism and not drift.
+memory, corrected from the forecast (the reviewer's finding): the contexts
+retain the full-matrix block AND the two gathered leg copies for the whole
+fit, about 2 × n × p_num × 8 B, where before this change each leg's block
+was transient and freed after binning. Relative to the previous peak (one
+full-size block during the refit) that is one extra full-size copy:
+porto-seguro ≈ +21 MB against an object input matrix that already costs
+≥ 32 B per element. Recorded in the PR for the maintainer; the cheap
+alternative, not caching the gathered leg copies (about 1% of porto-seguro's
+fit in re-gathers), is his call at review.
+verdict: **PASS → PR** (library source; waits for the maintainer). Kill
+bars (a)(b)(c)(d) all clear. Forecast: strength exactly zero HIT; speed —
+porto-seguro −8.5 against −5 to −7 (MISSED LOW, like C4a: the object-array
+cast converts at ~100%), kick −3.4 against −2 to −3 (edge, HIT), the two
+sub-1% sets and the control flat as forecast. Memory forecast MISSED: I
+wrote one copy, it is two retained plus one extra at peak.
+next: **C3 — the binary Logloss layer** (8–10% of a gr binary fit across
+`grad_hess` and the per-round validation `eval`, I023), the first F4 object
+that reaches Grinsztajn. S0 first: the exact-rewrite question is whether
+the sigmoid, gradient and hessian can fuse into one numba pass with every
+element produced by the same operations in the same order (the C1b
+pattern), or whether it is FP-drift class. C4b (shared TS permutations)
+stays parked. One campaign PR at a time: C3 waits for this one to merge.
 
 #### I027 2026-09-21 F4 S1 (candidate C4a — factorize once per fit; muse task, pre-registered)
 why now: I026's `next:`. PR #124 self-merged after green CI (4705a16), no

@@ -45,6 +45,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ### Changed
+- **Fits on data with categorical columns and many numeric columns are
+  another 3–9% faster; predictions are bit-identical.** With categorical
+  columns present the model matrix is an object array, and every step of a
+  fit used to cast its numeric columns to float64 afresh: the training and
+  validation rows of the early-stopping split, the cross-feature candidate
+  twice, the classifier's calibration, then every row again in the refit.
+  The cast now happens once on the full matrix and each step gathers its
+  rows from it, which is the same arithmetic in the same order. Same-process
+  A/B on the default estimator: 8.5% (porto-seguro) and 3.4% (kick) off
+  end-to-end fit time, flat on sets with few numeric columns and on the
+  all-numeric control, where the cast was already free. The exact-output
+  snapshot passes 155 of 155 configurations. The shared block stays alive
+  for the length of the fit, so peak memory grows by one float64 copy of
+  the numeric columns (about 21 MB on porto-seguro); it is freed when
+  `fit` returns.
 - **Fits on data with categorical columns are 8–19% faster; predictions are
   bit-identical.** One default fit used to turn every categorical column
   into integer codes three to four times over overlapping rows: for the
