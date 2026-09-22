@@ -246,7 +246,7 @@ corroborated `GPU_PLAN.md:56`. Nearly re-proposed 2026-08-16 during campaign
 intake — this entry exists so that cannot happen again.
 
 ### B16 — Pre-screening the cross-feature candidate block trades picks for time, at every k
-tags: cross, cross_features, cross-column, candidate, screen, prescreen, top-k, prune, residual, correlation, split-gain, importance, augmented, diff, prod, gdiff
+tags: cross, cross_features, cross-column, candidate, screen, prescreen, top-k, prune, residual, correlation, split-gain, importance, augmented, diff, prod, gdiff, standardize, standardized, scale ratio, duplicate, redundant
 
 The cross-audition leg is 40–58% of the default's fit where it engages, and
 carrying ~42 candidate columns into the augmented fit looks like obvious waste.
@@ -274,6 +274,17 @@ axis, so both "do less of the audition" doors are now shut.
 
 *Incident*: `CAMPAIGN_PLAN.md` F1, entries I005–I008 (2026-08-16); runs
 `results/campaign-f1s2-20260816.json`, `results/campaign-f1s2b-20260816.json`.
+
+Added 2026-09-22 (`CAMPAIGN_PLAN.md` I045, I051): the block's CONTENT is
+no better a lever than its size. On Grinsztajn regression 48% of the `diff`
+columns are near-duplicates of their larger parent (scale ratio ≥ 3,
+|ρ| ≥ 0.95), yet standardizing the parents (`x_i/σ_i − x_j/σ_j`, same
+column count) read engaged 23W-23L, median −0.06%, on the synth screen,
+whose features span a 400× scale range and whose target lives in the
+standardized space — a fair, even favourable, test. A duplicate `diff`
+column is a wasted slot the race and the trees already route around, not
+a harm; do not re-propose changing what a cross operator computes on the
+strength of how many of its columns look redundant.
 
 ---
 
