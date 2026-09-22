@@ -101,6 +101,7 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | S3 of the ungated count column (I037, --decide, 3 seeds): gr 0-0-59 exact ties; hc RMSE/Brier 9W-4L, median +0.07%, sf-police +0.88% / Traffic +0.81% / wine-reviews +0.67% Brier-RMSE, kdd_ipums −3.28% unanimous; hc fit ×1.47 (sf-police 2.58× on one added column, wine-reviews 2.59× with fewer trees) because appended numerics enter the cross-feature and linear-leaf races; sf-police@time −3.47%
 fact: 2026-09-22 | a per-categorical training-row count column appended to X (I035, 7 hc clf sets × 3 seeds, paired): sf-police +0.88%, Traffic_violations +1.46%, okcupid +0.43%, kick +0.26%, porto −0.03% Brier vs the default; closes 47% of CatBoost's edge at the median; kdd_ipums −0.63% and eucalyptus −0.18% on split seeds
 fact: 2026-09-22 | the ordered TS quantized to 16 uniform buckets (CatBoost's CtrBorderCount=15) LOSES on the big hc sets (sf-police −0.31%, kick −0.54%, porto −0.36%) and wins +1.65% on kdd_ipums (7k rows) and +3.26% on eucalyptus (736 rows): coarse TS quantization regularizes small categorical data, a @sus pointer
 fact: 2026-09-22 | CatBoost fed OUR ordered target statistics instead of its cat_features keeps −5% (median) of its hc Brier edge over us and is 1.46% worse than us on kick (I034): the hc gap is the encoder, not the booster; its fits also drop from 27 s to 2.8 s without its CTR machinery
@@ -143,7 +144,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 (R3 Stages A–D, I033–I035; mechanism TRANSFERS) | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). Next: S2 synth screen of the count column as a default candidate (I036), then S3 --decide, then the library form via muse + /experiment |
+| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 (S2 PASS I036; S3 strength PASS / cost FAIL I037; library form next) | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). S2 (I036): control 79/79 exact ties, engaged 36W-17L +0.30%, entity slice p=0.001. S3 (I037): gr 0-0-59 ties, hc 9-4 with median +0.07% but fit ×1.47 — the count columns enter the cross and linear-leaf races as numerics (sf-police 2.6× on ONE column). Next: the library form via muse (card ≥ 256 only, excluded from cross / linear candidacy, default-off flag), S3 again, then /experiment |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
@@ -318,8 +319,79 @@ sign-off. Fail on (2) ⇒ F5 KILLED with the mechanism recorded: it
 transfers on the ablation panel and the synth prior but not on the
 decision suite.
 cost: ~10–15 min (two ChimeraBoost arms, 103 dataset rows × 3 seeds).
-verdict: PENDING(campaign-f5-s3-catcount-20260922)
-next: —
+ran: `run_benchmarks.py --decide --seeds 3 --save benchmarks/results/
+campaign-f5-s3-catcount-20260922 --models ChimeraBoost ChimeraBoostCatCount`,
+~14 min → `…-20260922.json`; scored `compare_runs.py --by-suite
+--expect-inert` on primary (`-compare-…txt`) and on Brier
+(`-compare-brier-…txt`). Harness SUMMARY, the default vs the arm: gr
+**W0-L0-T57**, ×0.99; hc **W4-L9** (the arm 9-4), median gap −0.07% (the
+arm +0.07%), **speed ×1.47**; hc@sus25 W1-L2 ×1.10; hc@sus50 W0-L2 ×1.63;
+hc@time W1-L6 ×1.40.
+bar 1 control **PASS**: gr 0-0-59 exact ties, gr@sus25 0-0-12, gr@sus50
+0-0-6 — every row without a categorical column identical. (The
+`--expect-inert` CONTROL FAIL lines on the hc variant strata are the
+tool saying nothing was inert THERE, which is right: every hc set has
+categoricals; gr is the control.)
+bar 2 strength **PASS, marginal**: hc 13 engaged (cjs a near-solved tie):
+RMSE / Brier wins **9 of 13** (bar 7+), median +0.07%. Brier on the 7
+scored classification sets: sf-police **+0.88%**, Traffic **+0.81%**,
+eucalyptus **+2.94%**, kick +0.05%, okcupid +0.07%, porto +0.03%,
+kdd_ipums **−3.28%** — engaged median +0.065% [CI +0.031%..+0.878%];
+sf-police, Traffic, kdd and porto unanimous across seeds. RMSE on the 6
+regressions: wine-reviews **+0.67%**, black_friday +0.32%, colleges
++0.25%, house_prices −0.02%, employee_salaries −0.24%, Moneyball −0.37%.
+Against I035's probe panel (sf-police +0.88 / Traffic +1.46 / okcupid
++0.43 / kick +0.26) the harness splits give sf-police the same, Traffic
+half, okcupid and kick nothing. Variants: hc@time 5-2 on primary (Brier
+3-1: Traffic@time +1.71, eucalyptus@time +2.52, kick@time +0.43,
+**sf-police@time −3.47%** — under a temporal split the training-period
+counts of a 15k-card column mislead; a pointer, the loudest one here),
+hc@sus25 1-2, hc@sus50 1-0 — all pointers.
+bar 4 cost **FAIL**: hc engaged fit ratio **median 1.29** (bar ≤ 1.10),
+harness ×1.47; per set 0.97–1.23 on the low-card sets and **sf-police
+2.58×, wine-reviews 2.59×, employee_salaries 1.70×, okcupid 1.55×,
+Traffic 1.46×**. The cause is not the column count: sf-police adds ONE
+column (its other four categoricals are card ≤ 16 and their counts are
+near-constant) and takes 2.6× with 89 trees against 59; wine-reviews
+takes 2.6× with FEWER trees (351 vs 394), so it is per-round cost. The
+count columns enter the estimator as ordinary numerics, so they are
+candidates for the cross-feature race and the linear-leaf race:
+sf-police goes from one numeric column to two and wine-reviews from one
+to six, which switches the cross audition on where it was inert (it
+needs two numerics) and multiplies its candidate pairs. The slowdown is
+the cross machinery auditioning count columns, and some of the strength
+may be crosses OF counts rather than the counts themselves. A harness
+arm cannot separate these (no knob excludes columns from candidacy).
+The kdd_ipums loss (−3.28%, unanimous) is the other design fact: 27
+categoricals of card ≤ 192 on 7k rows become 27 near-noise columns, the
+`cat_fraction` negative I036's OLS already showed.
+verdict: **FAIL on cost, PASS on strength → the ungated harness form is
+dead; the mechanism is not.** Bars: (1) HIT, (2) HIT at the margin (I
+forecast +0.3 to +0.8 and got +0.07), (3) pointers not contradicting,
+(4) MISSED by a wide margin (forecast ≤ 1.05, got 1.29) — I priced one
+column per categorical as one column's cost and forgot what the
+estimator does with a new numeric. F5 stays ACTIVE. Self-merged:
+`benchmarks/` only.
+next: **I038 — the library form, a muse task**, then S3 again with it:
+`cat_count_features` in `FeaturePreprocessor` — for every categorical
+whose training cardinality is ≥ `CAT_COUNT_MIN_CARD = 256` (the binner's
+resolution: above it the target statistic cannot resolve categories
+one by one, and I035/I037 gained only on such columns — sf-police,
+Traffic, okcupid, kick, wine-reviews, colleges, employee_salaries — and
+lost on kdd_ipums, Moneyball and house_prices, whose columns are all
+below it) append one float column, the category's training-row count
+(transform: the fit-time count, unseen → 0), placed in the numeric
+block but **excluded from cross-feature candidacy and from
+`is_numeric_binned_`** (so neither the cross race nor linear leaves see
+it), default OFF for the A/B (`cat_count_features=False`; the harness
+gets `--chimera-cat-counts` and an arm), bit-identical with the flag off
+(identity snapshot 155/155, goldens green). Then ONE `--decide --seeds 3`
+run, same bars as I037 with cost ≤ 1.10 hard and the prediction that
+sf-police / Traffic / wine-reviews keep their wins at ≤ 1.3× fit and
+kdd_ipums / Moneyball / house_prices / porto / eucalyptus / cjs read as
+exact ties (the in-run control inside hc). A pass there means
+/experiment S4 with the maintainer's sign-off on flipping the default to
+ON.
 
 #### I036 2026-09-22 F5 S2 (the categorical count column on the synth screen; harness arm, pre-registered)
 why now: I035's `next:`. PR #135 self-merged at 3dbaf28, no campaign PR
