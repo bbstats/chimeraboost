@@ -101,6 +101,7 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | per-column ANOVA variance-ratio shrinkage for the ordered TS (I040, 7 hc clf sets × 3 seeds): the estimator asks for λ in the hundreds on high-card columns (singletons make the between-variance estimate noise) and collapses kdd_ipums −3.8% / eucalyptus −9.6%; clipped to [1, 10] it pins at 10 everywhere and reads +0.20% median on the gap sets vs the count column's +0.19% on the same splits, but sf-police +0.22 vs +0.67, Traffic +0.20 vs +1.04, and eucalyptus −5.4%
 fact: 2026-09-22 | `cat_count_features=True` (library form, card ≥ 256, outside the cross / linear races) on --decide, 3 seeds (I039): gr 0-0-59 exact ties; hc 7 non-qualifying sets exact ties, engaged 7 = 6W-1L, median +0.20% [+0.02..+0.76]; sf-police +0.73% / Traffic +0.86% / kick +0.35% Brier, employee_salaries +2.45% / wine-reviews +0.56% RMSE; hc@time 4-0 incl. sf-police@time +1.40%; engaged fit ratio median 1.165, harness hc ×1.09
 fact: 2026-09-22 | S3 of the ungated count column (I037, --decide, 3 seeds): gr 0-0-59 exact ties; hc RMSE/Brier 9W-4L, median +0.07%, sf-police +0.88% / Traffic +0.81% / wine-reviews +0.67% Brier-RMSE, kdd_ipums −3.28% unanimous; hc fit ×1.47 (sf-police 2.58× on one added column, wine-reviews 2.59× with fewer trees) because appended numerics enter the cross-feature and linear-leaf races; sf-police@time −3.47%
 fact: 2026-09-22 | a per-categorical training-row count column appended to X (I035, 7 hc clf sets × 3 seeds, paired): sf-police +0.88%, Traffic_violations +1.46%, okcupid +0.43%, kick +0.26%, porto −0.03% Brier vs the default; closes 47% of CatBoost's edge at the median; kdd_ipums −0.63% and eucalyptus −0.18% on split seeds
@@ -145,7 +146,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 — **at S4, awaiting the maintainer** (I038 library form, I039 S3 PASS) | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
+| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 — **at S4, awaiting the maintainer** (I038 library form, I039 S3 PASS) | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
@@ -284,6 +285,116 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I040 2026-09-22 F5 (per-column calibrated shrinkage for the ordered TS — the random-effects form of the count column; zero library change, pre-registered)
+why now: PR #138 (the opt-in count column) merged by the maintainer at
+f05e693, no campaign PR open, no run in flight. The maintainer's
+question in chat, after I039: "do any other GBDTs do this? seems like a
+weak random effects proxy." Recorded here as the trigger: yes, CatBoost
+does exactly this (its `Counter` CTR and the 1/(n+1) spread of its
+three-prior columns; frequency encoding is standard practice; LightGBM
+and XGBoost regularize by count inside their categorical splits
+instead), and yes, it is a proxy — our ordered TS `(sum + mean·a)/(n +
+a)` IS the random-intercept posterior mean with a FIXED variance ratio a
+= 1, and the count column lets the trees recover the statistic's
+reliability after the fact. **The S4 default flip of the count column is
+HELD** until this probe reads: if the calibrated shrinkage recovers the
+same gap for free (no extra columns, no fit-time cost), it should ship
+instead. Class: zero-library probe (monkeypatch), `benchmarks/` only.
+Branch `campaign/f5-reml-smoothing` from main.
+design: per categorical column j (and per class target), the one-way
+random-effects ANOVA estimate of the variance ratio λ_j =
+σ²_within / σ²_between (the closed form REML reduces to for balanced
+groups; σ²_between floored at 1e-3·σ²_within so a signal-free column
+reads λ = 1000 and shrinks almost fully), clipped to [0.1, 1e4], used as
+that column's `a` in the ordered TS at fit AND transform (both sides move
+together — this is the fit-side prior, not B18's transform-side
+re-weighting). Arms on the same seven sets and paired splits as I033:
+`reml`, `count` (the library flag on these splits, for a paired read),
+`reml+count`. Reference `chimera` / `cb_default` from I033's JSONL.
+barrier: B18 — closed the transform-side re-weighting; this changes the
+fit-side variance ratio and moves both sides, the axis B18 itself named
+as separate ("`cat_smoothing` moves both sides together"). B5 — binds
+the READ, not the idea: shrinkage corrects only the component that
+varies across categories, and per-count reliability is exactly that
+component (B18 measured it: 0.63–0.70 on rare categories, ~1 on common
+ones); so the gain must concentrate on the max-cardinality sets, and a
+flat gain everywhere would mean something else is moving. B3 — not a
+port (CatBoost also uses a fixed prior weight of 1). The two
+`cat_smoothing` kills on hc (PARETO_PLAN 2026-07-15) swept one GLOBAL
+value; a per-column λ is a different object and the record does not
+cover it.
+forecast, before the run: `reml` — sf-police **+0.2 to +0.6%** (B18's
+over-trust lives there; λ ≫ 1 on a 15k-card column), Traffic +0.2 to
++0.6%, okcupid 0 to +0.3%, kick 0 to +0.3%, porto flat; controls within
+±0.3%; so **3 to 4 of 5 gap sets up, recovering 30–70% of what `count`
+recovers on the same splits** — a monotone re-weighting the trees can
+partly undo, against a count column that adds a degree of freedom the
+trees can use non-monotonically. `reml+count` ≥ either alone if they are
+complements, ≈ `count` if substitutes. λ read: median in the tens on the
+high-card sets, near 1 on the low-card ones. Where I could be wrong: on
+a 15k-card column with 100k rows most categories are singletons, and the
+between-variance estimate from singletons is noise — λ may saturate at
+the clip and over-shrink, reading as a LOSS on sf-police; that would
+argue for a count-aware estimator, not against the idea.
+bars: (a) `reml` better on ≥ 3 of 5 gap sets with both controls ≥ −0.3%
+and the gain ordered by cardinality ⇒ it is real; (b) `reml` median ≥
+`count` median on the gap sets ⇒ the calibrated shrinkage SUPERSEDES the
+count column as the S4 candidate (cheaper, principled); (c) `reml+count`
+better than both by ≥ 0.1% median ⇒ complements, S4 considers both; (d)
+`reml` fails (a) ⇒ the count column goes to S4 alone, with this on
+record as the principled alternative that did not transfer.
+cost: 63 fits of ours ≈ 4 min.
+ran: 63 fits (+21 for the clipped arm added after the first read,
+pre-registered in the script's docstring), ~6 min;
+`results/probe-ts-reml-smoothing.jsonl`, logs `…-20260922.log` and
+`…-cap-20260922.log`. d% vs our default, + = better; the `count` arm is
+the library flag on the same splits:
+  arm          sf-police  Traffic    kick   okcupid   porto  |  kdd_ipums  eucalyptus
+  reml           +0.13%   −0.49%   −0.88%   +0.02%  +0.06%  |   −3.76%     −9.62%
+  reml_cap10     +0.22%   +0.20%   −0.68%   +0.25%  −0.04%  |   +0.29%     −5.38%
+  count          +0.67%   +1.04%   −0.09%   +0.19%  +0.00%  |    0.00       0.00
+  reml+count     +0.54%   +0.84%   −0.50%   +0.01%  +0.06%  |   −3.76%     −9.62%
+  λ the estimator asked for (median / max per set): sf-police 372 /
+  1000, porto 696 / 1000, kick 123 / 1000, okcupid 79 / 1000, Traffic
+  66 / 1000, eucalyptus 11 / 411, kdd_ipums 2.8 / 1000; under the [1, 10]
+  clip every high-card set sits AT 10.
+read: **the calibrated shrinkage loses, and the reason is instructive.**
+(1) Uncapped, the ANOVA variance ratio saturates: on a 15k-card column
+most categories are singletons, the between-category variance estimate
+is noise, and λ lands at hundreds — the encoding collapses toward the
+prior and the two small controls fall apart (kdd −3.8%, eucalyptus
+−9.6%); Traffic and kick lose too. Bar (a) FAIL. (2) Capped at 10, the
+gap-set median matches the count column's (+0.20 vs +0.19) but the
+pattern does not: it is small everywhere (sf-police +0.22 against the
+count's +0.67, Traffic +0.20 against +1.04), it still costs kick −0.68
+and eucalyptus −5.4, and λ pins at the cap on every high-card set, so
+the "estimate" is the cap. Bar (b) FAIL either way; (c) FAIL —
+`reml+count` is below `count` on four of five. (3) Why the proxy beats
+the principle here: shrinking a rare category toward the prior DELETES
+its evidence, on the bet that it is noise; a count column keeps the
+evidence and hands the trees the sample size, so a rare category with a
+strong signal (kdd_ipums, eucalyptus — census and species data where
+rare levels mean something) is still usable, and the trees decide
+per split whether to trust it. A marginal variance decomposition cannot
+know how the statistic will be used inside a conditional model. The
+forecast MISSED on direction (I said 30–70% of the count's gain,
+ordered by cardinality; it is a loss uncapped and a flat wash capped)
+and HIT on where I would be wrong ("λ may saturate at the clip and
+over-shrink … that would argue for a count-aware estimator, not against
+the idea") — a count-aware estimator is what the count column already
+is, one level up.
+verdict: **KILL the calibrated-shrinkage form; the count column goes to
+S4 alone.** Recorded as the principled alternative that did not
+transfer, with the maintainer's question as its trigger. The one door
+this leaves open is estimating λ per column by cross-validated
+prediction inside the model rather than by ANOVA — a different, costly
+object, not queued. Self-merged: `benchmarks/` only.
+next: **S4 for `cat_count_features` awaits the maintainer's go** (a
+default flip: /experiment with the chart-grade field, `--public` at ship
+time, the Pareto read). The loop does not launch S4 on its own. Meanwhile
+**R4 S0** (TS columns as linear-leaf terms) is the next shortlist item,
+next rung.
 
 #### I039 2026-09-22 F5 S3 again, with the library form (`ChimeraBoost` vs `ChimeraBoostCatCountLib` = `cat_count_features=True`; pre-registered)
 why now: I038's muse pass is in (see its entry once scored: 1133 tests
