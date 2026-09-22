@@ -1,13 +1,18 @@
 """Bit-identity snapshot for output-identical refactors.
 
 The golden panel (tests/test_no_regression.py) pins three losses at a 2%
-band; this pins ~30 configs exactly, including n=6000 configs that arm the
+band; this pins ~33 configs exactly, including n=6000 configs that arm the
 cross-feature race / selection audition / forced-cross paths (the default-N
 configs never reach CROSS_MIN_SAMPLES post-split) plus bagged and
 conformalized-quantile fits. Usage:
 
     python benchmarks/identity_snapshot.py save    # once, at the base commit
     python benchmarks/identity_snapshot.py check   # after every refactor commit
+    python benchmarks/identity_snapshot.py save --rebaseline   # after a real
+                                                   # behaviour change only
+
+`save` refuses to overwrite a baseline whose existing pins it would move;
+adding configs must leave every old pin byte-identical.
 
 `check` refits every config and asserts np.array_equal (exact, not allclose)
 against the saved arrays. The snapshot lives in benchmarks/results/ (gitignored)
@@ -29,20 +34,40 @@ N = 2500
 N_EST = 200
 
 
-def _data(seed, n=N, kind="reg", cats=False):
+def _data(seed, n=N, kind="reg", cats=False, hicard=False,
+          groups_effect=False):
+    """``hicard`` adds an 11th column: a string categorical of ~600 levels
+    with a per-level effect, the regime `cat_count_features` (card >= 256)
+    engages on -- the two plain ``cats`` columns draw 12 and 7 levels and can
+    never reach it. Group labels (40 groups; ``groups_effect`` adds a
+    per-group offset to the signal) come back as the last two elements for
+    the random-effects config."""
     rng = np.random.default_rng(seed)
     Xn = rng.normal(size=(n, 8))
     signal = (np.sin(Xn[:, 0] * 2) + Xn[:, 1] * Xn[:, 2]
               + (Xn[:, 3] > 0.5) * 2.0 + Xn[:, 4])
+    # The extras draw from their OWN streams so every pre-existing config's
+    # data is byte-identical to what its baseline was saved from: the shared
+    # stream below must see exactly the draws it always saw.
+    rng_x = np.random.default_rng(seed + 100_000)
+    groups = rng_x.integers(0, 40, n)
+    if groups_effect:
+        signal = signal + rng_x.normal(scale=0.8, size=40)[groups]
     if cats:
         c1 = rng.integers(0, 12, n)
         c2 = rng.choice(list("abcdefg"), n)
         signal = signal + (c1 % 3) * 1.5 + (c2 == "c") * 2.0
-        X = np.empty((n, 10), dtype=object)
+        n_cols = 11 if hicard else 10
+        X = np.empty((n, n_cols), dtype=object)
         X[:, :8] = Xn
         X[:, 8] = c1
         X[:, 9] = c2
         cat_idx = [8, 9]
+        if hicard:
+            c3 = rng_x.integers(0, 600, n)
+            signal = signal + (c3 % 7) * 0.5
+            X[:, 10] = np.char.add("k", c3.astype(str))
+            cat_idx = [8, 9, 10]
     else:
         X, cat_idx = Xn, None
     noise = rng.normal(scale=0.5, size=n)
@@ -57,7 +82,8 @@ def _data(seed, n=N, kind="reg", cats=False):
         y = np.digitize(signal + noise, q)
     w = rng.uniform(0.5, 2.0, n)
     cut = int(n * 0.8)
-    return (X[:cut], y[:cut], w[:cut], X[cut:], cat_idx)
+    return (X[:cut], y[:cut], w[:cut], X[cut:], cat_idx,
+            groups[:cut], groups[cut:])
 
 
 def _configs():
@@ -114,6 +140,21 @@ def _configs():
     add("bag", R, {"n_ensembles": 3}, dict(seed=19))
     add("mq3_conf", Q, {"quantiles": [0.1, 0.5, 0.9], "conformalize": True},
         dict(seed=20))
+    # Paths shipped 2026-09 that the panel above never reached (CAMPAIGN_PLAN
+    # I042/H(8)): the opt-in count column (needs a categorical of card >= 256;
+    # n=6000 so the cross race and the replay refit run over it, which is
+    # where its adopted-count logic lives), the classifier's forced cross
+    # block, random intercepts, and a bag over categoricals (the shared
+    # categorical cache across members).
+    add("cat_counts", R, {"cat_count_features": True},
+        dict(seed=21, cats=True, hicard=True, n=6000))
+    add("cat_counts_w", R, {"cat_count_features": True},
+        dict(seed=21, cats=True, hicard=True, n=6000), weighted=True)
+    add("logloss_forced", C, {"cross_features": "always"},
+        dict(seed=22, kind="bin", n=6000))
+    add("randeff", R, {"random_effects": True},
+        dict(seed=23, groups_effect=True))
+    add("bag_cats", R, {"n_ensembles": 3}, dict(seed=24, cats=True))
     return cfgs
 
 
@@ -132,17 +173,28 @@ _EXPECT = {
     "multiclass_big": lambda e: e.cross_features_selected_ is not None,
     "bag": lambda e: (e.estimators_ is not None and len(e.estimators_) == 3),
     "mq3_conf": lambda e: not np.all(e.conformal_scale_ == 1.0),
+    "cat_counts": lambda e: (len(e.model_.prep_.count_features_) == 1
+                             and e.cross_features_selected_ is not None),
+    "cat_counts_w": lambda e: len(e.model_.prep_.count_features_) == 1,
+    "logloss_forced": lambda e: e.cross_features_selected_ is True,
+    "randeff": lambda e: (e.group_intercepts_ is not None
+                          and len(e.group_intercepts_) == 40),
+    "bag_cats": lambda e: (e.estimators_ is not None
+                           and len(e.estimators_) == 3),
 }
 
 
 def _run_one(name, cls, params, data_kw, weighted):
-    X, y, w, Xte, cat_idx = _data(**data_kw)
+    X, y, w, Xte, cat_idx, g, gte = _data(**data_kw)
     est = cls(**params)
-    fit_kw = {}
+    fit_kw, pred_kw = {}, {}
     if cat_idx is not None:
         fit_kw["cat_features"] = cat_idx
     if weighted:
         fit_kw["sample_weight"] = w
+    if params.get("random_effects"):
+        fit_kw["groups"] = g
+        pred_kw["groups"] = gte
     est.fit(X, y, **fit_kw)
 
     expect = _EXPECT.get(name)
@@ -152,7 +204,8 @@ def _run_one(name, cls, params, data_kw, weighted):
             "-- see _EXPECT; the gate would be silently weaker than saved.")
 
     out = {
-        f"{name}__pred": np.asarray(est.predict(Xte), dtype=np.float64),
+        f"{name}__pred": np.asarray(est.predict(Xte, **pred_kw),
+                                    dtype=np.float64),
         f"{name}__imp": np.asarray(est.feature_importances_,
                                    dtype=np.float64),
     }
@@ -167,7 +220,8 @@ def _run_one(name, cls, params, data_kw, weighted):
                                                 dtype=np.float64)
     # Calibration outputs are the direct products of the conformal /
     # temperature blocks -- pin them explicitly rather than only through pred.
-    for attr in ("quantile_offset_", "temperature_", "conformal_scale_"):
+    for attr in ("quantile_offset_", "temperature_", "conformal_scale_",
+                 "group_intercepts_", "group_ratio_"):
         val = getattr(est, attr, None)
         if val is not None:
             out[f"{name}__{attr.rstrip('_')}"] = np.asarray(val,
@@ -186,6 +240,21 @@ def main():
 
     if mode == "save":
         SNAP.parent.mkdir(exist_ok=True)
+        # Adding configs must not move a single existing pin: a save that
+        # changes shared keys is a silent re-baseline of the whole gate
+        # (the first H(8) save shifted 131 of 155 pins by drawing new data
+        # from the shared RNG stream, CAMPAIGN_PLAN I043). Refuse unless the
+        # caller says the re-baseline is the point.
+        if SNAP.exists() and "--rebaseline" not in sys.argv:
+            base = np.load(SNAP, allow_pickle=False)
+            moved = [k for k in base.files if k in arrays
+                     and not (base[k].shape == arrays[k].shape
+                              and np.array_equal(base[k], arrays[k]))]
+            if moved:
+                print(f"REFUSED: {len(moved)} of {len(base.files)} existing "
+                      f"pins would change (e.g. {moved[:3]}). Pass "
+                      "--rebaseline only if the library really changed.")
+                return 1
         np.savez_compressed(SNAP, **arrays)
         print(f"saved {len(arrays)} arrays -> {SNAP}")
         return 0
