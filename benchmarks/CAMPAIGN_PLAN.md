@@ -133,7 +133,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a shipped; C4a-2 in PR) | **C4a-2 in PR (I028)**: the numeric block cast once per fit, bit-identical 155/155, porto-seguro −8.5% / kick −3.4%, sub-1% sets and the control flat; one extra full-size float64 copy retained at peak, flagged for review. Next: C3 binary Logloss layer (8–10% of a gr binary fit). Parked: C4b shared TS permutations. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 shipped; C3 in PR; measured objects exhausted) | **C3 in PR (I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
@@ -273,6 +273,122 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I029 2026-09-21 F4 S0+S1 (candidate C3 — the binary Logloss layer; muse task, pre-registered)
+why now: I028's `next:`. PR #126 (C4a-2) merged by the maintainer at
+3706494, no campaign PR open, no run in flight. C3 is the last measured F4
+object that is not parked as an algorithm change, and the first that
+reaches Grinsztajn (23 of 59 sets are binary) rather than the hc suite
+alone. Class: **exact-rewrite perf**, pure-speed ladder. Library source,
+so muse implements it from `campaign_tasks/20260921-f4-c3-logloss-layer.md`
+(gitignored; the verdict cites what it produced) and the PR waits for the
+maintainer. Branch `campaign/f4-c3-logloss-layer` from main.
+object (I023): the binary Logloss layer is two rows of one object.
+`Logloss.grad_hess` is the numba `_sigmoid` kernel plus two numpy passes
+(`p − y`, then `np.maximum(p·(1−p), 1e-6)`) with four temporaries, 4.2–4.9%
+of a binary fit; `Logloss.eval`, called on the validation rows every round
+and on the training rows when history is kept, is a sigmoid, a clip, two
+logs, three products and a sum over the rows, 4.0–5.1%. Together
+**8.3–10.0%** on MagicTelescope / Higgs / road-safety.
+design, the C1b move on the scalar path. (i) `_logloss_grad_hess_kernel
+(raw, y)`: `_sigmoid`'s loop verbatim, then per element `grad = p − y` and
+`hess = h if h >= 1e-6 else 1e-6` with `h = p·(1−p)` — the same operations
+in the same order as numpy, elementwise, so the outputs are the same bits;
+the floor is a comparison because `np.maximum(h, 1e-6)` is one on non-NaN
+input and `h` lies in [0, 0.25] for finite `raw` (C1b's argument, accepted
+at I018). (ii) `_logloss_ce_kernel(raw, y)`: sigmoid, then the clip written
+as two ordered comparisons so a NaN passes through as `np.clip` passes it,
+then the cross-entropy. For a 0/1 label the dead term of
+`y·log p + (1−y)·log(1−p)` is `0·log(·)`, a signed zero, and adding a signed
+zero to a finite float returns that float unchanged, so `−log p` for y = 1
+and `−log(1−p)` for y = 0 are the same bits as the two-log formula; the
+kernel branches on `y == 1.0` / `y == 0.0` and computes the full two-log
+expression in numpy's operation order for any other label, so soft labels
+stay exact too. The kernel returns the per-row vector and **the mean stays
+in numpy** (`np.average(ce, weights=w)`): numpy's pairwise summation is not
+a sequential numba sum, and that is where a fused reduction would drift.
+The old bodies stay as `_grad_hess_numpy` / `_eval_numpy`, the oracles.
+Dispatch guards: float64, 1-D, contiguous, equal lengths; anything else
+takes the old path.
+barrier: `barrier_check.py` matched B10, B15, B16, all on the words
+kernel / numba / speed. B10 binds objects inside `build_oblivious_tree`;
+this is the loss layer, the object I012 and I018 already cleared, and
+B10's own method (ceiling measured first, I023) is obeyed. B15 is the
+histogram, B16 the cross screen: names only.
+forecast, before any code: fit time — grad_hess ceiling 4.2–4.9%, eval
+ceiling 4.0–5.1%, about 9% together; C1b converted its grad_hess row at
+~100% of the leg but the eval row keeps its numpy reduction and its
+sigmoid, so I take **−4 to −7% of a Grinsztajn binary fit** on
+MagicTelescope / Higgs / road-safety; a regression control (cpu_act or
+Brazilian_houses) and a multiclass control (hc:okcupid-stem) **0 ± 1%**
+(`Logloss` is not their loss); hc:kick (binary, hc) inside the same band,
+smaller because `prep` dominates there. Strength — exactly zero by
+construction and by `identity_snapshot` (binary configs are on its panel);
+cross-libm, the existing ≤ 4 ULP exp/log caveat the softmax pins carry.
+Where I expect to be wrong: the eval row — the per-round validation eval
+touches only the validation rows (15–20% of n), so its 4–5% share is
+mostly Python and numpy call overhead per round rather than arithmetic,
+and fusing may buy less than half of it.
+kill: (a) `identity_snapshot.py check` not 155/155 or any golden red; (b)
+the same-process A/B saves under 2% on all three Grinsztajn binary sets;
+(c) either control moves beyond ~1%; (d) muse fails or times out — record
+what it left, revert, re-scope.
+ran: muse exit 0 in one pass, ~20 min; its `RESULT.md` reported 75 tests
+green in `test_bitident_refactors.py`, full suite 1112 passed + 1 skipped,
+ruff clean on the two files it touched, warmup coverage green without a
+warmup edit (the warmup's binary fit reaches both kernels), and a pre-ship
+probe of numba `log` against numpy `log` over 2.5M values with zero bit
+differences on this machine. Diff reviewed by hand, 88 lines in
+`losses.py`: `_logloss_grad_hess_kernel` is `_sigmoid`'s loop verbatim plus
+`p − y` and the compared floor; `_logloss_ce_kernel` is the sigmoid, the
+clip as two ordered comparisons (NaN passes through as `np.clip` passes
+it), the 0/1 branches and the general formula for soft labels; the mean
+stays in `np.average`; `_scalar_pair_ok` guards float64 / 1-D /
+C-contiguous / equal shape; old bodies kept as `_grad_hess_numpy` and
+`_eval_numpy`. Documented scope, as C1b: on a NaN raw the fused hess floor
+returns 1e-6 where `np.maximum` returns NaN — unreachable on the fit path
+(raw stays finite; `fit` rejects inf), pinned by a test.
+`/code-review` (medium): no correctness finding; one real test finding —
+the new `eval` tests pinned numba's `log` to numpy's `log` bit for bit,
+the same cross-hardware fragility this file already documents for the
+softmax pins (ubuntu runners since 2026-08-30 differ by up to 3 ULP in ~2%
+of elements). The reviewer (me, not muse) loosened exactly those pins: the
+per-row cross-entropy vector to `assert_array_max_ulp(maxulp=4)` with NaN
+positions still exact, the averaged scalar and `valid_history_` entries to
+8 ULP; `grad`/`hess` and `predict_proba` stay exact (both arms run numba's
+exp). Same-machine bit-identity remains the `identity_snapshot` gate.
+gate 1, tests: **1112 passed, 1 skipped** rerun under the conda python
+(1106 + 6 new), then 75/75 in the file after the pin change.
+gate 2, identity: `identity_snapshot.py check` **155/155 identical**.
+gate 3, speed (`benchmarks/f4_c3_speed.py`, new; same-process A/B on the
+DEFAULT estimator, OFF arm = the `_numpy` bodies, median of 5;
+`results/campaign-f4c3-speed-20260921.txt`):
+  gr:MagicTelescope  **−5.7%**  grad_hess 0.044 → 0.028 s, eval 0.046 → 0.019 s
+  gr:Higgs           **−4.7%**  0.075 → 0.041, 0.062 → 0.016
+  gr:road-safety     **−4.8%**  0.090 → 0.047, 0.083 → 0.022
+  hc:kick            **−4.2%**  0.055 → 0.032, 0.063 → 0.014
+  gr:cpu_act (regression control)  −0.9%, zero calls (per-repeat range
+                                   wide, −10..+9%, on a 0.46 s fit)
+  hc:okcupid-stem (multiclass control)  +0.5%, zero calls
+The loss layer's own seconds account for most of each change (road-safety
+0.104 of 0.099 s, Higgs 0.080 of 0.056 s, MagicTelescope 0.043 of 0.048 s).
+verdict: **PASS → PR** (library source; waits for the maintainer). Kill
+bars (a)(b)(c)(d) all clear. Forecast: strength exactly zero HIT; speed
+−4 to −7% HIT on all three Grinsztajn binary sets (5.7 / 4.7 / 4.8) and
+kick inside the band too; controls flat HIT. Where I said I would be wrong
+(the eval row buying under half): wrong the other way — eval converted
+~65–75% of its seconds, grad_hess ~45%; the eval row was arithmetic and
+temporaries after all, not call overhead. The first F4 unit that moves
+Grinsztajn: 23 of 59 sets are binary.
+next: F4's measured exact-rewrite objects are now all shipped (C2, C1,
+C1b, C4a, C4a-2, C3); C4b (shared TS permutations) stays parked as an
+algorithm change. Under the shortlist ranking the queue is the harness
+instruments **H(4) + H(5)** (POINTER label for strata under 8 decided
+sets; `--save`/`--models` argparse guards) as one small muse task under
+`benchmarks/`, self-mergeable, then **H(1)** (engaged-slice median +
+bootstrap CI + per-seed agreement in `compare_runs`), then **R2** (the
+1-SE / smoothed early-stopping round, zero-library probe), then R3. One
+campaign PR at a time: the next rung waits for this one to merge.
 
 #### I028 2026-09-21 F4 S1 (candidate C4a-2 — the numeric block cast once per fit; muse task, pre-registered)
 why now: I027's `next:`. PR #125 (C4a) merged by the maintainer at a8f04c8,
