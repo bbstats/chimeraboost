@@ -328,6 +328,47 @@ rare-only, killed); `benchmarks/probe_ts_mismatch.py`; results
 
 ---
 
+### B19 — The early-stopping round is not a free axis: smoothing the argmin buys nothing, stopping earlier costs strength
+tags: early-stopping, early stopping, stopping rule, argmin, smoothing, smoothed, moving average, tail averaging, polyak, ema, best iteration, validation curve, round, patience, 1-se, one standard error, tolerance, earlier stop, fewer rounds
+
+Production stops at the raw argmin of the held-out validation curve
+(patience 50). Probed 2026-07-13 (`benchmarks/probe_tail_averaging.py`,
+`results/probe-tailavg.jsonl`; 11 Grinsztajn sets × 3 seeds, one fit each
+with `early_stopping=False`, staged test predictions): the argmin of a
+9-round moving average of the curve is within ±0.03% of the raw stop on 9
+sets of 11, −0.58% on sulfur, and +5.24% on Brazilian_houses — one seed
+where the raw stop landed on a validation spike. The regression mean of
++0.67% is that single row; the binary mean is −0.008%. Polyak-style tail
+averaging of the last K rounds' predictions (K = 5/10/20) and the symmetric
+window around the stop read ≤ 0 on every set and every K (regression −0.2
+to −1.2%, binary −0.02 to −0.23%).
+
+The other direction, stopping EARLIER for cost, was probed 2026-09-22
+(`benchmarks/probe_es_one_se.py`, 21 Grinsztajn sets × 3 seeds, same
+protocol): the earliest round within one noise unit of the minimum, and
+within 0.1% / 0.5% of it. Every rule loses in proportion to the rounds it
+drops — 0.5% tolerance gives back 0.25–0.66% of RMSE / Brier on 20 of 21
+sets for a 16–22% round saving, 0.1% gives back ~0.09% for 5–6%, and the
+noise-unit rule barely moves the pick (ratio 0.99) and still reads 5W-15L.
+The validation argmin already sits on the flat part of the test curve;
+everything before it is uphill.
+
+Consequence: do not propose picking the boosting round by a smoothed
+validation curve, by averaging predictions across rounds near the stop, by
+any other post-hoc reweighting of the trajectory the argmin already
+approximates, or by an earlier-within-tolerance rule for cost. The one
+pathology the smoothing grazed (a spike-sited stop on Brazilian_houses) is
+the validation-noise problem the cross-feature race addresses at the
+source. The round count is a strength axis, not a free cost axis; a cheaper
+fit has to come from cheaper rounds.
+
+*Incident*: the July half was recorded in session memory only, re-proposed
+by the 2026-09-21 beam refill as shortlist R2, and caught by a grep rather
+than by `barrier_check.py`, which is why this entry exists; the 1-SE half
+is `CAMPAIGN_PLAN.md` I032.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured
