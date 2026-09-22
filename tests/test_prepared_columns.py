@@ -258,3 +258,184 @@ def test_eval_set_and_nocat_fits_build_no_context():
 
     assert seen
     assert all(r == (None, None, None) for r in seen)
+
+
+# ---- numeric block: cast once per fit, gather per leg -----------------------
+
+
+def _numeric_400():
+    """Object matrix (400, 5): 3 mixed-type numeric cols + 2 string cat cols.
+
+    Each numeric column mixes Python floats, Python ints, numpy floats, bools
+    and NaN, so the element-wise object->float64 cast sees every spelling.
+    """
+    rng = np.random.default_rng(20260921)
+    X = np.empty((N, 5), dtype=object)
+    for j in range(3):
+        col = np.empty(N, dtype=object)
+        for i in range(N):
+            r = rng.random()
+            if r < 0.35:
+                col[i] = float(rng.standard_normal())  # Python float
+            elif r < 0.55:
+                col[i] = int(rng.integers(-1000, 1000))  # Python int
+            elif r < 0.70:
+                col[i] = np.float64(rng.standard_normal())  # numpy float
+            elif r < 0.85:
+                col[i] = bool(rng.integers(0, 2))  # bool
+            else:
+                col[i] = float("nan")
+        X[:, j] = col
+    X[:, 3] = rng.choice([f"c{i}" for i in range(11)], size=N)
+    X[:, 4] = rng.choice([f"d{i}" for i in range(23)], size=N)
+    return X
+
+
+_NUM_400 = [0, 1, 2]
+
+
+def _assert_block_equal(got, exp):
+    assert got.shape == exp.shape
+    assert got.dtype == np.float64 and exp.dtype == np.float64
+    assert np.array_equal(got, exp, equal_nan=True)
+    assert got.tobytes() == exp.tobytes()
+
+
+def test_child_numeric_matches_leg_cast():
+    X = _numeric_400()
+    for rows in _subsets(X[:, 3]):
+        parent = CatTransformCache()
+        child = CatTransformCache(parent=parent, parent_X=X, rows=rows)
+        _assert_block_equal(child.numeric(X[rows], _NUM_400),
+                            pmod._cast_numeric_block(X[rows], _NUM_400))
+
+
+def test_child_numeric_all_positions_and_empty():
+    rng = np.random.default_rng(99)
+    X = rng.standard_normal((N, 4))
+    X[::17, 0] = np.nan
+    rows = np.sort(rng.choice(N, size=251, replace=False))
+    parent = CatTransformCache()
+    child = CatTransformCache(parent=parent, parent_X=X, rows=rows)
+    full = list(range(X.shape[1]))
+    _assert_block_equal(child.numeric(X[rows], full),
+                        pmod._cast_numeric_block(X[rows], full))
+
+    Xo = _numeric_400()
+    rows_o = np.sort(rng.choice(N, size=251, replace=False))
+    child_o = CatTransformCache(parent=CatTransformCache(), parent_X=Xo,
+                                rows=rows_o)
+    got = child_o.numeric(Xo[rows_o], [])
+    assert got.shape == (len(rows_o), 0)
+    assert got.dtype == np.float64
+    _assert_block_equal(got, pmod._cast_numeric_block(Xo[rows_o], []))
+
+
+def test_child_numeric_cached_parent_casts_once():
+    X = _numeric_400()
+    rows = _subsets(X[:, 3])[0]
+    real = pmod._cast_numeric_block
+    calls = []
+
+    def counted(X_, num_features):
+        calls.append(1)
+        return real(X_, num_features)
+
+    with mock.patch.object(pmod, "_cast_numeric_block", counted):
+        parent = CatTransformCache()
+        child = CatTransformCache(parent=parent, parent_X=X, rows=rows)
+        first = child.numeric(X[rows], _NUM_400)
+        second = child.numeric(X[rows], _NUM_400)
+    assert first is second
+    assert len(calls) == 1
+
+
+def test_child_numeric_guard_falls_back_on_row_mismatch():
+    X = _numeric_400()
+    rng = np.random.default_rng(5)
+    rows = rng.permutation(N)[:200]
+    parent = CatTransformCache()
+    child = CatTransformCache(parent=parent, parent_X=X, rows=rows)
+    other = np.empty((150, 5), dtype=object)
+    other[:, :3] = rng.standard_normal((150, 3))
+    other[:, 3] = "z"
+    other[:, 4] = "w"
+    _assert_block_equal(child.numeric(other, _NUM_400),
+                        pmod._cast_numeric_block(other, _NUM_400))
+
+
+@pytest.mark.parametrize("kind", ["regression", "binary"])
+def test_full_ctx_numeric_block_unmodified_by_fit(kind):
+    Xtr, _, y_reg, y_bin, _ = _e2e_data()
+    if kind == "regression":
+        make, y = ChimeraBoostRegressor, y_reg
+    else:
+        make, y = ChimeraBoostClassifier, y_bin
+    seen = []
+    real = skmod._shared_cat_ctxs
+
+    def record(*a, **k):
+        out = real(*a, **k)
+        seen.append((a, out))
+        return out
+
+    with mock.patch.object(skmod, "_shared_cat_ctxs", record):
+        make(random_state=0).fit(Xtr, y, cat_features=E2E_CAT)
+
+    assert seen
+    num = [f for f in range(Xtr.shape[1]) if f not in E2E_CAT]
+    checked = 0
+    for a, out in seen:
+        full_ctx = out[0]
+        if full_ctx is None:
+            continue
+        key = tuple(num)
+        assert key in full_ctx._numeric
+        cached = full_ctx._numeric[key]
+        fresh = pmod._cast_numeric_block(a[0], num)
+        assert cached.shape == fresh.shape
+        assert cached.tobytes() == fresh.tobytes()
+        checked += 1
+    assert checked
+
+
+def _fit_counted_numeric(est, X, y, disable_sharing):
+    """Fit, counting real ``_cast_numeric_block`` calls; optionally no sharing."""
+    calls = []
+    real = pmod._cast_numeric_block
+
+    def counted(X_, num_features):
+        calls.append(1)
+        return real(X_, num_features)
+
+    patches = [mock.patch.object(pmod, "_cast_numeric_block", counted)]
+    if disable_sharing:
+        patches.append(mock.patch.object(
+            skmod, "_shared_cat_ctxs", lambda *a, **k: (None, None, None)))
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        est.fit(X, y, cat_features=E2E_CAT)
+    return len(calls)
+
+
+@pytest.mark.parametrize("kind", ["regression", "binary", "multiclass"])
+def test_end_to_end_numeric_sharing_fewer_casts_bit_identical(kind):
+    Xtr, Xte, y_reg, y_bin, y_mc = _e2e_data()
+    if kind == "regression":
+        make, y = ChimeraBoostRegressor, y_reg
+    else:
+        make = ChimeraBoostClassifier
+        y = y_bin if kind == "binary" else y_mc
+
+    est_on = make(random_state=0)
+    n_on = _fit_counted_numeric(est_on, Xtr, y, disable_sharing=False)
+    est_off = make(random_state=0)
+    n_off = _fit_counted_numeric(est_off, Xtr, y, disable_sharing=True)
+
+    assert np.array_equal(est_on.predict(Xte), est_off.predict(Xte))
+    if kind != "regression":
+        assert np.array_equal(est_on.predict_proba(Xte),
+                              est_off.predict_proba(Xte))
+    # The sharing arm really engaged: strictly fewer numeric casts.
+    assert n_on < n_off
