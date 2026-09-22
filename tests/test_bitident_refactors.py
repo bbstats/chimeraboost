@@ -626,3 +626,242 @@ def test_fit_input_error_messages_are_pinned():
     assert str(e.value) == ("X contains infinity. NaN is accepted (treated as "
                             "missing), but inf is not -- clip or clean it "
                             "first.")
+
+
+# ---------------------------------------------------------------------------
+# Logloss fused kernels (F4 C3): the scalar twin of the multiclass fusion.
+# `_logloss_grad_hess_kernel` and `_logloss_ce_kernel` transcribe the numpy
+# bodies element by element, so both sides run the same numba exp() on the
+# same machine and the comparison is EXACT equality -- same-machine
+# bit-identity. (The ce kernel's log() is numba's where the oracle's is
+# numpy's; the two agree to the bit on the clipped probability range on this
+# machine -- a 2.5M-value probe found zero bit differences before shipping --
+# and the tests below pin exact agreement on their data.)
+# ---------------------------------------------------------------------------
+
+def _assert_bit_equal(a, b):
+    # grad and hess: both arms run numba's exp() on the same machine, so the
+    # comparison is exact everywhere the tests run.
+    assert np.array_equal(a, b, equal_nan=True)
+    assert a.tobytes() == b.tobytes()
+
+
+def _assert_ce_equal(a, b):
+    # The per-row cross-entropy: the kernel's log() is LLVM libm, the oracle's
+    # is numpy's SIMD log(), and those may round the last bits differently on
+    # the CI runner pool -- the same 4-ULP caveat the softmax pins above carry.
+    # Same-machine bit-identity stays guarded by identity_snapshot.py. NaN
+    # positions must agree exactly; the finite rest is held to 4 ULP.
+    assert a.shape == b.shape
+    nan_a, nan_b = np.isnan(a), np.isnan(b)
+    assert np.array_equal(nan_a, nan_b)
+    if np.any(~nan_a):
+        np.testing.assert_array_max_ulp(a[~nan_a], b[~nan_a], maxulp=4)
+
+
+def _assert_eval_equal(a, b):
+    # The averaged scalar: a mean of rows each within 4 ULP is itself within a
+    # few ULP; both-NaN counts as equal -- empty and NaN-poisoned inputs
+    # evaluate to NaN on both arms.
+    if np.isnan(a) or np.isnan(b):
+        assert np.isnan(a) and np.isnan(b)
+        return
+    np.testing.assert_array_max_ulp(np.array([a]), np.array([b]), maxulp=8)
+
+
+def _logloss_raw_families(rng):
+    """(tag, raw) pairs covering the sigmoid's branches, saturation and edges."""
+    return [("gauss", rng.normal(0.0, 3.0, 10_007)),
+            ("extreme", np.array([40.0, -40.0, 700.0, -700.0, 1e6, -1e6]
+                                 * 500, dtype=np.float64)),
+            ("inf", np.array([np.inf, -np.inf, 0.0, 5.0, -5.0] * 200,
+                             dtype=np.float64)),
+            ("empty", np.empty(0, dtype=np.float64)),
+            ("len1", np.array([0.7]))]
+
+
+def test_logloss_grad_hess_matches_oracle_exactly(monkeypatch):
+    # The spy proves the fused kernel -- not the numpy fallback -- produced
+    # every one of these.
+    import chimeraboost.losses as losses
+
+    calls = []
+    orig = losses._logloss_grad_hess_kernel
+
+    def spy(raw, y):
+        calls.append(raw.shape)
+        return orig(raw, y)
+
+    monkeypatch.setattr(losses, "_logloss_grad_hess_kernel", spy)
+    rng = np.random.default_rng(21)
+    loss = losses.Logloss()
+    for tag, raw in _logloss_raw_families(rng):
+        raw = np.ascontiguousarray(raw, dtype=np.float64)
+        y = rng.integers(0, 2, raw.shape[0]).astype(np.float64)
+        grad, hess = loss.grad_hess(y, raw)
+        egrad, ehess = loss._grad_hess_numpy(y, raw)
+        _assert_bit_equal(grad, egrad)
+        _assert_bit_equal(hess, ehess)
+        if tag == "extreme":
+            # The floor must actually engage on both sides, or this family
+            # proves nothing about the comparison transcription.
+            assert np.any(hess[raw > 0] == 1e-6)
+            assert np.any(hess[raw < 0] == 1e-6)
+    assert len(calls) == 5
+
+
+def test_logloss_eval_matches_oracle_exactly(monkeypatch):
+    import chimeraboost.losses as losses
+
+    calls = []
+    orig = losses._logloss_ce_kernel
+
+    def spy(raw, y):
+        calls.append(raw.shape)
+        return orig(raw, y)
+
+    monkeypatch.setattr(losses, "_logloss_ce_kernel", spy)
+    rng = np.random.default_rng(22)
+    loss = losses.Logloss()
+    for tag, raw in _logloss_raw_families(rng):
+        raw = np.ascontiguousarray(raw, dtype=np.float64)
+        y = rng.integers(0, 2, raw.shape[0]).astype(np.float64)
+        # Per-row vector vs the old per-row ce expression in numpy.
+        p = np.clip(losses._sigmoid(raw), 1e-9, 1 - 1e-9)
+        ce_ref = -(y * np.log(p) + (1 - y) * np.log(1 - p))
+        _assert_ce_equal(orig(raw, y), ce_ref)
+        # Empty weights sum to zero, which np.average rejects -- pinned as an
+        # identical raise on both arms below, not as a value here.
+        ws = [None] if tag == "empty" else [None, rng.uniform(0.5, 2.0, raw.shape[0])]
+        for w in ws:
+            _assert_eval_equal(loss.eval(y, raw, sample_weight=w),
+                               loss._eval_numpy(y, raw, sample_weight=w))
+    with pytest.raises(ZeroDivisionError):
+        loss.eval(np.empty(0), np.empty(0), sample_weight=np.empty(0))
+    with pytest.raises(ZeroDivisionError):
+        loss._eval_numpy(np.empty(0), np.empty(0), sample_weight=np.empty(0))
+    assert len(calls) == 10
+
+
+def test_logloss_eval_matches_oracle_on_soft_labels():
+    import chimeraboost.losses as losses
+
+    rng = np.random.default_rng(23)
+    loss = losses.Logloss()
+    raw = rng.normal(0.0, 3.0, 5000)
+    soft = rng.uniform(0.0, 1.0, 5000)
+    assert np.all((soft != 0.0) & (soft != 1.0))  # neither branch fires
+    mixed = soft.copy()
+    mixed[::3] = 0.0
+    mixed[1::3] = 1.0
+    for y in (soft, mixed):
+        p = np.clip(losses._sigmoid(raw), 1e-9, 1 - 1e-9)
+        ce_ref = -(y * np.log(p) + (1 - y) * np.log(1 - p))
+        _assert_ce_equal(losses._logloss_ce_kernel(raw, y), ce_ref)
+        for w in (None, rng.uniform(0.5, 2.0, raw.shape[0])):
+            _assert_eval_equal(loss.eval(y, raw, sample_weight=w),
+                               loss._eval_numpy(y, raw, sample_weight=w))
+
+
+def test_logloss_kernels_pass_nan_through():
+    import chimeraboost.losses as losses
+
+    rng = np.random.default_rng(24)
+    loss = losses.Logloss()
+    raw = rng.normal(0.0, 3.0, 2000)
+    raw[::500] = np.nan
+    y = rng.integers(0, 2, 2000).astype(np.float64)
+    p = np.clip(losses._sigmoid(raw), 1e-9, 1 - 1e-9)
+    ce_ref = -(y * np.log(p) + (1 - y) * np.log(1 - p))
+    ce = losses._logloss_ce_kernel(raw, y)
+    _assert_ce_equal(ce, ce_ref)
+    grad, hess = loss.grad_hess(y, raw)
+    egrad, ehess = loss._grad_hess_numpy(y, raw)
+    assert np.array_equal(np.isnan(grad), np.isnan(egrad))
+    _assert_bit_equal(grad, egrad)
+    # The hess floor is the specified comparison (`h if h >= 1e-6 else 1e-6`),
+    # which yields 1e-6 on NaN where np.maximum yields NaN -- the documented
+    # non-NaN scope of the transcription, same as the shipped multiclass twin.
+    # NaN raw is unreachable on the fit path (raw scores stay finite).
+    nan_pos = np.isnan(ehess)
+    assert np.any(nan_pos)
+    assert np.all(hess[nan_pos] == 1e-6)
+    _assert_bit_equal(hess[~nan_pos], ehess[~nan_pos])
+    _assert_eval_equal(loss.eval(y, raw), loss._eval_numpy(y, raw))
+
+
+def test_logloss_fallbacks_tripwire(monkeypatch):
+    # Every input the guard refuses must take the numpy path: if a kernel runs
+    # where it should not, the spy below records it and the test fails.
+    import chimeraboost.losses as losses
+
+    gh_calls, ce_calls = [], []
+    orig_gh = losses._logloss_grad_hess_kernel
+    orig_ce = losses._logloss_ce_kernel
+
+    def gh_spy(raw, y):
+        gh_calls.append(raw.shape)
+        return orig_gh(raw, y)
+
+    def ce_spy(raw, y):
+        ce_calls.append(raw.shape)
+        return orig_ce(raw, y)
+
+    monkeypatch.setattr(losses, "_logloss_grad_hess_kernel", gh_spy)
+    monkeypatch.setattr(losses, "_logloss_ce_kernel", ce_spy)
+    rng = np.random.default_rng(25)
+    loss = losses.Logloss()
+    base = rng.normal(size=200)
+    yb = rng.integers(0, 2, 200).astype(np.float64)
+    # float32 raw and a non-contiguous slice run the numpy path fine.
+    for raw, y in ((base.astype(np.float32), yb), (base[::2], yb[:100])):
+        assert not losses._scalar_pair_ok(raw, y)
+        grad, hess = loss.grad_hess(y, raw)
+        egrad, ehess = loss._grad_hess_numpy(y, raw)
+        _assert_bit_equal(grad, egrad)
+        _assert_bit_equal(hess, ehess)
+        _assert_eval_equal(loss.eval(y, raw), loss._eval_numpy(y, raw))
+    # 2-D raw and mismatched lengths also take the numpy path -- which raises,
+    # exactly as the old body did (a numba TypingError from _sigmoid for 2-D,
+    # a broadcast ValueError for the mismatch). The kernels stay silent.
+    with pytest.raises(Exception):
+        loss.grad_hess(yb, base.reshape(-1, 1))
+    with pytest.raises(Exception):
+        loss.eval(yb, base.reshape(-1, 1))
+    with pytest.raises(ValueError):
+        loss.grad_hess(yb[:-1], base)
+    with pytest.raises(ValueError):
+        loss.eval(yb[:-1], base)
+    assert gh_calls == [] and ce_calls == []
+    # A plain contiguous float64 pair takes the kernels -- one call each.
+    loss.grad_hess(yb, base)
+    loss.eval(yb, base)
+    assert len(gh_calls) == 1 and len(ce_calls) == 1
+
+
+def test_logloss_refactor_is_end_to_end_identical(monkeypatch):
+    import chimeraboost.losses as losses
+
+    rng = np.random.default_rng(26)
+    X = rng.normal(size=(4000, 6))
+    y = (X[:, 0] + 0.5 * X[:, 1] - X[:, 2] * X[:, 3] > 0).astype(np.int64)
+    Xtr, ytr = X[:3000], y[:3000]
+    Xho, yho = X[3000:], y[3000:]
+
+    def fit():
+        m = ChimeraBoostClassifier(n_estimators=100, random_state=0)
+        m.fit(Xtr, ytr, eval_set=(Xho[:500], yho[:500]))
+        return m
+
+    kern = fit()
+    monkeypatch.setattr(losses.Logloss, "grad_hess",
+                        losses.Logloss._grad_hess_numpy)
+    monkeypatch.setattr(losses.Logloss, "eval", losses.Logloss._eval_numpy)
+    npy = fit()
+    np.testing.assert_array_equal(kern.predict_proba(Xho),
+                                  npy.predict_proba(Xho))
+    assert kern.best_iteration_ == npy.best_iteration_
+    kh, nh = kern.model_.valid_history_, npy.model_.valid_history_
+    assert len(kh) > 0 and len(kh) == len(nh)
+    for a, b in zip(kh, nh):
+        _assert_eval_equal(a, b)

@@ -43,6 +43,79 @@ def _sigmoid(z):
     return out
 
 
+@njit(cache=True, parallel=True)
+def _logloss_grad_hess_kernel(raw, y):
+    # Fused grad_hess for Logloss: the sigmoid row above plus `grad = p - y`
+    # and `hess = max(p * (1 - p), 1e-6)` in one pass, so the output is
+    # bit-identical to `_grad_hess_numpy` on the same machine. The sigmoid
+    # loop is `_sigmoid`'s verbatim (same branch, same expressions); the grad
+    # and hess lines are elementwise and in numpy's order, so they round
+    # exactly as the numpy code does. The 1e-6 floor is a comparison because
+    # that is `np.maximum(h, 1e-6)` on non-NaN input, and `h` lies in
+    # [0, 0.25] for finite raw.
+    n = raw.shape[0]
+    grad = np.empty(n, dtype=np.float64)
+    hess = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        zi = raw[i]
+        if zi >= 0.0:
+            p = 1.0 / (1.0 + np.exp(-zi))
+        else:
+            ez = np.exp(zi)
+            p = ez / (1.0 + ez)
+        grad[i] = p - y[i]
+        h = p * (1.0 - p)
+        hess[i] = h if h >= 1e-6 else 1e-6
+    return grad, hess
+
+
+@njit(cache=True, parallel=True)
+def _logloss_ce_kernel(raw, y):
+    # Per-row cross-entropy for Logloss.eval: sigmoid, clip and `-log` in one
+    # pass, elementwise and in numpy's order, so the vector is bit-identical
+    # to the `ce` line of `_eval_numpy` on the same machine. The mean stays in
+    # numpy -- numpy's pairwise summation is not a sequential numba sum, and a
+    # fused reduction would drift. The clip is two comparisons so a NaN passes
+    # through exactly as `np.clip` passes it (a NaN fails both comparisons and
+    # stays NaN); the upper bound is written as the literal expression
+    # `1.0 - 1e-9`, the same expression numpy evaluates in the old body.
+    # The 0/1 branches are exact: for y = 1 numpy computes
+    # `-(1*log p + 0*log(1-p))`; `0*log(1-p)` is a signed zero, and adding a
+    # signed zero to a finite float returns that float unchanged, so the
+    # result is `-log p` to the bit; symmetrically for y = 0. The soft-label
+    # branch is the general formula unchanged.
+    n = raw.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        zi = raw[i]
+        if zi >= 0.0:
+            p = 1.0 / (1.0 + np.exp(-zi))
+        else:
+            ez = np.exp(zi)
+            p = ez / (1.0 + ez)
+        if p < 1e-9:
+            p = 1e-9
+        elif p > 1.0 - 1e-9:
+            p = 1.0 - 1e-9
+        yi = y[i]
+        if yi == 1.0:
+            out[i] = -np.log(p)
+        elif yi == 0.0:
+            out[i] = -np.log(1.0 - p)
+        else:
+            out[i] = -(yi * np.log(p) + (1.0 - yi) * np.log(1.0 - p))
+    return out
+
+
+def _scalar_pair_ok(raw, y):
+    """True when both inputs are 1-D float64 C-contiguous arrays of one length."""
+    return (isinstance(raw, np.ndarray) and isinstance(y, np.ndarray)
+            and raw.dtype == np.float64 and y.dtype == np.float64
+            and raw.ndim == 1 and y.ndim == 1
+            and raw.flags.c_contiguous and y.flags.c_contiguous
+            and raw.shape == y.shape)
+
+
 class _UnitHessian:
     """Constant-hessian mixin: ``grad_hess`` returns a cached all-ones buffer
     instead of allocating ``np.ones_like`` every boosting round.
@@ -106,16 +179,27 @@ class Logloss:
         p = np.clip(np.average(y, weights=sample_weight), 1e-6, 1 - 1e-6)
         return float(np.log(p / (1.0 - p)))
 
-    def grad_hess(self, y, raw):
+    def _grad_hess_numpy(self, y, raw):
         p = _sigmoid(raw)
         grad = p - y
         hess = np.maximum(p * (1.0 - p), 1e-6)
         return grad, hess
 
-    def eval(self, y, raw, sample_weight=None):
+    def grad_hess(self, y, raw):
+        if _scalar_pair_ok(raw, y):
+            return _logloss_grad_hess_kernel(raw, y)
+        return self._grad_hess_numpy(y, raw)
+
+    def _eval_numpy(self, y, raw, sample_weight=None):
         p = np.clip(_sigmoid(raw), 1e-9, 1 - 1e-9)
         ce = -(y * np.log(p) + (1 - y) * np.log(1 - p))
         return float(np.average(ce, weights=sample_weight))
+
+    def eval(self, y, raw, sample_weight=None):
+        if _scalar_pair_ok(raw, y):
+            ce = _logloss_ce_kernel(raw, y)
+            return float(np.average(ce, weights=sample_weight))
+        return self._eval_numpy(y, raw, sample_weight)
 
     def transform(self, raw):
         return _sigmoid(raw)

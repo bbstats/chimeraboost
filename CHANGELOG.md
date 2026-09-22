@@ -45,6 +45,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ### Changed
+- **Binary classification fits are 4–6% faster; predictions are
+  bit-identical.** Every boosting round the binary log-loss computed its
+  gradient and hessian as a numba sigmoid followed by two numpy passes,
+  and scored the validation rows with a sigmoid, a clip, two logarithms
+  and three products, each a separate pass with its own temporary. Both
+  now run as one numba pass per row, with every value produced by the
+  same operations in the same order as before; the validation mean is
+  still taken by numpy, so the summation order is unchanged. Same-process
+  A/B on the default estimator: 5.7% (MagicTelescope), 4.7% (Higgs), 4.8%
+  (road-safety) and 4.2% (kick) off end-to-end fit time, flat on regression
+  and multiclass, where this code never runs. The exact-output snapshot
+  passes 155 of 155 configurations. Labels other than 0 and 1 take the
+  general formula, and any input the fused path does not cover (float32,
+  non-contiguous, 2-D) falls back to the previous code.
 - **Fits on data with categorical columns and many numeric columns are
   another 3–9% faster; predictions are bit-identical.** With categorical
   columns present the model matrix is an object array, and every step of a
