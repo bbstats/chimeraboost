@@ -369,6 +369,42 @@ is `CAMPAIGN_PLAN.md` I032.
 
 ---
 
+### B20 — Finer bins (max_bins 128 → 254) sharpen a few high-signal sets and overfit the rest
+tags: max_bins, bins, bin count, border count, border_count, 254, 255, 256, bin resolution, finer bins, more bins, histogram resolution, max_bin
+
+`max_bins=128` is half of every opponent's default (CatBoost 254 borders,
+LightGBM and HGB 255, XGBoost 256), so "give the splits more resolution"
+keeps looking like free strength. It was tested 2026-06-01 on three suites
+and rejected: on Grinsztajn it read net positive (regression 20W-4L) with
+the Brier gain almost all `electricity`; on an independent OpenML panel it
+was an overall wash (+0.03%) with regression REVERSED (1W-4L, `cpu_act`
+−30%, and −17% on Grinsztajn's `cpu_act`, a reproducible overfit); on a
+fresh 17-set binary batch a wash (median +0.25%, `madelon` −10%, fine bins
+fitting noise). It also broke a sub-1k-row MAE test and cost 30–50% fit at
+the time.
+
+Re-read 2026-09-22 (I047, `benchmarks/probe_catboost_split_score.py`,
+8 Grinsztajn binary keys × 3 seeds, the harness's own splits): 254 bins
+up on 7 of 8, `electricity` +7.97% on all three seeds and hitting the
+2000-round cap, the other six gains +0.09% to +0.88%, fit ×1.12 median
+(quantized histograms made the cost smaller; the strength picture did not
+change). Same shape as June: one fine-grained set carries it.
+
+Consequence: do not propose a larger default bin count, or a probe arm
+whose case rests on "the opponents use ~255", without a mechanism that
+answers the June regression reversal (a size- or noise-aware bin rule
+would be such a mechanism; a flat increase is not). The live question runs
+the other way: whether 128 bins is already too fine for small or noisy
+numeric data (`cpu_act@sus25`, shortlist S3).
+
+*Incident*: the June verdict lived only in session memory
+(`project_algorithm_history`), so `barrier_check.py` could not find it; the
+2026-09-22 S2 task added a `chimera_bins254` arm on the strength of
+"LightGBM at 255 bins beats us on california" and re-derived the June
+result. `CAMPAIGN_PLAN.md` I047.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured
