@@ -101,6 +101,8 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | on the 33 gr regression sets where the cross race engages (seed 0), 221 of the 457 `diff` cross columns (48%) are near-duplicates of their larger-scale parent (σ ratio ≥ 3 and |Spearman ρ| ≥ 0.95; medians 3.52 and 0.963); 10 sets have ≥ 2/3 of their diff block duplicated (medical_charges, house_sales, wine_quality, Brazilian_houses, Ailerons, houses, cpu_act, elevators, MiamiHousing, SGEMM), 9 have ≤ 1/3 (I045)
+fact: 2026-09-22 | numeric missing values: 0 of 59 gr sets carry any NaN/inf in a numeric column; 11 of 14 hc sets do — colleges 32 cols / 100% rows, cjs 28 / 100%, Moneyball 2 / 66%, employee_salaries 2 / 32%, porto-seguro 2 / 24%, kick 9 / 0.5%, wine-reviews 1 / 7%, Traffic 1 / 0.6% (I045)
 fact: 2026-09-22 | identity_snapshot panel widened to 33 configs / 186 arrays (I043): cat_count_features (plain + weighted, card ~600, n=6000), the classifier's forced cross, random_effects with groups, a bag over categoricals; `save` now refuses to move existing pins without --rebaseline — the first attempt would have silently re-baselined 131 of 155
 fact: 2026-09-22 | predict-side profile (I042/L1, exclusive hooks, 5 reps, wrapped/plain 0.99–1.01): `_codes_for_transform` is 62.4% (kick, 94 ms) / 73.3% (okcupid, 45 ms) / 82.7% (sf-police, 43 ms) of predict wall clock; the ordered-TS transform 18.8% on okcupid; a direct `cat_maps_` lookup prototype reads 0.49–0.50× the current path
 fact: 2026-09-22 | on the standing BASE, CatBoost leads on Brier on 9 of 30 gr classification sets (california +2.7%, bank-marketing +1.0%, credit +0.5%, …) and LightGBM trails us on 8 of those 9 — the edge is CatBoost-specific; catboost 1.2.10 defaults there: `score_function=Cosine`, `leaf_estimation_backtracking=AnyImprovement`, `feature_border_type=GreedyLogSum`, `l2_leaf_reg=3`, `leaf_estimation_iterations=1`, `bootstrap_type=MVS subsample=0.8`
@@ -261,12 +263,12 @@ argument or an admission it binds.
 | S1 | **Predict-time categorical lookup, fused TS transform** (L1) | exact rewrite | hc / any categorical input at PREDICT: `_codes_for_transform` is **62 / 73 / 83%** of predict wall clock on kick / okcupid / sf-police (new read, this refill: the campaign had never profiled predict) | the batch is factorized from scratch then remapped through `cat_maps_`; one C-driven `dict.get` pass yields the same codes directly (prototype **0.49–0.50×**); plus a one-pass numba TS transform (18.8% of multiclass predict) | B3/B18 keyword only (values untouched, codes asserted bit-equal); B10 keyword (not a grow kernel); gate on no shared bagged context (bagged predict already shares one factorization) | `benchmarks/f4_predict_walltime.py` (I023 discipline) + an equality harness over every hc categorical column; then a muse task | **−22 to −37% hc predict latency**, 0 on gr, fit 0 ± 0.5% |
 | S2 | **CatBoost's split score on the noisy low-dim binary cluster** (L3) | opponent ablation → a split-rule default (defect-adjacent) | 9 of 30 gr classification sets where CatBoost leads on Brier and **LightGBM trails us on 8 of 9** (california +2.7%, bank-marketing +1.0%, credit, albert@sus25, eye_movements@sus25, Diabetes, compas, heloc) | not bins (LightGBM has the most and loses), not depth (all 6), not stochasticity (2026-08-01); never ablated: `score_function=Cosine` (a variance-normalized split score), `leaf_estimation_backtracking`, `feature_border_type=GreedyLogSum`, `l2_leaf_reg=3` — ours is plain `g²/(h+λ)` | B3 (its method: name it on the opponent first; B3's kill record is categorical/leaf-side, not split scoring); B4 (arms stay Plain); B6 (a formula, not a sweep) | fork `probe_catboost_ablation.py`: 11 sets × 3 seeds × 5 one-knob arms, ~20 min; bar ≥ 40% of the edge recovered on ≥ 5 of 9 with controls < 1% | names the largest gr win-rate object left (9 sets), or closes the cluster as a barrier after two ablations |
 | S3 | **The two double-digit gr losses** (L3) | defect probe | `cpu_act@sus25` (LightGBM +28%, all three opponents 3-0) and `SGEMM` (+15%, all three) — the #1 and #2 losses on 77 sets; full `cpu_act` we WIN by 3–15% | reduce the opponent to us one knob at a time (bins, tree shape, round cap, lr, min leaf); hypotheses: a small-n over-fit that only the subsample creates (our 328 rounds vs 164), and a round-budget mismatch on a near-deterministic surface (CatBoost ran to the cap) | B19 (a slice-conditional rule, not a global stopping change); B6 (no sweep); B8 if subsample appears | 4 sets × 3 seeds × 8 opponent arms ≈ 25 min; bar: one arm carries the opponent to within 25% of our loss on ≥ 1 set with controls < 2% | a defect fix on our side, or a priced architecture cost in BARRIERS |
-| S4 | **Standardize the numeric parents before `diff`** (L2) | default change, no knob | gr numeric, the headline suite: the ~25 sets where the cross race engages | `_cross_block` subtracts raw columns; when σ_i ≫ σ_j the difference is rank-identical to `x_i` — a duplicate occupying a cross slot; `x_i/σ_i − x_j/σ_j` is the scale-free comparison the docs describe | B16 (carries the SAME number of columns; changes what one operator computes, not how many); B1/B17 keyword | **zero fits**: on 8 engaged gr regressions read `cross_pairs_`, compute σ_i/σ_j and Spearman(diff, larger parent); kill if median \|ρ\| < 0.95 or scale ratio < 3 | gr regression engaged **+0.0 to +0.3%**, 40% chance of exactly 0, 20% of a net loss (the race is cross-vs-none) |
+| S4 | **Standardize the numeric parents before `diff`** (L2) — **zero-fit gate PASSED (I045): 221 of 457 diff columns are near-duplicates of their larger parent, 10 of 33 sets ≥ 2/3 of the block** | default change, no knob (a default-off flag for the A/B) | gr numeric, the headline suite: the 33 of 36 regression sets where the cross race engages | `_cross_block` subtracts raw columns; when σ_i ≫ σ_j the difference is rank-identical to `x_i` — a duplicate occupying a cross slot; `x_i/σ_i − x_j/σ_j` is the scale-free comparison the docs describe | B16 (carries the SAME number of columns; changes what one operator computes, not how many); B1/B17 keyword | **zero fits**: on 8 engaged gr regressions read `cross_pairs_`, compute σ_i/σ_j and Spearman(diff, larger parent); kill if median \|ρ\| < 0.95 or scale ratio < 3 | gr regression engaged **+0.0 to +0.3%**, 40% chance of exactly 0, 20% of a net loss (the race is cross-vs-none) |
 | S5 | **C5 — fused multiclass cross-entropy eval** (L1) | exact rewrite | hc multiclass (4 sets): `val_score` **4.9–6.5%** of fit (I026) | the C3 move on the vector path: `_softmax_kernel`'s loop + the clip as ordered comparisons + the in-order k-sum, mean in numpy | B10 (loss layer, I012/I018/I029 precedent); B16 is a word collision ("cross-entropy") | `f4_c3_speed.py` forked; identity 155/155; exact tests K = 2..7 | **−3 to −4.5% hc multiclass fit**, 0 elsewhere; gr has no multiclass |
 | S6 | **n-gated TS quantization + the ES-on-shifted-small-data read** (L2 + L3) | default change (a constant gated on n) + a defect probe | the small-and-shifted slice: `eucalyptus@time` (CatBoost +34%, **LightGBM +39%**, our seeds 0.52/0.40/0.35, 171 rounds vs LightGBM's 35), `Moneyball@time` +3.6%, `hc@sus25/50`; I035 banked `ts_q16` **+1.65 / +3.26%** on the two small controls | at small n the 255-bin binner resolves the ordered TS's prefix noise and splits INSIDE a category; cap the TS column's borders as a function of rows (no-op above ~10k); and LightGBM forced to our round count tells whether the shifted-small loss is stopping, not encoding | B3 (the fixed-15 form was ported at its narrowest and killed on big sets — I035; only the regime where it WON ships); B18 (the binner downstream of both sides, moments preserved); B11/B19 (the stopping half must not re-derive an in-sample rule) | fork `probe_ts_rarity.py` with B(n) on 6 small/shifted sets × 3 seeds (+ LightGBM forced-rounds arm), ≤ 15 min; bar: ≥ 2% on ≥ 3 of 4 with `eucalyptus` random split ≥ −0.3%, every set above the gate an exact tie | sub-gate hc **+0.5 to +2.5%**, exact ties elsewhere; the only candidate that cannot lose the cost axis |
 | S7 | **MinEntropy ordinal target binarization for multiclass TS** (L3) | opponent ablation → a port (B3 binds) | the multiclass residual AFTER the count column: median **+0.96%** (Traffic +1.07, Traffic@time +2.22, okcupid +0.69) vs +0.44% on binary | catboost 1.2.10 MultiClass CTR is NOT one-vs-rest: `TargetBorderCount=3 : MinEntropy` over the class index × 3 priors — three entropy-optimal groupings, better conditioned than our K collinear per-class columns; also `bootstrap_type=Bayesian` on multiclass only, never ablated | **B3 binds** (target-statistics family: eight kills, one transfer); B18 (the count door is spent); B4 (Plain) | `probe_catboost_hc_ablation.py` restricted to the 4 multiclass residual sets + 2 controls, 5 one-knob arms, reference = the count arm; ~45 min; bar ≥ 40% of the RESIDUAL on ≥ 3 of 4 | names the second multiclass object or clears the CTR width question |
 | S8 | **Full K×K softmax Hessian for the vector leaf** (L2) | default change, no knob; not a port (every opponent uses the diagonal) | multiclass only (gr has none): 4 hc sets | `_apply_vector_update` uses the diagonal `p(1−p)` scaled by `(K−1)/K`; the true Hessian `diag(p) − ppᵀ` has negative off-diagonals, so the leaf under-steps in the one-up-rest-down direction; one K×K solve per leaf per round | B5 keyword (not a shrinkage; replaces an approximation with the exact second-order solve); B10 (never a measured kernel object; priced: n·K → n·K², K ≤ 7) | monkeypatch `_leaf_values_vec`, 4 sets × 3 seeds ≈ 5 min; kill < 3 of 4 up or fit > 1.15× | **+0 to +1.0% Brier**, 50% flat (lr 0.1 makes the step small); the likelier payoff is fewer rounds |
-| S9 | **Learned default direction for missing values** (L2) | defect-class default, FP-drift (goldens re-baseline) | unknown until counted: gr's curation likely removes NaN; hc (kick, okcupid) and real user data | the binner sends NaN to the top bin, so missing rows route right at every level on every feature — an artifact, never a decision; XGBoost/LightGBM evaluate both directions | B6 keyword only; B10/B15 adjacent (a split RULE, not a speed rewrite; the goldens tax priced) | **zero fits, 2 min**: count numeric NaN columns and affected rows on every gr/hc set; kill if < 3 gr sets carry any | conditional +0.3 to +1.5% on affected sets; unconditional on today's suites most likely 0 |
+| S9 | Learned default direction for missing values (L2) — **KILLED for the decision axis (I045): gr 0 of 59 sets carry numeric NaN; hc 11 of 14 do, 5 heavily** — an hc-only pointer | defect-class default, FP-drift (goldens re-baseline) | hc only: colleges (100% rows), cjs (100%), Moneyball (66%), employee_salaries (32%), porto (24%) | the binner sends NaN to the top bin, so missing rows route right at every level on every feature — an artifact, never a decision; XGBoost/LightGBM evaluate both directions | B6 keyword only; B10/B15 adjacent (a split RULE, not a speed rewrite; the goldens tax priced) | **zero fits, 2 min**: count numeric NaN columns and affected rows on every gr/hc set; kill if < 3 gr sets carry any | conditional +0.3 to +1.5% on affected sets; unconditional on today's suites most likely 0 |
 | S10 | **LightGBM speed price list** (L3) | measurement, Pareto slowdown axis only | gr fit: LightGBM **6.08×** faster in total, 5.22× median; ~1.8–2.1× is round count (255 vs 122 median), **2.7× per round**, 4.9× per round at n ≥ 28k; 15 sets carry 67% of the excess, all low-p large-n | with threads matched, the residual per-round gap at p = 6–9 is parallel decomposition: our `prange` is over FEATURES, so two threads split six chunks with a ragged tail; LightGBM parallelizes over rows too | B10 (must be argued as a decomposition object with a Phase-0 ceiling, not a micro-optimization); B15 (subtraction stays closed); GOSS/EFB are off/inert in LightGBM's defaults | 405 LightGBM fits + our own 1-vs-2-thread sweep on the top-15 sets, ~40 min; report per-round time; a thread-scaling gap ≥ 1.5× promotes a GROW_PLAN ceiling measurement | no win-rate movement; prices the 5× and either opens one speed door or closes the LightGBM thread for good |
 | S11 | TS linear-leaf terms confined to the raced regression path (L2, from I041's pointer) | default change confined to a code path | hc regression (colleges +0.74%, employee_salaries +0.78% at I041) | the race protects the choice; the unraced binary leaf is where it hurt | B13/B2 (the race decides, replay amplifies — the existing race gets one more candidate); B3/B18 keyword | `probe_ts_linear_terms.py` on the 6 hc regressions at **6 seeds**, ~8 min; kill if < 4 of 6 or median ≤ +0.1% or either +0.7 loses its sign | **+0.2 to +0.5%** on hc regression, ~45% chance it is seed noise; the weakest base on this list |
 | S12 | Entity degree column on top of the count column (L2) | knob | hc entity sets | count of distinct partner-categorical values per category | B3, B18, B16 by analogy (a partner-choice screen) | a `degree` arm in `probe_ts_rarity.py`, 21 fits | +0.0 to +0.3% on ≤ 3 sets; I036's OLS reads against a second column per categorical |
@@ -344,6 +346,76 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I045 2026-09-22 S4 + S9 zero-fit probes (cross-column scale duplication; numeric missing-value census; pre-registered)
+why now: I044's `next:` — PR #143 merged by the maintainer at dcbbfeb, no
+pick on the shortlist yet, no campaign PR open. These two change nothing
+and decide themselves in minutes, so they run ahead of the pick. Class:
+**measurement**, `benchmarks/` only. Branch `campaign/s4-s9-zero-fit-probes`.
+S4 (refill L2-1): `_cross_block` builds `diff` as the raw `x_i − x_j`;
+when σ_i ≫ σ_j the difference is rank-nearly-identical to `x_i`, a
+column the trees already have, occupying one of the cross slots. Read:
+every gr regression set at seed 0, the default regressor, `cross_pairs_`
+after the race; per `diff` pair the training-scale ratio σ_max / σ_min
+and |Spearman ρ| between the difference and each parent. **Kill: median
+|ρ| against the larger parent < 0.95 OR median scale ratio < 3** — then
+the raw difference is not degenerate and the idea dies before any A/B.
+Forecast: Grinsztajn is curated toward same-unit numerics (coordinates,
+prices, counts), so I expect the scale ratio median **under 3** and |ρ|
+median **0.8–0.95** — the kill firing — with a minority of pairs (≤ 30%)
+that ARE near-duplicates. A pass would surprise me and would be worth a
+standardized-diff arm at S2.
+S9 (refill L2-5): the binner routes NaN to the top bin, so missing rows
+always go right; before any kernel work, count numeric columns holding
+NaN / inf and the rows affected on every gr and hc set. **Kill: fewer
+than 3 gr sets carry any** ⇒ the decision suites cannot measure a learned
+direction and S9 becomes a robustness note. Forecast: Grinsztajn's
+published preprocessing removes missing data, so **0–1 gr sets**; hc
+sets carry some (kick, okcupid-stem, house_prices), so **2–5 hc sets**.
+ran: `probe_cross_scale_and_missing.py`, ~8 min (36 default regressor
+fits at seed 0 + a census of all 73 sets); `results/probe-cross-scale-
+and-missing-20260922.{json,log}`.
+S4 read: cross selected on **33 of 36** regression sets, **457 diff
+pairs** (15 per engaged set: the augmented block carries 15 pairs × 2
+operators, gdiff never appears on these numeric sets). Scale ratio
+σ_max/σ_min **median 3.52** (53% of pairs ≥ 3, 37% ≥ 10); |ρ| between
+the difference and its larger parent **median 0.963** (55% ≥ 0.95),
+against 0.375 for the smaller parent. **221 of 457 diff columns (48%)
+are near-duplicates of a column the trees already have** (ratio ≥ 3 AND
+|ρ| ≥ 0.95). Per set it is bimodal: 10 of 33 sets have ≥ 2/3 of their
+diff block duplicated (medical_charges 3/3 at ratio 145, house_sales
+13/15 at ratio 210, wine_quality, Brazilian_houses, Ailerons 12/15,
+houses, cpu_act, elevators, MiamiHousing, SGEMM at ratio 738) and 9 have
+≤ 1/3 (diamonds, pol, sulfur, yprop, Allstate: same-unit columns). The
+kill (median |ρ| < 0.95 OR median ratio < 3) did **NOT fire**. Forecast
+MISSED on both numbers — I expected Grinsztajn's curation to give
+same-unit pairs and a ratio median under 3; it is the mixed-unit sets
+(prices next to counts, coordinates next to areas) that dominate, and
+there half the diff block is spent on nothing. Note what this is NOT
+evidence of: that a standardized difference would be a USEFUL column —
+only that the current one is, on half the block, no column at all. The
+race decides cross-vs-none per set (B16's territory), so the honest test
+is an arm where `diff` is `x_i/σ_i − x_j/σ_j` with σ from the training
+rows, judged at S2/S3 like any candidate default.
+S9 read: **gr 0 of 59** sets carry any numeric NaN/inf — the kill fires
+for the headline suite exactly as forecast (its published preprocessing
+removed them). **hc 11 of 14** do, five of them heavily: colleges (32
+columns, 100% of rows), cjs (28 cols, 100%), Moneyball (2 cols, 66%),
+employee_salaries (2 cols, 32%), porto-seguro (2 cols, 24%); kick,
+wine-reviews, Traffic under 7%. So a learned missing direction is
+unmeasurable on Grinsztajn and measurable on the hc stratum alone — a
+pointer with a stratum, not a candidate for the default's headline axis.
+verdict: **S4 PASSES its zero-fit gate → the standardized-diff arm is
+an S2 candidate; S9 KILLED for the decision axis as pre-registered,
+parked as an hc-only pointer.** Self-merged: `benchmarks/` only.
+next: S4's next rung needs a library flag for the A/B
+(`cross_diff_standardize`, default off — the I038 shape: muse implements,
+S2 synth ChimeraBoost arms, S3 `--decide`, then /experiment) — that is a
+new entrant to the beam, and **entrants are the maintainer's pick**. The
+loop holds here: the shortlist stands with S4 now carrying its
+zero-fit read, S1 (predict latency, exact) and S2/S3 (the two
+opponent probes) untouched, and S4-of-the-count-column (the default
+flip) still awaiting his go.
 
 #### I044 2026-09-22 H(6) `compare_runs` judges on the decision metric (harness; CHANGES HOW A GATE SCORES; pre-registered)
 why now: I043's `next:`; the pick is still the maintainer's. Class:
