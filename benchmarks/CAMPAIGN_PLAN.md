@@ -310,7 +310,9 @@ Muse's sandbox repaired the same afternoon (facts ledger). **S1 RESOLVED
 — KILLED at its bar** (I050: exact, −8 to −17% predict on string
 categoricals, median 14.75% against 15%; code parked on
 `campaign/s1-predict-cat-lookup` until 2026-09-29 for the maintainer's
-call). Next: S4's flag.
+call). **S4 RESOLVED — KILLED** at S2 (I051: standardized `diff` 23W-23L on
+a fair synth screen; B16 addendum). Next: the named alternates S8 → S5 →
+S10, with H(11) and H(12) as fill.
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -410,6 +412,101 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I051 2026-09-22 S4 S1→S3 (standardized `diff` in the cross block, behind a private experiment switch; muse task, pre-registered)
+why now: I050 closed (PR #149 self-merged at 4094b4d; S1's code parked).
+S4 is the last pick. No campaign PR open, bench idle. Class: **a default
+change with no knob** (the end state), tested behind a private module
+switch, default off, bit-identical off; I045's zero-fit gate passed. Branch
+`campaign/s4-cross-diff-std` from main; muse task
+`20260922-s4-cross-diff-std.md` (library + harness arm `ChimeraBoostXStd`
++ tests, no benchmark); Claude runs the reads after review.
+the mechanism (I045): `diff` is the raw `x_i − x_j`; on the 33 engaged gr
+regression sets 221 of 457 diff columns (48%) are near-duplicates of the
+larger parent (σ ratio ≥ 3, |ρ| ≥ 0.95), ten sets with ≥ 2/3 of the block
+duplicated (medical_charges, house_sales, wine_quality, Brazilian_houses,
+Ailerons, houses, cpu_act, elevators, MiamiHousing, SGEMM). With σ from the
+fit rows, `x_i/σ_i − x_j/σ_j` compares the parents on one scale. The race
+still decides cross-vs-none per set, so the change only helps where it
+turns a wasted slot into a usable column. Unconditional (every diff pair),
+the simplest form; a ratio-gated variant is the follow-up only if losses
+concentrate on same-unit pairs, where the raw difference was the
+meaningful one (e.g. sqft_living − sqft_above).
+barriers (`barrier_check.py`: B16, B1, B17): B16 — the block carries the
+SAME columns; one operator's arithmetic changes, nothing is screened out.
+B1 — inert below CROSS_MIN_SAMPLES (no race), which is the in-run
+control. B17 — sub-gate races, not touched. The replay trap (I039's count-
+column bug) is designed out: the refit pins the donor's scales.
+ladder and bars:
+(a) muse pass: switch off ⇒ identity N/N and every test green; switch on
+⇒ the new tests (scales from fit rows, weights honoured, constant parent
+safe, fitted state carries the scales, replay pins them).
+(b) S2 synth, `run_benchmarks.py --synth --seeds 3 --save --models
+ChimeraBoost ChimeraBoostXStd`, `compare_runs --expect-inert` +
+`synth_report`: sets below the race gate exact ties; the effect sits in the
+engaged slice; engaged wins ≥ half + 1 with median > 0 ⇒ S3, else KILL.
+(c) S3 decide, `--decide --seeds 3 --save --models ChimeraBoost
+ChimeraBoostXStd`, `compare_runs --by-suite`: **gr (the headline stratum)
+engaged wins ≥ half + 1 AND engaged median > 0** on the decision metric;
+hc not negative in median; fit ratio median 0.95–1.10 ⇒ PASS: the flip PR
+(switch on as the default, then removed) for the maintainer. Else KILL.
+forecast: gr regression engaged **+0.0 to +0.3%** median, concentrated on
+the ten duplicate-heavy sets; the same-unit sets (diamonds, pol, sulfur,
+yprop, Allstate) flat to slightly negative; binary engaged ±0.1%; fit ×1.0
+(same column count; the race may flip on a few sets). Chance S2 passes
+~45%, S3 ~30%.
+muse pass (exit 0, ~12 min, no sandbox error): `_CROSS_DIFF_STD` +
+`_fit_diff_scales` (population std over finite fit rows, weighted when
+`sample_weight` is given, 1.0 when degenerate; stored as
+`cross_diff_scales_`, `None` when the switch was off at fit) called from
+`fit_transform` and `from_base_with_cross`; `_cross_block` applies stored
+scales at fit and transform (`getattr` default keeps old pickles on the
+raw path); the replay refit pins the donor's scales
+(`_pinned_cross_diff_scales`, booster.py +3); harness arm
+`ChimeraBoostXStd` (switch set per fit, restored in `finally`); 11 tests.
+Claude's review: correct; note that a module switch does not reach bagged
+members fitted in separate processes — irrelevant here (both arms are the
+unbagged default) and moot after a flip, which changes the code default.
+Outside the sandbox: **1153 passed, 1 skipped; identity 186/186 with the
+switch off; `ruff check chimeraboost/` clean.** Bar (a) PASS.
+`/code-review`: no correctness bug (fit/predict agreement, pickling, the
+race's columns and borders, replay pinning, NaN/weights, the runner's
+restore); one low-severity latent note, the same as Claude's — the module
+switch never reaches joblib bag members, so `ChimeraBoostXStd` must only
+wrap the unbagged default (it does). S2 synth launched 19:15.
+S2 ran: 136 synth datasets × 3 seeds × 2 arms in ~2 min,
+`results/20260922-191351.json`, scored `compare_runs … --expect-inert` on
+the decision metric (`campaign-s4-synth-compare-20260922.txt`). Harness
+SUMMARY W23-L23-T88. Control **90 of 136 exact ties** (no cross race, or
+no diff pair picked). Engaged 46: **23W-23L, median −0.062%, bootstrap CI
+−0.302..+0.402%**, 36 of 46 split across seeds; the mean (+0.24%) is one
+set (syn/639 +13.4%; +0.14% without it).
+was the screen fair? Yes, if anything tilted toward the change: synthgen
+z-scores every feature and rescales it by exp(U(log 0.5, log 200)) (a
+400× spread, `synthgen/emit.py`), so scale-mismatched diff pairs are
+everywhere, and the target is built in the standardized node space before
+that rescaling — the standardized difference is the natural comparison
+there. It still reads a coin flip.
+bar (b) **FAIL**: engaged wins 23 < 24, median ≤ 0. Per the
+pre-registration: **KILL at S2**; S3 not run.
+forecast: "S2 passes ~45%" — it did not; "fit ×1.0" HIT (harness ×0.98).
+verdict: **S4 KILLED at S2.** A near-duplicate `diff` column is a wasted
+slot, not a harm: the race and the trees already route around it, and a
+standardized column is no more useful on average. Recorded as an addendum
+to B16 (the cross block's content, like its size, is not where strength
+hides). The library switch, harness arm and tests are discarded (the
+branch carried them uncommitted); only this record and B16 merge.
+Confidence in the kill: moderate-high (a fair screen with 46 engaged sets
+and the favourable generative geometry). Cost axis: no change either way.
+next: the five picks are resolved (I046 shipped; S1 parked; S2, S3, S4,
+S6 killed). The pick named its first alternates for exactly this case —
+**S8** (full softmax Hessian, a 5-minute probe), then **S5** (fused
+multiclass eval, exact), then **S10** (the LightGBM speed price list) —
+so the loop takes them in that order under the same delegation, with the
+harness items H(11) (pub: download race) and H(12) (`make_pareto` title
+and the HGB point) as self-mergeable fill. NOT taken without the
+maintainer: the new pointer from I047 (race the binary linear leaf; a
+new entrant, not on the shortlist) and a beam refill.
 
 #### I050 2026-09-22 S1 (predict-time categorical lookup: one C-driven dict pass instead of factorize-then-remap; exact rewrite, muse task, pre-registered)
 why now: I049 closed (PR #148 self-merged at 5cb3432 after green CI);
