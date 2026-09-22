@@ -15,6 +15,10 @@ exactly like CatBoost's per-class target statistics.
 
 ``feature_map_`` maps each combined-matrix column back to its original input
 column index, so importances can be aggregated in the user's feature space.
+
+Stacked column order is [numeric | count | cross | per-target (cat + combo)]:
+the optional per-category count columns extend the numeric block, and the
+cross block follows them.
 """
 
 import numpy as np
@@ -22,6 +26,12 @@ from numba import njit
 
 from .binning import Binner
 from .target_encoding import OrderedTargetEncoder, factorize
+
+
+# A count column only pays above the binner's resolution: below it the target
+# statistic already resolves categories one by one, and a count column added
+# noise where it was measured.
+CAT_COUNT_MIN_CARD = 256
 
 
 def as_model_array(X, want_object):
@@ -294,17 +304,26 @@ class FeaturePreprocessor:
         group means are learned from the fit rows only (they use no target
         values, so one map serves fit and predict); unseen categories fall back
         to the global mean of column i.
+    cat_count_features : bool, default False
+        For every categorical column with at least CAT_COUNT_MIN_CARD (256)
+        training categories, append one float column holding each row's
+        category count (the weight total when ``sample_weight`` is given)
+        at fit time (unseen categories read 0.0 at transform). The count
+        columns extend the numeric block but stay
+        invisible to cross-feature candidacy and linear-leaf term selection.
+        Off by default; when off, preprocessing is bit-identical to before.
     """
 
     def __init__(self, max_bins=128, cat_smoothing=1.0, random_state=None,
                  cat_n_permutations=4, cat_combinations=False,
-                 cross_pairs=None):
+                 cross_pairs=None, cat_count_features=False):
         self.max_bins = int(max_bins)
         self.cat_smoothing = float(cat_smoothing)
         self.random_state = random_state
         self.cat_n_permutations = int(cat_n_permutations)
         self.cat_combinations = bool(cat_combinations)
         self.cross_pairs = list(cross_pairs) if cross_pairs else []
+        self.cat_count_features = bool(cat_count_features)
 
     # ---- helpers -------------------------------------------------------------
 
@@ -330,11 +349,14 @@ class FeaturePreprocessor:
         col_b = np.asarray(X[:, f_b], dtype=str)
         return np.char.add(np.char.add(col_a, "_x_"), col_b)
 
-    def _split_columns_fit(self, X, cat_features, cat_ctx=None):
+    def _split_columns_fit(self, X, cat_features, cat_ctx=None,
+                           sample_weight=None):
         """Split input into a numeric matrix and a categorical code matrix.
 
         Learns the category->code maps on the way. When cat_combinations is
-        True, combo codes are appended after the base codes.
+        True, combo codes are appended after the base codes. ``sample_weight``
+        (mean-1 normalized, ``None`` == uniform) reaches only the count
+        tables; the encoder and binner take it separately in fit_transform.
         """
         n_features = X.shape[1]
         cat_set = set(cat_features or [])
@@ -349,13 +371,28 @@ class FeaturePreprocessor:
         if self.cat_features_:
             codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
             self.cat_maps_ = []
+            all_cats = []
             for j, f in enumerate(self.cat_features_):
                 c, cats = cat_ctx.column(X, f)
                 codes[:, j] = c
                 self.cat_maps_.append({v: i for i, v in enumerate(cats)})
+                all_cats.append(cats)
         else:
             codes = np.empty((X.shape[0], 0), dtype=np.int64)
             self.cat_maps_ = []
+            all_cats = []
+
+        # Opt-in per-category count columns (see CAT_COUNT_MIN_CARD): one
+        # float column per qualifying categorical, stacked at the end of the
+        # numeric block. They bin like any numeric column but stay invisible
+        # to cross candidacy (pairs reference raw input columns) and to
+        # linear-leaf term selection (is_numeric_binned_ is False for them).
+        count_block = self._fit_count_tables(codes, all_cats, sample_weight)
+        if count_block.shape[1]:
+            num = (np.hstack([num, count_block]) if num.shape[1]
+                   else count_block)
+        self.n_numeric_block_ = (len(self.num_features_)
+                                 + len(self.count_features_))
 
         # 2-way combinations: each pair becomes a categorical column whose
         # categories are (val_a, val_b) pairs, target-encoded like any other
@@ -495,6 +532,111 @@ class FeaturePreprocessor:
 
         return codes
 
+    def _fit_count_tables(self, codes, all_cats=None, sample_weight=None):
+        """Select the count-feature categoricals and build their train block.
+
+        A categorical qualifies when its training cardinality reaches
+        CAT_COUNT_MIN_CARD -- or, on the replay-refit path, when the donor
+        prep selected it (``_pinned_count_features``): the adopted binner's
+        borders and the replayed splits address columns by position, so the
+        layout must match the donor's even if a near-threshold column's
+        cardinality drifted across the cutoff between the two row samples.
+
+        On the replay-refit path the counts themselves come from the donor
+        too (``_pinned_cat_counts``): the donor's per-category counts,
+        re-indexed onto this fit's codes, 0.0 for categories the donor never
+        saw. Refitting them on these rows would rescale every count by the
+        row-count ratio and push each row into a higher bin than the one the
+        replayed split was chosen for -- the binner is held still precisely
+        so replayed thresholds keep their meaning, and the count lookups
+        must be held still with it.
+
+        Otherwise the count is each category's training-row count -- the
+        weight total when ``sample_weight`` (mean-1 normalized, ``None`` ==
+        uniform) is given, so zero-weight rows shape neither the counts
+        nor, downstream, the borders.
+
+        Sets ``count_features_`` (original column indices, in
+        ``cat_features_`` order) and ``cat_counts_`` (one per-category
+        count lookup per selected column). ``codes`` holds the base
+        categorical codes, before any combo columns are appended, and
+        ``all_cats`` the matching per-column category arrays in code order
+        (read only on the pinned path). Returns the (n, k) float64 training
+        block, (n, 0) when the flag is off or nothing qualifies.
+        """
+        self.count_features_ = []
+        self.cat_counts_ = []
+        if not self.cat_count_features:
+            return np.empty((codes.shape[0], 0))
+
+        pinned = getattr(self, "_pinned_count_features", None)
+        pinned_counts = getattr(self, "_pinned_cat_counts", None)
+        w = (None if sample_weight is None
+             else np.asarray(sample_weight, dtype=np.float64))
+        cols = []
+        for j, f in enumerate(self.cat_features_):
+            n_cats = len(self.cat_maps_[j])
+            if pinned is not None:
+                selected = f in pinned
+            else:
+                selected = n_cats >= CAT_COUNT_MIN_CARD
+            if not selected:
+                continue
+            c = codes[:, j]
+            if pinned_counts is not None:
+                counts = self._pinned_count_column(j, f, all_cats, pinned,
+                                                   pinned_counts)
+            elif w is None:
+                counts = np.bincount(c, minlength=n_cats).astype(np.float64)
+            else:
+                counts = np.bincount(c, weights=w,
+                                     minlength=n_cats).astype(np.float64)
+            self.cat_counts_.append(counts)
+            self.count_features_.append(f)
+            cols.append(counts[c])
+
+        if not cols:
+            return np.empty((codes.shape[0], 0))
+        return np.column_stack(cols)
+
+    def _pinned_count_column(self, j, f, all_cats, pinned, pinned_counts):
+        """One replay-refit count lookup: the donor's counts re-indexed onto
+        this fit's codes.
+
+        ``j``/``f`` are this fit's categorical position and original column
+        index, ``all_cats`` the per-column category arrays in code order.
+        ``pinned`` is the donor's
+        ``count_features_`` (selection order matches ``cat_counts_`` order);
+        ``pinned_counts`` is ``(donor_cat_maps, donor_cat_counts)``. Both
+        fits share the same ``cat_features_``, so position ``j`` addresses
+        the same column on the donor. Categories the donor never saw read
+        0.0, so ``transform`` -- which indexes by this fit's codes -- needs
+        no change: predict-time counts equal the donor's.
+        """
+        donor_maps, donor_counts_list = pinned_counts
+        donor_counts = np.asarray(donor_counts_list[pinned.index(f)],
+                                  dtype=np.float64)
+        dc_by_code = _remap_codes(all_cats[j], donor_maps[j], -1)
+        return np.where(dc_by_code >= 0,
+                        donor_counts[np.maximum(dc_by_code, 0)], 0.0)
+
+    def _count_block(self, codes):
+        """Gather the count columns for base-categorical ``codes``.
+
+        Each selected categorical contributes its fit-time per-category row
+        count; code -1 (a category unseen at fit) reads 0.0. ``codes`` holds
+        the base categorical columns in ``cat_features_`` order, before any
+        combo codes are appended. Empty (n, 0) when nothing was selected.
+        """
+        cols = []
+        for k, f in enumerate(getattr(self, "count_features_", [])):
+            code = codes[:, self.cat_features_.index(f)]
+            counts = self.cat_counts_[k]
+            cols.append(np.where(code >= 0, counts[np.maximum(code, 0)], 0.0))
+        if not cols:
+            return np.empty((codes.shape[0], 0))
+        return np.column_stack(cols)
+
     def _combo_codes_for_transform(self, X, cat_ctx=None):
         """Reconstruct combination codes for transform from the stored maps.
 
@@ -537,7 +679,8 @@ class FeaturePreprocessor:
         """
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
-        num, codes = self._split_columns_fit(X, cat_features, cat_ctx)
+        num, codes = self._split_columns_fit(X, cat_features, cat_ctx,
+                                             sample_weight)
 
         self._fit_gdiff(X, sample_weight, cat_ctx)
         cross = self._cross_block(X, cat_ctx, num=num)
@@ -560,11 +703,16 @@ class FeaturePreprocessor:
         feat = self._stack(num, encoded_blocks)
         self._build_feature_map(len(encode_targets))
 
-        # Block order is [numeric | per-target TS]. Only true numeric columns
-        # carry an ordinal meaning a linear-leaf model can use, so mark them for
-        # the booster's linear-term selection; the TS blocks are excluded.
+        # Block order is [numeric | count | cross | per-target TS]. Only true
+        # numeric columns carry an ordinal meaning a linear-leaf model can
+        # use, so mark the raw numerics and the cross columns for the
+        # booster's linear-term selection; the count columns (a per-category
+        # lookup, not a measurement) and the TS blocks are excluded.
         self.is_numeric_binned_ = np.zeros(feat.shape[1], dtype=bool)
-        self.is_numeric_binned_[:num.shape[1]] = True
+        n_num = len(self.num_features_)
+        n_nocross = n_num + len(self.count_features_)
+        self.is_numeric_binned_[:n_num] = True
+        self.is_numeric_binned_[n_nocross:n_nocross + cross.shape[1]] = True
 
         if binner is None:
             self.binner_ = Binner(self.max_bins)
@@ -585,14 +733,26 @@ class FeaturePreprocessor:
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
 
+        # Hoisted above the numeric block: the same fit-time-code lookup
+        # the encoder block below needs (bit-identical: same inputs, same
+        # function). The count block reads its columns from it too.
+        tf_codes = None
+        if self.cat_features_:
+            tf_codes = self._codes_for_transform(X, cat_ctx)
+
         num = self._numeric_block(X, cat_ctx)
+        if getattr(self, "count_features_", []):
+            count_block = self._count_block(tf_codes)
+            if count_block.shape[1]:
+                num = (np.hstack([num, count_block]) if num.shape[1]
+                       else count_block)
         cross = self._cross_block(X, cat_ctx, num=num)
         if cross.shape[1]:
             num = np.hstack([num, cross]) if num.shape[1] else cross
 
         encoded_blocks = []
         if self.cat_features_:
-            codes = self._codes_for_transform(X, cat_ctx)
+            codes = tf_codes
             if self.combo_pairs_:
                 combo_codes = self._combo_codes_for_transform(X, cat_ctx)
                 codes = np.hstack([codes, combo_codes])
@@ -618,8 +778,8 @@ class FeaturePreprocessor:
         preprocessor, the binner covering only the cross columns (for binning
         eval-set cross blocks), and the binned cross block for ``X``'s rows.
         The caller splices ``cross_binned`` into the base binned matrix at
-        column offset ``len(base.num_features_)`` -- stacked column order is
-        [numeric | cross | TS blocks].
+        column offset ``base.n_numeric_block_`` -- stacked column order is
+        [numeric | count | cross | TS blocks].
         """
         if base.cross_pairs:
             raise ValueError("base preprocessor already has cross features")
@@ -628,6 +788,10 @@ class FeaturePreprocessor:
                    base.cat_n_permutations, base.cat_combinations, cross_pairs)
         prep.cat_features_ = base.cat_features_
         prep.num_features_ = base.num_features_
+        prep.count_features_ = base.count_features_
+        prep.cat_counts_ = base.cat_counts_
+        prep.n_numeric_block_ = base.n_numeric_block_
+        prep.cat_count_features = getattr(base, "cat_count_features", False)
         prep.cat_maps_ = base.cat_maps_
         prep.combo_pairs_ = base.combo_pairs_
         prep.combo_maps_ = base.combo_maps_
@@ -639,8 +803,9 @@ class FeaturePreprocessor:
         cross = prep._cross_block(X, cat_ctx)
         cross_binner = Binner(base.max_bins).fit(cross, sample_weight)
 
-        # Splice the cross borders in between the base numeric and TS blocks.
-        nb = len(base.num_features_)
+        # Splice the cross borders in between the base numeric block
+        # (raw numerics plus count columns) and the TS block.
+        nb = getattr(base, "n_numeric_block_", len(base.num_features_))
         bb = base.binner_
         binner = Binner(base.max_bins)
         binner.borders_ = (bb.borders_[:nb] + cross_binner.borders_
@@ -654,7 +819,9 @@ class FeaturePreprocessor:
         prep.binner_ = binner
         prep.n_bins_ = binner.n_bins_
         prep.is_numeric_binned_ = np.zeros(len(binner.borders_), dtype=bool)
-        prep.is_numeric_binned_[:nb + cross.shape[1]] = True
+        n_num = len(base.num_features_)
+        prep.is_numeric_binned_[:n_num] = True
+        prep.is_numeric_binned_[nb:nb + cross.shape[1]] = True
         prep._build_feature_map(max(1, len(base.encoders_)))
 
         return prep, cross_binner, cross_binner.transform(cross)
@@ -671,12 +838,14 @@ class FeaturePreprocessor:
     def _build_feature_map(self, n_targets):
         """Map each combined-matrix column back to its original input column.
 
-        Block order is [numeric | cross | per-target (cat + combo)]. Cross and
+        Block order is [numeric | count | cross | per-target (cat + combo)].
+        Count columns map to their categorical's original index; cross and
         combo columns map to the lower-indexed feature of their pair, so their
         split gains fold into the right importance bucket.
         """
         combo_orig = [min(i, j) for i, j in self.combo_pairs_]
         fmap = list(self.num_features_)
+        fmap.extend(getattr(self, "count_features_", []))
 
         # gdiff recenters its numeric parent i, so its gain belongs there;
         # diff/prod keep the established min(i, j) convention.
