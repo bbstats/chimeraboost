@@ -151,7 +151,7 @@ fact: 2026-09-22 | the count column on the pub: suite (I046 S4a, `results/202609
 fact: 2026-09-22 | the default's strength rows are bit-identical from 0.32.0 (I015, `20260918-170822.json`) to c3a5314 (I039's ChimeraBoost arm): 309 of 309 (dataset, seed) rows; so are every rung's and every opponent's gr rows between I015 and I046 S4c (231 of 231 each)
 fact: 2026-09-22 | I015's chart-grade run timed the OPPONENTS slow: against the same libraries and config on 2026-09-22 (`20260922-144219.json`), LightGBM ran 4–6× slower (gr fit median ratio 0.23), HGB 8–16× slower, CatBoost 27% slower on gr; the default itself read gr ×0.71 / hc ×0.90. The I015 chart's slowdown axis (default 3.5× clf / 4.3× reg) overstated our speed position; the I046 read (5.0× / 6.4×) matches the August base's LightGBM gap (~5.2× on gr fit)
 fact: 2026-09-22 | I039's variant lines were read on `primary` (F1): on the decision metric hc@time is 3W-1L (Traffic@time +3.69%, employee_salaries@time +2.10%, sf-police@time +0.94%, kick@time −0.23%) and hc@sus25 2W-0L (employee_salaries@sus25 +0.86%, okcupid@sus25 +0.30%)
-fact: 2026-09-22 | ROOT CAUSE of the muse sandbox failure (I048, read-only `icacls`): every launch appends a `MuseSandboxUsers` DENY pair and a per-session-SID DENY pair to the ACL of `C:\Users\Nathan\.config\muse` and never removes them; at 1,786 duplicate `MuseSandboxUsers` entries (893 pairs) plus the stale session pairs, the ACL reached Windows' size limit and `SetNamedSecurityInfoW` returns 1340 (ERROR_BAD_INHERITANCE_ACL). A muse bug; the fix is an ACL reset on that folder, outside the repo and the maintainer's call
+fact: 2026-09-22 | ROOT CAUSE of the muse sandbox failure (I048, read-only `icacls`): every launch appends a `MuseSandboxUsers` DENY pair and a per-session-SID DENY pair to the ACL of `C:\Users\Nathan\.config\muse` and never removes them; at 1,786 duplicate `MuseSandboxUsers` entries (893 pairs) plus the stale session pairs, the ACL reached Windows' size limit and `SetNamedSecurityInfoW` returns 1340 (ERROR_BAD_INHERITANCE_ACL). A muse bug; the fix is an ACL reset on that folder, outside the repo and the maintainer's call. RESET 2026-09-22 on his approval (`icacls C:\Users\Nathan\.config\muse /reset /T /C /Q`, 1,786 → 0) and the next muse run (I049) had no sandbox error; one launch put back 32 entries (16 pairs), so at that rate the ACL fills again after roughly 50 launches — reset again when the 1340 error returns, and report it upstream
 fact: 2026-09-22 | muse's Windows sandbox can fail mid-task, host-wide and deterministically: every shell call returns "windows_elevated unified exec session launcher unavailable: sandbox enforcement unavailable … SetNamedSecurityInfoW failed: 1340" (I047; a subagent's shell failed the same way). The task's written files survive; the planner may run a finished, reviewed script itself — running is not authoring
 fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc fit ratio median ×1.20 (colleges 1.07 … kick 1.26), ×1.14 with the hc variants; inert hc ×1.01; a chart-grade --decide run with the I015 field took 55 min
 
@@ -304,9 +304,10 @@ status 2026-09-22: **I046 SHIPPED** (PR #145, d14bf38). **S2 RESOLVED —
 KILLED** (I047; bins254 a dedup miss, registered as B20; pointer for the
 next refill: race the binary linear leaf, it costs california 1.73% and
 earns electricity 3.67%). **S3 RESOLVED — KILLED** as a one-set outlier
-(I048; the leaf-floor dedup registered as B21). Next: S6, then S1 and S4's
-flag, all three muse tasks, blocked until muse's sandbox ACL is reset
-(facts ledger).
+(I048; the leaf-floor dedup registered as B21). **S6 RESOLVED — KILLED**
+at S1 (I049; 20W-17L on non-selecting data, ×14 tail; B3's eighth port).
+Muse's sandbox repaired the same afternoon (facts ledger). Next: the
+library rungs S1, then S4's flag.
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -406,6 +407,87 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I049 2026-09-22 S6 S1 (size-gated TS quantization, confirmed on small categorical data that did not select it; zero library change, pre-registered)
+why now: I048 closed (PR #147 self-merged at f290c38). The muse sandbox
+is repaired: the maintainer approved the ACL reset, Claude ran it
+(`icacls C:\Users\Nathan\.config\muse /reset /T /C /Q`: 7 files, 0
+failures; `MuseSandboxUsers` deny entries 1,786 → 0; muse re-adds the one
+pair it needs at launch). No campaign PR open, bench idle. Class:
+**zero-library probe of a candidate default** (monkeypatch). Branch
+`campaign/s6-ts-quant-small` from main. Muse writes and runs
+`benchmarks/probe_ts_quant_small.py` (task `20260922-s6-ts-quant-small.md`).
+the idea: I035's `ts_q16` (the ordered TS quantized to 16 uniform buckets
+at fit and transform, CatBoost's CtrBorderCount = 15) lost on the big hc
+sets (sf-police −0.31%, kick −0.54%, porto −0.36%) and won on the two
+small ones (kdd_ipums +1.65%, eucalyptus +3.26%): coarse TS resolution as
+a small-data regularizer. The shippable form is gated on training rows
+(< 10,000), which makes every big set an exact tie by construction.
+panels: SELECT = kdd_ipums, eucalyptus and their twins (they chose the
+idea: report only, never in a bar); CONFIRM_REAL = every other hc
+classification key or twin under 10,000 training rows; CONFIRM_SYNTH =
+every synth classification key with a categorical column under 10,000
+rows; CONTROL = hc classification keys at or above the gate.
+barriers (`barrier_check.py`: B3, B4, B15, B18): **B3 binds** — this is
+CatBoost's CTR quantization ported at its narrowest, and the ported form
+already regressed the big sets (I035); the size gate turns those into
+exact ties, and whether the small-set gain is more than its two selecting
+sets is exactly what this rung measures on data that did not select it.
+B18 — not the transform-side reweighting it closed: the quantization is
+symmetric (fit and transform) and changes resolution, not moments. B4,
+B15 — keyword only.
+forecast (prior low, stated before the run): SELECT reproduces I035's
+direction (+1 to +3%) on the harness's splits; CONFIRM_SYNTH is mostly
+ties and small moves — synthetic categoricals are low-cardinality, where
+16 buckets merge little — median **+0.0 to +0.2%**, wins near half;
+CONFIRM_REAL has 1–3 keys (okcupid-stem@sus25 the likeliest), mixed;
+CONTROL exact ties. Fit time ×0.95–1.0 on engaged keys (fewer distinct TS
+values), 1.0 elsewhere. Chance the bar passes: ~25%.
+bars: (0) SELF-CHECK — the `chimera` arm reproduces the saved run's Brier
+on every hc (key, seed) to 1e-9; (1) CONTROL all exact ties; (2) PASS when
+the confirmation keys (CONFIRM_REAL + CONFIRM_SYNTH, SELECT excluded,
+keys as units) read wins ≥ half + 1 of the decided keys AND median > 0,
+AND CONFIRM_REAL's median is not negative. Pass ⇒ a library flag for the
+synth screen and the decide tier (muse). Fail ⇒ **S6 KILLED**: the
+small-set gain belonged to its selecting sets; B3's record gains its
+eighth port.
+cost: small-n fits only, ~5–10 min.
+muse pass (exit 0, ~20 min, **no sandbox error**: the ACL reset held):
+wrote `probe_ts_quant_small.py` and ran everything itself — smoke,
+full run (330 fits: 55 keys × 3 seeds × 2 arms, zero skips), ruff clean;
+report `20260922-s6-ts-quant-small-RESULT.md`. Reviewed by Claude.
+panels as qualified on seed 0: SELECT 3 (kdd_ipums, eucalyptus,
+eucalyptus@time), CONFIRM_REAL 3 (cjs, cjs@sus50, okcupid-stem@sus25),
+CONFIRM_SYNTH 41 of 137 synth classification keys (48 carry a categorical,
+7 of them over the gate), CONTROL 8.
+read (house convention: near-solved = best arm Brier < 0.001, counted in
+the all-key sign test, out of the medians): **SELF-CHECK PASS** (0.0 over
+42 hc rows); CONTROL **8/8 keys, 24/24 rows exact ties**; CONFIRM all keys
+24W-20L of 44, non-near-solved **20W-17L of 37, sign p = 0.74, median
++0.161%**; CONFIRM_REAL non-near-solved = okcupid-stem@sus25 only,
+**−0.061%** (cjs and cjs@sus50 are near-solved: their +100% is a
+zero-denominator artifact); CONFIRM_SYNTH non-near-solved 20W-16L, median
++0.290%; tails: syn/667 Brier 0.0055 → 0.0793 (×14), syn/557 0.036 →
+0.064, syn/167 0.0063 → 0.0089 — easy sets where one categorical nearly
+decides the class, whose resolution 16 buckets erase; best syn/297 +34.6%,
+syn/737 +9.2%. SELECT: eucalyptus +1.94%, eucalyptus@time +3.27%,
+**kdd_ipums −0.65%** (I035 read +1.65% on the research loader's splits: a
+selecting set flipped sign on the harness's).
+bar (0) PASS; (1) PASS; (2) **FAIL** — the counts clear half + 1 (20 of 37)
+and the median is positive, but CONFIRM_REAL's median is negative, and the
+substance agrees with the clause: a coin flip with catastrophic tails.
+forecast: SELECT direction HIT on eucalyptus, MISSED on kdd_ipums;
+CONFIRM_SYNTH "median +0.0 to +0.2%, wins near half" HIT (+0.16% over all
+confirm keys, 20-17); CONFIRM_REAL "1–3 keys, mixed" HIT; CONTROL HIT;
+"~25% chance the bar passes" — it did not; unforecast: the ×14 tail.
+verdict: **S6 KILLED at S1.** The small-set gain belonged to its selecting
+sets; the gated form is a coin flip on data that did not choose it and
+can wreck an easy set. B3's record gains its eighth port (the CTR
+quantization, both forms). Cost axis: fit unchanged (the gate). Self-
+merged: `benchmarks/` + `.md` only.
+next: the library rungs — **S1** (predict-time categorical lookup, exact)
+then **S4's flag** (standardized `diff`), one PR each, both waiting on
+the maintainer's merge.
 
 #### I048 2026-09-22 S3 S0+S1 (why every opponent beats us on cpu_act@sus25: our-side ablation + a per-row error read; measurement, pre-registered)
 why now: I047 closed (PR #146 self-merged at 7ab18e2 after green CI; S2
