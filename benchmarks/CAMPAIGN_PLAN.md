@@ -345,6 +345,68 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I044 2026-09-22 H(6) `compare_runs` judges on the decision metric (harness; CHANGES HOW A GATE SCORES; pre-registered)
+why now: I043's `next:`; the pick is still the maintainer's. Class:
+**measurement instrument that changes what every future bar reads** —
+flagged as the self-merge rule requires, and it carries tests, so the PR
+waits for the maintainer anyway.
+the gap (I042/L4): `compare_runs` defaulted to the harness's `primary`
+field, which is negative RMSE for regression but **F1 for
+classification**, while every ship gate, the harness SUMMARY block,
+`summarize.primary_scores` and the Pareto chart score RMSE / Brier. Every
+"engaged wins ≥ half + 1 AND engaged median > 0" bar this campaign
+pre-registered on a classification-bearing stratum was therefore read on
+a statistic the gate does not name, and the Brier half had to be
+recovered by a second `--metric brier` run and hand-unioned with the RMSE
+half (I037, I039). Re-read on the decision metric: I036 33W-21L, median
++0.492% (recorded 36W-17L, +0.295%; still a pass); I039 engaged median
+**+0.558%** (recorded +0.203%); I021 unchanged (it was scored with
+`--metric brier` explicitly).
+the change: `--metric decision` — RMSE on regression datasets, Brier on
+classification ones (task from the run's dataset metadata; a record with
+an `rmse` and no task is regression), both negated so higher is better —
+**becomes the default**; `primary` stays selectable and is documented as
+the pre-2026-09-22 read; `brier` and `crps` unchanged. `load_run` and
+`load_run_seeds` share one `_judged_value`. A one-line header names the
+metric on every decision-metric run, so a pasted block cannot be
+misattributed. Two tests: a set where NEW has the better F1 and the worse
+Brier reads BASE-wins by default and NEW-wins under `--metric primary`;
+the orientation and the per-seed view.
+forecast: the existing `test_compare_runs` tests pass unchanged (their
+classification fixtures carry `primary = 1 − brier`, so both metrics
+agree there, and the near-solved tests already pass `--metric brier`);
+re-reading I039's JSON with the new default prints the hc engaged median
+**+0.558%** and 6W-1L on the same seven sets; I021's read is unchanged.
+kill: any existing test that must be edited to keep its meaning (then the
+default change is not backward-compatible in a way the record needs and
+the flag stays opt-in instead).
+ran: the edit, the tests, the two anchors. `test_compare_runs` +
+`test_harness_guards`: **19 passed**, every pre-existing test untouched
+(kill clause not triggered: the classification fixtures carry
+`primary = 1 − brier`, so the two metrics agree there, and the near-solved
+tests already named `--metric brier`). Anchor I039, re-read with the new
+default: hc **6W-1L**, engaged median **+0.558%** [CI +0.023%..+0.864%],
+the header line naming the metric — the number the S4 ask should have
+carried. Anchor I021 (`--metric brier` explicit): engaged median −0.003%,
+unchanged. Ruff: the same 7 pre-existing hits in `compare_runs.py`,
+nothing new.
+verdict: **PASS → PR (waits for the maintainer: `tests/`).** Forecast HIT
+on all three counts. **Gate-scoring change, stated plainly:** from this
+PR on, every `compare_runs` read without `--metric` judges classification
+on Brier, not F1; log entries before I044 that quote a classification bar
+without `--metric brier` were read on F1 — I036 (33W-21L +0.49% on the
+decision metric, recorded 36W-17L +0.30%) and I039 (+0.558%, recorded
++0.203%) are the two this campaign wrote, both still passes, both now
+carrying their decision-metric numbers in the I042 facts. `synth_report.py`
+still reads `primary`; it is an attribution tool, not a gate, and is left
+for H(2)/(3).
+next: with H(6) and H(8) done, the remaining harness items (H(7) effect-
+vs-seed-noise, H(3) cost line, H(9) provenance, H(10) @time labels) are
+small and can ride any idle tick; the shortlist pick (S1–S12) is the
+maintainer's, and S4 for the count column too. If neither arrives, the
+loop takes **S4 and S9** next — the two zero-fit probes, which change
+nothing and decide themselves in minutes.
+
 #### I043 2026-09-22 H(8) identity-snapshot coverage for the paths shipped since 2026-08-30 (harness, pre-registered)
 why now: I042's `next:` — the pick is the maintainer's; H(6) and H(8)
 are self-mergeable harness rungs that protect every later read, and H(8)

@@ -3,11 +3,17 @@
 Usage:
     python benchmarks/compare_runs.py BASE.json NEW.json [base_label new_label]
                                       [--model ChimeraBoost] [--by-suite]
-                                      [--metric brier|crps]
+                                      [--metric decision|primary|brier|crps]
 
-Compares the per-dataset mean of the 'primary' metric (always higher-is-better:
-negative RMSE for regression, F1/accuracy for classification). Reports per-dataset
-deltas and a sign test (how many datasets NEW beats BASE).
+Judges each dataset on the DECISION metric by default -- RMSE for regression,
+Brier for classification, the pair every ship gate, the harness SUMMARY block
+and the Pareto chart score on -- oriented so NEW wins = lower loss. Reports
+per-dataset deltas and a sign test (how many datasets NEW beats BASE).
+
+Before 2026-09-22 the default was ``primary`` (negative RMSE for regression
+but F1 for classification), so classification bars quoted in log entries
+before CAMPAIGN_PLAN I044 were read on F1 while the gate names Brier; pass
+``--metric primary`` to reproduce those numbers.
 
 READ THE SIGN TEST AND THE MEDIAN, NOT THE MEAN
 -----------------------------------------------
@@ -23,7 +29,10 @@ instead of one over the union. Mandatory for reading a --decide run: the
 decision suites answer different questions, and a variant (@sus25/@sus50/@time)
 is a derived view of its parent dataset, so a pooled test counts the same rows
 twice. The tool warns loudly if you pool strata without it.
---metric brier judges on Brier instead: classification sets only (regression
+--metric primary judges on the harness's 'primary' field (negative RMSE for
+regression, F1 for classification) -- the pre-2026-09-22 default, kept for
+reproducing older entries.
+--metric brier judges on Brier alone: classification sets only (regression
 records carry no Brier), oriented so NEW wins = lower Brier.
 --metric crps judges on CRPS, for quantile_suite.py runs, oriented so NEW wins
 = lower CRPS. Those runs already store primary = -CRPS, so the default reads
@@ -99,14 +108,36 @@ from summarize import load as _load_json, timing_warning  # noqa: E402
 NEAR_SOLVED_BRIER = 1e-3
 
 
-def load_run(path, model=None, metric="primary"):
+def _judged_value(record, metric, tasks):
+    """The higher-is-better value a record contributes under ``metric``, or
+    None when the record carries none.
+
+    ``decision`` is the gate's own pair: negative RMSE on regression datasets,
+    negative Brier on classification ones (the task comes from the run's
+    dataset metadata; a record with an ``rmse`` and no task is regression).
+    The losses ``brier`` and ``crps`` are negated too; ``primary`` is used as
+    stored (the harness already orients it)."""
+    m = record["metrics"]
+    if metric == "decision":
+        task = tasks.get(record["dataset"], {}).get("task")
+        if task is None:
+            task = "regression" if m.get("rmse") is not None else "binary"
+        key = "rmse" if task == "regression" else "brier"
+        v = m.get(key)
+        return None if v is None else -float(v)
+    v = m.get(metric)
+    if v is None:
+        return None
+    return -float(v) if metric in ("brier", "crps") else float(v)
+
+
+def load_run(path, model=None, metric="decision"):
     """(metric values, rmse, brier, dataset metadata), each keyed by dataset
     and averaged over seeds. rmse/brier come along regardless of the compared
     metric because the near-solved test needs them."""
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-    # Both alternatives are losses, so flip them to "higher = better".
-    sign = -1.0 if metric in ("brier", "crps") else 1.0
+    tasks = data.get("datasets", {})
     bucket, rmse, brier = defaultdict(list), defaultdict(list), defaultdict(list)
     for r in data["records"]:
         if model is not None and r["model"] != model:
@@ -116,9 +147,10 @@ def load_run(path, model=None, metric="primary"):
             rmse[r["dataset"]].append(m["rmse"])
         if m.get("brier") is not None:
             brier[r["dataset"]].append(m["brier"])
-        if m.get(metric) is None:
+        v = _judged_value(r, metric, tasks)
+        if v is None:
             continue
-        bucket[r["dataset"]].append(sign * m[metric])
+        bucket[r["dataset"]].append(v)
 
     def _mean(d):
         return {k: float(np.mean(v)) for k, v in d.items()}
@@ -126,21 +158,21 @@ def load_run(path, model=None, metric="primary"):
     return _mean(bucket), _mean(rmse), _mean(brier), data.get("datasets", {})
 
 
-def load_run_seeds(path, model=None, metric="primary"):
+def load_run_seeds(path, model=None, metric="decision"):
     """{dataset: {seed: metric value}}, oriented higher-is-better like
     ``load_run`` -- the per-seed view the agreement read needs. ``load_run``'s
     seed-averaged path is untouched."""
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-    sign = -1.0 if metric in ("brier", "crps") else 1.0
+    tasks = data.get("datasets", {})
     out = defaultdict(dict)
     for r in data["records"]:
         if model is not None and r["model"] != model:
             continue
-        v = r["metrics"].get(metric)
+        v = _judged_value(r, metric, tasks)
         if v is None:
             continue
-        out[r["dataset"]][r.get("seed", 0)] = sign * v
+        out[r["dataset"]][r.get("seed", 0)] = v
     return dict(out)
 
 
@@ -264,11 +296,14 @@ def main():
                     help="restrict to one model's records (e.g. ChimeraBoost).")
     ap.add_argument("--model-new", default=None,
                     help="model name for the NEW run's records (default: --model).")
-    ap.add_argument("--metric", choices=["primary", "brier", "crps"],
-                    default="primary",
-                    help="judge metric; brier = classification only, "
-                         "oriented so NEW wins = lower Brier; crps = "
-                         "quantile_suite.py runs, lower is better too.")
+    ap.add_argument("--metric", choices=["decision", "primary", "brier", "crps"],
+                    default="decision",
+                    help="judge metric. decision (default) = RMSE on "
+                         "regression, Brier on classification -- what every "
+                         "gate scores; primary = the harness field (F1 for "
+                         "classification), the pre-2026-09-22 default; brier "
+                         "= classification only; crps = quantile_suite.py "
+                         "runs. Losses are oriented so NEW wins = lower.")
     ap.add_argument("--keep-near-solved", action="store_true",
                     help="do NOT exclude near-solved datasets from the mean "
                          "(reproduces pre-fix numbers quoted in older plans).")
@@ -299,6 +334,10 @@ def main():
     warn = timing_warning(_load_json(args.base_path), _load_json(args.new_path))
     if warn:
         print(warn + "\n")
+    if args.metric == "decision":
+        print("metric: decision = RMSE (regression) / Brier (classification), "
+              "the gate's own pair; entries before 2026-09-22 were read on "
+              "--metric primary (F1 for classification).\n")
 
     if args.by_suite:
         # One INDEPENDENT sign test per stratum. The decision suites answer
