@@ -1600,8 +1600,8 @@ both: <code>cat_features=["city", "brand"]</code> or <code>cat_features=[0, 3]</
 </tr>
 <tr>
 <td><code>cat_count_features</code></td>
-<td><code>False</code></td>
-<td>Add, for every categorical column with at least 256 training categories, a numeric column holding the category's training-row count (unseen categories read 0 at predict time). A rarity signal for high-cardinality columns; the cross-feature and linear-leaf machinery never see it.</td>
+<td><code>True</code></td>
+<td>Add, for every categorical column with at least 256 training categories, a numeric column holding the category's training-row count (unseen categories read 0 at predict time). A rarity signal for high-cardinality columns; the cross-feature and linear-leaf machinery never see it. Data without such a column is unaffected.</td>
 </tr>
 </tbody>
 </table>

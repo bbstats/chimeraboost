@@ -1353,8 +1353,9 @@ model (see <a href="../faq/#is-the-api-stable">FAQ</a>).</p>
 grows exponentially with depth: at <code>depth=14</code> on 100 features it is about 1.7 GB, and
 <code>depth=16</code> several times that. Raise depth on wide data with the buffer in mind.
 Categorical columns expand before binning (one encoded column per class for multiclass,
-plus pairwise combination columns when <code>cat_combinations</code> is on), and each expanded
-column gets its own histogram slab.</p>
+plus pairwise combination columns when <code>cat_combinations</code> is on, plus one count column
+for each categorical of 256 or more levels while <code>cat_count_features</code> is on), and each
+expanded column gets its own histogram slab.</p>
 
 
 
