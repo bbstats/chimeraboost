@@ -20,8 +20,10 @@ the task file does not list, do not do.
 - `git commit`, `git push`, `git merge`, or check out any other branch.
 - Start a benchmark the task file does not name, or a second one while another
   is running (`benchmarks\bench_status.py` shows what is in flight).
-- Edit files outside the task file's list. `benchmarks/`, `docs/`, README, and
-  any `*_PLAN.md` are Claude's, not yours.
+- Edit files outside the task file's list. `docs/`, README, and any
+  `*_PLAN.md` are Claude's, not yours. `benchmarks/` is yours whenever the
+  task file lists the file: probe scripts, harness tools and their tests.
+  `benchmarks/tabarena/` and its results stay sealed regardless.
 - Touch anything under `benchmarks/tabarena/` or its results. That suite is a
   sealed holdout.
 - Change a default hyperparameter. Defaults change only through the gated
