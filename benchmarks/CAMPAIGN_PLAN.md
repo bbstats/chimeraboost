@@ -306,8 +306,11 @@ next refill: race the binary linear leaf, it costs california 1.73% and
 earns electricity 3.67%). **S3 RESOLVED — KILLED** as a one-set outlier
 (I048; the leaf-floor dedup registered as B21). **S6 RESOLVED — KILLED**
 at S1 (I049; 20W-17L on non-selecting data, ×14 tail; B3's eighth port).
-Muse's sandbox repaired the same afternoon (facts ledger). Next: the
-library rungs S1, then S4's flag.
+Muse's sandbox repaired the same afternoon (facts ledger). **S1 RESOLVED
+— KILLED at its bar** (I050: exact, −8 to −17% predict on string
+categoricals, median 14.75% against 15%; code parked on
+`campaign/s1-predict-cat-lookup` until 2026-09-29 for the maintainer's
+call). Next: S4's flag.
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -407,6 +410,101 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I050 2026-09-22 S1 (predict-time categorical lookup: one C-driven dict pass instead of factorize-then-remap; exact rewrite, muse task, pre-registered)
+why now: I049 closed (PR #148 self-merged at 5cb3432 after green CI);
+the three self-mergeable probes are done (S2, S3, S6 all KILLED). The
+pick order's library rungs are next, S1 first. No campaign PR open, bench
+idle, muse's sandbox repaired. Class: **exact rewrite** (the maintainer's
+preferred class): no code, prediction or fitted value may move. Branch
+`campaign/s1-predict-cat-lookup` from main. Muse task
+`20260922-s1-predict-cat-lookup.md`; its PR waits for the maintainer.
+the object (refill L1, I042, a read-only predict profile, 5 reps,
+wrapped/plain 0.99–1.01): `_codes_for_transform` is 62.4% / 73.3% / 82.7%
+of predict wall clock on kick / okcupid-stem / sf-police; it factorizes
+the whole batch per categorical column, maps the uniques through
+`cat_maps_[j]`, then gathers. For one model the factorization buys
+nothing; a C-driven `map(mapping.get, …)` over the rows gave the same
+codes at 0.49–0.50× in the refill's prototype.
+the exactness design (task file): the direct path applies `factorize`'s
+own missing rule (None, self-unequal, raising `!=` → `"__nan__"`, and
+returns None to fall back whenever the mask is unsafe); it refuses every
+column `_factorize_numeric` would take (a float cast can merge values a
+dict keeps apart, e.g. integers above 2**53), so integer-coded sets keep
+today's path; and it runs only when `_codes_for_transform` receives no
+shared `cat_ctx`, so bagged predict and every fit-time leg (C4a) are
+untouched — fit is byte-for-byte today's code.
+barriers (`barrier_check.py`): B3 on the word "categorical" only — not a
+CatBoost mechanism, our own lookup rewritten with its values asserted
+equal.
+forecast: predict latency **−25 to −40%** on the string-categorical hc
+sets (kick, okcupid-stem, sf-police, Traffic_violations; the object is
+62–83% of predict and converts at ~0.5×, a whole-pass removal of the kind
+that converted ~100% of its ceiling at C4a), porto-seguro (integer-coded,
+refused by design) and Higgs (numeric) flat within ±2%; fit time 0 (fit
+untouched); identity 186/186; all tests green plus the new equality file.
+bars: (a) identity N/N and every test green (else: a bug, not a trade);
+(b) the speed script's arms produce identical outputs on every row;
+(c) predict latency on the string-categorical sets improves by ≥ 15% at
+the median with no panel set slower by more than 3%. Pass ⇒ PR for the
+maintainer. Fail on (c) with (a)(b) intact ⇒ the rewrite is exact but not
+worth its code: KILL and record the ceiling's conversion rate.
+muse pass 1 (exit 0, ~25 min, no sandbox error): `_direct_codes` + the
+call site (+53 lines in preprocessing.py), `tests/test_predict_codes.py`
+(4 tests: edge cases, real hc data, end to end), the speed script.
+Identity 186/186, the suite green outside the sandbox's `\\?\` path quirk.
+First speed read (7 reps, outputs identical every row): kick −9.0%,
+okcupid −16.1%, sf-police −13.5%, Traffic −16.9%, porto −6.2% (its
+categoricals arrive as numeric STRINGS, so the direct path engages — it
+was never a flat control), and Higgs **−25.8% on identical code**. That
+last row is the instrument, not the change: the script timed OFF then ON
+in the same order every repeat, so ON always ran warm. Reviews (Claude +
+`/code-review`, independently, same two findings; neither found a
+correctness bug): (1) numeric-coded categoricals now run
+`_factorize_numeric` twice per predict (the refusal check discards its
+result, then the fallback factorizes again); (2) columns that combo pairs
+or gdiff crosses read later in the same `transform` are now dict-mapped
+AND factorized — strictly more work, and combos are the default on
+all-categorical data. Both are slowdowns the panel could not see (no
+int-coded or all-categorical row). A one-byte stray file `x` in the repo
+root (muse's) was deleted. Follow-up task
+`20260922-s1-predict-cat-lookup-fixes.md`: reuse the numeric result, keep
+combo/gdiff parents on the old path, alternate the timing order, 15
+reps, add `kick-intcoded` and `allcat-combos` rows.
+muse pass 2 (exit 0, ~20 min): both regressions fixed (the numeric probe's
+result reused, one call per column; combo parents and gdiff groups keep
+the old path and fill the cache once), 3 more tests (spies prove one
+`_factorize_numeric` call per numeric categorical and no combo-block
+refactorization), the script alternating order with 15 reps and each
+timing averaged to ~100 ms (a single 13 ms Higgs predict carried a
+first-slow/second-fast overhead that alternation alone did not remove;
+three earlier full runs superseded, their hc rows consistent). Claude's
+checks outside the sandbox: **1149 passed, 1 skipped; identity 186/186;
+`ruff check chimeraboost/` clean**. Final read (15 reps, identical outputs
+every row): Traffic_violations **−17.4%**, okcupid-stem **−15.7%**,
+sf-police **−13.8%**, kick **−8.3%**, porto-seguro −5.6%; controls flat —
+Higgs +0.2%, `kick-intcoded` −1.7%, `allcat-combos` (153 combo pairs
+engaged) −0.2%. Code: +125 / −10 lines in preprocessing.py, including a
+branch that detects whether `_direct_codes` has been monkeypatched (test
+instrumentation inside library code; it would have to go before a merge).
+bars: (a) PASS; (b) PASS; (c) **FAIL by a quarter point**: the median over
+the four string-categorical sets is **14.75%** against ≥ 15%, no set
+slower (the regression clause passes after pass 2).
+forecast: "−25 to −40%" MISSED by half. The refill's 0.49× prototype
+omitted the missing-value mask: the direct path still pays two object-
+array comparison passes (`!=` self, `== None`) to find missing rows, the
+same passes `_factorize_hashed` pays, so the rewrite removes the hashing
+and the gather but not the mask — conversion ≈ 45% of the forecast
+ceiling. Fit 0 (untouched), as forecast.
+verdict: **S1 KILLED at its bar** — exact, but ~14% faster categorical
+predict for ~115 net lines in the busiest module is the "not worth its
+code" case the pre-registration named. The code is PARKED, not deleted, on
+`campaign/s1-predict-cat-lookup` (pushed, no PR, commit "S1 parked"), for
+the maintainer's call; the loop does not reopen it on its own. Dated
+close: if the maintainer has not asked for it by **2026-09-29**, delete
+that branch (local and remote) and strike this line.
+next: **S4's flag** (standardized `diff` for the cross block; a library
+flag for the A/B, muse task, then S2 synth and S3 decide).
 
 #### I049 2026-09-22 S6 S1 (size-gated TS quantization, confirmed on small categorical data that did not select it; zero library change, pre-registered)
 why now: I048 closed (PR #147 self-merged at f290c38). The muse sandbox
