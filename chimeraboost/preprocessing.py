@@ -21,11 +21,13 @@ the optional per-category count columns extend the numeric block, and the
 cross block follows them.
 """
 
+import itertools
+
 import numpy as np
 from numba import njit
 
 from .binning import Binner
-from .target_encoding import OrderedTargetEncoder, factorize
+from .target_encoding import OrderedTargetEncoder, _factorize_numeric, factorize
 
 
 # A count column only pays above the binner's resolution: below it the target
@@ -273,6 +275,50 @@ def _remap_codes(categories, mapping, default):
                        dtype=dtype, count=len(cats))
 
 
+def _direct_hashed(col, mapping):
+    """Per-row codes for a column already ruled non-numeric, or None.
+
+    ``col`` is an object ndarray the caller probed with ``_factorize_numeric``
+    (refused). Same missing-mask contract as ``_factorize_hashed``.
+    """
+    try:
+        miss = np.not_equal(col, col) | np.equal(col, None)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(miss, np.ndarray) or miss.dtype != np.bool_:
+        return None
+    if miss.any():
+        col = col.copy()
+        col[miss] = "__nan__"
+    try:
+        return np.fromiter(
+            map(mapping.get, col.tolist(), itertools.repeat(-1)),
+            dtype=np.int64, count=col.shape[0])
+    except TypeError:
+        return None
+
+
+def _direct_codes(col, mapping):
+    """Per-row fit-time codes via one dict lookup each, or None for factorize.
+
+    Exact for hashed (string) columns: the fit-time dict defines the equality
+    classes, so a direct ``mapping.get`` agrees with factorize-then-remap.
+    None for numeric-accepted columns (float grouping merges ints past 2**53),
+    an unsafe missing mask (the ``_factorize_hashed`` contract), or unhashable
+    values -- the caller uses the existing path.
+
+    The single monkeypatch point disabling the direct path: the speed script
+    and tests replace this with ``lambda col, mapping: None``.
+    """
+    col = np.asarray(col, dtype=object)
+    if _factorize_numeric(col) is not None:
+        return None
+    return _direct_hashed(col, mapping)
+
+
+_DIRECT_CODES_ORIG = _direct_codes
+
+
 class FeaturePreprocessor:
     """Converts raw mixed-type input into integer bins for the tree builder.
 
@@ -511,25 +557,80 @@ class FeaturePreprocessor:
 
         return out
 
-    def _codes_for_transform(self, X, cat_ctx=None):
+    def _direct_ineligible(self):
+        """Categorical columns the direct path must skip in this transform.
+
+        A column read again later through the cache -- a parent of any combo
+        pair or the ``j`` of any gdiff pair -- fills the cache once via the
+        old factorize path so the later block reuses it, instead of paying a
+        dict pass plus a factorize.
+        """
+        skip = set()
+        for f_a, f_b in getattr(self, "combo_pairs_", []):
+            skip.add(f_a)
+            skip.add(f_b)
+        for _i, j, op in getattr(self, "cross_pairs", []):
+            if op == "gdiff":
+                skip.add(j)
+        return skip
+
+    def _try_direct_column(self, X, f, j, codes):
+        """Try the direct path for one eligible column; True when handled.
+
+        Calls ``_factorize_numeric`` once: on success its result is remapped
+        directly (``factorize`` returns exactly that, so no second call); on
+        refusal the hashed direct lookup runs with no second numeric probe.
+        A patched ``_direct_codes`` (speed OFF arm) takes the legacy route.
+        """
+        if _direct_codes is not _DIRECT_CODES_ORIG:
+            direct = _direct_codes(X[:, f], self.cat_maps_[j])
+            if direct is None:
+                return False
+            codes[:, j] = direct
+            return True
+        col = np.asarray(X[:, f], dtype=object)
+        num_res = _factorize_numeric(col)
+        if num_res is not None:
+            c, cats = num_res
+            codes[:, j] = _remap_codes(cats, self.cat_maps_[j], -1)[c]
+            return True
+        direct = _direct_hashed(col, self.cat_maps_[j])
+        if direct is None:
+            return False
+        codes[:, j] = direct
+        return True
+
+    def _codes_with_direct(self, X, cat_ctx):
+        """Base codes allowing direct for columns no later block re-reads."""
+        skip = self._direct_ineligible()
+        codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
+        for j, f in enumerate(self.cat_features_):
+            if f not in skip and self._try_direct_column(X, f, j, codes):
+                continue
+            c, cats = cat_ctx.column(X, f)
+            codes[:, j] = _remap_codes(cats, self.cat_maps_[j], -1)[c]
+        return codes
+
+    def _codes_for_transform(self, X, cat_ctx=None, allow_direct=None):
         """Map categorical columns to the codes learned at fit time.
 
-        Unseen categories get -1, and the encoder falls back to the prior. Each
-        column is factorized once and only its unique values pass through the
-        fit-time dict; a shared ``cat_ctx`` reuses that factorization across
-        bagged members too.
+        Unseen categories get -1, and the encoder falls back to the prior.
+        Single-model transforms allow the direct path (``allow_direct``) for
+        columns no later block re-reads; a shared ``cat_ctx`` factorizes once
+        and reuses it across bagged members too.
         """
         if not self.cat_features_:
             return np.empty((X.shape[0], 0), dtype=np.int64)
-
+        if allow_direct is None:
+            allow_direct = cat_ctx is None
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
-
+        if allow_direct:
+            return self._codes_with_direct(X, cat_ctx)
         codes = np.empty((X.shape[0], len(self.cat_features_)), dtype=np.int64)
         for j, f in enumerate(self.cat_features_):
             c, cats = cat_ctx.column(X, f)
             codes[:, j] = _remap_codes(cats, self.cat_maps_[j], -1)[c]
-
         return codes
 
     def _fit_count_tables(self, codes, all_cats=None, sample_weight=None):
@@ -732,13 +833,17 @@ class FeaturePreprocessor:
         """
         if cat_ctx is None:
             cat_ctx = CatTransformCache()
+            base_direct = True
+        else:
+            base_direct = False
 
         # Hoisted above the numeric block: the same fit-time-code lookup
         # the encoder block below needs (bit-identical: same inputs, same
         # function). The count block reads its columns from it too.
         tf_codes = None
         if self.cat_features_:
-            tf_codes = self._codes_for_transform(X, cat_ctx)
+            tf_codes = self._codes_for_transform(
+                X, cat_ctx, allow_direct=base_direct)
 
         num = self._numeric_block(X, cat_ctx)
         if getattr(self, "count_features_", []):
