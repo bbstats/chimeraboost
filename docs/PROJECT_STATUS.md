@@ -38,6 +38,9 @@ Core design choices (all deliberate, all validated):
   oblivious design.
 - **Ordered Target Statistics** for categoricals (`OrderedTargetEncoder`,
   multi-permutation, `n_permutations=4` like CatBoost).
+- **Count columns** for categoricals of 256+ levels (`cat_count_features`, on by
+  default since 2026-09-22): each category's training-row count, the rarity signal
+  CatBoost's three-prior CTR carries and a single target statistic does not.
 - **Leave-one-out (LOO) leaf correction** as our tractable stand-in for CatBoost's
   ordered boosting (true ordered boosting needs O(log n) model snapshots; not doable as
   post-processing — see §5).

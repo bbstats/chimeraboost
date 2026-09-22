@@ -1068,9 +1068,12 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # it on when --chimera-cat-combinations is passed.
     if cat_combinations:
         kw["cat_combinations"] = True
-    # CAMPAIGN F5 (I038): the opt-in count column for categoricals of
-    # cardinality >= 256; a plain False means "don't override" like the rest.
-    if cat_count_features:
+    # Default-ON since CAMPAIGN_PLAN I046, so the useful override is "off"
+    # (the ChimeraBoostNoCatCount control arm below). A plain False still
+    # means "don't override the class default", as for the other knobs.
+    if cat_count_features == "off":
+        kw["cat_count_features"] = False
+    elif cat_count_features:
         kw["cat_count_features"] = True
     if linear_leaves == "auto":
         # Regressor: linear_leaves=None = validation-selected (fit both, keep
@@ -1301,9 +1304,26 @@ def _run_chimera_catcount(task, Xtr, ytr, Xte, yte, cat, threads):
 def _run_chimera_catcount_lib(task, Xtr, ytr, Xte, yte, cat, threads):
     """The default with the library's `cat_count_features=True`: a count
     column for every categorical of cardinality >= 256, inside the numeric
-    block, invisible to the cross and linear-leaf races (I038)."""
+    block, invisible to the cross and linear-leaf races (I038). Identical
+    to the default since I046 turned `cat_count_features` on; kept so the
+    I039 and I046 results keep their label."""
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
                         cat_count_features=True)
+
+
+def _run_chimera_no_catcount(task, Xtr, ytr, Xte, yte, cat, threads):
+    """Defaults + the PRE-I046 count-column default (no count column).
+
+    The count column became the default in CAMPAIGN_PLAN I046, so this is
+    now the control arm rather than the treatment: identical to
+    `ChimeraBoost` except that no per-category count column is appended.
+    On every dataset without a categorical column of 256+ levels the two
+    arms are byte-identical. Run it in the SAME benchmark as the default
+    arm so the A/B pairing carries no machine-condition drift (the Sel25 /
+    refit_members precedent).
+    """
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        cat_count_features="off")
 
 
 def _run_chimera_xtop6(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -1528,6 +1548,7 @@ RUNNERS = {
     "ChimeraBoostXTop12": _run_chimera_xtop12,
     "ChimeraBoostCatCount": _run_chimera_catcount,
     "ChimeraBoostCatCountLib": _run_chimera_catcount_lib,
+    "ChimeraBoostNoCatCount": _run_chimera_no_catcount,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -1548,7 +1569,8 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
                    "ChimeraBoostXTop6", "ChimeraBoostXTop12",
-                   "ChimeraBoostCatCount", "ChimeraBoostCatCountLib")
+                   "ChimeraBoostCatCount", "ChimeraBoostCatCountLib",
+                   "ChimeraBoostNoCatCount")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
@@ -1973,8 +1995,13 @@ def main():
     ap.add_argument("--chimera-cat-counts", dest="cat_count_features",
                     action="store_true",
                     help="ChimeraBoost: cat_count_features=True (a count column "
-                         "for every categorical of cardinality >= 256; "
-                         "CAMPAIGN_PLAN I038).")
+                         "for every categorical of cardinality >= 256; the "
+                         "library default since CAMPAIGN_PLAN I046, kept so "
+                         "older command lines reproduce).")
+    ap.add_argument("--chimera-no-cat-counts", action="store_true",
+                    dest="no_cat_count_features",
+                    help="ChimeraBoost: force cat_count_features=False, the "
+                         "pre-I046 default (CAMPAIGN_PLAN I046 control arm).")
     ap.add_argument("--chimera-cat-smoothing", type=float, default=None,
                     dest="cat_smoothing",
                     help="Bayesian pseudocount in the ordered target-statistic "
@@ -2051,6 +2078,9 @@ def main():
     models_err = check_models_arg(args.models, RUNNERS)
     if models_err:
         ap.error(models_err)
+    if args.cat_count_features and args.no_cat_count_features:
+        ap.error("--chimera-cat-counts and --chimera-no-cat-counts cannot "
+                 "both be given.")
 
     # --decide is the decision tier: both suites in one run. They stay separate
     # STRATA in every report (CLAUDE.md requires them sign-tested apart); the
@@ -2174,7 +2204,8 @@ def main():
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        colsample=args.chimera_colsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
-                       cat_count_features=args.cat_count_features,
+                       cat_count_features="off" if args.no_cat_count_features
+                       else args.cat_count_features,
                        cat_smoothing=args.cat_smoothing,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto

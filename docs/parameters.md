@@ -49,7 +49,7 @@ both: `cat_features=["city", "brand"]` or `cat_features=[0, 3]`.
 | `cat_smoothing` | `1.0` | Prior strength for ordered target statistics. Higher shrinks rare categories toward the global mean. Must be `> 0`. |
 | `cat_n_permutations` | `4` | Random orderings averaged by the ordered target encoder. |
 | `cat_combinations` | `None`→auto | Add all pairwise category-by-category features. `None` turns them on only when every column is categorical, where they help without crowding out numeric splits. Auto is skipped for very wide all-categorical data, since the number of pairs grows quadratically; pass `True` there if you want them anyway. See the User Guide: [categorical features](recipes.md#categorical-features). |
-| `cat_count_features` | `False` | Add, for every categorical column with at least 256 training categories, a numeric column holding the category's training-row count (unseen categories read 0 at predict time). A rarity signal for high-cardinality columns; the cross-feature and linear-leaf machinery never see it. |
+| `cat_count_features` | `True` | Add, for every categorical column with at least 256 training categories, a numeric column holding the category's training-row count (unseen categories read 0 at predict time). A rarity signal for high-cardinality columns; the cross-feature and linear-leaf machinery never see it. Data without such a column is unaffected. |
 
 ## Loss (regressor only)
 
