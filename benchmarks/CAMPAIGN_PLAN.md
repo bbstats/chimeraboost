@@ -101,6 +101,7 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | letting linear leaves use the TS columns (I041, 14 hc sets × 3 seeds, paired): multiclass 4/4 exact ties (no linear leaves), binary 1W-3L (kick −0.76%, sf-police −0.03%, kdd +1.03%), regression 3W-1L-2T (colleges +0.74%, employee_salaries +0.78%); the unraced binary leaf over-trusts an in-sample statistic, the raced regression leaf does not
 fact: 2026-09-22 | per-column ANOVA variance-ratio shrinkage for the ordered TS (I040, 7 hc clf sets × 3 seeds): the estimator asks for λ in the hundreds on high-card columns (singletons make the between-variance estimate noise) and collapses kdd_ipums −3.8% / eucalyptus −9.6%; clipped to [1, 10] it pins at 10 everywhere and reads +0.20% median on the gap sets vs the count column's +0.19% on the same splits, but sf-police +0.22 vs +0.67, Traffic +0.20 vs +1.04, and eucalyptus −5.4%
 fact: 2026-09-22 | `cat_count_features=True` (library form, card ≥ 256, outside the cross / linear races) on --decide, 3 seeds (I039): gr 0-0-59 exact ties; hc 7 non-qualifying sets exact ties, engaged 7 = 6W-1L, median +0.20% [+0.02..+0.76]; sf-police +0.73% / Traffic +0.86% / kick +0.35% Brier, employee_salaries +2.45% / wine-reviews +0.56% RMSE; hc@time 4-0 incl. sf-police@time +1.40%; engaged fit ratio median 1.165, harness hc ×1.09
 fact: 2026-09-22 | S3 of the ungated count column (I037, --decide, 3 seeds): gr 0-0-59 exact ties; hc RMSE/Brier 9W-4L, median +0.07%, sf-police +0.88% / Traffic +0.81% / wine-reviews +0.67% Brier-RMSE, kdd_ipums −3.28% unanimous; hc fit ×1.47 (sf-police 2.58× on one added column, wine-reviews 2.59× with fewer trees) because appended numerics enter the cross-feature and linear-leaf races; sf-police@time −3.47%
@@ -260,6 +261,7 @@ and Traffic_violations' unexplained response to uniform re-weighting).
 R2–R8 and H stay queued; F4's C4 and C3 go next under the ranking above.
 2026-09-22: **R2 RESOLVED — KILLED** at S0+S1 (I032, barrier B19): the smoothed-argmin half had been probed and killed on 2026-07-13 and never registered; the 1-SE / tolerance half loses strength in proportion to the rounds it saves on 20 of 21 sets. H(1), H(4), H(5) DONE (I030, I031). Next: R3.
 2026-09-22: **R3 RESOLVED — mechanism named** (I033, Stage A+B, 168 CatBoost/Chimera fits): the hc edge is the target CTR's arithmetic, specifically its constant shrinkage target (0.5) against our global-mean prior; Counter, extra priors, permutations and quantization cleared. F5 ACTIVE. Next: Stage C on our encoder (zero library change), then R4.
+2026-09-22: **R4 RESOLVED — KILLED** at S1 (I041): TS columns as linear-leaf terms read 4W-4L on the 8 engaged hc sets, sf-police −0.03%, kick −0.76% (unraced binary linear leaves over-trust an in-sample statistic); the four multiclass sets exact ties. F5's count column is at S4 awaiting the maintainer (I039, I040). Non-knob shortlist items exhausted; refill due.
 
 Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
 literature mechanisms, L3 opponent ablation, L4 harness measurement),
@@ -285,6 +287,93 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I041 2026-09-22 R4 S0+S1 (target-statistic columns as linear-leaf terms; zero library change, pre-registered)
+why now: I040's `next:`. PR #139 self-merged at cc4308e, no campaign PR
+open, no run in flight; the maintainer has not called for S4 on the count
+column, so the loop takes the next shortlist item. R4 is the last
+non-knob mechanism on the list. Class: **zero-library probe of a
+candidate default change** (monkeypatch), `benchmarks/` only. Branch
+`campaign/r4-ts-linear-terms` from main.
+the mechanism (shortlist R4, lens L1): `_build_centers_std` zeroes every
+column whose `is_numeric_binned_` is False, so `_fit_linear_leaf_tail`
+can never pick a target-statistic column as a ridge term. On sf-police
+(5 of 6 columns categorical) the "linear" leaf has ONE usable column; on
+wine-reviews 1 of 10. The TS values are ordinal in the target by
+construction, so a linear term over them is well posed. Probe
+`benchmarks/probe_ts_linear_terms.py`: all 14 hc sets × 3 seeds, paired
+splits, `default` vs `ts_linear` (the TS and combo blocks marked
+linear-eligible after `fit_transform` / `from_base_with_cross`). Binary
+sets engage (linear leaves are the binary default), regression sets
+engage through the const-vs-linear race, and the **four multiclass sets
+cannot engage** (no linear leaves there) — the in-run inert control,
+exact ties required.
+barrier: B3 — not a port (CatBoost has no linear leaves). B1 — the race
+and the linear default are gated by row count; sets below the gate are
+inert and read as ties, which is the control, not a problem. B14 — the
+race budget is untouched. B18 — the encoder is untouched; this changes
+what the LEAVES may do with its output. The shortlist's own risk stands:
+the ridge coefficients are fit on TS values that are in-sample for the
+rows they were computed on (the ordered prefix mitigates, as it does for
+the splits), so a linear term could over-trust them where a split would
+not.
+forecast, before the run: binary — sf-police **+0.1 to +0.5%** (the one
+set where the linear leaf is starved), kick 0 to +0.3%, porto and
+kdd_ipums within ±0.2%; regression — wine-reviews 0 to +0.4%, the rest
+within ±0.3% (the race picks constant leaves where linear ones do not
+pay, so a loss there means the race was fooled in-sample); multiclass
+**four exact ties**; fit ratio 1.0–1.1 (a ridge over a few more
+columns). The shortlist's "+2 to +4 hc points" I do not believe: splits
+already read the TS ordinally, and a leaf-level slope on the same column
+adds little a deeper split would not. Where I could be wrong: on
+cat-dominated sets the linear leaf currently fits a slope on ONE
+numeric column and the race still picks it — if the race is picking a
+degenerate model, giving it the TS columns could be a real change.
+bars: (a) control — the four multiclass sets exact ties; (b) direction —
+engaged (binary + regression, ≤ 10 sets) wins ≥ half + 1 with median >
+0, sf-police positive; (c) cost — fit ratio median ≤ 1.10. Pass ⇒ S2
+synth (a flag in the library would be needed for the harness arm — the
+same shape as I038's, a muse task); fail ⇒ R4 KILLED at S1, the
+shortlist closed but for the knob items R5–R8.
+cost: 84 fits ≈ 6 min.
+ran: 84 fits, ~7 min; `results/probe-ts-linear-terms.jsonl` +
+`-20260922.log`. d% vs the default, + = better (RMSE / Brier):
+  binary      sf-police −0.03%   kick −0.76%   porto −0.06%   kdd_ipums +1.03%
+              → 1W-3L, median −0.05%, fit ratio median 1.03
+  regression  wine-reviews +0.09%   colleges +0.74%   employee_salaries +0.78%
+              black_friday −0.03%   house_prices / Moneyball exact ties
+              → 3W-1L-2T, median +0.04%, fit ratio median 0.96
+  multiclass  okcupid / Traffic / cjs / eucalyptus **exact ties** (4/4)
+read: bar (a) control **PASS** — the four multiclass sets are exact
+ties, and so are the two regression sets where the race picked constant
+leaves (house_prices, Moneyball): the change engages only where linear
+leaves exist, as claimed. Bar (b) direction **FAIL** — engaged 8 sets
+**4W-4L**, median +0.03%, and sf-police, the set the mechanism was
+named for, reads −0.03%. Bar (c) cost PASS (1.03 / 0.96). The pattern
+is the shortlist's own risk realized: on BINARY sets linear leaves are
+always on (no race), and handing them TS columns hurts kick by 0.76% —
+a ridge slope on an in-sample target statistic over-trusts it where a
+split does not; on REGRESSION the const-vs-linear race protects the
+choice and two sets gain +0.7% (colleges, employee_salaries). That
+regression-only read (3W-1L on 4 engaged) is a pointer, not a result —
+recorded, not chased: it would need its own flag and the race's
+protection is exactly what makes it safe, so it cannot become the
+binary default. Forecast: control HIT, cost HIT, sf-police MISSED (I
+said +0.1 to +0.5), kick MISSED (−0.76 against 0 to +0.3), kdd +1.03
+MISSED the other way, the shortlist's "+2 to +4 hc points" nowhere.
+verdict: **KILL R4 at S1.** The linear leaf is not starved on
+cat-dominated sets in any way that feeding it the TS columns fixes;
+where it is not raced it over-trusts them. Shortlist R4 marked KILLED.
+Self-merged: `benchmarks/` only.
+next: the shortlist's non-knob items are exhausted (R1, R2, R3, R4
+resolved; H(1)(4)(5) done). Left: R5–R8 (each adds a flag; the
+maintainer's ranking puts them last), H(2)(3) (harness cost / transfer
+instruments, low value now), and **S4 for the count column, which
+needs his go**. Beam state: F4 exhausted, F5 at S4 awaiting the pick,
+everything else killed — the staleness rule (only blocked-on-sign-off
+work left) says **a refill is due**: four read-only lens subagents,
+funnelled through `barrier_check.py`, survivors to the maintainer. That
+is the next rung unless he calls S4 first.
 
 #### I040 2026-09-22 F5 (per-column calibrated shrinkage for the ordered TS — the random-effects form of the count column; zero library change, pre-registered)
 why now: PR #138 (the opt-in count column) merged by the maintainer at
