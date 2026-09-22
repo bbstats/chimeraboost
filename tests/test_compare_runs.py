@@ -136,3 +136,48 @@ def test_regression_guard_uses_nrmse_not_raw_rmse(pair, capsys, monkeypatch):
             if l and l.split()[0].startswith("reg_")}
     assert "near-solved" in rows["reg_solved"]
     assert "near-solved" not in rows["reg_real"]
+
+
+# --------------------------------------------------------------------------
+# POINTER label (GATE_ROBUSTNESS.md #2): a stratum with fewer than 8 decided
+# datasets cannot separate a regression from noise, so every sign-test line
+# says so. Print-only -- the PASS/FAIL word never changes.
+# --------------------------------------------------------------------------
+def _write_many(tmp_path, name, n_decided, n_ties, shift):
+    """One run JSON with ``n_decided`` binary sets that move by ``shift`` and
+    ``n_ties`` that do not; Brier 0.2 keeps every set clear of near-solved."""
+    datasets, records = {}, []
+    for i in range(n_decided + n_ties):
+        ds = f"set{i:02d}"
+        datasets[ds] = {"task": "binary"}
+        b = 0.20 + (shift if i < n_decided else 0.0)
+        records.append({"dataset": ds, "model": "M", "seed": 0, "fit_time": 1.0,
+                        "metrics": {"primary": 1.0 - b, "brier": b}})
+    path = os.path.join(str(tmp_path), name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"datasets": datasets, "records": records}, fh)
+    return path
+
+
+def test_pointer_label_marks_small_strata_and_keeps_the_verdict(
+        tmp_path, capsys, monkeypatch):
+    base = _write_many(tmp_path, "b.json", n_decided=4, n_ties=6, shift=0.0)
+    new = _write_many(tmp_path, "n.json", n_decided=4, n_ties=6, shift=-0.01)
+    out = _main(capsys, monkeypatch, [base, new, "BASE", "NEW", "--model", "M"])
+    bar = [l for l in out.splitlines() if l.startswith("sign-test bar")][0]
+    # 4 wins of 10 is under the bar: the word is FAIL exactly as before...
+    assert "FAIL" in bar
+    # ...and the line says it is a pointer, with the decided count (ties are
+    # the inert slice, so they are not decided).
+    assert "[POINTER, not a gate: 4 decided < 8]" in bar
+    engaged = [l for l in out.splitlines() if "engaged only" in l][0]
+    assert "PASS" in engaged and "4 decided < 8" in engaged
+
+
+def test_pointer_label_absent_at_eight_decided(tmp_path, capsys, monkeypatch):
+    base = _write_many(tmp_path, "b.json", n_decided=8, n_ties=0, shift=0.0)
+    new = _write_many(tmp_path, "n.json", n_decided=8, n_ties=0, shift=-0.01)
+    out = _main(capsys, monkeypatch, [base, new, "BASE", "NEW", "--model", "M"])
+    assert "POINTER" not in out
+    assert compare_runs.pointer_label(8) == ""
+    assert "7 decided < 8" in compare_runs.pointer_label(7)

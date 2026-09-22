@@ -1775,6 +1775,44 @@ class _Progress:
         self._write("done", self.total)
 
 
+def resolve_save_path(arg, results_dir, stamp):
+    """Where ``--save`` writes.
+
+    ``"auto"`` is the stamped file under ``results_dir``. A bare name -- no
+    directory part -- lands under ``results_dir`` too, and a name without an
+    extension gets ``.txt``: ``--save campaign-base`` once wrote
+    ``campaign-base`` and ``campaign-base.json`` into the shell's CWD, because
+    the JSON path is derived by swapping the tee file's extension (CAMPAIGN_PLAN
+    I003). A path with a directory part is used as given.
+    """
+    if arg == "auto":
+        return os.path.join(results_dir, f"{stamp}.txt")
+    head, tail = os.path.split(arg)
+    if not os.path.splitext(tail)[1]:
+        tail += ".txt"
+    return os.path.join(head, tail) if head else os.path.join(results_dir, tail)
+
+
+def check_models_arg(models, runners):
+    """The two ``--models`` mistakes, named before anything is opened.
+
+    Returns an error message or None. ``ChimeraBoost`` is the baseline every
+    comparison is read against, so a field without it is a usage error; an
+    unknown runner name is a typo. Both used to surface only after the
+    ``--save`` tee had been created, leaving an empty ``<stamp>.txt`` in
+    results/ (CAMPAIGN_PLAN facts, 2026-09-21).
+    """
+    if not models:
+        return None
+    unknown = set(models) - set(runners)
+    if unknown:
+        return f"Unknown models: {sorted(unknown)}. Available: {list(runners)}"
+    if "ChimeraBoost" not in models:
+        return ("ChimeraBoost must be one of the models (it is the baseline "
+                "every comparison is read against).")
+    return None
+
+
 def main():
     global PATIENCE, ENSEMBLE_N
     ap = argparse.ArgumentParser()
@@ -1947,6 +1985,12 @@ def main():
                           "under benchmarks/results/."))
     args = ap.parse_args()
 
+    # Argument mistakes are reported before the --save tee opens a file, so a
+    # usage error cannot leave an empty results file behind.
+    models_err = check_models_arg(args.models, RUNNERS)
+    if models_err:
+        ap.error(models_err)
+
     # --decide is the decision tier: both suites in one run. They stay separate
     # STRATA in every report (CLAUDE.md requires them sign-tested apart); the
     # flag only removes the need to launch two runs by hand.
@@ -1959,13 +2003,10 @@ def main():
     tee = None
     if args.save is not None:
         import sys, datetime
-        if args.save == "auto":
-            results_dir = os.path.join(os.path.dirname(__file__), "results")
-            os.makedirs(results_dir, exist_ok=True)
-            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            save_path = os.path.join(results_dir, f"{stamp}.txt")
-        else:
-            save_path = args.save
+        results_dir = os.path.join(os.path.dirname(__file__), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        save_path = resolve_save_path(args.save, results_dir, stamp)
         tee_file = open(save_path, "w", encoding="utf-8")
         real_stdout = sys.stdout
         class _Tee:
@@ -2056,9 +2097,6 @@ def main():
                  + [m for m in _OFF_BY_DEFAULT if not HAVE.get(m.lower(), False)]
                  + [m for m in _OPTIONAL if HAVE[m.lower()]])
     if args.models:
-        unknown = set(args.models) - set(RUNNERS)
-        if unknown:
-            ap.error(f"Unknown models: {unknown}. Available: {list(RUNNERS)}")
         model_names = [m for m in args.models if m in available]
     else:
         model_names = [m for m in available if m not in _OFF_BY_DEFAULT

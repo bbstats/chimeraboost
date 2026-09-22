@@ -133,7 +133,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | id | family | status | next |
 |----|--------|--------|------|
 | F1 | Cross-feature cost trim v2 | KILLED 2026-08-16 (S2, I007+I008) | none — closed as barrier B16 |
-| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 shipped; C3 in PR; measured objects exhausted) | **C3 in PR (I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
+| F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
@@ -266,13 +266,71 @@ Mark the entrants (up to 5) and the loop resumes with their S0.
 | R6 | Ridge base margin (L2) | regression sets with a global linear trend | per-row init from a ridge on the numeric block instead of a scalar; `linear_leaves` is local and cannot carry a global trend | B14/B16 keyword only | zero-library: sklearn Ridge → residual → ChimeraBoost vs default on the regression panel | mixed-positive; Grinsztajn curates against linear tasks |
 | R7 | Refit gate on flat ES curves (L1) | 7 gr sets where NoRefit beats the default, 4 of them CatBoost losses (heloc, bank-marketing, default-of-credit, compas) | decline the 1.25× replay refit when the curve is flat at T* | **B13 and B2 bite** (the replay curve making a selection decision); clearing argument is thin: one bit, not a grid | analysis of existing JSONs first (which curve-shape statistic separates the 7 from the 52) | high ceiling (+5 gr points), low confidence: refit is 52W-7L |
 | R8 | Raced monotone target transform (L2) | skewed regression targets (houses, Brazilian_houses, nyc-taxi, diamonds) | race identity vs log1p / Yeo-Johnson on the ES split | B12 (cost), B14/B17 keyword | script: oracle headroom + pick fidelity (the E2 pattern); kill if oracle < +0.5% RMSE median | real oracle headroom on 4–8 sets; back-transform bias + cost the likely killer |
-| H | **Harness instruments** (L4), muse rungs, no ship gate | the loop's own decisions | (1) engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs` (3 h; I020/I021 gated on a number no tool prints); (2) probe→decide transfer footer: panel coverage + shipped-mode vs oracle read (5 h; the I019→I021 miss); (3) cost column in `compare_runs`, refused when not decision-grade (2 h); (4) POINTER label for strata under 8 decided sets (1 h); (5) `--save`/`--models` argparse guards (1 h) | none | each validated by re-reading `results/20260921-080246.json` to reproduce I021's hand-written verdict | prevents the wrong decision rather than moving the chart; (1), (4), (5) recommended regardless of the beam pick |
+| H | **Harness instruments** (L4), muse rungs, no ship gate | the loop's own decisions | (1) engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs` (3 h; I020/I021 gated on a number no tool prints); (2) probe→decide transfer footer: panel coverage + shipped-mode vs oracle read (5 h; the I019→I021 miss); (3) cost column in `compare_runs`, refused when not decision-grade (2 h); (4) DONE I030 — POINTER label for strata under 8 decided sets; (5) DONE I030 — `--save`/`--models` argparse guards | none | each validated by re-reading `results/20260921-080246.json` to reproduce I021's hand-written verdict | prevents the wrong decision rather than moving the chart; (1), (4), (5) recommended regardless of the beam pick |
 
 Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low priors, B6/C4 adjacent); Counter/frequency column on its own (B3 hard; goes through R3 first); `cpu_act@sus25` and `eucalyptus@time` outliers (one win each, seed-unstable); random_strength / Bayesian bootstrap / DART-class noise (killed by the SMALLDATA ablation, ≈1 point).
 
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I030 2026-09-21 H(4)+H(5) harness instruments (POINTER label; --save / --models guards; pre-registered)
+why now: I029's `next:`. PR #127 (C3) merged by the maintainer at c9c0f3d,
+no campaign PR open, no run in flight. F4's measured exact-rewrite objects
+are exhausted, so the shortlist queue takes over, harness items first under
+the maintainer's ranking (defect fixes and zero-cost instruments before
+anything that adds a knob). Class: **harness / measurement** — never touches
+the ship gate; gated on anchors (the existing I021 decide JSON re-read
+before and after, verdict words unchanged) and the test suite. Implemented
+by Claude, not muse: `AGENTS.md` reserves `benchmarks/` for Claude and the
+shortlist's proposal to widen that is the maintainer's call, so a muse task
+here would have violated the worker's standing rules. Branch
+`campaign/h4-h5-harness-guards` from main.
+H(4), `compare_runs.py`: every sign-test line (the bar, the near-solved
+sub-bar, the engaged-only bar) carries `[POINTER, not a gate: n decided <
+8]` when wins + losses is under `POINTER_MIN_DECIDED = 8`
+(GATE_ROBUSTNESS #2). Ties are the inert slice, not evidence, so they do not
+count as decided. Print-only: the PASS/FAIL word is unchanged, so every
+verdict recorded in this file still matches the tool's output.
+H(5), `run_benchmarks.py`: (a) `--save NAME` with no directory part lands
+under `benchmarks/results/`, and a name without an extension gets `.txt`,
+so the derived `.json` lands beside it — the I003 trap (a bare name wrote
+two files into the shell's CWD) closed at the source; a path with a
+directory is used as given; `--save` alone is unchanged. (b) the `--models`
+checks (unknown runner; `ChimeraBoost` missing) run right after argparse,
+before the tee opens, so a usage error can no longer leave an empty
+`<stamp>.txt` in results/ (facts ledger, 2026-09-21).
+forecast: no chart axis moves, by construction. Anchor: the I021 read
+(`compare_runs.py results/20260921-080246.json ×2 --by-suite --model
+ChimeraBoostOneLin --model-new ChimeraBoostOneLinXC --expect-inert`) must
+print byte-identical output except for POINTER suffixes, which must appear
+on exactly the strata I021 called pointers by hand (hc 4 engaged, gr@sus25
+4, gr@sus50 2, hc@sus25 0, hc@sus50 0, hc@time 2 engaged) and on none of
+the two bars with ≥ 8 decided (gr all-dataset 23, gr engaged 23).
+kill: any verdict word changes on the anchor; the suite not green; a
+`--save` path with a directory part being rewritten.
+ran: both edits, then the anchor re-read. `diff` of the I021 read before
+and after: 13 lines differ, every one a sign-test line with a POINTER suffix
+appended and nothing else — hc (4 decided), gr@sus25 (4), gr@sus50 (2),
+hc@sus25 (0), hc@sus50 (0), hc@time (2), on the bar, the near-solved
+sub-bar and the engaged-only bar of each; the two Grinsztajn bars (23
+decided) carry no suffix; every PASS/FAIL word unchanged. Exactly the
+strata I021 called pointers by hand. Ruff on the two scripts: the same 7 +
+13 pre-existing hits as on main (`_report` was already C901 11, `main` 51),
+nothing new. Tests: 2 new in `test_compare_runs.py` (label present at 4
+decided with ties not counted, verdict word kept; absent at 8) and 6 in the
+new `tests/test_harness_guards.py` (the four `--save` shapes; both
+`--models` mistakes named; a `--models` usage error exits 2 before the tee
+file exists). Full suite green (see the PR).
+verdict: **PASS → PR**. Anchor HIT exactly as pre-registered, no verdict
+word moved, no `--save` path with a directory rewritten. Not
+self-merged: the PR touches `tests/`, which stays the maintainer's under
+the 2026-09-21 rule, so it waits for him like a library change would.
+Shortlist H row: (4) and (5) done; (1), (2), (3) remain.
+next: **H(1)** — engaged-slice median + bootstrap CI + per-seed agreement
+in `compare_runs` (3 h; I020/I021 gated on a number no tool prints). Then
+**R2** (1-SE / smoothed early-stopping round, zero-library probe), then
+R3. One campaign PR at a time: H(1) waits for this one to merge.
 
 #### I029 2026-09-21 F4 S0+S1 (candidate C3 — the binary Logloss layer; muse task, pre-registered)
 why now: I028's `next:`. PR #126 (C4a-2) merged by the maintainer at

@@ -164,6 +164,22 @@ def _warn_pooled_strata(ds_names):
           f"{bar}\n")
 
 
+# A stratum with fewer decided datasets than this cannot separate a real
+# regression from noise (benchmarks/GATE_ROBUSTNESS.md #2: SMALLDATA's hc:time
+# FAIL on 7 sets later measured 21W-21L). Decided = wins + losses; exact ties
+# are the inert slice, not evidence either way. The label is print-only: the
+# PASS/FAIL word stays so verdicts recorded in older plan files still match.
+POINTER_MIN_DECIDED = 8
+
+
+def pointer_label(decided):
+    """The suffix a sign-test line carries when it is a pointer, not a gate."""
+    if decided >= POINTER_MIN_DECIDED:
+        return ""
+    return (f"   [POINTER, not a gate: {decided} decided "
+            f"< {POINTER_MIN_DECIDED}]")
+
+
 def _sign_counts(pairs):
     """(wins, losses, ties) over (base, new) pairs on a higher-is-better metric."""
     wins = sum(1 for b, n in pairs if n - b > 1e-9)
@@ -303,7 +319,8 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
 
     need = n_ds // 2 + 1
     verdict = "PASS" if wins >= need else "FAIL"
-    print(f"sign-test bar (> half = {need}+ wins): {verdict}")
+    print(f"sign-test bar (> half = {need}+ wins): {verdict}"
+          + pointer_label(wins + losses))
 
     # Diagnostic only: the bar above intentionally stays over ALL datasets so
     # this guard cannot silently flip a verdict recorded in an older plan file.
@@ -314,7 +331,7 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
         k_verdict = "PASS" if kw >= k_need else "FAIL"
         note = "" if k_verdict == verdict else "   <-- DISAGREES with the bar above"
         print(f"  (excluding near-solved: {kw} wins / {kl} losses / {kt} ties, "
-              f"bar {k_need}+ = {k_verdict}){note}")
+              f"bar {k_need}+ = {k_verdict}){note}" + pointer_label(kw + kl))
 
     _control_line(shared, all_pairs, ties, args)
 
@@ -357,7 +374,8 @@ def _control_line(shared, all_pairs, ties, args):
         e_verdict = "PASS" if ew >= e_need else "FAIL"
         plural = "dataset" if len(engaged) == 1 else "datasets"
         print(f"  engaged only ({len(engaged)} {plural}): {ew} wins / {el} losses, "
-              f"bar {e_need}+ = {e_verdict}   <-- 'when it engaged, did it help?'")
+              f"bar {e_need}+ = {e_verdict}   <-- 'when it engaged, did it help?'"
+              + pointer_label(ew + el))
 
 
 if __name__ == "__main__":
