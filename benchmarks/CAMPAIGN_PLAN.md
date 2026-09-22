@@ -101,6 +101,9 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | CatBoost 1.2.10 CPU defaults as actually run here (`get_all_params()`, binary and multiclass): `max_ctr_complexity=1` (NO cat×cat CTR combinations), `one_hot_max_size=2`, per categorical two simple CTRs — `Borders` (target statistic, 15 borders, priors 0/0.5/1 ⇒ 3 columns) and `Counter` (frequency, prior 0, `counter_calc_method=SkipTest`), `boosting_type=Plain`, `bootstrap_type` MVS (binary) / Bayesian (multiclass)
+fact: 2026-09-22 | CatBoost hc ablation (I033, 7 hc clf sets × 3 seeds): removing its target CTR drops it 1–7% of Brier BELOW our default on 4 of 5 gap sets; removing the Counter, collapsing to one prior, or fixing one permutation each give back ≤ 12% of its edge at the median; a zero shrinkage target instead of 0.5 gives back 21–74% on the four real gap sets
+fact: 2026-09-22 | CatBoost paired single fits on the hc classification sets average 27 s at the harness config (2000 iters, patience 50); a 7-set × 3-seed × 4-arm ablation is ~30 min, not hours
 fact: 2026-09-21 | harness rule: `--models` must include `ChimeraBoost` (the baseline) or run_benchmarks exits 2 at argparse; a stray `<stamp>.txt` tee is left in results/ when that happens
 fact: 2026-09-21 | main settled at 486e563. PRs #116–#119 (F3 S1/S2/S3 + the refill shortlist) were each merged into the rung branch below them rather than into main — stacked PR bases, and the base branches were not deleted on merge, so GitHub never retargeted them; main received only #115. Recovered the same morning as PR #120 (the four commits, unchanged). The PR #56 trap a second time. Rule since: every rung branch is cut from main, PR base is always main, one campaign PR open at a time (now step 0 of the `campaign-step` skill). A stale local main hid the recovery from the next session until it fetched — fetch before reading the log
 fact: 2026-09-21 | ordered-TS asymmetry MEASURED (I024, `results/probe-ts-mismatch-20260921.{md,json}`): on high-card columns a held-out row of a rare category (m ≤ 5) reads an encoding 1.9–5.2× more spread around the prior than a training row of the same stratum, and the target's slope on it is 0.63–0.70 of the training slope (over-trust) on sf-police / okcupid-stem / Traffic_violations, 1.01 on kick; wine-reviews 0.71, colleges 0.42. In big categories (m > 50) it runs the other way, reliability 1.10–1.29 (prefix noise on training rows). Mean shift is ≤ 0.03 SD everywhere — the mismatch lives in the second moment and by count, never in the mean
@@ -136,7 +139,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | BLOCKED(needs B3-clearing mechanism from lens L3) | none until refill; R3 (the CatBoost hc ablation) is its sanctioned door and is queued behind R1 |
+| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 (R3 Stage A+B named the mechanism, I033) | The gap is CatBoost's target-statistic arithmetic: the Borders CTR alone is the whole edge (removing it drops CatBoost 1–7% below us), its Counter and extra-prior columns add nothing, random permutations add nothing, quantization is mixed, and shrinking toward a constant 0.5 instead of 0 is worth 21–74% of the edge, largest at max cardinality. Ours shrinks toward the global mean. Next: Stage C, the constant-prior target on our encoder, zero-library probe |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
@@ -249,6 +252,7 @@ moves one dataset. R3 inherits one pointer from it (the Counter feature,
 and Traffic_violations' unexplained response to uniform re-weighting).
 R2–R8 and H stay queued; F4's C4 and C3 go next under the ranking above.
 2026-09-22: **R2 RESOLVED — KILLED** at S0+S1 (I032, barrier B19): the smoothed-argmin half had been probed and killed on 2026-07-13 and never registered; the 1-SE / tolerance half loses strength in proportion to the rounds it saves on 20 of 21 sets. H(1), H(4), H(5) DONE (I030, I031). Next: R3.
+2026-09-22: **R3 RESOLVED — mechanism named** (I033, Stage A+B, 168 CatBoost/Chimera fits): the hc edge is the target CTR's arithmetic, specifically its constant shrinkage target (0.5) against our global-mean prior; Counter, extra priors, permutations and quantization cleared. F5 ACTIVE. Next: Stage C on our encoder (zero library change), then R4.
 
 Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
 literature mechanisms, L3 opponent ablation, L4 harness measurement),
@@ -274,6 +278,170 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I033 2026-09-22 R3 S0+S1 Stage A (CatBoost hc ablation: which categorical statistic carries its edge; measurement, pre-registered)
+why now: I032's `next:`. PR #130 (R2 kill) self-merged at 3094889, no
+campaign PR open, no run in flight. R3 is F5's only sanctioned door (B3)
+and the top unresolved shortlist item. Class: **measurement of the
+opponent**, no library change; no ship gate — its output is a mechanism
+name or a closure of F5. Branch `campaign/r3-cb-hc-ablation` from main.
+barrier: `barrier_check.py` on the idea matches B3 and B4 by construction.
+B3 — this is the method B3 itself prescribes: name the mechanism before
+porting anything; nothing is ported here. B4 — every arm keeps
+`boosting_type=Plain`; ordered boosting is not on the table. B18 names the
+Counter feature as the door that stays open and routes it through R3: this
+is that route.
+what CatBoost actually runs (read from `get_all_params()` on a
+two-categorical toy under catboost 1.2.10, binary and multiclass alike,
+recorded because the docs say otherwise): `max_ctr_complexity=1` — **no
+cat×cat CTR combinations at all**; `one_hot_max_size=2`; per categorical
+column two simple CTRs — `Borders` (target statistic quantized at 15
+borders, THREE priors 0 / 0.5 / 1 ⇒ three columns) and `Counter` (category
+frequency, prior 0, `counter_calc_method=SkipTest`); `boosting_type=Plain`.
+So its hc edge rides on two per-column statistics, which is what the arms
+decompose (the shortlist's `max_ctr_complexity=0/1/2` arm is moot at a
+default of 1 and is dropped).
+the probe: `benchmarks/probe_catboost_hc_ablation.py`, forked from
+`probe_catboost_ablation.py` (the method that found the learning rate).
+Seven hc classification sets: gap sets sf-police (CatBoost ahead by 1.17%
+of our Brier on the standing BASE), Traffic_violations (1.92%,
+multiclass), kick (1.16%), okcupid-stem (0.68%, multiclass), porto-seguro
+(0.14%); controls kdd_ipums (we win by 5.7%) and eucalyptus (0.9%); cjs
+excluded (Brier ≈ 0, degenerate). Paired splits, 3 seeds, Brier in the
+harness's K-sum form. Arms: `cb_default` (the harness arm), `cb_borders_only`
+(Counter off), `cb_counter_only` (target CTR off), `cb_one_prior` (Borders
+with the single prior 0.5 + Counter — one column per categorical, the
+shape of our ordered TS). ChimeraBoost defaults on the same splits as the
+reference line. `recovered` = share of the default edge an ablation gives
+back; 100% = CatBoost falls to our Brier.
+forecast, before the run: the gap is monotone in cardinality and B18
+showed rare categories are where our encoding misreads, so my bet is on
+the **Counter**: `cb_borders_only` recovers **40–80% of the edge on
+sf-police and Traffic_violations** (max-card 15k / 3.8k), 20–50% on kick
+and okcupid, ~0 on porto-seguro (card 104, edge 0.14%, inside noise);
+`cb_counter_only` recovers little (0–30%) — the target CTR is the
+workhorse and the Counter is the complement; `cb_one_prior` recovers
+0–20% — the three priors are three smoothing levels of one statistic, and
+trees can approximate that from one column. Controls move under 0.3% of
+Brier on every arm. Where I could be wrong: if `cb_counter_only` recovers
+as much as `cb_borders_only`, the two statistics are substitutes and the
+edge is "any second view of the category", not the count specifically —
+then the port would be a frequency column AND that is exactly the shape B3
+killed once (the Counter/frequency column on its own is listed as
+"checked, not proposed" because B3 is hard); the ablation would at least
+say whether that kill was on the mechanism or on the implementation.
+bars: (a) mechanism named — one arm recovers ≥ 40% of the edge on ≥ 3 of
+the 5 gap sets (median over gap sets ≥ 40%) with both controls moving
+< 0.3% of Brier; (b) F5 closed — no arm reaches 40% on 3 sets: the edge is
+not in any single categorical statistic and F5 goes to KILLED with B3
+strengthened; (c) instrument void — `cb_default` disagrees with the
+standing BASE's CatBoost Brier by > 1% on 2+ sets (the probe's splits are
+not the harness's, so a small offset is expected; a large one says the
+arm is misconfigured). Stage B (a native follow-on) is a separate rung
+and needs the maintainer's pick.
+cost: 84 CatBoost fits + 21 ChimeraBoost fits; CatBoost is 43× our fit on
+hc, so ~2–2.5 h as one background run with nothing else on the bench.
+ran, Stage A: 105 rows in **31 min**, not 2.5 h — CatBoost averages 27 s
+a fit on these sets at the harness config, so the 43× figure from the
+decide tier does not carry to paired single fits. Instrument check (bar c):
+`cb_default`'s edge over us reads 1.42 / 1.80 / 0.94 / 0.91 / 0.09% on
+sf-police / Traffic_violations / kick / okcupid / porto-seguro against the
+BASE's 1.17 / 1.92 / 1.16 / 0.68 / 0.14 — same order, same ranking, valid.
+`recovered` per gap set (share of CatBoost's edge an ablation gives back;
+100% = it falls to our Brier):
+  cb_borders_only (Counter OFF)      −9%   +6%   +12%   −5%  +114%   median **+6%**
+  cb_counter_only (target CTR OFF) +265% +1120% +101% +690%   −13%   median **+265%**
+  cb_one_prior (one prior, not 3)   +34%   −7%    −5%  −10%   +24%   median **−5%**
+  controls: kdd_ipums moves ≤ 0.9% of Brier on every arm; eucalyptus
+  (all-categorical, 736 rows) swings −2.6% / +1.9% / −0.3%.
+read: **the whole edge is inside the Borders target CTR.** The Counter
+gives back nothing (my bet, MISSED — I had 40–80% on the two max-card
+sets; it is +6% at the median and negative on sf-police), the three
+priors give back nothing (HIT), and with the target CTR removed CatBoost
+does not fall to our level, it falls 1–7% of Brier BELOW us on four of
+five gap sets — so our ordered target statistic is worth more than
+CatBoost's frequency-plus-one-hot fallback, and the gap is a difference
+between two constructions of the same idea. Bar (a) as written fails on
+its control clause (eucalyptus moves, as any all-categorical set must when
+its only encoding changes; the clause was ill-posed for a knob that IS the
+categorical handling), but its substance — one arm, ≥ 40% on ≥ 3 gap sets
+— is met by `cb_counter_only` on 4 of 5, and the mechanism is named.
+Stage B, pre-registered here before it runs (still ablating the opponent,
+zero library change, ~25 min): what in the CTR's construction differs from
+ours? Three arms, each one knob: `cb_has_time` (CTR on the data order as
+its single permutation — tests CatBoost's random-permutation machinery
+against our fixed average of 4 permutations), `cb_ctr254` (the CTR value
+quantized at 254 borders instead of 15 — ours is binned at 255, so if
+CatBoost gets WORSE here, coarse quantization of the target statistic is
+a regularizer we do not have, and a cheap one), `cb_zero_prior` (a single
+zero prior — no smoothing at all; tests whether the prior's smoothing is
+load-bearing, our `cat_smoothing` being the analogue). Forecast: the
+priors already read inert, so `cb_zero_prior` recovers 0–20%;
+`cb_has_time` recovers **20–60%** (permutation variation across trees is
+the part of "integrated ordered-TS machinery" B3 points at); `cb_ctr254`
+**−10 to +10%** (I expect quantization not to matter, and I would be glad
+to be wrong). Bar: an arm recovering ≥ 40% on ≥ 3 gap sets names the
+sub-mechanism; none ⇒ the edge is in the CTR's arithmetic itself (the
+`(sum + prior) / (count + 1)` form, the per-permutation prefix, the
+eval-time full totals — B18's territory) and F5's next rung is a
+side-by-side of the two formulas on one column, not another CatBoost knob.
+ran, Stage B: 63 more rows, ~20 min; 168 rows total in
+`results/probe-cb-hc-ablation.jsonl`, table in `-table-20260922.txt`.
+`recovered` per gap set (sf-police / Traffic / kick / okcupid / porto):
+  cb_has_time (one permutation, data order)   +13%   −1%   +6%   −2%  −21%   median **−1%**
+  cb_ctr254 (CTR at 254 borders, not 15)       +6%    0%  +49%  −26%  +64%   median **+6%**
+  cb_zero_prior (prior 0 instead of 0.5)      +74%  +38%  +29%  +21%  −42%   median **+29%**
+  controls: kdd_ipums within 0.6% of Brier on all three; eucalyptus
+  −1.0% / −4.6% / −0.2% (`cb_ctr254` wrecks the tiny all-categorical set:
+  0.442 → 0.462 — coarse quantization of the statistic is a strong
+  regularizer THERE, and nowhere on the gap sets except kick).
+read: no Stage B arm reaches the bar (≥ 40% on ≥ 3 gap sets), so by the
+pre-registration the edge is in the CTR's arithmetic. Two of the three
+knobs are cleared outright: **random permutations are worth nothing**
+(`has_time` median −1%; my 20–60% bet MISSED — B3's "integrated
+permutation machinery" story is dead on these sets), and **quantization
+is not it** (median +6%, HIT, though kick and porto read 49–64% and
+eucalyptus says the 15-border grid regularizes small data hard — a
+pointer, recorded). The prior is the one live signal: shrinking toward 0
+instead of 0.5 costs CatBoost 21–74% of its edge on the four real gap
+sets, largest on the max-cardinality set (sf-police, card 15k) — the
+forecast said 0–20%, MISSED HIGH. And it is a concrete formula
+difference: CatBoost's Borders CTR is `(sum + p) / (count + 1)` with p a
+CONSTANT (0.5, plus the 0 and 1 columns that Stage A showed add nothing);
+ours is `(sum + mean·a) / (count + a)` with the prior at the GLOBAL MEAN
+and a = `cat_smoothing` = 1. Same weight. The difference is the shrinkage
+target. Why a constant 0.5 would matter, monotone in cardinality: on an
+imbalanced target a rare category shrunk toward 0.5 lands somewhere no
+common category lands, so the encoding itself carries the rarity signal
+the trees never otherwise see — B18's "let the trees see the count" by a
+different door, and one CatBoost gets for free. The `cat_smoothing`
+weight `a` was killed on hc twice (PARETO_PLAN 2026-07-15) and is NOT
+what this is: `a` moves how hard every category is shrunk toward the
+mean; the target of the shrink has never been varied on our side.
+timing, for the record: CatBoost averages 27 s a fit at the harness
+config on these sets, so the 84-fit Stage A took 31 min, not the 2.5 h I
+budgeted from the decide-tier 43× ratio (which is dominated by the
+biggest sets and by CatBoost's own thread behaviour under the harness).
+verdict: **R3 Stage A+B READ — mechanism named.** F5 is UNBLOCKED: the hc
+Brier gap is the target-statistic arithmetic, specifically the shrinkage
+target (constant 0.5 vs global mean), not the Counter, not the priors as
+extra columns, not the permutations, not the quantization. Bar (a) met in
+substance by Stage A (the CTR is the whole edge), bar (b) not met (F5
+stays open), bar (c) clear (instrument valid). F5 row flipped to ACTIVE
+with this mechanism and R3 marked RESOLVED on the shortlist. Self-merged:
+`benchmarks/` only. Stage C, our side, is the next rung and needs no
+maintainer pick because it is still a zero-library probe.
+next: **R3 Stage C — the shrinkage target on OUR encoder** (zero library
+change: a probe that monkeypatches `OrderedTargetEncoder.prior_` to the
+constant 0.5 after the fit computes the mean, on the same 7 sets × 3 seeds
+with the default estimator; arms = mean prior (default), constant 0.5,
+and mean prior + a second 0.5-prior column if it can be done without a
+library edit, else deferred). Bar: ≥ 3 of the 5 gap sets improve with the
+two controls not worse than −0.3%, and the gain concentrates on sf-police
+/ Traffic (the max-cardinality sets) as the ablation predicts. A pass
+takes the mechanism to S2 (synth, ChimeraBoost arms only) as a candidate
+DEFAULT change; a fail closes F5 with B3 strengthened: the mechanism was
+named, ported at its narrowest, and did not transfer.
 
 #### I032 2026-09-22 R2 S0+S1 (early-stopping round rule: smoothed argmin is a dedup miss, the 1-SE half gets its probe; pre-registered)
 why now: I031's `next:`. PR #129 (H1) merged by the maintainer at 9ed5385,
