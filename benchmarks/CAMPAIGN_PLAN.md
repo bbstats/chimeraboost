@@ -101,6 +101,7 @@ fact: 2026-09-21 | F3 S3 decide run (I021, `results/20260921-080246.json`, OneLi
 fact: 2026-09-21 | forced-cross headroom by estimator, same design, same panel family: regressor +2.6% median (E2 step 1) vs classifier +0.36% (I019) — a 7x gap, and the referee-less mode only survives the dodged losses when the prize is the large one
 fact: 2026-09-21 | hc Brier gap vs CatBoost is monotone in max cardinality (`campaign-base-20260816.json`, 3 seeds): sf-police (card 15165) −0.0056, Traffic_violations (3830) −0.0053, okcupid-stem (7019) −0.0023, kick (1063) −0.0019, porto-seguro (104) −0.0001; we win kdd_ipums (191) +0.0019 and eucalyptus (27) +0.0037. CatBoost loses 4 of 6 hc regressions, so the gap is classification-only
 fact: 2026-09-21 | ordered-TS asymmetry, unmeasured: `_ordered_ts` gives train rows the prefix statistic (expected count ≈ (m−1)/2) and `OrderedTargetEncoder.transform` gives test/ES rows the full total (count m); at card 15k over 75k rows m ≈ 5 (refill shortlist R1, probe is zero-library-change)
+fact: 2026-09-22 | identity_snapshot panel widened to 33 configs / 186 arrays (I043): cat_count_features (plain + weighted, card ~600, n=6000), the classifier's forced cross, random_effects with groups, a bag over categoricals; `save` now refuses to move existing pins without --rebaseline — the first attempt would have silently re-baselined 131 of 155
 fact: 2026-09-22 | predict-side profile (I042/L1, exclusive hooks, 5 reps, wrapped/plain 0.99–1.01): `_codes_for_transform` is 62.4% (kick, 94 ms) / 73.3% (okcupid, 45 ms) / 82.7% (sf-police, 43 ms) of predict wall clock; the ordered-TS transform 18.8% on okcupid; a direct `cat_maps_` lookup prototype reads 0.49–0.50× the current path
 fact: 2026-09-22 | on the standing BASE, CatBoost leads on Brier on 9 of 30 gr classification sets (california +2.7%, bank-marketing +1.0%, credit +0.5%, …) and LightGBM trails us on 8 of those 9 — the edge is CatBoost-specific; catboost 1.2.10 defaults there: `score_function=Cosine`, `leaf_estimation_backtracking=AnyImprovement`, `feature_border_type=GreedyLogSum`, `l2_leaf_reg=3`, `leaf_estimation_iterations=1`, `bootstrap_type=MVS subsample=0.8`
 fact: 2026-09-22 | catboost 1.2.10 MULTICLASS CTR = `Borders:TargetBorderCount=3:TargetBorderType=MinEntropy` × priors 0/0.5/1 (three entropy-chosen ordinal binarizations of the class index, not one-vs-rest) with `bootstrap_type=Bayesian`; after the count column CatBoost's residual hc edge is +0.96% median on engaged multiclass vs +0.44% on engaged binary; the count column closed 44–65% on 6 of 8 engaged sets and 0% wherever no column has card ≥ 256
@@ -343,6 +344,66 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I043 2026-09-22 H(8) identity-snapshot coverage for the paths shipped since 2026-08-30 (harness, pre-registered)
+why now: I042's `next:` — the pick is the maintainer's; H(6) and H(8)
+are self-mergeable harness rungs that protect every later read, and H(8)
+touches `benchmarks/` only. Class: **measurement instrument**, no gate
+scoring changes (the snapshot is an exact-equality gate; adding configs
+widens what it pins, it does not move any verdict).
+the gap (I042/L4): `identity_snapshot` has 28 configs, 155 arrays, and
+none exercises `cat_count_features=True` — its two categorical configs
+draw cardinality 12 and 7, far under `CAT_COUNT_MIN_CARD = 256` — nor the
+classifier's `cross_features="always"` (I019–I021 pinned only the
+regressor's), nor `random_effects=True` (#109 slice 1), nor a bag over
+categoricals (the shared member cache from C4a). So "identity 155/155
+with the flag off" in I038/I039 was true and empty: a refactor could
+change flag-on behaviour and the gate would not notice — and flag-on is
+exactly where `/code-review` found the two I039 defects.
+the change: `_data` gains `hicard=True` (an 11th column, a ~600-level
+string categorical with a per-level effect) and returns group labels (40
+groups with a per-group offset); five configs — `cat_counts` (n=6000 so
+the cross race and the replay refit run over the count column, which is
+where the adopted-count logic lives), `cat_counts_w` (weighted: the
+`sample_weight` bincount contract), `logloss_forced`, `randeff` (fit and
+predict with groups; `group_intercepts_` and `group_ratio_` pinned as
+arrays), `bag_cats`; `_EXPECT` proves each path fired (exactly one count
+column selected, the forced cross selected, 40 intercepts, 3 members).
+Then `save` re-baselines at today's main (the library is unchanged since
+#138, and `check` read 155/155 on it), and `check` must read N/N.
+forecast: 5 configs add ~28 arrays (155 → ~183); every new `_EXPECT`
+fires on the first try or the config is wrong, not the library; `check`
+reads N/N immediately after `save` (deterministic seeds; the snapshot is
+machine-local and gitignored).
+kill: an `_EXPECT` that cannot be satisfied by any config (then the path
+is unreachable from the public API and that is its own finding); `check`
+not N/N right after `save` (a nondeterminism in one of the new paths — a
+defect to record).
+ran: five configs added, `save`, `check`: **186/186 identical**, every
+new `_EXPECT` fired on the first try (one count column selected on the
+~600-level column with the cross race engaged; the forced cross selected
+on the classifier; 40 intercepts; three members over categoricals) — the
+paths are reachable from the public API and now pinned, 31 new arrays.
+**The near-miss is the record's real content.** My first `save` drew the
+new group labels from the SHARED random stream, ahead of the existing
+draws, so every pre-existing config's data shifted and the re-baseline
+silently moved **131 of the 155 old pins** — `check` still read 186/186,
+because it compares against what was just saved. Caught only because I
+had copied the old `.npz` aside and diffed shared keys (155 of 155
+unchanged after drawing the extras from their own streams). That is a
+gate that can be blinded by the act of widening it, so `save` now
+**refuses** to overwrite a baseline whose existing pins it would move
+unless `--rebaseline` is passed, and the docstring says when that flag is
+honest (a real behaviour change, never "I added a config"). Verified: the
+guarded `save` accepts the corrected panel (0 moved) and refuses the
+first version (131 moved).
+verdict: **PASS.** The "155/155 with the flag off" claim in I038/I039 now
+has a flag-on counterpart in the gate. Self-merged: `benchmarks/` only;
+no gate SCORING changed (the snapshot widened, no verdict moved).
+next: H(6) — `compare_runs --metric decision` (RMSE reg / Brier clf), the
+metric every gate names; it changes how a gate scores, so its step report
+says so, and it carries tests, so its PR waits for the maintainer.
+Unless the pick arrives first.
 
 #### I042 2026-09-22 beam refill (staleness rule: only blocked-on-sign-off work left; pre-registered)
 why now: I041's `next:`. State of the beam: F4 ACTIVE but its measured
