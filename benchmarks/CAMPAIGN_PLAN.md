@@ -146,6 +146,12 @@ fact: 2026-09-21 | hc `prep` = 34.8% (kick) / 31.8% (wine-reviews) / 41.1% (okcu
 fact: 2026-09-21 | a replayed round costs ~40–45% of a grown round on linear-leaf regression sets (nyc-taxi 0.97 vs 2.45 ms, diamonds 1.09 vs 2.4 ms); `_assign_leaves` / `_leaf_values` / `_linear_leaf_fit` unsplit, ridge accumulator B10-closed
 fact: 2026-09-21 | exclusive-time hook instrument (`f4_other_walltime.py`): 0.85 µs per hook call, 0.1–1.2% of fit, wrapped/plain 0.99–1.03; on the first pass MagicTelescope's PLAIN arm read a 3-rep median 22% slow (1.067 s; all seven rerun fits 0.87–0.91 s), so 3 reps is thin for sub-second fits — use 7 and keep the per-rep times
 fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock for a two-file library+tests edit; muse cannot edit CRLF files with its own tool and patches by script instead; its sandbox user cannot write `.pytest_cache` and leaves an undeletable `pytest-of-Nathan/` in the repo root (untracked, harmless)
+fact: 2026-09-22 | HARNESS WART (fix owed, queued as H(11)): `_public_parquet_path` downloads every pub: parquet through one shared `<path>.part` and then `os.replace`s it; on a cold cache with jobs > 1 the three seed tasks of one dataset download at once and Windows refuses the replace while another worker holds the file open (WinError 32). I046's first S4a launch died 5 min in with no results. The pub: cache in `benchmarks/data_cache/openml_pq/` was cold for all ten sets (the August public run cached elsewhere). Until fixed: warm the cache before a parallel pub: run. Fix: a per-process tmp name, and treat "the final file now exists" as success
+fact: 2026-09-22 | the count column on the pub: suite (I046 S4a, `results/20260922-141439.json`, decision metric): engaged and scored 5W-1L, median +0.343% [CI +0.074..+2.217%]; rossmann +1.87% RMSE, internet_firewall +2.56% Brier, federal_election +0.50%, nba-shot-logs +0.18%, BNP +0.17%, fps-in-video-games −0.02%; kickstarter engaged but near-solved; BMC, Medical-Appointment-No-Shows and freMTPL2freq exact ties (BMC's max categorical cardinality AS THE HARNESS SEES IT is 10: its geo ids arrive numeric)
+fact: 2026-09-22 | the default's strength rows are bit-identical from 0.32.0 (I015, `20260918-170822.json`) to c3a5314 (I039's ChimeraBoost arm): 309 of 309 (dataset, seed) rows; so are every rung's and every opponent's gr rows between I015 and I046 S4c (231 of 231 each)
+fact: 2026-09-22 | I015's chart-grade run timed the OPPONENTS slow: against the same libraries and config on 2026-09-22 (`20260922-144219.json`), LightGBM ran 4–6× slower (gr fit median ratio 0.23), HGB 8–16× slower, CatBoost 27% slower on gr; the default itself read gr ×0.71 / hc ×0.90. The I015 chart's slowdown axis (default 3.5× clf / 4.3× reg) overstated our speed position; the I046 read (5.0× / 6.4×) matches the August base's LightGBM gap (~5.2× on gr fit)
+fact: 2026-09-22 | I039's variant lines were read on `primary` (F1): on the decision metric hc@time is 3W-1L (Traffic@time +3.69%, employee_salaries@time +2.10%, sf-police@time +0.94%, kick@time −0.23%) and hc@sus25 2W-0L (employee_salaries@sus25 +0.86%, okcupid@sus25 +0.30%)
+fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc fit ratio median ×1.20 (colleges 1.07 … kick 1.26), ×1.14 with the hc variants; inert hc ×1.01; a chart-grade --decide run with the I015 field took 55 min
 
 ## Beam
 
@@ -155,7 +161,7 @@ fact: 2026-09-21 | first Muse Code rung: one pass, exit 0, ~15 min wall clock fo
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | ACTIVE 2026-09-22 — **at S4, awaiting the maintainer** (I038 library form, I039 S3 PASS) | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
+| F5 | hc-Brier gap vs CatBoost | **S4 PASSED 2026-09-22 (I046): the default flip is a PR awaiting the maintainer's merge** (go given on his delegation; public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
@@ -239,14 +245,59 @@ C4a shipped as a PR the same day (I027): bit-identical 155/155 and **−8 to
 and the first one every user with categorical columns gets.
 
 ### F5 — hc-Brier gap vs CatBoost
-status: BLOCKED(needs B3-clearing mechanism from lens L3)
+status (2026-09-22): **S4 PASSED (I046); the default flip is a PR awaiting
+the maintainer's merge.** The block below lifted at I033 (R3, the CatBoost
+ablation that named its target CTR's arithmetic); the mechanism that
+survived is the count column (I035 probe → I036/I037 harness arm → I038
+library flag → I039 S3 → I046 S4). The lines below are the family's
+original 2026-08-16 slot, kept as written.
+original status: BLOCKED(needs B3-clearing mechanism from lens L3)
 hypothesis: (held slot) the real-but-small hc Brier gap (+0.0029/set, CatBoost 86–88% winrate there) has a lever that isn't a partial CatBoost port
 parent-evidence: hc suite build record 2026-07-15; B3 = seven partial ports, seven kills
 barriers: B3 hard; B4 (ordered boosting closed)
 kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
 
-## Refill shortlist 2026-09-22 (awaiting the maintainer's pick; beam cap 5)
+## Refill shortlist 2026-09-22 (PICKED the same day, by the loop on the maintainer's delegation: S1 S2 S3 S4 S6; beam cap 5)
+
+pick (2026-09-22, session after PR #144): the maintainer handed both open
+calls to the loop in chat, "you may go ahead on whichever of this that you
+like". The loop's decision under that delegation: **S1, S2, S3, S4, S6**
+(the five recommended below) and **yes to /experiment S4 on the count
+column** (I046). Reviewer amendments made at the pick, from re-reading the
+standing BASE (`results/20260918-170822.json`; its strength rows equal
+`campaign-base-20260816.json`'s to the digit):
+- **S2's "9 of 30" is about three independent datasets.** california and
+  california@sus50 are one dataset (+2.7% each); bank-marketing +1.0% and
+  credit +0.5% are unanimous over seeds; albert@sus25 +0.45% and
+  eye_movements@sus25 +0.30% are twins whose parents we win;
+  Diabetes130US +0.13%, compas +0.10% (1 of 3 seeds) and heloc +0.07% sit
+  inside seed noise. LightGBM also beats us on california (+0.98%). S2's
+  bar is restated at its S0 on the sets with a real edge.
+- **S3 is one set, cpu_act@sus25.** SGEMM is near-solved (best NRMSE
+  0.015, under the 0.02 cutoff: outside the headline win rate, R² gap ~0)
+  and our own bag Ens8 recovers 73% of its gap, a variance matter.
+  cpu_act@sus25 is not: best NRMSE 0.147, CatBoost +20.2% / LightGBM
+  +28.5% / HGB +24.5% of our RMSE, Ens8 WORSE than the default (−2.9%),
+  seed 1 at 4.50 against LightGBM's 2.43. No other gr regression set
+  trails CatBoost or LightGBM by more than 0.7%. The probe ablates OUR side
+  first (linear leaves, the replay refit, the adaptive rate) and splits the
+  error by test row; extrapolation on heavy-tailed inputs at n = 1,536 is
+  the first hypothesis.
+- **S6 was selected on kdd_ipums and eucalyptus** (I035), so neither can
+  confirm it (GATE_ROBUSTNESS §8). Its bar is read on small categorical
+  sets that did not select it (the hc regressions under the n gate, and
+  any @sus twin that falls under it); kdd_ipums and eucalyptus report only.
+Order, because one campaign PR is open at a time and every library PR
+waits on the maintainer: **I046 (count column S4) first**, the long run
+whose PR needs him, launched while he is around; then the self-mergeable
+probes **S2 → S3 → S6**; then the library rungs **S1** and **S4's flag**,
+one PR each. First alternates if a slot frees: S8 (a 5-minute probe), S5
+(exact, small), S10 (the speed price list). Queued behind the five, same
+day: **H(11)**, the pub: download race (facts ledger, found at I046);
+**H(12)**, `make_pareto.py`'s title names only the first suite and HGB's
+subset-artifact classification point sits on the frontier (found at I046
+S4c, pre-existing since I015).
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -346,6 +397,183 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I046 2026-09-22 F5 S4 (/experiment on flipping `cat_count_features` on by default: public read, then the flip, then the chart-grade field on the flip branch; pre-registered)
+why now: the maintainer delegated the call in chat ("you may go ahead on
+whichever of this that you like") and the loop says **yes**. No campaign
+PR open (only #108, the whitepaper), bench idle, no task marker. Branch
+`campaign/f5-s4-catcount-default` from main at c3a5314. Class: **a default
+change**, no skips: the flip is a muse task and its PR waits for the
+maintainer.
+why yes: engaged hc 6W-1L on the decision metric, median +0.558% with a
+bootstrap CI of +0.023..+0.864% (I044's re-read of I039), the one loss
+okcupid at −0.00%; sf-police, Traffic_violations and wine-reviews at about
+4× their seed noise; hc@time 4-0; every Grinsztajn row an exact tie by
+construction (no gr loader passes cat_features), so the headline stratum
+cannot move; cost ×1.09 on hc, ×1.165 on the engaged seven, ×0.99 gr. Its
+one challenger (I040, calibrated shrinkage) lost. What the evidence lacks:
+seven engaged datasets is under GATE_ROBUSTNESS §2's ~8, and a sign test on
+seven cannot reach p < 0.05 at 6-1. The public suite carries eight
+datasets with a column of cardinality ≥ 256 that nothing in this campaign
+has tuned on (BNP 18,210 levels, internet_firewall 29,152, BMC 11,200,
+kickstarter 3,102, nba-shot-logs 1,808, rossmann 1,115, fps-in-video-games
+446, federal_election's entity columns): that is the new evidence, and it
+comes first. A decide run on the flag arm would reproduce I039's strength
+rows exactly (same code, same seeds), so the chart-grade field runs ONCE,
+on the flip branch, where it also proves the flip reproduces the flag.
+plan: (S4a) `run_benchmarks.py --public --seeds 3 --save --models
+ChimeraBoost ChimeraBoostCatCountLib --datasets <the 8 engaged> 
+pub:Medical-Appointment-No-Shows pub:freMTPL2freq` — the last two carry
+categoricals under 256 levels (81, 22): the in-run control. (S4b) muse flips
+the default to `True` on the two public estimators (the card ≥ 256 gate
+keeps it inert on data without such a column; the internal classes keep
+`False` because the estimators always pass the value through), updates
+the tests that pin it; the identity snapshot must stay N/N (no config
+feeds the default a 256+-level column without setting the flag); docs
+and CHANGELOG are Claude's.
+(S4c) on that branch, `run_benchmarks.py --decide --seeds 3 --save` with
+I015's field (ChimeraBoost OneLin OneLinX NoRefit Ens5 Ens8 CatBoost
+LightGBM sklearn_HGB), scored per stratum against I015, the Pareto
+refreshed from it.
+forecast: S4a — the two controls exact ties; engaged 8: wins ≥ 5 with
+median +0.1 to +0.5% on the decision metric; the largest gains where a
+single column dominates (BMC's geo codes, internet_firewall's ports) and
+the smallest on federal_election (its entity columns are near-unique, so
+counts are mostly 1); fit ×1.05–1.25 on engaged sets. S4c — the default's
+strength rows equal I039's CatCountLib rows to the bit on all 96 decide
+keys (gr and its twins unchanged from I015 to the bit); fit on gr 3–10%
+under I015 (the four exact speed ships since 0.32.0), on hc under I015 too
+despite the count column (C4a alone took 8–19% off hc fit); Pareto: the
+classification point moves up by < 0.002 skill (hc is 8 of 38
+classification sets), regression a hair up.
+bars: (a) the S4a controls exact ties, else the gate misfires on public
+data: stop; (b) S4a engaged — any set losing > 1% with all three seeds
+agreeing is a question for the maintainer written into the PR, never a
+veto (the public suite never blocks; gr + hc decide); (c) S4c — the flip
+branch's default rows equal I039's CatCountLib rows to the bit on every hc
+key and I015's ChimeraBoost rows on every gr key, else the flip is not the
+flag: stop; (d) the new default point is not dominated by the old on
+either Pareto panel.
+launch note: the first S4a launch (14:09) died at 14:14 on the pub:
+download race (facts ledger, H(11)) before any fit finished; the ten
+parquets had all landed, the stray `20260922-140929.{txt,progress}` were
+deleted, relaunched 14:15 on the warm cache.
+S4a ran: 10 pub: sets × 3 seeds × 2 arms in **5 min** (not the hour I
+guessed from the August run: the multiclass and categorical speed ships
+since), `results/20260922-141439.json`, scored `compare_runs.py … --model
+ChimeraBoost --model-new ChimeraBoostCatCountLib --expect-inert` on the
+decision metric (`results/campaign-f5-s4a-public-compare-20260922.txt`).
+Harness SUMMARY, default vs the arm: W1-L5-T3, median gap −0.17%, speed
+×1.01. Per set, + = the count column better: rossmann **+1.87%** RMSE
+(Store, 1,115 levels), internet_firewall **+2.56%** Brier (seeds split;
+F1 0.955 → 0.974), federal_election **+0.50%** RMSE, nba-shot-logs +0.18%,
+BNP +0.17%, fps-in-video-games **−0.02%** (unanimous, the one loss);
+kickstarter engaged (157 vs 158 trees) but near-solved (Brier 0.0001),
+excluded. Engaged and scored: **5W-1L, median +0.343%, bootstrap CI
++0.074%..+2.217%**; 5 of 7 engaged sets unanimous over seeds. Fit per set
+×0.75 (fps, fewer trees) to ×1.28 (nba, 86 → 119 trees), ×1.01 overall.
+bar (a) **PASS**: Medical-Appointment-No-Shows (81 levels) and freMTPL2freq
+(22) exact ties to the bit, and so is **BMC** — which I had counted as
+engaged from PUBLIC_PLAN's raw 11,200-level `geo_level_3_id`; the harness
+sees BMC's max categorical cardinality as **10** (`PUBLIC_FACETS`, the id
+column arrives numeric), so no column qualifies and the tie is the gate
+doing what it claims: a third control, not a misfire. bar (b) **PASS**: no
+engaged set loses more than 1%; the one loss is −0.02%.
+forecast, S4a: wins ≥ 5 with median +0.1 to +0.5% HIT (5W-1L, +0.343%);
+"largest where one column dominates" half HIT (internet_firewall's ports
++2.56%; BMC was never engaged, my reading of the facets was wrong);
+"smallest on federal_election" MISSED (+0.50%, third largest: near-unique
+entity columns still carry a usable count); fit ×1.05–1.25 MISSED on the
+cheap side (×1.01; the count column changes tree counts both ways).
+Transfer read: the public suite is the first data this mechanism has met
+that nothing in the campaign tuned on, and it agrees with hc in sign, size
+and in where the gains sit (entity columns of 1k–30k levels).
+verdict: S4a PASS → S4b (muse flips the default).
+S4b ran (muse, one pass, exit 0, ~7 min): `cat_count_features=True` in
+both estimators' signatures and docstrings; `test_off_estimators_match_default`
+replaced by `test_default_matches_on`, plus
+`test_off_differs_from_default_on_high_card` and
+`test_default_inert_without_high_card_column` (a 200-level column: default
+== False to the bit). Identity 186/186 unchanged (as forecast: no config
+feeds the default a 256+-level column without the flag). `/code-review`
+found one real defect, in the HARNESS: `_run_chimera` passed the flag only
+when truthy, so after the flip `ChimeraBoost` and `ChimeraBoostCatCountLib`
+were the same fit and no arm could run the old default — every later A/B
+of this flag would have compared the default with itself and read exact
+ties. Fixed by a second muse pass (~8 min): the `"off"` sentinel (the
+`adaptive_lr` / `refit_full` convention), a `ChimeraBoostNoCatCount`
+control arm (off by default in the field), `--chimera-no-cat-counts`
+(mutually exclusive with `--chimera-cat-counts`, checked before the
+`--save` tee opens), and two guard tests (a stub estimator records the
+kwargs). Its other two findings were prose (parameters.md, CHANGELOG),
+done by Claude with concepts.md, deployment.md and PROJECT_STATUS.md.
+Not changed, recorded: `ChimeraBoostQuantileRegressor` has no count
+column at all (its own API; out of this rung's scope). Full suite on the
+final tree 1142 passed, 1 skipped, 119 s; identity 186/186.
+S4c launched 14:44: `run_benchmarks.py --decide --seeds 3 --save --models
+ChimeraBoost ChimeraBoostNoCatCount ChimeraBoostOneLin ChimeraBoostOneLinX
+ChimeraBoostNoRefit ChimeraBoostEns5 ChimeraBoostEns8 CatBoost LightGBM
+sklearn_HGB` — I015's field plus the old default as a same-run control, so
+the cost read carries no cross-day drift.
+S4c ran: 309/309 in **55 min** (I015 took 93), `results/20260922-144219.json`;
+scored `compare_runs.py … --model ChimeraBoostNoCatCount --model-new
+ChimeraBoost --by-suite --expect-inert` (`-compare-…txt`) and `make_pareto.py`
+(`campaign-f5-s4c-pareto-20260922.txt`).
+bar (c) **PASS, to the bit**: the new default reproduces I039's
+`ChimeraBoostCatCountLib` on all 309 (dataset, seed) rows, the control arm
+reproduces I015's `ChimeraBoost` on all 309, and every other arm (the
+rungs, CatBoost, LightGBM, HGB) reproduces I015 on all 231 gr rows. The
+flip IS the flag, and the default's strength is bit-identical from 0.32.0
+to c3a5314.
+Same-run A/B, new default vs old, decision metric: gr **0-0-59**, gr@sus25
+0-0-12, gr@sus50 0-0-6 (the control); hc **6W-1L-7T**, engaged median
+**+0.558%** [CI +0.023..+0.864%], 4 of 7 unanimous (sf-police +0.73,
+Traffic +0.86, kick +0.35 Brier; employee_salaries +2.45, wine-reviews
++0.56, colleges +0.02 RMSE; okcupid −0.00); hc@sus25 **2W-0L-1T**
+(employee_salaries@sus25 +0.86%, okcupid@sus25 +0.30%); hc@sus50 1W-0L-1T
+(wine-reviews@sus50 +0.72%); hc@time **3W-1L-3T** (Traffic@time +3.69%,
+employee_salaries@time +2.10%, sf-police@time +0.94%, kick@time −0.23%).
+**Correction to I039**, whose variant lines were read on `primary` (F1):
+on the decision metric hc@time is 3W-1L, not 4W-0L, and hc@sus25 is 2W-0L,
+not 1-1 (okcupid@sus25 +0.30% Brier where F1 read −1.37%). Every hc
+stratum's engaged median is positive; every one is a pointer by size (§2).
+Cost, same run: engaged base-hc fit ratio **median ×1.20** (per set 1.07
+colleges to 1.26 kick), ×1.14 with the variants; the 12 inert hc keys ×1.01,
+gr ×1.01; harness hc ×1.07.
+bar (d) **PASS**, skill axis: classification (44 sets) new **0.4052 @ 5.0×**
+vs old 0.4036 @ 4.8×; regression (59) new 0.7342 @ 6.4× vs old 0.7340 @
+6.3×. Neither point dominates the other; the classification gain puts the
+default 0.0005 skill under CatBoost (0.4057 @ 51.8×), from 0.0021 under.
+**Speed-axis correction, found in passing**: the committed chart (I015)
+read the default at 3.5× / 4.3×, today's at 5.0× / 6.4×. We did not slow
+down (absolute default fit vs I015: gr ×0.71 median, hc ×0.90); I015's
+OPPONENTS were slow — same libraries, same config, yet LightGBM ran 4–6×
+and HGB 8–16× slower on 2026-09-18 than today, and CatBoost 27% slower on
+gr. Today's ratios match the August base (LightGBM ~5.2× faster than the
+default on gr fit), so the I015 chart overstated our speed position and
+this refresh corrects it. Cause unknown (a machine-state issue that day);
+recorded in the facts ledger.
+Charts refreshed from the run without the control arm (`pareto.png`,
+`winrate_matrix.png`). Two pre-existing chart defects persist, queued as
+H(12): the title names only Grinsztajn though both panels carry hc and the
+variants, and HGB's 0.4349 classification skill is its subset artifact
+(it skips the hc sets it cannot fit), which also marks every other
+classification point off-frontier.
+forecast, S4c: bit-identity HIT; Pareto classification "+ < 0.002" HIT
+(+0.0016), regression "a hair up" HIT (+0.0002); "gr fit 3–10% under
+I015" UNREADABLE (the machine moved: CatBoost itself read 27% faster).
+confidence the mechanism is real on the decision suites: high (hc engaged
+6W-1L with the CI above zero, every hc variant stratum positive, exact
+ties wherever no column reaches 256 levels). Confidence it transfers to
+user data: moderately high — the public suite, which nothing was tuned
+on, agrees in sign, size and in where the gains sit (entity columns of
+1k–30k levels); the price is ~15–20% fit time where it engages.
+verdict: **PASS → PR** (library default, tests, harness control arm, docs,
+CHANGELOG, charts), waiting for the maintainer's merge. Not self-merged:
+it changes `chimeraboost/` and `tests/`.
+next: after the merge, the published chart (`public_pareto.png`, full
+public field, ~5 h of CatBoost) needs a refresh with the flip — a long run,
+its own go; then the probes **S2 → S3 → S6** as queued.
 
 #### I045 2026-09-22 S4 + S9 zero-fit probes (cross-column scale duplication; numeric missing-value census; pre-registered)
 why now: I044's `next:` — PR #143 merged by the maintainer at dcbbfeb, no

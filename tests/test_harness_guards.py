@@ -68,3 +68,38 @@ def test_models_guard_runs_before_the_save_tee_opens(tmp_path, monkeypatch):
         rb.main()
     assert e.value.code == 2
     assert not os.path.exists(out)
+
+
+def test_run_chimera_catcount_off_forces_false_and_default_leaves_unset(monkeypatch):
+    """The "off" sentinel forces cat_count_features=False; the default
+    argument leaves the parameter unset so the class default applies."""
+    import pytest
+
+    recorded = {}
+
+    class _Sentinel(Exception):
+        pass
+
+    class _StubEst:
+        def __init__(self, **kw):
+            recorded.update(kw)
+
+        def fit(self, X, y, cat_features=None):
+            raise _Sentinel()
+
+    monkeypatch.setattr(rb, "ChimeraBoostRegressor", _StubEst)
+    X = [[0.0, 1.0]] * 4
+    y = [0.0, 1.0, 0.0, 1.0]
+    with pytest.raises(_Sentinel):
+        rb._run_chimera("regression", X, y, X, y, None, 1,
+                        cat_count_features="off")
+    assert recorded["cat_count_features"] is False
+    recorded.clear()
+    with pytest.raises(_Sentinel):
+        rb._run_chimera("regression", X, y, X, y, None, 1)
+    assert "cat_count_features" not in recorded
+
+
+def test_no_catcount_arm_registered_and_off_by_default():
+    assert "ChimeraBoostNoCatCount" in rb.RUNNERS
+    assert "ChimeraBoostNoCatCount" in rb._OFF_BY_DEFAULT

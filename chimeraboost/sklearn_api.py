@@ -2008,12 +2008,14 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         them automatically only when the data is entirely categorical (where the
         interaction columns help without crowding out numeric splits); set
         ``True``/``False`` to force it on/off.
-    cat_count_features : bool, default False
+    cat_count_features : bool, default True
         Add, for every categorical column with at least 256 training
         categories, a numeric column holding the category's training-row count
         (the weight total when ``sample_weight`` is given; unseen categories
         at predict time read 0). A rarity signal for high-cardinality columns;
-        ignored by the cross-feature and linear-leaf machinery. Off by default.
+        ignored by the cross-feature and linear-leaf machinery. Only columns
+        with at least 256 training categories get one, so data without such
+        a column fits exactly as with ``False``. Set ``False`` to turn it off.
     leaf_estimation_iterations : int, default 1
         Newton refinement steps per leaf.
     linear_leaves : bool or None, default None
@@ -2228,7 +2230,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  loss="RMSE", alpha=0.5, min_child_weight=1.0, thread_count=None,
                  random_state=None, verbose=False, ordered_boosting=False,
-                 cat_combinations=None, cat_count_features=False,
+                 cat_combinations=None, cat_count_features=True,
                  leaf_estimation_iterations=1,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  cross_top_columns=None, selection_rounds=100,
@@ -3068,12 +3070,14 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         them automatically only when the data is entirely categorical (where the
         interaction columns help without crowding out numeric splits); set
         ``True``/``False`` to force it on/off.
-    cat_count_features : bool, default False
+    cat_count_features : bool, default True
         Add, for every categorical column with at least 256 training
         categories, a numeric column holding the category's training-row count
         (the weight total when ``sample_weight`` is given; unseen categories
         at predict time read 0). A rarity signal for high-cardinality columns;
-        ignored by the cross-feature and linear-leaf machinery. Off by default.
+        ignored by the cross-feature and linear-leaf machinery. Only columns
+        with at least 256 training categories get one, so data without such
+        a column fits exactly as with ``False``. Set ``False`` to turn it off.
     leaf_estimation_iterations : int or None, default None
         Extra Newton refinement steps per leaf. ``None`` is the auto default and
         resolves to 3, which helps small and categorical-heavy binary fits.
@@ -3269,7 +3273,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  early_stopping_rounds=None,
                  min_child_weight=None, thread_count=None, random_state=None,
                  verbose=False, ordered_boosting=False,
-                 cat_combinations=None, cat_count_features=False,
+                 cat_combinations=None, cat_count_features=True,
                  leaf_estimation_iterations=None,
                  linear_leaves=None, linear_lambda=1.0, cross_features=None,
                  cross_top_columns=None, selection_rounds=100,

@@ -124,5 +124,6 @@ The split search allocates a histogram buffer of shape
 grows exponentially with depth: at `depth=14` on 100 features it is about 1.7 GB, and
 `depth=16` several times that. Raise depth on wide data with the buffer in mind.
 Categorical columns expand before binning (one encoded column per class for multiclass,
-plus pairwise combination columns when `cat_combinations` is on), and each expanded
-column gets its own histogram slab.
+plus pairwise combination columns when `cat_combinations` is on, plus one count column
+for each categorical of 256 or more levels while `cat_count_features` is on), and each
+expanded column gets its own histogram slab.

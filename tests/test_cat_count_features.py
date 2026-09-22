@@ -1,4 +1,4 @@
-"""Opt-in per-category count columns (cat_count_features, default off).
+"""Per-category count columns (cat_count_features; on by default in the regressor and classifier).
 
 When on, every categorical column with at least CAT_COUNT_MIN_CARD training
 categories gets one companion float column holding each row's category
@@ -69,8 +69,37 @@ def test_off_matches_old_positional_construction():
     assert off.n_numeric_block_ == old.n_numeric_block_ == 3
 
 
-def test_off_estimators_match_default():
+def test_default_matches_on():
     X = _mixed()
+    yr, yb, _ = _targets(X)
+    r0 = ChimeraBoostRegressor(random_state=0).fit(X, yr, cat_features=CATS)
+    r1 = ChimeraBoostRegressor(random_state=0, cat_count_features=True).fit(
+        X, yr, cat_features=CATS)
+    np.testing.assert_array_equal(r0.predict(X), r1.predict(X))
+    c0 = ChimeraBoostClassifier(random_state=0).fit(X, yb, cat_features=CATS)
+    c1 = ChimeraBoostClassifier(random_state=0, cat_count_features=True).fit(
+        X, yb, cat_features=CATS)
+    np.testing.assert_array_equal(c0.predict_proba(X), c1.predict_proba(X))
+
+
+def test_off_differs_from_default_on_high_card():
+    X = _mixed()
+    yr, _, _ = _targets(X)
+    off = ChimeraBoostRegressor(random_state=0, cat_count_features=False).fit(
+        X, yr, cat_features=CATS)
+    assert off.model_.prep_.count_features_ == []
+    default = ChimeraBoostRegressor(random_state=0).fit(
+        X, yr, cat_features=CATS)
+    assert default.model_.prep_.count_features_ == [0]
+
+
+def test_default_inert_without_high_card_column():
+    n = 3000
+    rng = np.random.default_rng(1)
+    X = _mixed(n=n)
+    X[:, 0] = np.array([f"cat_{v}" for v in rng.integers(0, 200, n)],
+                       dtype=object)
+    assert len(np.unique(X[:, 0])) < CAT_COUNT_MIN_CARD
     yr, yb, _ = _targets(X)
     r0 = ChimeraBoostRegressor(random_state=0).fit(X, yr, cat_features=CATS)
     r1 = ChimeraBoostRegressor(random_state=0, cat_count_features=False).fit(
@@ -79,7 +108,6 @@ def test_off_estimators_match_default():
     c0 = ChimeraBoostClassifier(random_state=0).fit(X, yb, cat_features=CATS)
     c1 = ChimeraBoostClassifier(random_state=0, cat_count_features=False).fit(
         X, yb, cat_features=CATS)
-    np.testing.assert_array_equal(c0.predict(X), c1.predict(X))
     np.testing.assert_array_equal(c0.predict_proba(X), c1.predict_proba(X))
 
 

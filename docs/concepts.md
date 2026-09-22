@@ -35,6 +35,11 @@ ordering of the rows, so a row never sees its own label. Several orderings
 shrunk toward the global mean by `cat_smoothing`. Pass the columns (by integer position
 or column name) to `fit(..., cat_features=[...])`; everything else is automatic.
 
+A column with at least 256 categories also gets a count column (`cat_count_features`,
+on by default): how many training rows carry each category. The target statistic of a
+category seen twice and one seen two thousand times can look alike; the count lets a
+split tell them apart.
+
 `cat_combinations` additionally builds all pairwise category-by-category features. The
 default (`None`) turns them on automatically when every column is categorical.
 
