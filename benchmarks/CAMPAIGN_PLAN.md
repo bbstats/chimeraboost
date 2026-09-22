@@ -266,13 +266,96 @@ Mark the entrants (up to 5) and the loop resumes with their S0.
 | R6 | Ridge base margin (L2) | regression sets with a global linear trend | per-row init from a ridge on the numeric block instead of a scalar; `linear_leaves` is local and cannot carry a global trend | B14/B16 keyword only | zero-library: sklearn Ridge → residual → ChimeraBoost vs default on the regression panel | mixed-positive; Grinsztajn curates against linear tasks |
 | R7 | Refit gate on flat ES curves (L1) | 7 gr sets where NoRefit beats the default, 4 of them CatBoost losses (heloc, bank-marketing, default-of-credit, compas) | decline the 1.25× replay refit when the curve is flat at T* | **B13 and B2 bite** (the replay curve making a selection decision); clearing argument is thin: one bit, not a grid | analysis of existing JSONs first (which curve-shape statistic separates the 7 from the 52) | high ceiling (+5 gr points), low confidence: refit is 52W-7L |
 | R8 | Raced monotone target transform (L2) | skewed regression targets (houses, Brazilian_houses, nyc-taxi, diamonds) | race identity vs log1p / Yeo-Johnson on the ES split | B12 (cost), B14/B17 keyword | script: oracle headroom + pick fidelity (the E2 pattern); kill if oracle < +0.5% RMSE median | real oracle headroom on 4–8 sets; back-transform bias + cost the likely killer |
-| H | **Harness instruments** (L4), muse rungs, no ship gate | the loop's own decisions | (1) engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs` (3 h; I020/I021 gated on a number no tool prints); (2) probe→decide transfer footer: panel coverage + shipped-mode vs oracle read (5 h; the I019→I021 miss); (3) cost column in `compare_runs`, refused when not decision-grade (2 h); (4) DONE I030 — POINTER label for strata under 8 decided sets; (5) DONE I030 — `--save`/`--models` argparse guards | none | each validated by re-reading `results/20260921-080246.json` to reproduce I021's hand-written verdict | prevents the wrong decision rather than moving the chart; (1), (4), (5) recommended regardless of the beam pick |
+| H | **Harness instruments** (L4), muse rungs, no ship gate | the loop's own decisions | (1) DONE I031 — engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs`; (2) probe→decide transfer footer: panel coverage + shipped-mode vs oracle read (5 h; the I019→I021 miss); (3) cost column in `compare_runs`, refused when not decision-grade (2 h); (4) DONE I030 — POINTER label for strata under 8 decided sets; (5) DONE I030 — `--save`/`--models` argparse guards | none | each validated by re-reading `results/20260921-080246.json` to reproduce I021's hand-written verdict | prevents the wrong decision rather than moving the chart; (1), (4), (5) recommended regardless of the beam pick |
 
 Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low priors, B6/C4 adjacent); Counter/frequency column on its own (B3 hard; goes through R3 first); `cpu_act@sus25` and `eucalyptus@time` outliers (one win each, seed-unstable); random_strength / Bayesian bootstrap / DART-class noise (killed by the SMALLDATA ablation, ≈1 point).
 
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I031 2026-09-22 H(1) harness instrument (engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs`; pre-registered)
+why now: I030's `next:`. PR #128 (H4+H5) merged by the maintainer at
+356c7cc, no campaign PR open, no run in flight. Class: **harness /
+measurement** — never touches the ship gate; gated on an anchor (the I021
+decide JSON re-read before and after, every verdict word unchanged, and
+the engaged median matching the number I021 computed by hand) plus the
+test suite. Implemented by Claude, as I030: `benchmarks/` is Claude's under
+`AGENTS.md`. Branch `campaign/h1-engaged-slice-stats` from main.
+the gap: I020 and I021 pre-registered bars of the form "wins ≥ half + 1
+AND engaged median > 0" and "fit ratio median ≤ 1.5", then computed the
+engaged median by hand from the per-dataset rows, because
+`compare_runs` prints the engaged WIN COUNT and nothing about the size of
+the engaged effect or how sure the read is. A second number the plan file
+has asked for since GATE_ROBUSTNESS #1 ("run more seeds" produces the same
+table) is whether the seeds agree: a dataset whose three seeds split 2–1
+is not a win the way a 3–0 one is, and no tool says which is which.
+design, all print-only, in `_control_line`'s engaged block:
+(a) the engaged-slice **median relative change** in the compared metric
+(+ = better), near-solved sets excluded as in the main block, with a **95%
+percentile bootstrap CI** over engaged datasets (10 000 resamples, seed 0,
+the `summarize.bootstrap_winrate_ci` convention); (b) **per-seed
+agreement**: for each engaged dataset, does every seed's NEW − BASE carry
+the sign of the mean delta? Printed as "k of n unanimous, m split (names)";
+with one seed the line says so instead of pretending. Needs per-seed
+values, so a sibling loader `load_run_seeds` returns dataset → {seed:
+value}; `load_run`'s signature and the seed-averaged path stay untouched.
+No PASS/FAIL word moves; the bar is unchanged.
+forecast: no chart axis moves, by construction. Anchor: re-reading the
+I021 run (`results/20260921-080246.json` ×2, `--by-suite --metric brier
+--model ChimeraBoostOneLin --model-new ChimeraBoostOneLinXC
+--expect-inert`) must differ from the before-read only by added lines,
+and the Grinsztajn engaged median must print **−0.04%** — the number I021
+wrote by hand — with a CI that straddles zero (I021's read was "flat";
+10W-13L cannot exclude zero). The hc engaged median (4 sets) prints too but
+carries the POINTER label from I030. Per-seed agreement on the gr engaged
+slice: unknown — the first time anyone looks; recorded, not gated.
+kill: any verdict word changes on the anchor; the gr engaged median
+disagrees with I021's hand figure at the printed precision; the suite not
+green.
+ran: the edit, then the anchor re-read (`--metric brier`, the metric I021
+judged on). `diff` before/after: **10 lines added, nothing changed** — two
+new lines per stratum that engaged (an "engaged slice" line and a
+"per-seed agreement" line), every PASS/FAIL word intact. What the
+instrument printed on the I021 run:
+  gr (23 engaged, 23 scored): median relative Brier change **−0.003%**,
+    95% CI −0.289%..+0.232%; per-seed agreement **8 of 23 unanimous, 15
+    split** (albert, compas, eye_movements ×2, road-safety, Bioresponse,
+    Diabetes130US, Higgs, MiniBooNE, california, credit, default-of-credit,
+    electricity, heloc, pol).
+  hc (4 engaged): median +0.099%, CI −0.055%..+0.405%, 0 of 4 unanimous —
+    pointer. gr@sus25: −0.208%, 2 of 4 unanimous; gr@sus50: −0.486%, 0 of
+    2; hc@time: +0.141%, 0 of 2 — all pointers.
+**The anchor number MISSED, and the miss is the finding.** I021 wrote
+"engaged median −0.04% Brier" by hand; the file says −0.003%, and a
+recomputation straight from the JSON (seed-averaged Brier per set, relative
+change, median over the 23 sets) gives the same −0.003%. The hand figure was
+a slip — the same order of magnitude, the same sign, and it changed no
+verdict then or now (10W-13L was the FAIL; the median only had to be ≤ 0),
+but it is a number the plan file quotes that no tool ever produced, which is
+exactly the gap this rung was opened to close. Recorded here rather than
+edited into I021 (append-only log). The seed read is new information: only
+8 of the 23 "engaged" Grinsztajn sets had all three seeds on the same side.
+The F3 verdict does not depend on it (a coin flip is a coin flip with
+either count), but a future rung that clears a 12-of-23 bar with 15 split
+sets should not be read as a win, and now the tool will say so.
+gate: the existing 8 `test_compare_runs` tests green; 3 new ones (median
++1.667% and CI bracketed by the two engaged rels on a fixture, ties
+excluded, unanimous vs split counted right; single seed says so; the two
+helpers deterministic and the agreement rule pinned incl. the skipped
+single-seed set); ruff: two F541 hits of my own fixed, the rest the
+pre-existing 7. Full suite: see the PR.
+verdict: **PASS → PR** (touches `tests/`, waits for the maintainer). No
+verdict word moved; the instrument reproduces the JSON, not the hand
+figure, and that is the point. Shortlist H row: (1), (4), (5) done; (2)
+probe→decide transfer footer and (3) cost column remain, both lower value
+than the R-items now that the three decision-facing numbers print.
+next: **R2** — the 1-SE / smoothed early-stopping round (zero library
+change: one fit per set, staged predictions, test metric at argmin vs each
+rule's round, ~20 gr sets × 3 seeds; kill if paired wins < half + 1 or
+median ≤ 0). S0 first: barrier arguments for B2, B11, B13, B14, B12 are
+already sketched in the shortlist row and owe their written form. Then R3.
+One campaign PR at a time: R2 waits for this one to merge.
 
 #### I030 2026-09-21 H(4)+H(5) harness instruments (POINTER label; --save / --models guards; pre-registered)
 why now: I029's `next:`. PR #127 (C3) merged by the maintainer at c9c0f3d,

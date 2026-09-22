@@ -45,6 +45,19 @@ count as a CONTROL (an exact tie where the change cannot engage is positive
 evidence that it did what it claims and nothing else) and an engaged-only sign
 test, which answers "when this engaged, did it help?". Neither changes the bar.
 
+THE ENGAGED SLICE IS MEASURED, NOT JUST COUNTED
+-----------------------------------------------
+Two plan-file bars were computed by hand because no tool printed them
+(CAMPAIGN_PLAN I020/I021): the engaged-slice MEDIAN relative change and how
+sure that read is. Every comparison now prints, for the engaged datasets
+(near-solved ones excluded as in the mean above): the median relative change
+with a 95% percentile bootstrap CI over datasets (10 000 resamples, seed 0,
+the summarize.bootstrap_winrate_ci convention), and PER-SEED AGREEMENT -- how
+many engaged datasets have every seed's NEW-BASE carry the sign of the mean
+delta, and which ones split. A 2-1 seed split is not the win a 3-0 one is
+(GATE_ROBUSTNESS.md #1: "run more seeds" reproduces the same table; this is
+the number that would have said so). Print-only, no verdict moves.
+
 NEAR-SOLVED DATASETS
 --------------------
 A dataset every model solves to a practically-zero loss carries no information
@@ -111,6 +124,60 @@ def load_run(path, model=None, metric="primary"):
         return {k: float(np.mean(v)) for k, v in d.items()}
 
     return _mean(bucket), _mean(rmse), _mean(brier), data.get("datasets", {})
+
+
+def load_run_seeds(path, model=None, metric="primary"):
+    """{dataset: {seed: metric value}}, oriented higher-is-better like
+    ``load_run`` -- the per-seed view the agreement read needs. ``load_run``'s
+    seed-averaged path is untouched."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    sign = -1.0 if metric in ("brier", "crps") else 1.0
+    out = defaultdict(dict)
+    for r in data["records"]:
+        if model is not None and r["model"] != model:
+            continue
+        v = r["metrics"].get(metric)
+        if v is None:
+            continue
+        out[r["dataset"]][r.get("seed", 0)] = sign * v
+    return dict(out)
+
+
+def engaged_slice_stats(rels, n_boot=10000, seed=0):
+    """(median, ci_lo, ci_hi) of relative changes: the median over datasets and
+    its 95% percentile bootstrap CI, resampling datasets with replacement
+    (deterministic for a given seed). None for an empty slice."""
+    if not rels:
+        return None
+    arr = np.asarray(rels, dtype=float)
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(arr), size=(n_boot, len(arr)))
+    meds = np.median(arr[idx], axis=1)
+    return (float(np.median(arr)), float(np.percentile(meds, 2.5)),
+            float(np.percentile(meds, 97.5)))
+
+
+def seed_agreement(ds_names, seeds_b, seeds_n):
+    """(unanimous, split, n_multi): over the datasets given, how many have
+    every shared seed's NEW-BASE carry the sign of the seed-mean delta
+    (``unanimous``), which do not (``split``, names), and how many had more
+    than one shared seed at all (``n_multi`` -- with a single seed there is
+    nothing to agree on). Datasets with no shared seed are skipped."""
+    unanimous, split, n_multi = 0, [], 0
+    for ds in ds_names:
+        sb, sn = seeds_b.get(ds, {}), seeds_n.get(ds, {})
+        common = sorted(set(sb) & set(sn))
+        if len(common) < 2:
+            continue
+        n_multi += 1
+        deltas = np.array([sn[s] - sb[s] for s in common])
+        ref = np.sign(deltas.mean())
+        if ref != 0 and np.all(np.sign(deltas) == ref):
+            unanimous += 1
+        else:
+            split.append(ds)
+    return unanimous, split, n_multi
 
 
 def is_near_solved(ds, ds_meta, rmse_b, rmse_n, brier_b, brier_n):
@@ -222,6 +289,9 @@ def main():
         args.new_path, args.model_new or args.model, args.metric)
     ds_meta = {**meta_b, **meta_n}
     shared = sorted(set(base) & set(new))
+    seeds = (load_run_seeds(args.base_path, args.model, args.metric),
+             load_run_seeds(args.new_path, args.model_new or args.model,
+                            args.metric))
 
     # Strength comparisons are unaffected by the timing convention, but say so
     # loudly if the two runs straddle the _finish fix — anyone reading a speed
@@ -242,16 +312,16 @@ def main():
             print(f"########## {summarize.stratum_label(stratum)} "
                   f"({len(ds_names)} datasets) ##########")
             _report(ds_names, base, new, ds_meta, rmse_b, rmse_n,
-                    brier_b, brier_n, args, base_label, new_label)
+                    brier_b, brier_n, args, base_label, new_label, seeds)
         return
 
     _warn_pooled_strata(shared)
     _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
-            args, base_label, new_label)
+            args, base_label, new_label, seeds)
 
 
 def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
-            args, base_label, new_label):
+            args, base_label, new_label, seeds=None):
     """Per-dataset rows, the mean/median, and the sign-test bar for one set of
     datasets. Behaviour on the full set is unchanged from before --by-suite."""
     near = set() if args.keep_near_solved else {
@@ -333,10 +403,10 @@ def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
         print(f"  (excluding near-solved: {kw} wins / {kl} losses / {kt} ties, "
               f"bar {k_need}+ = {k_verdict}){note}" + pointer_label(kw + kl))
 
-    _control_line(shared, all_pairs, ties, args)
+    _control_line(shared, all_pairs, ties, args, near, seeds)
 
 
-def _control_line(shared, all_pairs, ties, args):
+def _control_line(shared, all_pairs, ties, args, near=(), seeds=None):
     """Read the exact ties as a CONTROL rather than as a penalty.
 
     A conditionally-gated change (size-gated, feature-gated, dtype-gated) is
@@ -351,6 +421,11 @@ def _control_line(shared, all_pairs, ties, args):
       - the inert slice, which is the control; and
       - the engaged-only sign test, which answers "when this engaged, did it
         help?" -- the question the all-dataset bar cannot answer.
+
+    Below those, the engaged slice is MEASURED: its median relative change
+    with a bootstrap CI over datasets, and per-seed agreement (see the module
+    docstring). ``near`` names the near-solved datasets to keep out of the
+    median; ``seeds`` is the (base, new) pair of per-seed views.
 
     Print-only. No verdict above changes, and the exit code stays 0.
     """
@@ -376,6 +451,38 @@ def _control_line(shared, all_pairs, ties, args):
         print(f"  engaged only ({len(engaged)} {plural}): {ew} wins / {el} losses, "
               f"bar {e_need}+ = {e_verdict}   <-- 'when it engaged, did it help?'"
               + pointer_label(ew + el))
+
+    _engaged_slice_lines(engaged, near, seeds, args.metric)
+
+
+def _engaged_slice_lines(engaged, near, seeds, metric):
+    """The engaged slice measured: median relative change with its bootstrap
+    CI, and per-seed agreement. Prints nothing when nothing engaged."""
+    if not engaged:
+        return
+    rels = [(n - b) / abs(b) for ds, (b, n) in engaged
+            if ds not in near and abs(b) > 1e-12]
+    stats = engaged_slice_stats(rels)
+    if stats is None:
+        print("  engaged slice: every engaged dataset is near-solved -- "
+              "no median to read")
+    else:
+        med, lo, hi = stats
+        print(f"  engaged slice ({len(rels)} scored): median relative change "
+              f"in {metric} {med:+.3%}  [95% bootstrap CI {lo:+.3%}..{hi:+.3%}]"
+              + pointer_label(len(rels)))
+    if seeds is None:
+        return
+    unanimous, split, n_multi = seed_agreement(
+        [ds for ds, _ in engaged], seeds[0], seeds[1])
+    if n_multi == 0:
+        print("  per-seed agreement: single seed -- nothing to agree on")
+        return
+    line = (f"  per-seed agreement: {unanimous} of {n_multi} engaged datasets "
+            f"unanimous across seeds, {len(split)} split")
+    if split:
+        line += " (" + ", ".join(split) + ")"
+    print(line)
 
 
 if __name__ == "__main__":
