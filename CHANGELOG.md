@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **`cat_count_features` (opt-in): a rarity signal for high-cardinality
+  categorical columns.** Set `cat_count_features=True` and every categorical
+  column with at least 256 training categories gets one extra numeric column,
+  the category's training-row count (the weight total under `sample_weight`;
+  unseen categories read 0 at predict time). It is the part of CatBoost's
+  categorical encoding that its target statistic carries through three
+  priors and ours did not: an ablation of CatBoost on the high-cardinality
+  suite traced its remaining Brier edge to exactly this, and the column
+  closes about half of it. On the decision tier it wins 6 of the 7
+  high-cardinality datasets where it engages (sf-police +0.73%, Traffic
+  +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), is an
+  exact tie on every dataset without such a column, and costs about 15%
+  fit time where it engages. The count columns are ordinary numeric
+  features to the trees but invisible to the cross-feature and linear-leaf
+  machinery, and the structure-transfer refit adopts the fitted counts
+  together with the binner so replayed splits keep their meaning. Off by
+  default, and off changes nothing: the exact-output snapshot passes 155 of
+  155 configurations (`benchmarks/CAMPAIGN_PLAN.md` I033 to I039).
 - **`cross_features="always"` on the classifier (opt-in).** The regressor's
   forced cross-feature mode now exists for binary classification too: no
   validation race, a 25-round importance probe ranks the features, the

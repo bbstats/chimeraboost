@@ -274,7 +274,8 @@ class _BaseBooster:
                  leaf_estimation_iterations=1,
                  linear_leaves=False, linear_lambda=1.0, cross_pairs=None,
                  quantize_gradients=True, eval_metric=None,
-                 replay_donor=None, adaptive_learning_rate=True):
+                 replay_donor=None, adaptive_learning_rate=True,
+                 cat_count_features=False):
         self.n_estimators = int(n_estimators)
         self.learning_rate = learning_rate
         self.depth = int(depth)
@@ -301,6 +302,7 @@ class _BaseBooster:
         # Size fade for the auto learning rate (_auto_learning_rate), default-on
         # since 0.30.0. False == the historical flat 0.1, byte-identical.
         self.adaptive_learning_rate = bool(adaptive_learning_rate)
+        self.cat_count_features = bool(cat_count_features)
 
         # Structure-transfer refit (see tree.replay_oblivious_tree): a
         # (trees, preprocessor) pair whose splits are replayed instead of
@@ -374,7 +376,8 @@ class _BaseBooster:
         """Build a FeaturePreprocessor configured from this booster's params."""
         return FeaturePreprocessor(self.max_bins, self.cat_smoothing,
                                    self.random_state, self.cat_n_permutations,
-                                   self.cat_combinations, self.cross_pairs)
+                                   self.cat_combinations, self.cross_pairs,
+                                   cat_count_features=self.cat_count_features)
 
     def fit(self, X, y, *args, **kwargs):
         """Fit under this model's thread limit (restored on exit)."""
@@ -510,9 +513,10 @@ class _BaseBooster:
                 FeaturePreprocessor.from_base_with_cross(
                     base_prep, list(self.cross_pairs), X, sample_weight,
                     cat_ctx=train_ctx)
-            nb = len(self.prep_.num_features_)
+            nb = getattr(self.prep_, "n_numeric_block_",
+                          len(self.prep_.num_features_))
 
-            # Stacked column order is [numeric | cross | TS]; splice the new
+            # Stacked column order is [numeric | count | cross | TS]; splice the
             # cross rows into the feature-major base matrix (concatenate
             # returns a fresh C-contiguous array, as the kernels require).
             Xb = np.concatenate([base_Xb[:nb], crossb.T, base_Xb[nb:]], axis=0)
@@ -963,7 +967,18 @@ class GradientBoosting(_BaseBooster):
         self.prep_ = FeaturePreprocessor(
             self.max_bins, self.cat_smoothing, self.random_state,
             self.cat_n_permutations, bool(donor_prep.combo_pairs_),
-            self.cross_pairs)
+            self.cross_pairs, self.cat_count_features)
+        # The adopted binner's borders (and the replayed splits) address
+        # columns by position, so the refit layout must match the donor's
+        # exactly: pin the count-column SELECTION to the donor's (see
+        # _fit_count_tables). The counts themselves are adopted from the
+        # donor too -- refitting them on these rows would rescale every
+        # count by the row-count ratio and push each row into a higher bin
+        # than the one the replayed split was chosen for.
+        self.prep_._pinned_count_features = list(
+            getattr(donor_prep, "count_features_", []))
+        self.prep_._pinned_cat_counts = (
+            donor_prep.cat_maps_, getattr(donor_prep, "cat_counts_", []))
 
         Xb = np.ascontiguousarray(
             self.prep_.fit_transform(X, [y], cat_features, w,

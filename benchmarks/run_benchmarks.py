@@ -1027,7 +1027,8 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
                  cat_combinations=None, leaf_estimation_iterations=None,
                  linear_leaves=False, linear_lambda=1.0, cross_features=False,
                  cat_smoothing=None, selection_rounds=None, quantize=False,
-                 refit_full=False, adaptive_lr=False, cross_top_columns=None):
+                 refit_full=False, adaptive_lr=False, cross_top_columns=None,
+                 cat_count_features=False):
     t = time.time()
     Est = ChimeraBoostRegressor if task == "regression" else ChimeraBoostClassifier
     # None = use the class default. For ordered_boosting that's False (Reg) /
@@ -1067,6 +1068,10 @@ def _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads, lr=None,
     # it on when --chimera-cat-combinations is passed.
     if cat_combinations:
         kw["cat_combinations"] = True
+    # CAMPAIGN F5 (I038): the opt-in count column for categoricals of
+    # cardinality >= 256; a plain False means "don't override" like the rest.
+    if cat_count_features:
+        kw["cat_count_features"] = True
     if linear_leaves == "auto":
         # Regressor: linear_leaves=None = validation-selected (fit both, keep
         # the val winner). The classifier's None default is already its own
@@ -1284,10 +1289,21 @@ def _with_cat_counts(Xtr, Xte, cat):
 
 
 def _run_chimera_catcount(task, Xtr, ytr, Xte, yte, cat, threads):
-    """The default plus a training-row count column per categorical."""
+    """The I036/I037 prototype: a count column per categorical appended as a
+    RAW input column, so it is also a cross-feature and linear-leaf
+    candidate. Keeps its name so the I036/I037 result JSONs stay labelled;
+    superseded by the library flag arm below."""
     if cat:
         Xtr, Xte = _with_cat_counts(Xtr, Xte, list(cat))
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads)
+
+
+def _run_chimera_catcount_lib(task, Xtr, ytr, Xte, yte, cat, threads):
+    """The default with the library's `cat_count_features=True`: a count
+    column for every categorical of cardinality >= 256, inside the numeric
+    block, invisible to the cross and linear-leaf races (I038)."""
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
+                        cat_count_features=True)
 
 
 def _run_chimera_xtop6(task, Xtr, ytr, Xte, yte, cat, threads):
@@ -1511,6 +1527,7 @@ RUNNERS = {
     "ChimeraBoostXTop6": _run_chimera_xtop6,
     "ChimeraBoostXTop12": _run_chimera_xtop12,
     "ChimeraBoostCatCount": _run_chimera_catcount,
+    "ChimeraBoostCatCountLib": _run_chimera_catcount_lib,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -1531,7 +1548,7 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
                    "ChimeraBoostXTop6", "ChimeraBoostXTop12",
-                   "ChimeraBoostCatCount")
+                   "ChimeraBoostCatCount", "ChimeraBoostCatCountLib")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
@@ -1953,6 +1970,11 @@ def main():
                     default=False, dest="cat_combinations",
                     help="enable 2-way categorical feature combinations "
                          "(default: off).")
+    ap.add_argument("--chimera-cat-counts", dest="cat_count_features",
+                    action="store_true",
+                    help="ChimeraBoost: cat_count_features=True (a count column "
+                         "for every categorical of cardinality >= 256; "
+                         "CAMPAIGN_PLAN I038).")
     ap.add_argument("--chimera-cat-smoothing", type=float, default=None,
                     dest="cat_smoothing",
                     help="Bayesian pseudocount in the ordered target-statistic "
@@ -2152,6 +2174,7 @@ def main():
                        depth=args.chimera_depth, subsample=args.chimera_subsample,
                        colsample=args.chimera_colsample,
                        mcw=args.chimera_mcw, cat_combinations=args.cat_combinations,
+                       cat_count_features=args.cat_count_features,
                        cat_smoothing=args.cat_smoothing,
                        leaf_estimation_iterations=args.leaf_estimation_iterations,
                        linear_leaves="auto" if args.linear_leaves_auto
