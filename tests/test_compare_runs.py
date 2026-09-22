@@ -181,3 +181,72 @@ def test_pointer_label_absent_at_eight_decided(tmp_path, capsys, monkeypatch):
     assert "POINTER" not in out
     assert compare_runs.pointer_label(8) == ""
     assert "7 decided < 8" in compare_runs.pointer_label(7)
+
+
+# --------------------------------------------------------------------------
+# The engaged slice is measured (CAMPAIGN_PLAN I031, H(1)): median relative
+# change with a bootstrap CI over datasets, and per-seed agreement. Print-only.
+# --------------------------------------------------------------------------
+def _write_seeded(tmp_path, name, briers):
+    """One run JSON: ``briers`` maps dataset -> {seed: brier}; binary sets at
+    Brier ~0.2 stay clear of near-solved."""
+    datasets = {ds: {"task": "binary"} for ds in briers}
+    records = [{"dataset": ds, "model": "M", "seed": s, "fit_time": 1.0,
+                "metrics": {"primary": 1.0 - b, "brier": b}}
+               for ds, per_seed in briers.items() for s, b in per_seed.items()]
+    path = os.path.join(str(tmp_path), name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"datasets": datasets, "records": records}, fh)
+    return path
+
+
+def test_engaged_slice_median_and_seed_agreement(tmp_path, capsys, monkeypatch):
+    base = _write_seeded(tmp_path, "b.json", {
+        "una": {0: 0.20, 1: 0.20, 2: 0.20},   # every seed improves: unanimous
+        "spl": {0: 0.20, 1: 0.20, 2: 0.20},   # 2 seeds improve, 1 regresses
+        "tie": {0: 0.20, 1: 0.20, 2: 0.20},   # exact tie: inert, not engaged
+    })
+    new = _write_seeded(tmp_path, "n.json", {
+        "una": {0: 0.19, 1: 0.19, 2: 0.19},   # -5% Brier = +5% relative
+        "spl": {0: 0.19, 1: 0.19, 2: 0.23},   # mean 0.2033 -> -1.67% relative
+        "tie": {0: 0.20, 1: 0.20, 2: 0.20},
+    })
+    out = _main(capsys, monkeypatch,
+                [base, new, "BASE", "NEW", "--model", "M", "--metric", "brier"])
+    slice_line = [l for l in out.splitlines() if "engaged slice" in l][0]
+    # Two engaged datasets, relative changes +5% and -1.67%: the median is
+    # their midpoint, and a CI over two points is bracketed by them.
+    assert "engaged slice (2 scored)" in slice_line
+    assert "+1.667%" in slice_line and "95% bootstrap CI" in slice_line
+    assert "-1.667%..+5.000%" in slice_line
+    assert "2 decided < 8" in slice_line          # the I030 label rides along
+    seeds_line = [l for l in out.splitlines() if "per-seed agreement" in l][0]
+    assert "1 of 2 engaged datasets unanimous" in seeds_line
+    assert "1 split (spl)" in seeds_line
+    # The tie is the inert slice, not an engaged dataset: it appears nowhere
+    # in the engaged reads.
+    assert "tie" not in slice_line and "tie" not in seeds_line
+    # And the bar is untouched by any of it.
+    assert "sign-test bar" in out
+
+
+def test_engaged_slice_single_seed_says_so(tmp_path, capsys, monkeypatch):
+    base = _write_seeded(tmp_path, "b.json", {"a": {0: 0.20}, "b": {0: 0.20}})
+    new = _write_seeded(tmp_path, "n.json", {"a": {0: 0.19}, "b": {0: 0.21}})
+    out = _main(capsys, monkeypatch,
+                [base, new, "BASE", "NEW", "--model", "M", "--metric", "brier"])
+    assert "per-seed agreement: single seed -- nothing to agree on" in out
+
+
+def test_engaged_slice_helpers_are_deterministic_and_bracket_the_median():
+    rels = [0.01, -0.02, 0.03, 0.005, -0.001]
+    med, lo, hi = compare_runs.engaged_slice_stats(rels, n_boot=2000, seed=0)
+    assert med == 0.005
+    assert lo <= med <= hi
+    assert compare_runs.engaged_slice_stats(rels, n_boot=2000, seed=0) == (med, lo, hi)
+    assert compare_runs.engaged_slice_stats([]) is None
+    # Agreement: unanimous needs every shared seed on the mean's side; a
+    # dataset with one shared seed is skipped, not counted either way.
+    sb = {"x": {0: 1.0, 1: 1.0}, "y": {0: 1.0, 1: 1.0}, "z": {0: 1.0}}
+    sn = {"x": {0: 1.1, 1: 1.2}, "y": {0: 1.1, 1: 0.5}, "z": {0: 2.0}}
+    assert compare_runs.seed_agreement(["x", "y", "z"], sb, sn) == (1, ["y"], 2)
