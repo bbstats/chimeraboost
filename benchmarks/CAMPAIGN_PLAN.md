@@ -151,6 +151,7 @@ fact: 2026-09-22 | the count column on the pub: suite (I046 S4a, `results/202609
 fact: 2026-09-22 | the default's strength rows are bit-identical from 0.32.0 (I015, `20260918-170822.json`) to c3a5314 (I039's ChimeraBoost arm): 309 of 309 (dataset, seed) rows; so are every rung's and every opponent's gr rows between I015 and I046 S4c (231 of 231 each)
 fact: 2026-09-22 | I015's chart-grade run timed the OPPONENTS slow: against the same libraries and config on 2026-09-22 (`20260922-144219.json`), LightGBM ran 4–6× slower (gr fit median ratio 0.23), HGB 8–16× slower, CatBoost 27% slower on gr; the default itself read gr ×0.71 / hc ×0.90. The I015 chart's slowdown axis (default 3.5× clf / 4.3× reg) overstated our speed position; the I046 read (5.0× / 6.4×) matches the August base's LightGBM gap (~5.2× on gr fit)
 fact: 2026-09-22 | I039's variant lines were read on `primary` (F1): on the decision metric hc@time is 3W-1L (Traffic@time +3.69%, employee_salaries@time +2.10%, sf-police@time +0.94%, kick@time −0.23%) and hc@sus25 2W-0L (employee_salaries@sus25 +0.86%, okcupid@sus25 +0.30%)
+fact: 2026-09-22 | muse's Windows sandbox can fail mid-task, host-wide and deterministically: every shell call returns "windows_elevated unified exec session launcher unavailable: sandbox enforcement unavailable … SetNamedSecurityInfoW failed: 1340" (I047; a subagent's shell failed the same way). The task's written files survive; the planner may run a finished, reviewed script itself — running is not authoring
 fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc fit ratio median ×1.20 (colleges 1.07 … kick 1.26), ×1.14 with the hc variants; inert hc ×1.01; a chart-grade --decide run with the I015 field took 55 min
 
 ## Beam
@@ -161,7 +162,7 @@ fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc
 | F4 | Profiling-driven speed | ACTIVE (C2 + C1 + C1b + C4a + C4a-2 + C3 shipped; measured objects exhausted; loop now on the shortlist queue) | **C3 SHIPPED (PR #127, c9c0f3d; I029)**: fused binary Logloss layer, bit-identical 155/155, Grinsztajn binary fits −4.7 to −5.7%, kick −4.2%, controls flat — the first F4 unit that reaches Grinsztajn. Next: the shortlist queue (H(4)+H(5), H(1), R2, R3); F4 has no measured exact-rewrite object left. Parked: C4b shared TS permutations (algorithm change). **C4a-2 SHIPPED (PR #126, 3706494; I028)**: the numeric block cast once per fit, porto-seguro −8.5% / kick −3.4%. **C4a SHIPPED (PR #125, a8f04c8; I027)**: categorical columns are factorized once per fit and each leg's codes derived by an integer re-rank — bit-identical 155/155, default fit −9.4% kick / −18.9% sf-police / −18.1% porto-seguro / −8.2% okcupid-stem, numeric control flat. |
 | F2 | Sub-gate cross via CV-averaged race | KILLED (I017) | 5/5 engaged precision at 3-7x cost; S1 did not replicate |
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
-| F5 | hc-Brier gap vs CatBoost | **S4 PASSED 2026-09-22 (I046): the default flip is a PR awaiting the maintainer's merge** (go given on his delegation; public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
+| F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
 
 ### F1 — Cross-feature cost trim v2
@@ -295,6 +296,9 @@ probes **S2 → S3 → S6**; then the library rungs **S1** and **S4's flag**,
 one PR each. First alternates if a slot frees: S8 (a 5-minute probe), S5
 (exact, small), S10 (the speed price list). Queued behind the five, same
 day: **H(11)**, the pub: download race (facts ledger, found at I046);
+status 2026-09-22: **S2 RESOLVED — KILLED** (I047; bins254 a dedup miss,
+registered as B20; pointer for the next refill: race the binary linear
+leaf, it costs california 1.73% and earns electricity 3.67%). Next: S3.
 **H(12)**, `make_pareto.py`'s title names only the first suite and HGB's
 subset-artifact classification point sits on the frontier (found at I046
 S4c, pre-existing since I015).
@@ -397,6 +401,125 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I047 2026-09-22 S2 S0+S1 (CatBoost's split machinery on the gr binary sets where it still leads, plus two own-side arms; measurement, pre-registered)
+why now: the maintainer merged PR #145 at d14bf38 (I046 SHIPPED: the count
+column is the default); branch deleted, the merge confirmed on main. The
+pick order puts the three self-mergeable probes next, S2 first. No
+campaign PR open, bench idle. Class: **measurement** (opponent ablation +
+two own-side arms), `benchmarks/` only. Branch
+`campaign/s2-catboost-split-score` from main. Muse writes and runs
+`benchmarks/probe_catboost_split_score.py` (task
+`20260922-s2-catboost-split-score.md`).
+the slice, as re-read at the pick: CatBoost's Brier lead on the standing
+run is real on **california** (+2.7%, and its @sus50 twin +2.7%),
+**bank-marketing** (+1.0%) and **credit** (+0.5%), plus two small twins
+whose parents we win (albert@sus25 +0.45%, eye_movements@sus25 +0.30%);
+Diabetes130US, compas and heloc sit inside seed noise and are left out.
+Controls where we lead: MagicTelescope, electricity. Five gap units
+(california counts once; its twin is reported, not counted).
+arms: `cb_default` (the harness's CatBoost, byte for byte) and `cb_ours`
+(CatBoost set to our split machinery all at once: score_function L2, no
+leaf backtracking, Median borders, l2_leaf_reg 1, border_count 128); our
+side `chimera` (the harness default), `chimera_const` (binary linear
+leaves off: they are unraced on binary, and I041 saw the unraced binary
+leaf over-trust an in-sample statistic), `chimera_bins254`. Stage B (five
+one-knob CatBoost arms) is coded but runs only if `cb_ours` moves the edge.
+barriers (`barrier_check.py` matched B3, B1, B4, B14, B18): B3 — this
+measures the opponent, the sanctioned L3 method (the 2026-08-01 run of the
+same method found the learning rate); any port that follows owes its own
+argument. B4 — CatBoost stays Plain. B1 — every gap key trains above
+LINEAR_LEAVES_MIN_SAMPLES (smallest: eye_movements@sus25, ~1.4k rows), so
+the const arm engages everywhere. B14 — no audition budget moves. B18 —
+keyword only: gr loaders pass no cat_features, so no TS exists here.
+forecast: CatBoost's residual edge is its split score or its λ, so
+`cb_ours` gives back **40–80%** of the edge on california and
+bank-marketing, less on credit, and moves the controls < 1%.
+`chimera_const` **0 to +0.5%** on the noisy sets (bank-marketing, credit)
+and a loss on california (its geography rewards slopes); `chimera_bins254`
+**+0.5 to +1.5% on california** (lat/long resolution; LightGBM at 255 bins
+also beats us there) and flat elsewhere. Cost: bins254 ×1.1–1.3 fit,
+const ×0.8–0.9.
+bars: (0) SELF-CHECK — `chimera` and `cb_default` reproduce the saved
+run's Brier to 1e-9 on every (key, seed), else nothing below is read;
+(1) a CatBoost mechanism is NAMED when `cb_ours` recovers ≥ 40% of the
+edge on ≥ 3 of the 5 gap units with both controls' CatBoost Brier moving
+< 1% → Stage B localizes it; (2) an own-side POINTER when `chimera_const`
+or `chimera_bins254` beats `chimera` on ≥ 3 of 5 units, controls within
+±0.3%. Neither ⇒ the cluster closes as a barrier (the residual is not the
+split score, border grid, λ, backtracking, bin count, nor our unraced
+binary linear leaves).
+cost: 48 CatBoost fits (~15–25 min) + 72 of ours (~5 min).
+muse pass (exit 0, ~20 min): wrote `probe_catboost_split_score.py` (437
+lines; the harness data path, the literal no-flag `chimera_cfg`,
+`threads=2`, `_run_catboost` copied with overrides merged last), smoke
+run on credit seed 0: EQUIV-CHECK 0.0 (the direct-construction path for
+`chimera_bins254` reproduces `chimera` bit for bit) and SELF-CHECK 0.0 on
+both arms against the saved run. Then its sandbox broke host-wide (every
+shell call: "windows_elevated unified exec session launcher unavailable
+… SetNamedSecurityInfoW failed: 1340"), so it never launched the full
+run. Reviewed by Claude (the one open question, the estimator's seed:
+the harness also fixes `random_state=0`), ruff clean, and the full run
+launched by Claude at 16:31 — execution of a finished script, no
+authoring. Muse's review note that the saved run predates the flip is
+wrong: `20260922-144219` ran on the flip branch, and gr passes no
+categoricals anyway.
+ran: 120 fits in **~2 min** (the CatBoost fits on these sets take 0.5–10 s),
+`results/probe-cb-split-score.jsonl` + `-20260922.log`. EQUIV-CHECK 0.0;
+**SELF-CHECK PASS, max |diff| 0.0 on both arms over all 24 (key, seed)
+rows** — the probe measured exactly what the harness measured.
+table (mean Brier over 3 seeds; edge = CatBoost's lead as % of ours;
+recov = share of it `cb_ours` gives back; d = our arm vs `chimera`, + =
+better, seeds agreeing):
+  california            edge 2.68%  recov 38%   const +1.73% (3/3)  bins254 +0.88% (2/3)
+  california@sus50      edge 2.71%  recov 54%   const +1.95% (3/3)  bins254 +0.11% (2/3)
+  bank-marketing        edge 1.02%  recov 22%   const +0.37% (2/3)  bins254 +0.74% (3/3)
+  credit                edge 0.51%  recov 99%   const −0.16% (2/3)  bins254 +0.33% (3/3)
+  albert@sus25          edge 0.45%  recov 75%   const −0.15% (2/3)  bins254 +0.09% (2/3)
+  eye_movements@sus25   edge 0.30%  recov 69%   const −0.89% (3/3)  bins254 +0.67% (3/3)
+  MagicTelescope (ctl)  edge −3.50% cb_ours moves CatBoost +0.03%   const −1.65%  bins254 +0.09%
+  electricity (ctl)     edge −6.16% cb_ours moves CatBoost **+11.6% worse**  const −3.67% (3/3)  bins254 **+7.97% (3/3)**
+fit: const ×0.56 median (binary linear leaves are about half the fit),
+bins254 ×1.12 (electricity ×1.22, it runs to the 2000-round cap).
+bar (1) **FAIL**: `cb_ours` recovers ≥ 40% on 3 of 5 units (credit,
+albert@sus25, eye_movements@sus25; california 38%, bank-marketing 22%),
+but it moves the electricity control by 11.6%, so the bundle is not a
+gap-specific mechanism: our split settings make CatBoost broadly worse
+(on electricity the likely culprit is `border_count=128`, the same axis
+as our own bins254 gain there), and on the two sets that carry the
+cluster (california, bank-marketing) it explains only a fifth to two
+fifths of the edge. Stage B not run, as pre-registered.
+bar (2): `chimera_const` **FAIL** (2 of 5 units, controls −1.65% /
+−3.67%). `chimera_bins254` wins 5 of 5 units but moves electricity by
++7.97%, and it is a **DEDUP MISS**: max_bins 128 → 254 was tested on three
+suites on 2026-06-01 and rejected (electricity-driven gains, an overall
+wash on independent data, regression reversed with cpu_act −17 to −30%);
+today's read is the same picture. That verdict lived only in session
+memory, so neither `barrier_check.py` nor this task's S0 could see it —
+registered now as **B20**, and not re-opened.
+forecast: "cb_ours gives back 40–80% on california and bank-marketing"
+MISSED (38%, 22%); "controls move < 1%" MISSED (electricity 11.6%);
+"const loses on california" MISSED the other way (+1.73%, all seeds);
+"bins254 +0.5 to +1.5% on california" HIT (+0.88%), "flat elsewhere"
+MISSED (electricity +7.97%).
+what the probe did find: on california the unraced binary linear leaf
+costs **1.73% of Brier on every seed — two thirds of CatBoost's 2.68%
+lead there** — while the same leaves earn 1.65% on MagicTelescope and
+3.67% on electricity. Per-set choice would take both; the regression path
+already makes it by racing const vs linear on the validation split, the
+binary path does not race. That is a pointer, not a result (one dataset
+plus its twin, post hoc): a binary const-vs-linear race is B14/B2
+territory and costs up to the const fit again (×0.56) unless auditioned
+short; it goes to the next refill, not into this rung.
+verdict: **S2 KILLED** — the gr binary CatBoost residual is not its split
+machinery as a bundle (non-specific), not a bin-count object we may take
+(B20), and not our linear leaves as a flat switch; confidence the kill
+is right on the decision suites: moderate (8 keys, 3 seeds, the self-
+check exact); cost axis read: nothing here is cheaper except turning
+linear leaves off, which loses. Self-merged: `benchmarks/` + `.md` only.
+next: **S3** (cpu_act@sus25). Its task gains a `chimera_bins64` arm: B20's
+June record names cpu_act as the set that overfits when bins get finer,
+so at 1,536 training rows 128 bins may already be too fine.
 
 #### I046 2026-09-22 F5 S4 (/experiment on flipping `cat_count_features` on by default: public read, then the flip, then the chart-grade field on the flip branch; pre-registered)
 why now: the maintainer delegated the call in chat ("you may go ahead on
@@ -570,7 +693,9 @@ on, agrees in sign, size and in where the gains sit (entity columns of
 1k–30k levels); the price is ~15–20% fit time where it engages.
 verdict: **PASS → PR** (library default, tests, harness control arm, docs,
 CHANGELOG, charts), waiting for the maintainer's merge. Not self-merged:
-it changes `chimeraboost/` and `tests/`.
+it changes `chimeraboost/` and `tests/`. **MERGED by the maintainer the
+same day as PR #145 (d14bf38)**; branch deleted, the commit confirmed on
+main. The published-chart refresh below still needs its own go.
 next: after the merge, the published chart (`public_pareto.png`, full
 public field, ~5 h of CatBoost) needs a refresh with the flip — a long run,
 its own go; then the probes **S2 → S3 → S6** as queued.
