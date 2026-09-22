@@ -393,15 +393,47 @@ change). Same shape as June: one fine-grained set carries it.
 Consequence: do not propose a larger default bin count, or a probe arm
 whose case rests on "the opponents use ~255", without a mechanism that
 answers the June regression reversal (a size- or noise-aware bin rule
-would be such a mechanism; a flat increase is not). The live question runs
-the other way: whether 128 bins is already too fine for small or noisy
-numeric data (`cpu_act@sus25`, shortlist S3).
+would be such a mechanism; a flat increase is not). The other direction,
+whether 128 bins is too fine for small or noisy numeric data, was asked at
+I048 and the answer is no (below).
 
 *Incident*: the June verdict lived only in session memory
 (`project_algorithm_history`), so `barrier_check.py` could not find it; the
 2026-09-22 S2 task added a `chimera_bins254` arm on the strength of
 "LightGBM at 255 bins beats us on california" and re-derived the June
 result. `CAMPAIGN_PLAN.md` I047.
+
+Re-read the other way 2026-09-22 (I048, `benchmarks/probe_small_reg_loss.py`):
+64 bins on the eight gr regression small-data keys helps `cpu_act@sus25`
++6.6% on average by a coin flip per seed (+17.8 / +16.0 / −15.7%) and loses
+on 5 of the other 7 keys, the parent `cpu_act` by −7.6%. Coarser is not a
+small-data rule either: 128 stays, in both directions.
+
+---
+
+### B21 — A regression min-leaf floor is directionally right on small data and too small to ship
+tags: min_child_weight, mcw, min leaf, min-leaf, minimum leaf, leaf size, min_data_in_leaf, min_samples_leaf, sample floor, regressor, small data, small-data regression, tiny leaves, sparse leaves
+
+For squared error the Hessian is one per row, so the regressor's
+`min_child_weight=1.0` lets a leaf hold a single row, where LightGBM
+requires 20. Probed 2026-08-01 (`benchmarks/probe_reg_mcw.py`,
+`BREAKTHROUGH_PLAN.md` C3; all 42 decision-suite regression sets × 3
+seeds × train fraction 1.0 / 0.5 / 0.25, mcw ∈ {1, 4, 8, 16, 32}): each
+dataset's own best mcw rises as rows shrink (22 up, 5 down, p = 0.002),
+but the pre-registered primary arm (mcw = 8 at a quarter of the rows) reads
+23W-17L, median +0.085%, Holm p = 1.000, and the best fixed arm captures
+13–31% of the per-dataset oracle, so no size schedule recovers it. The
+veto bound (rounds ×1.05–1.24): a refutation, not an inert arm. On an
+oblivious tree the floor vetoes a whole level, not the one sparse leaf.
+
+Consequence: do not propose a minimum-leaf-size default for the regressor,
+fixed or size-adaptive, as the answer to a small-data regression loss.
+`cpu_act@sus25`, the largest such loss on the suite, was in that panel:
+mcw = 8 took its RMSE from 3.82 to 3.53 against LightGBM's 2.71.
+
+*Incident*: the 2026-09-22 S3 probe (`CAMPAIGN_PLAN.md` I048) reached for
+"LightGBM's min_data_in_leaf = 20" as the explanation of `cpu_act@sus25`
+before a grep found C3, which `barrier_check.py` could not see.
 
 ---
 

@@ -151,6 +151,7 @@ fact: 2026-09-22 | the count column on the pub: suite (I046 S4a, `results/202609
 fact: 2026-09-22 | the default's strength rows are bit-identical from 0.32.0 (I015, `20260918-170822.json`) to c3a5314 (I039's ChimeraBoost arm): 309 of 309 (dataset, seed) rows; so are every rung's and every opponent's gr rows between I015 and I046 S4c (231 of 231 each)
 fact: 2026-09-22 | I015's chart-grade run timed the OPPONENTS slow: against the same libraries and config on 2026-09-22 (`20260922-144219.json`), LightGBM ran 4–6× slower (gr fit median ratio 0.23), HGB 8–16× slower, CatBoost 27% slower on gr; the default itself read gr ×0.71 / hc ×0.90. The I015 chart's slowdown axis (default 3.5× clf / 4.3× reg) overstated our speed position; the I046 read (5.0× / 6.4×) matches the August base's LightGBM gap (~5.2× on gr fit)
 fact: 2026-09-22 | I039's variant lines were read on `primary` (F1): on the decision metric hc@time is 3W-1L (Traffic@time +3.69%, employee_salaries@time +2.10%, sf-police@time +0.94%, kick@time −0.23%) and hc@sus25 2W-0L (employee_salaries@sus25 +0.86%, okcupid@sus25 +0.30%)
+fact: 2026-09-22 | ROOT CAUSE of the muse sandbox failure (I048, read-only `icacls`): every launch appends a `MuseSandboxUsers` DENY pair and a per-session-SID DENY pair to the ACL of `C:\Users\Nathan\.config\muse` and never removes them; at 1,786 duplicate `MuseSandboxUsers` entries (893 pairs) plus the stale session pairs, the ACL reached Windows' size limit and `SetNamedSecurityInfoW` returns 1340 (ERROR_BAD_INHERITANCE_ACL). A muse bug; the fix is an ACL reset on that folder, outside the repo and the maintainer's call
 fact: 2026-09-22 | muse's Windows sandbox can fail mid-task, host-wide and deterministically: every shell call returns "windows_elevated unified exec session launcher unavailable: sandbox enforcement unavailable … SetNamedSecurityInfoW failed: 1340" (I047; a subagent's shell failed the same way). The task's written files survive; the planner may run a finished, reviewed script itself — running is not authoring
 fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc fit ratio median ×1.20 (colleges 1.07 … kick 1.26), ×1.14 with the hc variants; inert hc ×1.01; a chart-grade --decide run with the I015 field took 55 min
 
@@ -296,12 +297,16 @@ probes **S2 → S3 → S6**; then the library rungs **S1** and **S4's flag**,
 one PR each. First alternates if a slot frees: S8 (a 5-minute probe), S5
 (exact, small), S10 (the speed price list). Queued behind the five, same
 day: **H(11)**, the pub: download race (facts ledger, found at I046);
-status 2026-09-22: **S2 RESOLVED — KILLED** (I047; bins254 a dedup miss,
-registered as B20; pointer for the next refill: race the binary linear
-leaf, it costs california 1.73% and earns electricity 3.67%). Next: S3.
 **H(12)**, `make_pareto.py`'s title names only the first suite and HGB's
 subset-artifact classification point sits on the frontier (found at I046
 S4c, pre-existing since I015).
+status 2026-09-22: **I046 SHIPPED** (PR #145, d14bf38). **S2 RESOLVED —
+KILLED** (I047; bins254 a dedup miss, registered as B20; pointer for the
+next refill: race the binary linear leaf, it costs california 1.73% and
+earns electricity 3.67%). **S3 RESOLVED — KILLED** as a one-set outlier
+(I048; the leaf-floor dedup registered as B21). Next: S6, then S1 and S4's
+flag, all three muse tasks, blocked until muse's sandbox ACL is reset
+(facts ledger).
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -401,6 +406,122 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I048 2026-09-22 S3 S0+S1 (why every opponent beats us on cpu_act@sus25: our-side ablation + a per-row error read; measurement, pre-registered)
+why now: I047 closed (PR #146 self-merged at 7ab18e2 after green CI; S2
+KILLED, B20 registered). Next in the pick order. No campaign PR open,
+bench idle. Class: **defect probe** (measurement, `benchmarks/` only).
+Branch `campaign/s3-cpu-act-sus25` from main. Muse writes and runs
+`benchmarks/probe_small_reg_loss.py` (task `20260922-s3-cpu-act-sus25.md`).
+the slice, as re-read at the pick: `cpu_act@sus25` (1,536 training rows)
+is the one real double-digit loss on 77 gr keys — CatBoost +20.2%,
+LightGBM +28.5%, HGB +24.5% of our RMSE, best NRMSE 0.147 (not
+near-solved), our bag Ens8 WORSE than the default (−2.9%), seed 1 at 4.50
+against LightGBM's 2.43; on the full `cpu_act` we beat all three. SGEMM
+was dropped from S3 at the pick (near-solved, and Ens8 recovers 73% of
+its gap). Panel: all 7 gr regression @sus25 keys + the parent.
+arms (ours): default, `chimera_const` (linear leaves off), `chimera_norefit`,
+`chimera_fixedlr` (the pre-0.30 flat rate), `chimera_bins64` (coarser
+bins: B20's June record names cpu_act as the set that overfits when bins
+get FINER); opponents `lgbm`, `catboost` as the harness runs them.
+Per-row read on cpu_act@sus25 and its parent: SSE share of the top 1% /
+5% rows, and SSE split by test rows with ≥ 1 input outside the training
+range.
+barriers (`barrier_check.py`: B20, B1, B2, B6, B13, B14, B18): B20 — this
+arm goes the OTHER way (coarser at small n), the direction B20 leaves
+open. B1 — 1,536 rows is above LINEAR_LEAVES_MIN_SAMPLES (the const/linear
+race runs) and below CROSS_MIN_SAMPLES (no cross race), so the const arm
+engages and cross features cannot be the cause. B2/B13 — the norefit arm
+measures the refit's share directly. B6 — a probe on one set, not a
+sweep; any fix it names must be a rule with a mechanism, never a tuned
+value. B14, B18 keyword only.
+forecast: H1 (55%), linear leaves extrapolating: `chimera_const` closes
+≥ 50% of the gap to LightGBM and the default's excess SSE sits in rows
+with an out-of-range input (the top 1% of rows carry > 30% of our SSE vs
+< 15% of LightGBM's); H2 (20%), bins too fine at n = 1,536:
+`chimera_bins64` +5 to +15%; H4 (10%), the adaptive rate's extra rounds:
+`chimera_fixedlr` +0 to +5%; the refit is not it (I015's seed-1 NoRefit
+read 4.60 against the default's 4.50): `chimera_norefit` within ±3%.
+Other @sus25 keys: every arm within ±1%, except const on the sets where
+linear leaves win (a known cost).
+bars: (0) SELF-CHECK — `chimera`, `lgbm`, `catboost` reproduce the saved
+run's RMSE to 1e-9 relative on every (key, seed), else nothing is read;
+(1) a NAMED DEFECT when one of our arms closes ≥ 50% of the default's
+RMSE gap to LightGBM on cpu_act@sus25 (mean over seeds, ≥ 2 of 3 seeds
+agreeing) while no other @sus25 key and not the parent loses > 0.5%
+under it — its fix is designed next as a rule, no knob; (2) the per-row
+read LOCATES it when ≥ 50% of our excess SSE over LightGBM sits in rows
+with an out-of-range input. Kill: no arm closes ≥ 25% of the gap ⇒ the
+loss is not on a switch of ours; the next step is reducing LightGBM
+toward us, or closing it as a one-set outlier.
+cost: 168 fits at ≤ 10k rows, ~5–10 min.
+muse pass (exit 0, ~8 min): wrote `probe_small_reg_loss.py` (600 lines;
+`refit_full="off"` and `adaptive_lr="off"` through the standard runner,
+the bins64 and const capture paths behind exact EQUIV-CHECKs, per-row
+capture refits asserted equal to their JSONL rows within 1e-12) and its
+report as `20260922-s3-cpu-act-sus25-RESULT.md`; it could execute nothing
+— the sandbox failure of I047 again, on every shell call. ROOT CAUSE
+(read-only `icacls`, facts ledger): muse's sandbox appends its deny ACEs
+to `C:\Users\Nathan\.config\muse` on every launch and never removes them —
+1,786 duplicate `MuseSandboxUsers` entries plus one stale per-session SID
+pair per launch — until the ACL hits Windows' size limit and
+`SetNamedSecurityInfoW` fails with 1340. Resetting that folder's ACL is
+outside the repo and the maintainer's call; until then Claude runs
+finished, reviewed scripts. Reviewed by Claude, ruff clean, smoke run on
+cpu_act@sus25 seed 0: SELF-CHECK exact (0.0 on all three paired arms);
+`chimera_const` = the default to the bit (the race had picked constant
+leaves), `chimera_bins64` **+17.8%**, beating LightGBM on that seed; the
+default's worst 1% of test rows carry 56% of its SSE. Smoke rows deleted,
+full run launched 17:00.
+ran: 168 fits in ~2 min, `results/probe-small-reg-loss.jsonl`, `-rows.json`,
+`-20260922.log`. EQUIV-CHECK 0.0 on both direct paths; **SELF-CHECK PASS,
+max relative diff 0.0 over 72 cells** (our default, LightGBM and CatBoost
+on every key and seed).
+cpu_act@sus25, mean RMSE, change vs the default (+ = better), seeds agreeing:
+  default 3.786 · const +0.08% (1/3) · norefit −4.83% (3/3) · fixedlr −0.99%
+  (3/3) · bins64 **+6.60% (2/3: +17.8 / +16.0 / −15.7%)** · LightGBM
+  **+28.46%** (3/3) · CatBoost +20.20% (3/3)
+the other keys: every arm of ours loses or ties on the six other @sus25
+keys and the parent except const on nyc-taxi@sus25 (+1.49%) and fixedlr on
+supreme (+1.47%); bins64 loses on 5 of 7 (parent cpu_act −7.58%, sulfur
+−2.46%); norefit loses on all 8 (−0.5 to −6.7%): the refit is a strength
+component everywhere, small data included. Our default beats LightGBM on
+6 of the 7 other keys.
+per-row read, cpu_act@sus25: the default's worst 1% of test rows carry
+**56% / 75% / 57%** of its SSE by seed (LightGBM 45% / 16% / 16%); test
+rows with an input outside the training range are 12–27 of ~2,048 and carry
+52% / 8% / 59% of our excess SSE over LightGBM, **25% overall** — seed 1's
+excess is in-range. On the parent the tails are ordinary (21–34%).
+bars: (0) PASS; (1) **FAIL** — no arm closes ≥ 50% of the gap to LightGBM;
+the best, bins64, closes 23% on split seeds and loses the parent by 7.6%;
+(2) **FAIL** — 25% of the excess sits out of range, not ≥ 50%. The
+pre-registered KILL fires: no arm closes ≥ 25% of the gap.
+dedup, found after the run: the obvious remaining suspect, the regressor's
+one-row minimum leaf (LightGBM requires 20), is BREAKTHROUGH_PLAN C3
+(2026-08-01, killed): on this very cell mcw = 8 took RMSE 3.82 → 3.53
+against LightGBM's 2.71, and across 42 regression sets the floor was
+directionally right and too small to ship. It lived only in that plan
+file; registered now as **B21**. B20 gains this rung's other finding:
+coarser bins are no small-data rule either.
+forecast: H1 linear leaves (55%) MISSED — const is the default to the bit
+on two seeds (the race picked constant leaves); H2 bins (20%) MISSED on
+its bar (+6.6% on split seeds, loses elsewhere); H4 rate MISSED (−1%);
+"norefit within ±3%" MISSED (−4.8%: the refit helps); "other keys within
+±1%" roughly HIT except norefit and bins64 on sulfur.
+verdict: **S3 KILLED as a one-set outlier.** Our loss on cpu_act@sus25 is
+a handful of catastrophic predictions (a percent of the rows carry half to
+three quarters of the error) that no switch of ours removes: linear
+leaves, the refit, the rate, the bin grid and (C3) the leaf floor each move
+it by ≤ 8%, most with split seeds, and none can be taken without losing
+elsewhere. The opponent reduction the kill clause allows is not taken: one
+twin of a parent we win, worth about 0.0003 on the regression panel's mean
+R², and its only candidate mechanism (sample floors) is B21-closed.
+Confidence in the kill: moderate-high (exact self-check, 8 keys, and C3
+covered the one lever this probe lacked). Cost axis: nothing here is
+cheaper. Self-merged: `benchmarks/` + `.md` only.
+next: **S6** (n-gated TS quantization), then the library rungs S1 and
+S4's flag — all three need a muse task, and muse cannot run until its
+sandbox ACL is reset (facts ledger); the maintainer's call.
 
 #### I047 2026-09-22 S2 S0+S1 (CatBoost's split machinery on the gr binary sets where it still leads, plus two own-side arms; measurement, pre-registered)
 why now: the maintainer merged PR #145 at d14bf38 (I046 SHIPPED: the count
