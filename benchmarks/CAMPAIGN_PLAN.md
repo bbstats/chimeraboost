@@ -248,6 +248,7 @@ status of the shortlist, 2026-09-21: **R1 RESOLVED — KILLED** at S1b
 moves one dataset. R3 inherits one pointer from it (the Counter feature,
 and Traffic_violations' unexplained response to uniform re-weighting).
 R2–R8 and H stay queued; F4's C4 and C3 go next under the ranking above.
+2026-09-22: **R2 RESOLVED — KILLED** at S0+S1 (I032, barrier B19): the smoothed-argmin half had been probed and killed on 2026-07-13 and never registered; the 1-SE / tolerance half loses strength in proportion to the rounds it saves on 20 of 21 sets. H(1), H(4), H(5) DONE (I030, I031). Next: R3.
 
 Produced by I022: four read-only lenses (L1 loss-slice profiling, L2
 literature mechanisms, L3 opponent ablation, L4 harness measurement),
@@ -273,6 +274,99 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I032 2026-09-22 R2 S0+S1 (early-stopping round rule: smoothed argmin is a dedup miss, the 1-SE half gets its probe; pre-registered)
+why now: I031's `next:`. PR #129 (H1) merged by the maintainer at 9ed5385,
+no campaign PR open, no run in flight. R2 is the top unresolved shortlist
+item under the maintainer's ranking (zero library change). Branch
+`campaign/r2-es-round-rule` from main.
+S0, the dedup: `barrier_check.py` matched B2, B11, B13 by keyword only
+(refit, stopping rule, replay) — none binds: the refit replays whatever
+round the rule picks (B2's amplifier applies equally to both rules and is
+judged at S3 if the probe survives), B11 is isotonic-in-sample, B13 is
+replay's grid fidelity. But grepping the tree for the mechanism itself
+found what the checker could not: **`benchmarks/probe_tail_averaging.py`
+(2026-07-13) already tested the smoothed-argmin half of R2** — argmin of a
+9-round moving average of the validation curve, 11 Grinsztajn sets × 3
+seeds, plus Polyak tail-averaging of the trajectory. Its table
+(`results/probe-tailavg.jsonl`, `--table-only`): smoothed argmin is within
+±0.03% on 9 of 11 sets, −0.58% on sulfur, and +5.24% on Brazilian_houses
+— one row, seed 0, where the raw stop happened to land on a validation
+spike; the regression mean +0.67% is that row alone, the binary mean
+−0.008%. Tail and symmetric averaging ≤ 0 everywhere. The verdict lived
+only in session memory ("KILL, don't retry") and was never registered, so
+I022's refill could not catch it — the B15 pattern again. **Registered now
+as B19** so the checker matches "smooth", "moving average", "argmin",
+"early stopping round" next time. The smoothed-argmin half of R2 is
+CLOSED without a rerun: the probe is on disk and its read is unambiguous.
+S1, what remains: the **1-SE half** — the earliest round within one noise
+unit of the validation minimum — is a different rule with a different
+promise: it cannot lose the cost axis (every pick is ≤ t*, and the refit
+replays t*/0.8 rounds, so the ratio carries over), and it is the only R2
+form that was never measured. Probe `benchmarks/probe_es_one_se.py`, the
+July protocol (one fit per set × seed, `early_stopping=False`, 600
+rounds, 20% inner validation split, patience-50 stop simulated from the
+curve, staged test predictions, temperature 1) with today's size-adaptive
+default learning rate; 11 regression + 10 binary Grinsztajn sets × 3
+seeds. Rules: `1se-local` (earliest t ≤ t* with val ≤ val[t*] + σ, σ = std
+of the curve minus its 9-round moving average over t* ± 50 — the
+single-curve stand-in for the CV standard error the rule was defined
+with), and two tolerance forms `tol0.1` / `tol0.5` (earliest t within 0.1%
+/ 0.5% of the minimum) as the bracket.
+forecast, before the run: strength — every rule stops earlier than the
+argmin, so it underfits by construction; I expect **regression RMSE −0.05
+to −0.5% and binary Brier −0.05 to −0.3% at the median**, wins under half
+on both tasks for `1se-local` and `tol0.5`, `tol0.1` within the ±0.03%
+band with a rounds ratio near 0.95 (it picks t* itself on most curves).
+Cost — rounds ratio **0.6–0.85** for `1se-local`, 0.5–0.8 for `tol0.5`.
+Where I could be wrong: on flat-minimum curves (wine_quality, heloc,
+credit) an earlier stop is free, and if the validation split's noise
+biases the argmin late on average the 1-SE pick could read ≥ 0 on
+regression, which would make it a real cost-axis candidate.
+kill: paired wins < half + 1 on BOTH tasks or median ≤ 0 on both for
+every rule ⇒ R2 KILLED outright (strength). A rule that is flat on
+strength (median within ±0.03%, wins ≈ half) with rounds ratio ≤ 0.85 is
+NOT a default candidate either — under the maintainer's ranking a
+cost-only gain that needs a new knob queues last — but is recorded with
+its numbers for a later preset decision. Only a rule positive by majority
+AND median > 0 proceeds to S2.
+ran: `probe_es_one_se.py`, 63 rows (21 sets × 3 seeds, no set dropped),
+~35 min; `results/probe-es-one-se.jsonl` + `-20260922.log` (untracked,
+results/ is gitignored; the table below is the record). Aggregate, per
+task, positive = the rule beats the production patience-50 stop:
+  regression (11 sets)  1se-local  2W-9L   median −0.008%  rounds ratio 0.99
+                        tol0.1     0W-11L  median −0.089%  rounds ratio 0.95
+                        tol0.5     0W-11L  median −0.484%  rounds ratio 0.84
+  binary (10 sets)      1se-local  3W-6L   median −0.007%  rounds ratio 0.99
+                        tol0.1     3W-7L   median −0.087%  rounds ratio 0.94
+                        tol0.5     1W-9L   median −0.433%  rounds ratio 0.78
+Per set the picture is monotone: every rule loses in proportion to the
+rounds it drops. `tol0.5` gives back 0.25–0.66% of RMSE / Brier on 20 of
+21 sets for a 16–22% round saving; `tol0.1` gives back ~0.09% for 5–6%;
+`1se-local` barely moves the pick (ratio 0.99) and still reads 5W-15L. The
+largest single win anywhere is bank-marketing +0.14% (`tol0.1`, s1); the
+flat-minimum sets I named as the hope (wine_quality, heloc, credit) lose
+like the rest. No rule reaches the bar on either task.
+verdict: **KILL R2 — both halves.** The smoothed-argmin half was closed at
+S0 by the July probe (B19); the 1-SE / tolerance half is closed here: an
+earlier stop is not free at any tolerance — the validation argmin is
+already on the flat part of the test curve and everything before it is
+uphill. Forecast HIT on strength (negative medians, wins under half for
+every rule, `tol0.1` inside the ±0.1% band) and MISSED on cost for
+`1se-local` (ratio 0.99 against 0.6–0.85): the curve's round-to-round
+noise near the stop is far smaller than its slope, so "within one noise
+unit" is within a round or two. Recorded into B19 so the barrier covers
+both directions (smoothing, and stopping early for cost). Shortlist R2
+marked KILLED. Self-merged: the diff is `benchmarks/*.md` plus the probe
+script, `chimeraboost/` and `tests/` untouched.
+next: **R3 — the CatBoost hc ablation** (F5's sanctioned door, B3): fork
+the existing ablation probe, 7 sets (5 gap + 2 controls) × 3 seeds, four
+CatBoost arms with its CTR knobs turned off one at a time; bar = ≥ 40% of
+the hc Brier gap recovered on the gap sets with controls < 10%. CatBoost
+1.2.10 is installed. Stage A is ~2.5 h of CatBoost compute, so it launches
+as ONE background run at the start of a rung with nothing else on the
+bench. S0 (barrier arguments for B3/B4, the exact arm list, the gap
+baseline from the standing BASE) comes first, next rung.
 
 #### I031 2026-09-22 H(1) harness instrument (engaged-slice median + bootstrap CI + per-seed agreement in `compare_runs`; pre-registered)
 why now: I030's `next:`. PR #128 (H4+H5) merged by the maintainer at
