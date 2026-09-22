@@ -283,6 +283,126 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I037 2026-09-22 F5 S3 (the categorical count column on the decision tier; harness arm, pre-registered)
+why now: I036's `next:`, S2 passed all four bars. Class: **candidate
+DEFAULT change at S3** — the same harness arm `ChimeraBoostCatCount`
+paired against `ChimeraBoost` in ONE `--decide --seeds 3` run (Grinsztajn
+57 + high-card 14 + their @sus25 / @sus50 / @time variants), benchmarks
+only. Branch `campaign/f5-s3-catcount` from main.
+forecast, before the run (per stratum, never pooled — `--by-suite`):
+gr — **every row an exact tie** (Grinsztajn's curation leaves no
+categorical column; the arm appends nothing), 57/57; gr@sus25 / @sus50 /
+@time likewise. hc (13 scored) — **positive by majority, engaged median
++0.3 to +0.8% Brier / RMSE**: the four sets I035 measured carry their
+reads (sf-police ~+0.9, Traffic ~+1.5, okcupid ~+0.4, kick ~+0.3), the
+regressions (wine-reviews, colleges, house_prices, black_friday,
+employee_salaries, Moneyball) are new ground and I expect small positives
+on the high-card ones (wine-reviews, employee_salaries) and noise on the
+rest; kdd_ipums and eucalyptus as at I035 (split seeds, flat to
+slightly negative); cjs a tie or noise (Brier ≈ 0). hc@sus25 / @sus50 —
+the small-data regime where rare categories multiply: direction the same
+as hc, size larger, but ≤ 8 sets each so pointers. hc@time — pointer.
+Cost — hc engaged fit ratio median **≤ 1.05** (real sizes amortize one
+column per categorical).
+bars: (1) control — gr and its variants exact ties, 100%; (2) hc — wins
+≥ half + 1 of the scored sets AND engaged median > 0 (the stratum has 13
+scored sets, above the 8-decided POINTER line only if ≥ 8 engage: they
+all should, every hc set has categoricals); (3) variants — no hc variant
+stratum contradicts hc's direction by majority (pointers, read not
+gated); (4) cost — hc engaged fit ratio median ≤ 1.10 (hard) with ≤ 1.05
+expected. Pass ⇒ a muse task implements the count column in the library
+(auto-on with categoricals, `prep`-side, one numeric column per
+categorical; bit-identical on data without categoricals) and /experiment
+S4 runs the chart-grade field with CatBoost for the maintainer's
+sign-off. Fail on (2) ⇒ F5 KILLED with the mechanism recorded: it
+transfers on the ablation panel and the synth prior but not on the
+decision suite.
+cost: ~10–15 min (two ChimeraBoost arms, 103 dataset rows × 3 seeds).
+verdict: PENDING(campaign-f5-s3-catcount-20260922)
+next: —
+
+#### I036 2026-09-22 F5 S2 (the categorical count column on the synth screen; harness arm, pre-registered)
+why now: I035's `next:`. PR #135 self-merged at 3dbaf28, no campaign PR
+open, no run in flight. Class: **candidate DEFAULT change at S2** — a
+harness arm `ChimeraBoostCatCount` (`run_benchmarks.py`: the default plus
+one training-row count column per categorical, appended before the fit;
+benchmarks only, the library untouched) paired against `ChimeraBoost` in
+ONE `--synth --seeds 3` run. Branch `campaign/f5-s2-catcount` from main.
+The library form, if it survives S3, is an automatic numeric count
+column per categorical, on by default when categoricals are present —
+a default change, so /experiment S4 with the maintainer's sign-off is the
+only way it ships; nothing here is a knob.
+barrier: B3 — the mechanism was named by ablation (I033), shown to be the
+encoder (I034) and shown to transfer at its narrowest (I035, 4W-1L);
+this is the screen B3 says every port must pass, not a port that skips
+it. B12 — no arm is added to the product, the paired arm is the harness's.
+B1 — the count column does nothing below the categorical gate; the
+no-categorical sets are the pre-registered inert slice.
+forecast, before the run: control — every synth set without a categorical
+column an **exact tie** (the arm appends nothing there; `--expect-inert`
+must not fire). Direction — on the sets with categoricals, positive by
+majority with the gain concentrated where the generator draws
+high-cardinality entity-like columns; the synth prior draws smaller
+cardinalities and fewer rare categories than sf-police / Traffic, so I
+take an engaged median of **+0.1 to +0.4%** (Brier / RMSE), engaged wins
+≥ half + 1; regression sets engaged too (the column is target-free, so it
+helps regression exactly as classification). Cost — fit time within
+**+0 to +5%** on engaged sets (one more numeric column per categorical
+through the binner and histograms). Where I could be wrong: on low-card
+categoricals the count column is nearly constant and just noise for the
+tree search (a small negative on the many low-card synth sets); and the
+synth suite's categorical generator may not produce the rare-category
+regime at all, in which case the screen reads flat and S3 on hc decides.
+bars: (1) control — no-categorical sets exact ties, 100%; (2) direction —
+engaged wins ≥ half + 1 AND engaged median > 0 (`compare_runs.py --model
+ChimeraBoost --model-new ChimeraBoostCatCount --expect-inert`, now with
+I031's median + CI + seed-agreement lines); (3) `synth_report.py` —
+the categorical / entity slices carry the effect, no other attribute
+slice reads a loss beyond noise; (4) cost — engaged fit ratio median ≤
+1.10. Pass ⇒ S3 `--decide --seeds 3` both arms (hc + variants engaged, gr
+the exact-tie control). Fail on (2) with (1) clean ⇒ the count column is
+hc-specific; S3 on hc still decides, with the synth read as a caution.
+ran: `run_benchmarks.py --synth --seeds 3 --save
+benchmarks/results/campaign-f5-s2-catcount-20260922 --models ChimeraBoost
+ChimeraBoostCatCount`, ~8 min → `results/campaign-f5-s2-catcount-20260922
+.json`; scored with `compare_runs.py --model ChimeraBoost --model-new
+ChimeraBoostCatCount --expect-inert` (`-compare-…txt`) and
+`synth_report.py` (`-synthreport-…txt`). Harness SUMMARY: the default's
+win rate vs the arm **46.2% [41–52]** (W21-L31-T80), median gap +0.00%,
+speed ×1.06 — the arm ahead.
+bar 1 control **PASS**: `cats=none` 79 sets **0-0-79 exact ties**,
+`canary&cats` 0-0-3; 83 of 136 exact ties in all, every non-tie has a
+categorical column. `--expect-inert` did not fire.
+bar 2 direction **PASS**: engaged 53 sets, **36W-17L** (bar 27+),
+engaged median **+0.295%** [95% CI +0.042%..+0.733%] — inside the
+forecast's +0.1 to +0.4 band. Regression 13-8, binary 16-6, multiclass
+7-3 — the column is target-free and helps regression as forecast. Seed
+agreement: 17 of 53 unanimous, 36 split — the synth sets are small and
+noisy, a caution, not a gate; the CI clears zero.
+bar 3 attribution **PASS**: `cats=entity` **31-10-3, +1.84%, p=0.001**
+and `card>16` **15-4-2, +3.26%, p=0.019** carry the effect — the
+pre-registered slice; factor OLS puts `entity_strength` (t +3.6) and
+`max_cardinality` (t +2.2) as the drivers and `cat_fraction` negative
+(t −3.3: the more columns are categorical, the less an extra column per
+categorical helps — the cost side of "one more column each").
+`cats=all` 3-2-0, −0.36% on 5 sets (pointer; the all-categorical sets
+already carry `cat_combinations`). No other slice reads a loss. Largest
+movers: syn:v2/447 +24.7% and syn:v2/478 +24.6% (both entity sets whose
+target is a per-entity effect the count exposes), worst syn:v2/737
+−4.0%.
+bar 4 cost **PASS, at the line**: engaged fit ratio median **1.095**
+(bar ≤ 1.10), mean 1.17, p90 1.47, max 4.41 — on sub-second synth fits
+one extra column per categorical is a visible fraction; hc fits at I035
+were within noise. Read again at S3 on real sizes.
+verdict: **PASS → S3.** All four bars clear; forecast HIT on control,
+direction, slice and cost. Self-merged: `benchmarks/` only (the harness
+arm + this record).
+next: **I037, S3** — ONE `--decide --seeds 3 --save` run, both arms via
+`--models`, scored `compare_runs.py --by-suite --expect-inert` per
+stratum: Grinsztajn (no categoricals) the exact-tie control, hc + its
+@sus25 / @sus50 / @time variants the engaged strata. Then the library
+form via a muse task and /experiment S4 with the maintainer's sign-off.
+
 #### I035 2026-09-22 R3 Stage D (a rarity column and coarse TS quantization on our encoder; zero library change, pre-registered)
 why now: I034's `next:`. PR #134 self-merged at 448ee90, no campaign PR
 open, no run in flight. Class: **zero-library probe of two candidate
