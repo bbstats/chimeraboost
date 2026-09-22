@@ -57,6 +57,18 @@ ordered-boosting-on-permutations machinery, not any single transplantable part.
 
 *Incident*: research cascade, `benchmarks/research/SUMMARY.md`.
 
+Added 2026-09-22 (`CAMPAIGN_PLAN.md` I049): CatBoost's CTR quantization
+(the target statistic cut to 16 uniform buckets, `CtrBorderCount=15`),
+ported whole it lost the big high-cardinality sets (I035); gated to fits
+under 10,000 rows, so that every big set is an exact tie, it read 20W-17L
+(sign p = 0.74) on 37 small categorical classification sets that had not
+suggested it, the one real set among them slightly negative, with
+Brier ×14 / ×1.8 / ×1.4 on three easy synthetic sets where one categorical
+nearly decides the class (16 buckets erase exactly that resolution). One
+of its two selecting sets flipped sign on the harness's splits. The one
+transfer in this family is the count column (I046), a new column rather
+than a change to what the target statistic computes.
+
 ### B4 — Ordered boosting is closed
 tags: ordered, ordered-boosting, permutation, catboost, small-data
 
