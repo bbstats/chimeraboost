@@ -1598,6 +1598,11 @@ both: <code>cat_features=["city", "brand"]</code> or <code>cat_features=[0, 3]</
 <td><code>None</code>→auto</td>
 <td>Add all pairwise category-by-category features. <code>None</code> turns them on only when every column is categorical, where they help without crowding out numeric splits. Auto is skipped for very wide all-categorical data, since the number of pairs grows quadratically; pass <code>True</code> there if you want them anyway. See the User Guide: <a href="../recipes/#categorical-features">categorical features</a>.</td>
 </tr>
+<tr>
+<td><code>cat_count_features</code></td>
+<td><code>False</code></td>
+<td>Add, for every categorical column with at least 256 training categories, a numeric column holding the category's training-row count (unseen categories read 0 at predict time). A rarity signal for high-cardinality columns; the cross-feature and linear-leaf machinery never see it.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="loss-regressor-only">Loss (regressor only)<a class="headerlink" href="#loss-regressor-only" title="Permanent link">&para;</a></h2>
