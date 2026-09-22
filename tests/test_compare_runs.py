@@ -250,3 +250,52 @@ def test_engaged_slice_helpers_are_deterministic_and_bracket_the_median():
     sb = {"x": {0: 1.0, 1: 1.0}, "y": {0: 1.0, 1: 1.0}, "z": {0: 1.0}}
     sn = {"x": {0: 1.1, 1: 1.2}, "y": {0: 1.1, 1: 0.5}, "z": {0: 2.0}}
     assert compare_runs.seed_agreement(["x", "y", "z"], sb, sn) == (1, ["y"], 2)
+
+
+# --------------------------------------------------------------------------
+# The decision metric (CAMPAIGN_PLAN I044, H(6)): the default judges RMSE on
+# regression and Brier on classification -- the pair every gate scores --
+# instead of the harness's `primary` field, whose classification half is F1.
+# --------------------------------------------------------------------------
+def _write_mixed(tmp_path, name, brier, f1, rmse):
+    datasets = {"clf": {"task": "binary"}, "reg": {"task": "regression", "y_std": 10.0}}
+    records = [
+        {"dataset": "clf", "model": "M", "seed": 0, "fit_time": 1.0,
+         "metrics": {"primary": f1, "brier": brier}},
+        {"dataset": "reg", "model": "M", "seed": 0, "fit_time": 1.0,
+         "metrics": {"primary": -rmse, "rmse": rmse}},
+    ]
+    path = os.path.join(str(tmp_path), name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"datasets": datasets, "records": records}, fh)
+    return path
+
+
+def test_decision_metric_judges_brier_not_f1(tmp_path, capsys, monkeypatch):
+    # NEW has a WORSE Brier but a better F1 on the classification set: the
+    # decision metric must call it a BASE win; the old primary read calls it
+    # a NEW win. Regression is judged on RMSE under both.
+    base = _write_mixed(tmp_path, "b.json", brier=0.20, f1=0.80, rmse=1.0)
+    new = _write_mixed(tmp_path, "n.json", brier=0.21, f1=0.85, rmse=0.9)
+    out = _main(capsys, monkeypatch, [base, new, "BASE", "NEW", "--model", "M"])
+    assert "metric: decision = RMSE (regression) / Brier (classification)" in out
+    rows = {l.split()[0]: l for l in out.splitlines() if l.startswith(("clf", "reg"))}
+    assert "BASE wins" in rows["clf"]
+    assert "NEW wins" in rows["reg"]
+    out_primary = _main(capsys, monkeypatch,
+                        [base, new, "BASE", "NEW", "--model", "M", "--metric", "primary"])
+    rows_p = {l.split()[0]: l for l in out_primary.splitlines()
+              if l.startswith(("clf", "reg"))}
+    assert "NEW wins" in rows_p["clf"]
+    assert "metric: decision" not in out_primary
+
+
+def test_decision_metric_orients_losses_and_per_seed_view(tmp_path):
+    base = _write_mixed(tmp_path, "b.json", brier=0.20, f1=0.80, rmse=1.0)
+    vals, _, _, _ = compare_runs.load_run(base, "M", "decision")
+    assert vals["clf"] == -0.20 and vals["reg"] == -1.0      # higher is better
+    seeds = compare_runs.load_run_seeds(base, "M", "decision")
+    assert seeds["clf"] == {0: -0.20} and seeds["reg"] == {0: -1.0}
+    # A record with no task metadata and an rmse field is judged as regression.
+    rec = {"dataset": "x", "metrics": {"rmse": 2.0}}
+    assert compare_runs._judged_value(rec, "decision", {}) == -2.0
