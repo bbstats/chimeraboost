@@ -1253,6 +1253,43 @@ def _run_chimera_one_lin_xc(task, Xtr, ytr, Xte, yte, cat, threads):
 # must read as exact ties.
 
 
+# --- CAMPAIGN R3 (F5): the categorical count column -------------------------
+# CatBoost's high-card Brier edge is its encoder, and inside it the 1/(n+1)
+# rarity signal its three-prior CTR spread carries (CAMPAIGN_PLAN I033-I035).
+# This arm is the DEFAULT plus one numeric column per categorical holding the
+# category's row count in the training rows (test rows look it up, unseen = 0),
+# appended before the fit so the library is untouched. Paired against plain
+# ChimeraBoost in ONE run: every dataset without a categorical column is the
+# in-run inert control and must read as an exact tie.
+
+
+def _with_cat_counts(Xtr, Xte, cat):
+    """Append one count column per categorical in ``cat``; ``cat`` indices are
+    unchanged because the new columns go at the end."""
+    from chimeraboost.preprocessing import as_model_array
+    from chimeraboost.target_encoding import factorize
+    A = as_model_array(Xtr, True)
+    T = as_model_array(Xte, True)
+    cols_a, cols_t = [], []
+    for f in cat:
+        codes, cats = factorize(A[:, f])
+        counts = np.bincount(codes, minlength=len(cats)).astype(np.float64)
+        lookup = {v: i for i, v in enumerate(cats)}
+        cols_a.append(counts[codes])
+        idx = np.array([lookup.get(v, -1) for v in T[:, f]])
+        cols_t.append(np.where(idx >= 0, counts[np.maximum(idx, 0)], 0.0))
+    A2 = np.column_stack([A] + [c[:, None] for c in cols_a]).astype(object)
+    T2 = np.column_stack([T] + [c[:, None] for c in cols_t]).astype(object)
+    return A2, T2
+
+
+def _run_chimera_catcount(task, Xtr, ytr, Xte, yte, cat, threads):
+    """The default plus a training-row count column per categorical."""
+    if cat:
+        Xtr, Xte = _with_cat_counts(Xtr, Xte, list(cat))
+    return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads)
+
+
 def _run_chimera_xtop6(task, Xtr, ytr, Xte, yte, cat, threads):
     """The default, carrying only the top-6 cross columns."""
     return _run_chimera(task, Xtr, ytr, Xte, yte, cat, threads,
@@ -1473,6 +1510,7 @@ RUNNERS = {
     "ChimeraBoostNoRefitSel25": _run_chimera_norefit_sel25,
     "ChimeraBoostXTop6": _run_chimera_xtop6,
     "ChimeraBoostXTop12": _run_chimera_xtop12,
+    "ChimeraBoostCatCount": _run_chimera_catcount,
     "sklearn_HGB": _run_sklearn,
     "CatBoost": _run_catboost,
     "XGBoost": _run_xgboost,
@@ -1492,7 +1530,8 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostSel25", "ChimeraBoostRefit",
                    "ChimeraBoostFlatLR",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
-                   "ChimeraBoostXTop6", "ChimeraBoostXTop12")
+                   "ChimeraBoostXTop6", "ChimeraBoostXTop12",
+                   "ChimeraBoostCatCount")
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
