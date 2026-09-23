@@ -1368,28 +1368,32 @@ crosses on every dataset too. Ours is exactly zero on all 36.</p>
 <p>The band is free to be much <em>narrower</em> than the pooled one where the data is quiet — it
 tracks the local spread rather than a global floor.</p>
 <h2 id="interval-calibration">Interval calibration<a class="headerlink" href="#interval-calibration" title="Permanent link">&para;</a></h2>
-<p>Read the intervals with this in mind: <strong>the raw grid runs slightly narrow.</strong> Leaf values
-are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. Across the 36 datasets in <code>benchmarks/quantile_suite.py</code> a nominal 80%
-interval delivers 77% coverage on average, and a nominal 90% delivers 87%. That is
-closer to nominal than either LightGBM per-level (72% and 83%) or CatBoost
-<code>MultiQuantile</code> (73% and 83%) manages — but it is still narrow, and a raw interval is
-not a coverage guarantee.</p>
-<p><code>conformalize=True</code> turns it into one:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">(</span><span class="n">conformalize</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<p>The intervals are calibrated by default. After the fit, each level is rescaled about the
+predicted median by a conformal factor (Romano, Patterson &amp; Candès 2019), computed on the
+rows early stopping already held out: your <code>eval_set</code>, or the <code>validation_fraction</code> fold
+the model carves for itself. No extra rows are spent. Across the 36 datasets in
+<code>benchmarks/quantile_suite.py</code>, a nominal 80% interval covers 81% on average and a
+nominal 90% one covers 90%. LightGBM per-level (72% and 83%) and CatBoost
+<code>MultiQuantile</code> (73% and 83%) both fall short.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">conformal_scale_</span><span class="p">)</span>      <span class="c1"># one factor per level; above 1 widened the fit</span>
 </code></pre></div>
-<p>This holds out <code>calibration_fraction</code> of the rows <strong>before</strong> the early-stopping split,
-so that fold influences neither the fit nor the stopping point, then rescales each level
-about the predicted median by a conformal factor (Romano, Patterson &amp; Candès 2019). On
-exchangeable data this gives distribution-free marginal coverage. Measured coverage lands
-within 2.7 percentage points of nominal at n = 10,000, erring on the wide side — conformal
-prediction is conservative by construction, so over-coverage is the expected direction.</p>
-<p>Use it whenever you need the interval to mean what it says. It costs one extra held-out
-fold and no extra fitting.</p>
-<p>It raises rather than guessing when the calibration fold is too small to certify the
+<p>This default is <code>conformalize="auto"</code>. It carries no formal guarantee, because the rows
+it calibrates on also chose the stopping round. When you need one, <code>conformalize=True</code>
+holds out <code>calibration_fraction</code> of the rows <strong>before</strong> the early-stopping split, so that
+fold influences neither the fit nor the stopping point. On exchangeable data this gives
+distribution-free marginal coverage. Measured coverage lands within about 2 percentage
+points of nominal at n = 10,000, erring on the wide side for the outer intervals, since
+conformal prediction is conservative by construction. The price is the rows in that
+fold: on the 36 datasets the default scores a better CRPS on 35.</p>
+<p><code>conformalize=True</code> raises rather than guessing when its fold is too small to certify the
 levels you asked for. A 90% interval needs at least 9 calibration rows, and a 99% one
-needs 99.</p>
+needs 99. The default never raises for this: when its rows cannot certify the grid, or
+when there are none (early stopping off and no <code>eval_set</code>), it returns the raw grid.</p>
+<p>The raw grid, which <code>conformalize=False</code> also returns, runs narrow. Leaf values are the
+residual quantiles of the rows in that leaf, measured on those same rows, which is
+optimistic. The deeper trees of the default narrow it further, and the calibration
+repairs that.</p>
 <h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
 <p><code>chimeraboost.quantile_metrics</code> scores a predicted grid.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
@@ -1525,10 +1529,10 @@ global summary or a beeswarm plot, ask for the same thing:</p>
 </code></pre></div>
 <p>Per-prediction explanations need none of this; the default is what you want.</p>
 <h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
-<p>Measured on 36 Grinsztajn regression datasets, 3 seeds, all four arms sharing one
+<p>Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
 early-stopping split and budget (<code>benchmarks/quantile_suite.py</code>). Win-loss is per
-dataset; "interval score" is the Winkler score, which charges width and miscoverage
-together.</p>
+dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
+and miscoverage together. Fit time is each arm's median against ours, in the same run.</p>
 <table>
 <thead>
 <tr>
@@ -1536,45 +1540,63 @@ together.</p>
 <th style="text-align: left;">CRPS</th>
 <th style="text-align: left;">interval score</th>
 <th style="text-align: left;">crossing</th>
-<th style="text-align: left;">median fit time</th>
+<th style="text-align: left;">fit time</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align: left;">19 <code>loss="Quantile"</code> models</td>
-<td style="text-align: left;"><strong>32W-4L</strong></td>
-<td style="text-align: left;"><strong>34W-2L</strong></td>
+<td style="text-align: left;"><strong>33W-3L</strong></td>
+<td style="text-align: left;"><strong>33W-3L</strong></td>
 <td style="text-align: left;">0.00 vs 0.16</td>
-<td style="text-align: left;"><strong>3.4x faster</strong></td>
+<td style="text-align: left;">3.7x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">19 LightGBM quantile boosters</td>
-<td style="text-align: left;">23W-13L (a tie)</td>
+<td style="text-align: left;"><strong>26W-10L</strong></td>
 <td style="text-align: left;"><strong>31W-5L</strong></td>
 <td style="text-align: left;">0.00 vs 0.22</td>
-<td style="text-align: left;"><strong>1.5x faster</strong></td>
+<td style="text-align: left;">2.1x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">CatBoost <code>MultiQuantile</code></td>
-<td style="text-align: left;">7W-<strong>29L</strong></td>
+<td style="text-align: left;">15W-21L</td>
 <td style="text-align: left;"><strong>25W-11L</strong></td>
 <td style="text-align: left;">0.00 vs 0.06</td>
-<td style="text-align: left;"><strong>8.3x faster</strong></td>
+<td style="text-align: left;">17x ours</td>
+</tr>
+<tr>
+<td style="text-align: left;">one squared-error model, fixed width</td>
+<td style="text-align: left;"><strong>23W-13L</strong></td>
+<td style="text-align: left;"><strong>29W-7L</strong></td>
+<td style="text-align: left;">none on either side</td>
+<td style="text-align: left;">0.34x ours</td>
+</tr>
+<tr>
+<td style="text-align: left;">NGBoost, Normal distribution</td>
+<td style="text-align: left;"><strong>34W-2L</strong></td>
+<td style="text-align: left;"><strong>34W-2L</strong></td>
+<td style="text-align: left;">none on either side</td>
+<td style="text-align: left;">15x ours</td>
 </tr>
 </tbody>
 </table>
-<p>Read that honestly. <strong>CatBoost's shared head is sharper than ours on CRPS</strong> — it wins 29
-of 36 datasets — and that is a real deficit, not a rounding error. It costs a median 8.3x
-our fit time to get there, and its intervals are much worse calibrated (its worst
-coverage error is 0.64 against a nominal 0.90, ours 0.10), so on the interval score,
-which prices coverage and width together, we come out ahead.</p>
-<p>Against a stack of independent per-level models — ours or LightGBM's — the shared
-structure clearly pays: better or equal accuracy, faster, and the only arm here whose
-levels never cross.</p>
+<p><strong>CatBoost's shared head is still slightly sharper on CRPS.</strong> It wins 21 of the 36
+datasets, by a median of 0.24%, at 17 times our fit time. Its 90% intervals cover 83% on
+average, so on the interval score, which prices coverage and width together, we come out
+ahead.</p>
+<p>The fixed-width row is the simplest honest baseline: fit an ordinary squared-error model,
+take the quantiles of its validation residuals, and add the same offsets to every
+prediction, so every row gets the same interval. It fits in a third of our time and its
+intervals are well calibrated. We beat it on 23 of 36 datasets on CRPS, by a median of
+0.74%, and on 29 of 36 on the interval score, because our widths follow the data. If one
+width for every row suits your problem, it is a reasonable choice.</p>
+<p>Against a stack of independent per-level models, ours or LightGBM's, the shared structure
+clearly pays: better accuracy, a shorter fit, and levels that never cross.</p>
 <p>Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
-(<code>benchmarks/quantile_head.py</code>), which flatters us; on real data with both sides
-early-stopping, the accuracy is a tie and the speed edge is 1.5x.</p>
+(<code>benchmarks/quantile_head.py</code>), which flatters us. The table above is the real-data
+measurement, with every arm early-stopping.</p>
 <p>Those are averages over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
 resolve, the median column of the default 19-level grid has measured up to 18% worse
@@ -1582,9 +1604,12 @@ than a dedicated <code>quantiles=[0.5]</code> fit, with a 3-level grid recoverin
 — so fit only the levels you need when per-level accuracy matters more than the full
 distribution.</p>
 <h2 id="tuning">Tuning<a class="headerlink" href="#tuning" title="Permanent link">&para;</a></h2>
-<p>Two defaults are set for this head rather than inherited. <code>depth</code> is 4, because deep
-leaves overfit tail quantiles, and <code>min_child_weight</code> follows the most extreme level on
-the grid, so a leaf estimating the 5% quantile keeps at least about 20 rows.</p>
+<p>Two defaults are set for this head rather than inherited. <code>depth</code> is 6: deeper trees
+place the centre of the distribution better but narrow its tails, and the default
+calibration repairs the tails. Earlier releases used <code>depth=4</code> with no calibration; pass
+<code>depth=4, conformalize=False</code> to reproduce them exactly. <code>min_child_weight</code> follows the
+most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
+about 20 rows.</p>
 <p><code>split_projection</code> chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: <code>"rotate"</code> measured
 best, <code>"sum"</code> is blind to changes in spread, and <code>"gram"</code> measured no better than

@@ -1793,9 +1793,9 @@ grid when you want a specific interval:</p>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>                                      <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">lo</span><span class="p">,</span> <span class="n">med</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
 </code></pre></div>
-<p>Raw intervals come out slightly <em>narrow</em>: a leaf's levels are the residual quantiles of
-the rows in that leaf, measured on those same rows, which is optimistic. A nominal 80%
-interval delivers about 77% coverage. <code>conformalize=True</code> calibrates it:</p>
+<p>By default the intervals are calibrated on the rows early stopping held out, so a
+nominal 80% interval covers about 80%. <code>conformalize=True</code> calibrates on a separate fold
+instead, which gives a formal coverage guarantee at the cost of those rows:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">(</span><span class="n">quantiles</span><span class="o">=</span><span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">],</span> <span class="n">conformalize</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>                                      <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">lo</span><span class="p">,</span> <span class="n">med</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
@@ -1804,7 +1804,7 @@ interval delivers about 77% coverage. <code>conformalize=True</code> calibrates 
 </code></pre></div>
 <p>The calibration fold is carved out before the early-stopping split, so it influences
 neither the fit nor the stopping point. See <a href="../quantiles/#interval-calibration">Interval
-calibration</a> for what it guarantees.</p>
+calibration</a> for what each option guarantees.</p>
 <h3 id="one-level-at-a-time">One level at a time<a class="headerlink" href="#one-level-at-a-time" title="Permanent link">&para;</a></h3>
 <p>Set <code>loss="Quantile"</code> and the level <code>alpha</code> on the ordinary regressor. For a prediction
 interval that way, fit one model per quantile — note that nothing stops these three from
