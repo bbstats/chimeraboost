@@ -313,9 +313,20 @@ Q0 reads moved it down to item 4.
    today's under-coverage. The bench's Depth6ValScaled probe is the exact
    oracle: the new default must reproduce it bit-for-bit, so its gate
    result is already known.
+   **PASSED 2026-09-23 (I059, `results/quantile-20260923-185507.json`), PR
+   for the maintainer.** `depth=None` resolves to 6 and `conformalize`
+   defaults to `"auto"` (True and False keep their meaning; the default
+   never raises for calibration). The new default equals the probe on 177
+   of 177 fits; against the old head, gr 31W-5L (+0.33%), 90% coverage
+   error 3.43 → 0.47 points, hc 9.24 → 0.85, hc `@time` 17.49 → 0.68.
+   Against the field on gr: CatBoost MQ 15W-21L (was 7W-29L), RigidShift
+   23W-13L (was a tie), LightGBM per-level 26W-10L (was a tie). Every
+   point-model pin of the identity snapshot is unchanged.
 3. **Q2, CatBoost MultiQuantile's CRPS edge (7W-29L on 2026-08-30 and
-   again on Q-B4).** Ablate the opponent, one knob at a time; depth and
-   budget are now measured on our side.
+   again on Q-B4; 15W-21L against the Q5 default).** Ablate the opponent,
+   one knob at a time toward our settings (depth, `l2_leaf_reg`, border
+   count, rate, leaf estimation); depth and budget are already measured on
+   our side. The next rung once Q5 merges.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
@@ -414,9 +425,9 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
-- `docs/quantiles.md` "How it compares" lists four arms. RigidShift and
-  NGBoost join it with the first Phase 2 ship, or from Q-B4 on 2026-10-07
-  if nothing has shipped by then (added 2026-09-23).
+- RESOLVED 2026-09-23 (Q5, I059): `docs/quantiles.md` "How it compares" is
+  re-measured against the new default, with the fixed-width baseline and
+  NGBoost added.
 - RESOLVED 2026-09-23 (Q-B4): the acceptance-ledger rows below (fit-speed
   MISS, CQR coverage FAIL), measured on synthetic data, re-read on real
   data. Fit speed is still a MISS (1.66× on Grinsztajn, 9.46× on hc,

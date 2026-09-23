@@ -82,34 +82,37 @@ tracks the local spread rather than a global floor.
 
 ## Interval calibration
 
-Read the intervals with this in mind: **the raw grid runs slightly narrow.** Leaf values
-are the residual quantiles of the rows in that leaf, measured on those same rows, which
-is optimistic. Across the 36 datasets in `benchmarks/quantile_suite.py` a nominal 80%
-interval delivers 77% coverage on average, and a nominal 90% delivers 87%. That is
-closer to nominal than either LightGBM per-level (72% and 83%) or CatBoost
-`MultiQuantile` (73% and 83%) manages — but it is still narrow, and a raw interval is
-not a coverage guarantee.
-
-`conformalize=True` turns it into one:
+The intervals are calibrated by default. After the fit, each level is rescaled about the
+predicted median by a conformal factor (Romano, Patterson & Candès 2019), computed on the
+rows early stopping already held out: your `eval_set`, or the `validation_fraction` fold
+the model carves for itself. No extra rows are spent. Across the 36 datasets in
+`benchmarks/quantile_suite.py`, a nominal 80% interval covers 81% on average and a
+nominal 90% one covers 90%. LightGBM per-level (72% and 83%) and CatBoost
+`MultiQuantile` (73% and 83%) both fall short.
 
 ```python
-model = ChimeraBoostQuantileRegressor(conformalize=True).fit(X, y)
+model = ChimeraBoostQuantileRegressor().fit(X, y)
 print(model.conformal_scale_)      # one factor per level; above 1 widened the fit
 ```
 
-This holds out `calibration_fraction` of the rows **before** the early-stopping split,
-so that fold influences neither the fit nor the stopping point, then rescales each level
-about the predicted median by a conformal factor (Romano, Patterson & Candès 2019). On
-exchangeable data this gives distribution-free marginal coverage. Measured coverage lands
-within 2.7 percentage points of nominal at n = 10,000, erring on the wide side — conformal
-prediction is conservative by construction, so over-coverage is the expected direction.
+This default is `conformalize="auto"`. It carries no formal guarantee, because the rows
+it calibrates on also chose the stopping round. When you need one, `conformalize=True`
+holds out `calibration_fraction` of the rows **before** the early-stopping split, so that
+fold influences neither the fit nor the stopping point. On exchangeable data this gives
+distribution-free marginal coverage. Measured coverage lands within about 2 percentage
+points of nominal at n = 10,000, erring on the wide side for the outer intervals, since
+conformal prediction is conservative by construction. The price is the rows in that
+fold: on the 36 datasets the default scores a better CRPS on 35.
 
-Use it whenever you need the interval to mean what it says. It costs one extra held-out
-fold and no extra fitting.
-
-It raises rather than guessing when the calibration fold is too small to certify the
+`conformalize=True` raises rather than guessing when its fold is too small to certify the
 levels you asked for. A 90% interval needs at least 9 calibration rows, and a 99% one
-needs 99.
+needs 99. The default never raises for this: when its rows cannot certify the grid, or
+when there are none (early stopping off and no `eval_set`), it returns the raw grid.
+
+The raw grid, which `conformalize=False` also returns, runs narrow. Leaf values are the
+residual quantiles of the rows in that leaf, measured on those same rows, which is
+optimistic. The deeper trees of the default narrow it further, and the calibration
+repairs that.
 
 ## Scoring
 
@@ -228,31 +231,38 @@ Per-prediction explanations need none of this; the default is what you want.
 
 ## How it compares
 
-Measured on 36 Grinsztajn regression datasets, 3 seeds, all four arms sharing one
+Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
 early-stopping split and budget (`benchmarks/quantile_suite.py`). Win-loss is per
-dataset; "interval score" is the Winkler score, which charges width and miscoverage
-together.
+dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
+and miscoverage together. Fit time is each arm's median against ours, in the same run.
 
-| against | CRPS | interval score | crossing | median fit time |
+| against | CRPS | interval score | crossing | fit time |
 |:--|:--|:--|:--|:--|
-| 19 `loss="Quantile"` models | **32W-4L** | **34W-2L** | 0.00 vs 0.16 | **3.4x faster** |
-| 19 LightGBM quantile boosters | 23W-13L (a tie) | **31W-5L** | 0.00 vs 0.22 | **1.5x faster** |
-| CatBoost `MultiQuantile` | 7W-**29L** | **25W-11L** | 0.00 vs 0.06 | **8.3x faster** |
+| 19 `loss="Quantile"` models | **33W-3L** | **33W-3L** | 0.00 vs 0.16 | 3.7x ours |
+| 19 LightGBM quantile boosters | **26W-10L** | **31W-5L** | 0.00 vs 0.22 | 2.1x ours |
+| CatBoost `MultiQuantile` | 15W-21L | **25W-11L** | 0.00 vs 0.06 | 17x ours |
+| one squared-error model, fixed width | **23W-13L** | **29W-7L** | none on either side | 0.34x ours |
+| NGBoost, Normal distribution | **34W-2L** | **34W-2L** | none on either side | 15x ours |
 
-Read that honestly. **CatBoost's shared head is sharper than ours on CRPS** — it wins 29
-of 36 datasets — and that is a real deficit, not a rounding error. It costs a median 8.3x
-our fit time to get there, and its intervals are much worse calibrated (its worst
-coverage error is 0.64 against a nominal 0.90, ours 0.10), so on the interval score,
-which prices coverage and width together, we come out ahead.
+**CatBoost's shared head is still slightly sharper on CRPS.** It wins 21 of the 36
+datasets, by a median of 0.24%, at 17 times our fit time. Its 90% intervals cover 83% on
+average, so on the interval score, which prices coverage and width together, we come out
+ahead.
 
-Against a stack of independent per-level models — ours or LightGBM's — the shared
-structure clearly pays: better or equal accuracy, faster, and the only arm here whose
-levels never cross.
+The fixed-width row is the simplest honest baseline: fit an ordinary squared-error model,
+take the quantiles of its validation residuals, and add the same offsets to every
+prediction, so every row gets the same interval. It fits in a third of our time and its
+intervals are well calibrated. We beat it on 23 of 36 datasets on CRPS, by a median of
+0.74%, and on 29 of 36 on the interval score, because our widths follow the data. If one
+width for every row suits your problem, it is a reasonable choice.
+
+Against a stack of independent per-level models, ours or LightGBM's, the shared structure
+clearly pays: better accuracy, a shorter fit, and levels that never cross.
 
 Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
-(`benchmarks/quantile_head.py`), which flatters us; on real data with both sides
-early-stopping, the accuracy is a tie and the speed edge is 1.5x.
+(`benchmarks/quantile_head.py`), which flatters us. The table above is the real-data
+measurement, with every arm early-stopping.
 
 Those are averages over the whole grid; a single level can trade more, because every
 level shares one tree structure per round. On data whose signal takes many rounds to
@@ -263,9 +273,12 @@ distribution.
 
 ## Tuning
 
-Two defaults are set for this head rather than inherited. `depth` is 4, because deep
-leaves overfit tail quantiles, and `min_child_weight` follows the most extreme level on
-the grid, so a leaf estimating the 5% quantile keeps at least about 20 rows.
+Two defaults are set for this head rather than inherited. `depth` is 6: deeper trees
+place the centre of the distribution better but narrow its tails, and the default
+calibration repairs the tails. Earlier releases used `depth=4` with no calibration; pass
+`depth=4, conformalize=False` to reproduce them exactly. `min_child_weight` follows the
+most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
+about 20 rows.
 
 `split_projection` chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: `"rotate"` measured

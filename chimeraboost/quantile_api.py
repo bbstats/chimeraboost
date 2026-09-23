@@ -199,6 +199,19 @@ def _cqr_scales(Q, y, taus, mi, mw):
     return s
 
 
+def _check_conformalize(value):
+    """Accept only "auto", True or False; anything else is a loud error.
+
+    A module function rather than inline checks so ``fit`` stays under the
+    complexity ratchet; identity for the bools, equality for the string.
+    """
+    if value is True or value is False or value == "auto":
+        return
+    raise ValueError(
+        'conformalize must be "auto", True or False; got '
+        f"{value!r}.")
+
+
 class ChimeraBoostQuantileRegressor(BaseEstimator):
     """Gradient boosting for a whole predictive distribution at once.
 
@@ -235,11 +248,18 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         Score splits exactly across every level instead of on a projection.
         More faithful, but the fit gets slower and more memory-hungry as the
         grid grows -- a reference setting, not one for routine use.
-    conformalize : bool
-        Calibrate the intervals by conformalized quantile regression. Carves
+    conformalize : {"auto", True, False}, default "auto"
+        Calibrate the intervals by conformalized quantile regression, as a
+        per-level scale about the predicted median. ``True`` carves
         ``calibration_fraction`` of the rows off BEFORE the early-stopping
-        split, so that fold influences neither the fit nor the stopping point.
-        Raises if the fold is too small to certify the requested levels.
+        split, so that fold influences neither the fit nor the stopping point,
+        and calibrates on it; raises if the fold is too small to certify the
+        requested levels. ``"auto"`` spends no extra rows: after the fit it
+        calibrates on the evaluation rows early stopping already held out
+        (the user's ``eval_set``, or the carved fold), and keeps the raw grid
+        when there are none or the fold cannot certify the grid. Unlike
+        ``True``, those rows also chose the stopping round, so ``"auto"``
+        carries no formal coverage guarantee. ``False`` returns the raw grid.
     calibration_fraction : float
         Share of training rows reserved for conformalization. Ignored unless
         ``conformalize=True``.
@@ -249,15 +269,17 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     quantiles_ : ndarray of shape (n_quantiles,)
         The resolved grid.
     conformal_scale_ : ndarray of shape (n_quantiles,)
-        Per-level conformal scale about the predicted median; all ones unless
-        ``conformalize=True``.
+        Per-level conformal scale about the predicted median; all ones when
+        the fit left the raw grid untouched (``conformalize=False``, or
+        ``"auto"`` with no certifiable evaluation rows).
 
     Notes
     -----
     Every other parameter carries its usual ChimeraBoost meaning. Two defaults
-    are set for this head rather than inherited: ``depth`` is 4, because deep
-    leaves overfit tail quantiles, and ``min_child_weight`` follows a floor
-    implied by the most extreme level on the grid.
+    are set for this head rather than inherited: ``depth`` is 6 -- deep leaves
+    narrow the tails, which the default ``"auto"`` calibration repairs -- and
+    ``min_child_weight`` follows a floor implied by the most extreme level on
+    the grid.
     """
 
     def __init__(self, quantiles=None, n_estimators=2000, learning_rate=None,
@@ -268,7 +290,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                  cat_features=None, cat_combinations=None,
                  quantize_gradients=True, early_stopping=True,
                  validation_fraction=0.2, split_projection="rotate",
-                 exact_splits=False, conformalize=False,
+                 exact_splits=False, conformalize="auto",
                  calibration_fraction=0.2):
         self.quantiles = quantiles
         self.n_estimators = n_estimators
@@ -308,7 +330,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         """Step 1: the conformal calibration fold FIRST, so it sees neither
         the fit nor the stopping decision. Carved before anything else
         touches y. Returns ``(cal, X, y, sample_weight, groups)``."""
-        if not self.conformalize:
+        if self.conformalize is not True:
             return None, X, y, sample_weight, groups
         split = _make_eval_split(X, y, self.calibration_fraction,
                                  self.random_state, groups=groups)
@@ -354,7 +376,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
     def _make_mq_booster(self, taus, es_rounds, cat_features, n_rows):
         """Resolve the auto defaults and construct the booster."""
-        depth = 4 if self.depth is None else self.depth
+        depth = 6 if self.depth is None else self.depth
         mcw = (_auto_min_child_weight(taus) if self.min_child_weight is None
                else self.min_child_weight)
 
@@ -395,6 +417,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             raise ValueError(
                 'split_projection must be "rotate", "sum" or "gram"; got '
                 f"{self.split_projection!r}.")
+        _check_conformalize(self.conformalize)
         if not 0.0 < self.calibration_fraction < 1.0:
             raise ValueError("calibration_fraction must be in (0, 1); got "
                              f"{self.calibration_fraction!r}.")
@@ -425,17 +448,31 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         self.model_.fit(X, y, cat_features=cat_features, eval_set=eval_set,
                         sample_weight=sample_weight, callbacks=callbacks)
 
-        # 3. Conformalize on the pristine fold.
+        # 3. Conformalize: on the pristine fold for True, or -- under
+        # "auto" -- on the evaluation rows early stopping already held
+        # out. conformal_scale_ is still all ones here, so predict
+        # returns the raw grid.
         if cal is not None:
             mi, mw = self._median_idx_
             self.conformal_scale_ = _cqr_scales(
                 self.model_.predict_raw(cal[0]), cal[1], taus, mi, mw)
+        elif self.conformalize == "auto" and eval_set is not None:
+            mi, mw = self._median_idx_
+            try:
+                self.conformal_scale_ = _cqr_scales(
+                    self.predict(eval_set[0]),
+                    np.asarray(eval_set[1], dtype=np.float64),
+                    taus, mi, mw)
+            except ValueError:
+                pass   # uncertifiable: keep the raw grid, never raise
 
         return self
 
     def _conformalize(self, Q):
         """Apply the calibrated scale about each row's predicted median. A
-        no-op (all factors 1) unless ``conformalize=True``."""
+        no-op (all factors 1) unless the fit calibrated --
+        ``conformalize=True``, or ``"auto"`` with certifiable
+        evaluation rows."""
         if np.all(self.conformal_scale_ == 1.0):
             return Q
 

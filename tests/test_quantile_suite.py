@@ -212,6 +212,14 @@ def _q0_capture_models(monkeypatch):
     return seen
 
 
+def _q0_pinned_head(split, Xte, taus):
+    """The pre-Q5 head the I057/I058 probes were built on: depth 4,
+    raw grid. Returns (Q, best_iteration)."""
+    m = qs._fit_head_model(split, None, 1, taus, rb.MAX_ITERS,
+                           depth=4, conformalize=False)
+    return m.predict(Xte), m.best_iteration_
+
+
 def test_q0_probes_are_opt_in(monkeypatch):
     """Both suites default to the seven field arms; every probe parses."""
     import quantile_synth as qsyn
@@ -238,10 +246,11 @@ def test_q0_probes_are_opt_in(monkeypatch):
 
 
 def test_q0_uncapped_matches_head_when_head_stops_early(monkeypatch):
-    """Below the shared cap the uncapped probe is the head, bit for bit."""
+    """Below the shared cap the uncapped probe is the pinned old head,
+    bit for bit."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
-    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qh, best_h = _q0_pinned_head(split, Xte, taus)
     assert best_h is not None and best_h < rb.MAX_ITERS
     Qu, _, _, best_u = qs._fit_chimera_uncapped(split, Xte, None, 1, taus)
     assert best_u == best_h
@@ -253,13 +262,14 @@ def test_q0_uncapped_matches_head_when_head_stops_early(monkeypatch):
 
 
 def test_q0_recentred_sits_on_the_rigid_centre(monkeypatch):
-    """Recentred is the head's shape shifted onto RigidShift's median."""
+    """Recentred is the pinned head's shape shifted onto RigidShift's
+    median."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     from chimeraboost.quantile_api import _median_index
 
     split, Xte, taus = _q0_split()
     Qc, _, _, best_c = qs._fit_chimera_recentred(split, Xte, None, 1, taus)
-    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qh, best_h = _q0_pinned_head(split, Xte, taus)
     Qs, _, _, _ = qs._fit_rigid_shift(split, Xte, None, 1, taus)
     mi, mw = _median_index(taus)
     assert mw == 0.0
@@ -280,7 +290,7 @@ def test_q0_valscaled_scales_about_the_median(monkeypatch):
     Xv, yv = split[1], np.asarray(split[3], dtype=np.float64)
     seen = _q0_capture_models(monkeypatch)
     Qv, _, _, _ = qs._fit_chimera_valscaled(split, Xte, None, 1, taus)
-    Qh, _, _, _ = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qh, _ = _q0_pinned_head(split, Xte, taus)
     assert len(seen) == 2
     m = seen[0]
     mi = int(np.argmin(np.abs(taus - 0.5)))
@@ -301,12 +311,13 @@ def test_q0_valscaled_scales_about_the_median(monkeypatch):
 
 
 def test_q0_depth6_fits_depth6_trees(monkeypatch):
-    """The Depth6 probe's fitted booster carries depth 6; the head's, 4."""
+    """The Depth6 probe's fitted booster carries depth 6; the pinned
+    head's, 4."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
     seen = _q0_capture_models(monkeypatch)
     qs._fit_chimera_depth6(split, Xte, None, 1, taus)
-    qs._fit_chimera_head(split, Xte, None, 1, taus)
+    _q0_pinned_head(split, Xte, taus)
     assert [m.model_.depth for m in seen] == [6, 4]
 
 
@@ -315,14 +326,15 @@ def test_q0_depth6_fits_depth6_trees(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_q3_rate_probes_resolve_learning_rate(monkeypatch):
-    """The rate probes' fitted boosters run at 0.15 and 0.2; the head's,
-    at its 0.1 default. Read from the fitted booster, not the constructor."""
+    """The rate probes' fitted boosters run at 0.15 and 0.2; the pinned
+    head's, at its 0.1 default. Read from the fitted booster, not the
+    constructor."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
     seen = _q0_capture_models(monkeypatch)
     qs.PROBES["ChimeraBoostQuantileLR15"](split, Xte, None, 1, taus)
     qs.PROBES["ChimeraBoostQuantileLR20"](split, Xte, None, 1, taus)
-    qs._fit_chimera_head(split, Xte, None, 1, taus)
+    _q0_pinned_head(split, Xte, taus)
     assert [m.model_.lr_ for m in seen] == [0.15, 0.2, 0.1]
 
 
@@ -351,3 +363,16 @@ def test_q3_depth6_valscaled_calibrates_depth6(monkeypatch):
     assert np.array_equal(saved, ref)
     m.conformal_scale_ = saved
     assert np.all(np.diff(Qdv, axis=1) >= 0)
+
+
+def test_q5_field_arm_is_depth6_valscaled_bit_for_bit(monkeypatch):
+    """The Q5 default reproduces the Depth6ValScaled probe exactly:
+    depth 6 with the head's own CQR factors on the early-stopping
+    rows."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qd, _, _, best_d = qs.PROBES["ChimeraBoostQuantileDepth6ValScaled"](
+        split, Xte, None, 1, taus)
+    assert best_h == best_d
+    assert np.array_equal(Qh, Qd)

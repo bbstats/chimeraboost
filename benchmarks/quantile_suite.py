@@ -90,20 +90,20 @@ ALPHAS = (0.1, 0.2, 0.5)
 UNCAPPED_ITERS = 8000
 
 
-def _fit_head_model(split, cat, threads, taus, n_estimators, depth=None,
-                    learning_rate=None):
+def _fit_head_model(split, cat, threads, taus, n_estimators, **params):
     """Construct and fit the suite's head.
 
     Shared by the head arm and the head-based probes so they cannot
     drift apart: same constructor, same rows, same early-stopping
-    split. ``depth=None`` and ``learning_rate=None`` are the head's own
-    defaults, as before.
+    split. Only the given ``params`` reach the constructor -- the field
+    arm passes none, so it always measures the library default, while
+    the probes pin theirs explicitly.
     """
     Xf, Xv, yf, yv = split
     m = ChimeraBoostQuantileRegressor(
         quantiles=taus, n_estimators=n_estimators,
         early_stopping_rounds=rb.PATIENCE, thread_count=threads,
-        random_state=0, depth=depth, learning_rate=learning_rate)
+        random_state=0, **params)
     m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
     return m
 
@@ -330,7 +330,8 @@ def _fit_chimera_uncapped(split, Xte, cat, threads, taus):
     sets and lost them; this asks whether that loss is truncation.
     """
     t = time.time()
-    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS)
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS,
+                        depth=4, conformalize=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -345,7 +346,7 @@ def _fit_chimera_depth6(split, Xte, cat, threads, taus):
     """
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=6)
+                        depth=6, conformalize=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -358,8 +359,14 @@ def _fit_chimera_recentred(split, Xte, cat, threads, taus):
     The head's grid shifted row by row onto RigidShift's predicted
     median. The shift is constant along each row, so rows stay ordered.
     """
-    Q_head, fit_h, pred_h, best = _fit_chimera_head(
-        split, Xte, cat, threads, taus)
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=4, conformalize=False)
+    fit_h = time.time() - t
+    t = time.time()
+    Q_head = m.predict(Xte)
+    pred_h = time.time() - t
+    best = m.best_iteration_
     Q_rigid, fit_r, pred_r, _ = _fit_rigid_shift(
         split, Xte, cat, threads, taus)
     mi, mw = _median_index(np.asarray(taus))
@@ -378,7 +385,8 @@ def _fit_chimera_valscaled(split, Xte, cat, threads, taus):
     """
     Xf, Xv, yf, yv = split
     t = time.time()
-    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS)
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=4, conformalize=False)
     _calibrate_on_val(m, Xv, yv)
     fit_s = time.time() - t
     t = time.time()
@@ -391,6 +399,7 @@ def _fit_chimera_lr15(split, Xte, cat, threads, taus):
     converge within the shared cap?"""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=4, conformalize=False,
                         learning_rate=0.15)
     fit_s = time.time() - t
     t = time.time()
@@ -403,6 +412,7 @@ def _fit_chimera_lr20(split, Xte, cat, threads, taus):
     converge within the shared cap?"""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=4, conformalize=False,
                         learning_rate=0.2)
     fit_s = time.time() - t
     t = time.time()
@@ -416,7 +426,7 @@ def _fit_chimera_depth6_valscaled(split, Xte, cat, threads, taus):
     Xf, Xv, yf, yv = split
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=6)
+                        depth=6, conformalize=False)
     _calibrate_on_val(m, Xv, yv)
     fit_s = time.time() - t
     t = time.time()
