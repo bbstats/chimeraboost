@@ -85,6 +85,11 @@ explodes on a near-perfectly-solved dataset. Kept as two panels rather than one
 average because BSS and R² occupy different parts of the 0..1 range, and averaging
 buries the classification leg — which is where the field actually spreads.
 
+A model scored on fewer datasets than its panel (sklearn's HGB skips the
+high-cardinality sets it cannot fit, so it is averaged over an easier subset) is
+labelled with its coverage, for example "HGB (36/44)", and is never placed on the
+frontier. The chart's title names the suites the run actually pooled.
+
 The cost, stated plainly: the axis is compressed. The whole field typically sits
 within ~0.02 of skill, so both panels are truncated dot plots — read the tick
 labels, not the visual gaps. This is expected to be superseded by TabArena scores
