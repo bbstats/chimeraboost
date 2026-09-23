@@ -53,6 +53,14 @@ The other axis is Slowdown: mean fit-time multiple vs the fastest model on
 each dataset (1.0x = fastest), straight from summarize's Slowdown column. Lower
 = better, so the frontier we want is up-and-to-the-left (strong AND fast).
 
+Quantile runs (task == "quantile" in the dataset meta, from
+benchmarks/quantile_suite.py) take a separate path instead of the two skill
+panels: one panel plotting CRPS skill (1 - CRPS / crps_marginal, 0 at the
+unconditional grid, 1 at perfect) against the same slowdown axis, with the
+mean |coverage_90 - 0.90| beside each model, written to
+quantile_pareto.png. The partial-coverage rule is the same as the skill
+panels'.
+
 Run:
     python benchmarks/make_pareto.py                      # newest results json
     python benchmarks/make_pareto.py benchmarks/results/<stamp>.json
@@ -96,6 +104,16 @@ MODEL_COLOR = {
     "sklearn_HGB": "#e0a32e",
     "XGBoost": "#8d6cab",
     "LightGBM": "#5a9e6f",
+    # Quantile-chart arms (quantile_suite.py): the head stays our blue, the
+    # per-level and CQR twins take the lighter blues, CatBoost/LightGBM keep
+    # their family hues; RigidShift and NGBoost have no point-chart family.
+    "ChimeraBoostQuantile": "#3b6fb0",
+    "ChimeraBoostQuantileCQR": "#5b8fc8",
+    "ChimeraBoostPerLevel": "#4070a8",
+    "CatBoostMultiQuantile": "#d1495b",
+    "LightGBMPerLevel": "#5a9e6f",
+    "RigidShift": "#9c7c54",
+    "NGBoost": "#e07020",
 }
 
 # Compact names for matrix column headers / tight tables.
@@ -109,6 +127,11 @@ SHORT_NAME = {
     "LightGBM": "LGBM",
     "sklearn_HGB": "HGB",
     "XGBoost": "XGB",
+    # Quantile-chart arms: without these the m[:7] fallback would label them
+    # "CatBoos" / "LightGB" / "RigidSh" on the figure.
+    "CatBoostMultiQuantile": "CatMQ",
+    "LightGBMPerLevel": "LGBMPL",
+    "RigidShift": "Rigid",
 }
 
 N_BOOT = 10000
@@ -716,6 +739,252 @@ def render_skill_image(skill, out_path, keys=None):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Quantile runs (benchmarks/quantile_suite.py): one panel plotting CRPS skill
+# against the same slowdown axis, with the 90% coverage error beside each
+# model. Entered only when the dataset meta carries task == "quantile".
+# ---------------------------------------------------------------------------
+
+
+def is_quantile_run(data):
+    """True when the run came from quantile_suite.py: at least one dataset's
+    meta carries task == "quantile", in which case records carry
+    metrics.crps / metrics.coverage_90 and the meta carries crps_marginal."""
+    return any(info.get("task") == "quantile"
+               for info in data.get("datasets", {}).values())
+
+
+def _quantile_collect(data):
+    """Per-(dataset, model) sample lists from a quantile run: (crps, cov, fits).
+
+    Only datasets whose meta carries task == "quantile" contribute; a record
+    missing one metric still contributes the others.
+    """
+    meta = data.get("datasets", {})
+    crps, cov, fits = {}, {}, {}
+    for r in data.get("records", []):
+        ds, model, m = r["dataset"], r["model"], r.get("metrics", {})
+        info = meta.get(ds)
+        if not info or info.get("task") != "quantile":
+            continue
+        if m.get("crps") is not None:
+            crps.setdefault((ds, model), []).append(m["crps"])
+        if m.get("coverage_90") is not None:
+            cov.setdefault((ds, model), []).append(m["coverage_90"])
+        if r.get("fit_time") is not None:
+            fits.setdefault((ds, model), []).append(r["fit_time"])
+    return crps, cov, fits
+
+
+def _quantile_slowdown(fits):
+    """{model: [fit_time / fastest-on-dataset]}: the point chart's definition.
+
+    Seeds are averaged per (dataset, model) first; a dataset whose fastest
+    fit is not positive is skipped.
+    """
+    import numpy as np
+
+    by_ds = {}
+    for (ds, model), samples in fits.items():
+        by_ds.setdefault(ds, {})[model] = float(np.mean(samples))
+    slow = {}
+    for ds, per in by_ds.items():
+        best = min(per.values())
+        if best <= 0:
+            continue
+        for model, t in per.items():
+            slow.setdefault(model, []).append(t / best)
+    return slow
+
+
+def _quantile_coverage_err(cerr, model, per_ds):
+    """Mean |coverage_90 - 0.90| over a model's scored datasets, else None."""
+    import numpy as np
+
+    errs = [v for ds, v in cerr.get(model, {}).items() if ds in per_ds]
+    if not errs:
+        return None
+    return float(np.mean(errs))
+
+
+def quantile_scores(data):
+    """Per-model CRPS skill + slowdown + coverage error: the quantile headline.
+
+    Returns {model: {"strength", "slowdown", "coverage_err", "n"}}, where
+
+        strength     = mean over datasets of 1 - crps / crps_marginal
+        slowdown     = mean over datasets of fit_time / fastest fit_time
+        coverage_err = mean over datasets of |coverage_90 - 0.90|
+
+    Seeds are averaged per dataset first, exactly as the point panels do, so
+    every dataset counts once. strength reads 0 at the no-skill baseline (the
+    unconditional grid) and 1 at perfect, mirroring Brier skill and R2; n is
+    the number of datasets scored. It is named strength -- not skill -- so
+    this panel shares the skill panels' frontier machinery (skill_frontier)
+    and their partial-coverage rule unchanged. A dataset without a positive
+    crps_marginal is skipped for every model.
+    """
+    import numpy as np
+
+    meta = data.get("datasets", {})
+    crps, cov, fits = _quantile_collect(data)
+    slow = _quantile_slowdown(fits)
+    skill, cerr = {}, {}
+    for (ds, model), samples in crps.items():
+        ref = meta[ds].get("crps_marginal")
+        if not ref or ref <= 0:
+            continue
+        skill.setdefault(model, {})[ds] = 1.0 - float(np.mean(samples)) / ref
+    for (ds, model), samples in cov.items():
+        cerr.setdefault(model, {})[ds] = abs(float(np.mean(samples)) - 0.90)
+    out = {}
+    for model, per_ds in skill.items():
+        if model not in slow:
+            continue
+        out[model] = {
+            "strength": float(np.mean(list(per_ds.values()))),
+            "slowdown": float(np.mean(slow[model])),
+            "coverage_err": _quantile_coverage_err(cerr, model, per_ds),
+            "n": len(per_ds),
+        }
+    return out
+
+
+def quantile_title(keys):
+    """Figure title for the quantile chart, from the run's dataset keys: the
+    existing suite-label rule, with the head named."""
+    return f"Quantile CRPS skill vs slowdown — {suite_label(keys)}"
+
+
+def _quantile_tag(model, s, n_max):
+    """Chart label for one quantile point: the coverage tag plus its 90%
+    coverage error, so calibration reads off the chart."""
+    tag = _coverage_tag(model, s["n"], n_max)
+    if s.get("coverage_err") is None:
+        return tag
+    return f"{tag} (cov err {s['coverage_err']:.3f})"
+
+
+def format_quantile_text(scored, label=None, keys=None):
+    """Phone-readable table for the quantile panel.
+
+    `keys` is the run's dataset keys; when given, the quantile title heads
+    the table. Models below the panel's maximum coverage read "partial n/N"
+    in the Pareto column and never join the frontier -- the same rule as the
+    point skill panels.
+    """
+    lines = [label] if label else []
+    if keys is not None:
+        lines.append(quantile_title(keys))
+    front = skill_frontier(scored)
+    n_max = max(s["n"] for s in scored.values())
+    lines.append(f"Quantile — {n_max} datasets")
+    lines.append(f"{'Model':24s}{'CRPS skill':>12s}{'Slowdown':>11s}"
+                 f"{'CovErr90':>10s}  Pareto")
+    lines.append("-" * 65)
+    any_partial = False
+    for m, s in sorted(scored.items(), key=lambda kv: -kv[1]["strength"]):
+        if s["n"] < n_max:
+            mark = f"partial {s['n']}/{n_max}"
+            any_partial = True
+        else:
+            mark = "yes" if m in front else "-"
+        err = "--" if s["coverage_err"] is None else f"{s['coverage_err']:.4f}"
+        lines.append(f"{m:24s}{s['strength']:12.4f}{s['slowdown']:10.1f}x"
+                     f"{err:>10s}  {mark}")
+    if any_partial:
+        lines.append(f"* {PARTIAL_COVERAGE_NOTE}")
+    return "\n".join(lines)
+
+
+def render_quantile_image(scored, out_path, keys=None):
+    """The quantile north-star chart: CRPS skill vs slowdown, one panel.
+
+    The frontier line joins the full-coverage frontier (skill_frontier);
+    every point carries its model tag and its 90% coverage error. `keys` is
+    the run's dataset keys; when given, the title names the suites actually
+    pooled in the run. Partial-coverage models carry their counts and never
+    join the frontier.
+    """
+    plt = _plt()
+    import numpy as np
+
+    front = skill_frontier(scored)
+    n_max = max(s["n"] for s in scored.values())
+    pts = sorted(scored.items(), key=lambda kv: kv[1]["slowdown"])
+
+    fig, ax = plt.subplots(figsize=(8.2, 5.6))
+    fx = np.array([s["slowdown"] for m, s in pts if m in front])
+    fy = np.array([s["strength"] for m, s in pts if m in front])
+    if fx.size:
+        order = np.argsort(fx)
+        ax.plot(fx[order], fy[order], color="#9a9a9a", linewidth=1.3,
+                zorder=1)
+
+    for model, s in pts:
+        on = model in front
+        ax.scatter(s["slowdown"], s["strength"], s=150 if on else 95,
+                   color=MODEL_COLOR.get(model, "#777777"),
+                   edgecolor="#222" if on else "white",
+                   linewidth=1.3 if on else 1.0, zorder=3)
+        ax.annotate(_quantile_tag(model, s, n_max),
+                    (s["slowdown"], s["strength"]),
+                    textcoords="offset points", xytext=(9, 4),
+                    fontsize=8.5, color="#1a1a1a")
+
+    ax.set_title(f"Quantile — {n_max} datasets", fontsize=12,
+                 fontweight="bold", pad=10)
+    ax.set_xlabel("← Slowdown — mean fit-time multiple vs fastest",
+                  fontsize=9)
+    ax.set_ylabel("CRPS skill (higher = better)", fontsize=9.5)
+    ax.grid(True, linestyle="-", linewidth=0.5, color="#e4e4e4", zorder=0)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if keys is not None:
+        title = quantile_title(keys)
+    else:
+        title = "Quantile CRPS skill vs slowdown — Grinsztajn et al. (2022)"
+    fig.suptitle(title, fontsize=13.5, fontweight="bold", y=0.99)
+    any_partial = any(s["n"] < n_max for s in scored.values())
+    if any_partial:
+        fig.text(0.5, 0.01, PARTIAL_COVERAGE_NOTE, ha="center", fontsize=8.5,
+                 color="#555", style="italic")
+    fig.tight_layout(rect=[0, 0.04 if any_partial else 0, 1, 0.95])
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
+def _maybe_run_quantile(args, data, label, keys):
+    """The quantile path for main(): the CRPS-skill table + quantile_pareto.png.
+
+    Returns True when the run is a quantile_suite run asking for the headline
+    axis, in which case the table is printed and, unless --no-image, the one
+    figure written. Point runs and --metric winrate/blended fall through to
+    the existing paths untouched.
+    """
+    if not is_quantile_run(data) or args.metric != "skill":
+        return False
+    scored = quantile_scores(data)
+    if not scored:
+        print(f"{label}\nNo quantile scores available. Quantile runs need "
+              "`crps` in the record metrics and `crps_marginal` in the "
+              "dataset metadata.")
+        return True
+    print(format_quantile_text(scored, label, keys=keys))
+    if not args.no_image:
+        out_dir = args.out_dir or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "images")
+        out_dir = os.path.abspath(out_dir)
+        os.makedirs(out_dir, exist_ok=True)
+        render_quantile_image(scored,
+                              os.path.join(out_dir, "quantile_pareto.png"),
+                              keys=keys)
+        print(f"\nWrote quantile_pareto.png to {out_dir}")
+    return True
+
+
 def render_matrix(primary, meta, out_path):
     """Companion figure: who beats whom, every pairwise win rate as a matrix.
 
@@ -821,10 +1090,12 @@ def main():
         print("No results json found.")
         return
     data = summarize.load(path)
-
-    scored, meta, primary = score_models(data)
     label = f"# {os.path.basename(path)}"
     keys = list(data.get("datasets", {}))
+    if _maybe_run_quantile(args, data, label, keys):
+        return
+
+    scored, meta, primary = score_models(data)
     # Every figure and text table names the run's suites the same way: from the
     # dataset key prefixes actually present. The win-rate/blended renderers read
     # meta["suite"], so point it at that label; the skill paths take keys.

@@ -297,3 +297,95 @@ def test_suite_title_covers_all_suites_and_heads_the_text():
     txt = make_pareto.format_skill_text(_partial_skill(), "# fixture",
                                         keys=["gr:a", "hc:b@c"])
     assert "Strength vs slowdown — Grinsztajn + high-cardinality" in txt
+
+
+# ---------------------------------------------------------------------------
+# Quantile Pareto (Q-B3): CRPS skill vs slowdown with the 90% coverage error
+# alongside. Pinned here because it decides what images/quantile_pareto.png
+# shows.
+# ---------------------------------------------------------------------------
+
+def _quantile_data():
+    """quantile_suite-shaped run: 2 datasets x 3 models x 2 seeds.
+
+    q1's unconditional grid scores crps_marginal 1.0, q2's 2.0. Seeds differ
+    only for A, pinning the seeds-averaged-first rule: A/q1 crps
+    (0.6 + 0.8)/2 = 0.7 -> skill 0.30; A/q2 (1.0 + 1.2)/2 = 1.1 -> 0.45;
+    coverage (0.88 + 0.92)/2 = 0.90 -> error 0.00 on q1 and
+    (0.87 + 0.89)/2 = 0.88 -> 0.02 on q2. C is the fastest everywhere.
+    """
+    datasets = {
+        "gr:q1": {"task": "quantile", "crps_marginal": 1.0},
+        "gr:q2": {"task": "quantile", "crps_marginal": 2.0},
+    }
+    specs = {
+        # ds -> model -> (crps seeds, coverage_90 seeds, fit_time seeds)
+        "gr:q1": {
+            "A": ([0.6, 0.8], [0.88, 0.92], [2.0, 2.0]),
+            "B": ([0.5, 0.5], [0.85, 0.85], [4.0, 4.0]),
+            "C": ([0.9, 0.9], [0.70, 0.70], [1.0, 1.0]),
+        },
+        "gr:q2": {
+            "A": ([1.0, 1.2], [0.87, 0.89], [3.0, 3.0]),
+            "B": ([1.6, 1.6], [0.95, 0.95], [6.0, 6.0]),
+            "C": ([1.8, 1.8], [0.80, 0.80], [1.5, 1.5]),
+        },
+    }
+    records = []
+    for ds, models in specs.items():
+        for model, (crps, cov, fits) in models.items():
+            for seed in (0, 1):
+                records.append({
+                    "dataset": ds, "model": model, "seed": seed,
+                    "metrics": {"primary": -crps[seed], "crps": crps[seed],
+                                "coverage_90": cov[seed],
+                                "coverage_80": 0.80},
+                    "fit_time": fits[seed],
+                })
+    return {"config": {"seeds": 2}, "datasets": datasets, "records": records}
+
+
+def test_quantile_scores_match_hand_computed_values():
+    q = make_pareto.quantile_scores(_quantile_data())
+    assert q["A"]["strength"] == pytest.approx((0.30 + 0.45) / 2)
+    assert q["B"]["strength"] == pytest.approx((0.50 + 0.20) / 2)
+    assert q["C"]["strength"] == pytest.approx(0.10)
+    assert q["A"]["slowdown"] == pytest.approx(2.0)   # 2.0/1.0, 3.0/1.5
+    assert q["B"]["slowdown"] == pytest.approx(4.0)   # 4.0/1.0, 6.0/1.5
+    assert q["C"]["slowdown"] == pytest.approx(1.0)   # fastest everywhere
+    assert q["A"]["coverage_err"] == pytest.approx((0.00 + 0.02) / 2)
+    assert q["B"]["coverage_err"] == pytest.approx(0.05)
+    assert q["C"]["coverage_err"] == pytest.approx((0.20 + 0.10) / 2)
+    assert {m: q[m]["n"] for m in "ABC"} == {"A": 2, "B": 2, "C": 2}
+    assert make_pareto.skill_frontier(q) == {"A", "C"}  # A dominates B
+
+
+def test_quantile_frontier_excludes_partial_coverage_models():
+    """D is scored on q1 only with the best skill AND the best slowdown --
+    the _partial_skill trap -- and still stays off the frontier."""
+    data = _quantile_data()
+    for seed in (0, 1):
+        data["records"].append({
+            "dataset": "gr:q1", "model": "D", "seed": seed,
+            "metrics": {"primary": -0.1, "crps": 0.1, "coverage_90": 0.90,
+                        "coverage_80": 0.80},
+            "fit_time": 0.5,
+        })
+    q = make_pareto.quantile_scores(data)
+    assert q["D"]["n"] == 1
+    assert q["D"]["strength"] == pytest.approx(0.9)   # 1 - 0.1/1.0, best
+    assert q["D"]["slowdown"] == pytest.approx(1.0)   # fastest on its 1 ds
+    assert q["A"]["strength"] == pytest.approx((0.30 + 0.45) / 2)  # unmoved
+    assert "D" not in make_pareto.skill_frontier(q)
+    txt = make_pareto.format_quantile_text(q, "# fixture", keys=["gr:q1"])
+    d = next(line for line in txt.splitlines() if line.startswith("D "))
+    assert "partial 1/2" in d and "yes" not in d
+    assert "Quantile" in txt and "Grinsztajn" in txt
+    assert txt.count("never on the frontier") == 1
+
+
+def test_quantile_detector_false_on_point_runs():
+    assert not make_pareto.is_quantile_run(_data())          # point fixture
+    assert make_pareto.is_quantile_run(_quantile_data())     # quantile
+    assert make_pareto.quantile_title({"gr:x"}) == \
+        "Quantile CRPS skill vs slowdown — Grinsztajn"

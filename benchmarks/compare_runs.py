@@ -331,6 +331,11 @@ def main():
     # Strength comparisons are unaffected by the timing convention, but say so
     # loudly if the two runs straddle the _finish fix — anyone reading a speed
     # number off these files needs to know.
+    guard_cov = None
+    if args.metric == "crps":
+        guard_cov = (load_coverages(args.base_path, args.model),
+                     load_coverages(args.new_path,
+                                    args.model_new or args.model))
     warn = timing_warning(_load_json(args.base_path), _load_json(args.new_path))
     if warn:
         print(warn + "\n")
@@ -352,11 +357,72 @@ def main():
                   f"({len(ds_names)} datasets) ##########")
             _report(ds_names, base, new, ds_meta, rmse_b, rmse_n,
                     brier_b, brier_n, args, base_label, new_label, seeds)
+            if guard_cov is not None:
+                print(calibration_guard_line(
+                    ds_names, guard_cov[0], guard_cov[1],
+                    base_label, new_label))
         return
 
     _warn_pooled_strata(shared)
     _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
             args, base_label, new_label, seeds)
+    if guard_cov is not None:
+        print(calibration_guard_line(
+            shared, guard_cov[0], guard_cov[1], base_label, new_label))
+
+
+def load_coverages(path, model):
+    """{dataset: (coverage_90, coverage_80)}, averaged over seeds; a key with
+    no recorded value is None. Same model filter as ``load_run``."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    c90, c80 = defaultdict(list), defaultdict(list)
+    for r in data["records"]:
+        if model is not None and r["model"] != model:
+            continue
+        m = r["metrics"]
+        if m.get("coverage_90") is not None:
+            c90[r["dataset"]].append(float(m["coverage_90"]))
+        if m.get("coverage_80") is not None:
+            c80[r["dataset"]].append(float(m["coverage_80"]))
+    out = {}
+    for ds in set(c90) | set(c80):
+        out[ds] = (float(np.mean(c90[ds])) if ds in c90 else None,
+                   float(np.mean(c80[ds])) if ds in c80 else None)
+    return out
+
+
+def calibration_guard_line(ds_names, cov_b, cov_n, base_label, new_label):
+    """The Q-B1 calibration guard, as one printable line: the median over
+    datasets of |coverage - nominal| at 90% and 80% for BASE and NEW, the
+    change in points, and GUARD FAIL when either median worsens by more than
+    1.0 point, else guard ok -- or guard n/a when no dataset carries coverage
+    in both runs (a guard with nothing to read has not passed). A dataset
+    missing either coverage key in either run is skipped and counted."""
+    e90_b, e90_n, e80_b, e80_n = [], [], [], []
+    skipped = 0
+    for ds in ds_names:
+        b, n = cov_b.get(ds), cov_n.get(ds)
+        if (b is None or n is None or b[0] is None or b[1] is None
+                or n[0] is None or n[1] is None):
+            skipped += 1
+            continue
+        e90_b.append(abs(b[0] - 0.90))
+        e90_n.append(abs(n[0] - 0.90))
+        e80_b.append(abs(b[1] - 0.80))
+        e80_n.append(abs(n[1] - 0.80))
+    if not e90_b:
+        return (f"calibration guard: no dataset carries coverage in both runs "
+                f"(skipped {skipped}) | guard n/a")
+    m90b, m90n = float(np.median(e90_b)) * 100, float(np.median(e90_n)) * 100
+    m80b, m80n = float(np.median(e80_b)) * 100, float(np.median(e80_n)) * 100
+    d90, d80 = m90n - m90b, m80n - m80b
+    verdict = "GUARD FAIL" if (d90 > 1.0 or d80 > 1.0) else "guard ok"
+    return (f"calibration guard (median |coverage - nominal|, points): "
+            f"cov90 {base_label} {m90b:.2f} {new_label} {m90n:.2f} "
+            f"(change {d90:+.2f}) | cov80 {base_label} {m80b:.2f} "
+            f"{new_label} {m80n:.2f} (change {d80:+.2f}) | "
+            f"skipped {skipped} | {verdict}")
 
 
 def _report(shared, base, new, ds_meta, rmse_b, rmse_n, brier_b, brier_n,
