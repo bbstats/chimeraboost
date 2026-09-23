@@ -311,8 +311,10 @@ Muse's sandbox repaired the same afternoon (facts ledger). **S1 RESOLVED
 categoricals, median 14.75% against 15%; code parked on
 `campaign/s1-predict-cat-lookup` until 2026-09-29 for the maintainer's
 call). **S4 RESOLVED — KILLED** at S2 (I051: standardized `diff` 23W-23L on
-a fair synth screen; B16 addendum). Next: the named alternates S8 → S5 →
-S10, with H(11) and H(12) as fill.
+a fair synth screen; B16 addendum). **S8 CLOSED at S1b, no build**
+(I052: the exact multiclass Hessian and a slower multiclass rate each buy
+~+0.5% Brier for ~×1.8 multiclass fit — a trade put to the maintainer).
+Next: S5, then S10, with H(11) and H(12) as fill.
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -412,6 +414,111 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I052 2026-09-22 S8 S1 (the exact softmax Hessian for multiclass vector leaves; zero-library probe, pre-registered)
+why now: I051 closed (PR #150 self-merged at 698f888); the five picks are
+resolved and S8 is the first alternate named at the pick. No campaign PR
+open, bench idle. Class: **zero-library probe of a candidate default**
+(an in-process monkeypatch). Branch `campaign/s8-full-softmax-hessian`
+from main; muse writes and runs `benchmarks/probe_full_softmax_hessian.py`
+(task `20260922-s8-full-softmax-hessian.md`).
+the mechanism: a multiclass round grows one tree with K-vector leaves; each
+leaf value is a per-class Newton step on the DIAGONAL Hessian `p_k(1−p_k)`
+× (K−1)/K. The softmax cross-entropy Hessian is `diag(p) − ppᵀ`, singular
+along the all-ones direction (made invertible here by λ = l2_leaf_reg).
+The exact step `−lr (Σ(diag(p) − ppᵀ) + λI)⁻¹ Σg` moves the classes jointly
+where the diagonal step under-reads the coupling. dedup: A1_PLAN kept the
+per-class diagonal deliberately ("today's Newton semantics exactly") and
+never ran the full solve; nothing else in the record.
+barriers (`barrier_check.py`): B5 on "leaf-values" only — B5 closes
+shrinkage estimators correcting a common bias; this replaces an
+approximation with the exact second-order solve. B10 (priced, not
+measured): n·K → n·K² per round plus one K×K solve per leaf, K ≤ 7 on
+every hc multiclass set.
+panel: every hc multiclass key and twin (okcupid-stem, Traffic_violations,
+cjs, eucalyptus and their @sus/@time twins) and every synth multiclass
+key, 3 seeds, the harness's splits; self-check against the saved run.
+forecast: small — lr 0.1 keeps each step short, so the exact step mostly
+changes the path, not the endpoint: hc multiclass median **+0.0 to +0.5%**
+Brier, synth multiclass the same, ~50% chance of a flat read; the more
+likely visible effect is fewer rounds (×0.85–1.0) at a per-round cost of
+×1.05–1.3 (the probe's numpy solve is slower than a kernel would be, so
+its fit ratio is an upper bound).
+bars: (0) SELF-CHECK — the default arm reproduces the saved run's Brier on
+every hc (key, seed); the patched-call count > 0 on every full_hessian
+fit. (1) PASS when the hc multiclass base keys improve on ≥ 3 of 4
+(non-near-solved: cjs is near-solved) with median > 0 AND the synth
+multiclass keys read wins ≥ half + 1 of the decided with median > 0; a
+kernel would then be a muse task. Else KILL.
+ran (muse, exit 0, ~15 min): `probe_full_softmax_hessian.py` patches
+`MulticlassBoosting._apply_vector_update` (the only vector-leaf site; the
+multiclass refit runs from scratch through the same loop, so it is
+covered), guards raise on ordered boosting, subsample < 1 and weights
+(none fired); 360 rows = 60 keys (8 hc, 52 synth multiclass) × 3 seeds × 2
+arms; **SELF-CHECK PASS** (0.0 over 24 hc rows); the patch engaged on all
+180 full-Hessian fits and none of the default ones.
+read (+ = the full Hessian better; near-solved out of medians):
+hc 6W-2L: Traffic_violations **+0.54%** (3/3), okcupid-stem **+0.31%**
+(3/3), eucalyptus **+1.31%** (1/3 — split), okcupid@sus25 +0.53%,
+eucalyptus@time +0.91%, cjs@sus50 +0.36%, Traffic@time **−0.99%**; cjs
+near-solved. Median +0.528% (n = 7). Synth multiclass **39W-13L of 52,
+median +0.620%** (n = 48). Cost: fit ×3.30 (hc) / ×2.59 (synth) median;
+**trees ×1.05–3.58** (Traffic 3.43, okcupid 3.58).
+bar (1) **PASS on strength**: the three non-near-solved hc base keys all
+up, synth 39-13 with a positive median.
+forecast: strength "+0.0 to +0.5%" HIT at the top (+0.53 / +0.62%);
+"fewer rounds ×0.85–1.0" **MISSED the other way** — the exact step is
+SMALLER than the coupled diagonal one, so the fits run 1.05–3.6× longer.
+the confound this opens: smaller steps and more trees are what a lower
+learning rate does, and a lower rate alone usually buys Brier. Binned by
+tree ratio the gain is +0.28% (8/11 wins) where both arms use about the
+same trees (< 1.2×), +0.50% at 1.2–2×, +0.77% at ≥ 2× — part exactness,
+part rate, by eye. A kernel is not worth building until the two are
+separated.
+S1b, pre-registered here before it runs: add two arms to the same probe on
+the same keys and seeds — the default with `learning_rate=0.05` and with
+`0.033` (the diagonal step, slowed). Outcomes: (i) either lr arm reaches
+the full Hessian's median Brier gain on BOTH panels at no more trees ⇒
+the gain is the learning rate: KILL the full Hessian, and the finding
+becomes "multiclass wants a slower auto rate than the Grinsztajn-tuned
+0.1" — a knob-free default change for its own rung (the auto rate was
+tuned with no multiclass set in the suite); (ii) the full Hessian beats
+both lr arms head to head (wins ≥ half + 1, median > 0 on both panels) ⇒
+exactness matters ⇒ S2: a numba kernel, then the synth and decide gates
+with its real cost; (iii) anything between ⇒ report both, no build.
+verdict: S1 PASS on strength, confounded on mechanism → S1b (muse task
+`20260922-s8-lr-control.md`).
+S1b ran (muse, exit 0, ~15 min): arms `lr_050` / `lr_033` (the unpatched
+default with an explicit rate) on the same 60 keys × 3 seeds; 720 rows,
+the old 360 byte-identical (hash-verified, append-only); SELF-CHECK PASS.
+vs the default (median Brier change, median trees ×, median fit ×):
+  hc     full_hessian +0.528% ×2.12 ×3.30 · lr_050 +0.047% ×1.93 ×1.34 · lr_033 +0.509% ×2.59 ×1.78
+  synth  full_hessian +0.620% ×1.35 ×2.59 · lr_050 +0.212% ×1.41 ×1.30 · lr_033 +0.515% ×2.24 ×1.81
+head to head, full_hessian vs (wins-losses, median, trees ×):
+  hc     vs lr_050 **6W-2L +0.260%** ×1.07 · vs lr_033 3W-5L −0.181% ×0.66
+  synth  vs lr_050 **37W-15L +0.344%** ×0.96 · vs lr_033 29W-23L +0.046% ×0.60
+read: at EQUAL tree counts the exact step is genuinely better than a
+slowed diagonal step (vs lr_050, both panels, clear); a slower diagonal
+rate (0.033) buys the same Brier with 35–40% more trees and ties the
+exact step head to head. Outcome (i) not met (the rate that matches needs
+more trees), outcome (ii) not met (hc 3W-5L vs lr_033) ⇒ **outcome (iii):
+report both, no build.**
+the finding, stated for the maintainer: multiclass has about **+0.5%
+Brier available for about ×1.8 multiclass fit** by stepping more slowly —
+either a slower multiclass auto rate (≈ 0.033; one constant, no code,
+cost = the extra trees) or the exact Hessian (a kernel; ~35% fewer trees
+than the slow rate for the same Brier, plus a K² per-round cost). Both are
+a cost-for-strength trade on the slowdown axis, not a free win; the auto
+rate was tuned on Grinsztajn, which has no multiclass set, so neither
+choice has been tested before. §7 applies: lr_050 → lr_033 did not
+saturate, so the knee may sit lower still. The maintainer's call; the
+loop does not take a default-cost trade on its own.
+forecast (S1b): not pre-stated beyond the outcome rules.
+verdict: **S8 CLOSED at S1b, outcome (iii), no build**; the multiclass
+rate/Hessian trade goes to the maintainer as a question. Self-merged:
+`benchmarks/` + `.md` only.
+next: **S5** (fused multiclass cross-entropy eval, an exact speed rewrite;
+worth more if multiclass ever grows more trees), then **S10**.
 
 #### I051 2026-09-22 S4 S1→S3 (standardized `diff` in the cross block, behind a private experiment switch; muse task, pre-registered)
 why now: I050 closed (PR #149 self-merged at 4094b4d; S1's code parked).
