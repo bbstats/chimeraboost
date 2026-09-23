@@ -72,6 +72,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from chimeraboost import (ChimeraBoostQuantileRegressor,  # noqa: E402
                           ChimeraBoostRegressor)
 from chimeraboost import quantile_metrics as qm  # noqa: E402
+from chimeraboost.quantile_api import (
+    _centre, _cqr_scales, _median_index)
 
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "results")
@@ -83,15 +85,30 @@ TAUS = np.round(np.arange(0.05, 0.9501, 0.05), 10)
 # Reported alphas: the ones a user actually asks for.
 ALPHAS = (0.1, 0.2, 0.5)
 
+# The uncapped probe's budget: four times the shared cap, so a head
+# that stopped for lack of rounds has room to show it.
+UNCAPPED_ITERS = 8000
 
-def _fit_chimera_head(split, Xte, cat, threads, taus):
+
+def _fit_head_model(split, cat, threads, taus, n_estimators, depth=None):
+    """Construct and fit the suite's head.
+
+    Shared by the head arm and the ValScaled probe so the two cannot
+    drift apart: same constructor, same rows, same early-stopping
+    split. ``depth=None`` is the head's own default, as before.
+    """
     Xf, Xv, yf, yv = split
     m = ChimeraBoostQuantileRegressor(
-        quantiles=taus, n_estimators=rb.MAX_ITERS,
+        quantiles=taus, n_estimators=n_estimators,
         early_stopping_rounds=rb.PATIENCE, thread_count=threads,
-        random_state=0)
-    t = time.time()
+        random_state=0, depth=depth)
     m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
+    return m
+
+
+def _fit_chimera_head(split, Xte, cat, threads, taus):
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -292,6 +309,79 @@ ARMS = {
 }
 
 
+def _fit_chimera_uncapped(split, Xte, cat, threads, taus):
+    """The head with the round cap lifted to `UNCAPPED_ITERS`.
+
+    In Q-B4 the head reached the 2000-round cap on 11 of 36 Grinsztajn
+    sets and lost them; this asks whether that loss is truncation.
+    """
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_depth6(split, Xte, cat, threads, taus):
+    """The head at depth 6.
+
+    CatBoost MultiQuantile's default depth; the head's 4 was never
+    measured against CRPS on real data.
+    """
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=6)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_recentred(split, Xte, cat, threads, taus):
+    """The head's shape on a squared-error centre.
+
+    The head's grid shifted row by row onto RigidShift's predicted
+    median. The shift is constant along each row, so rows stay ordered.
+    """
+    Q_head, fit_h, pred_h, best = _fit_chimera_head(
+        split, Xte, cat, threads, taus)
+    Q_rigid, fit_r, pred_r, _ = _fit_rigid_shift(
+        split, Xte, cat, threads, taus)
+    mi, mw = _median_index(np.asarray(taus))
+    shift = (_centre(Q_rigid, mi, mw) - _centre(Q_head, mi, mw))[:, None]
+    return Q_head + shift, fit_h + fit_r, pred_h + pred_r, best
+
+
+def _fit_chimera_valscaled(split, Xte, cat, threads, taus):
+    """The head with the library's own CQR factors, fit on the
+    validation rows.
+
+    The factors come from the shared early-stopping validation rows
+    instead of a carved 20% fold, so no training rows are given up;
+    that fold also chose the stopping round, a mild optimism the
+    RigidShift offsets share.
+    """
+    Xf, Xv, yf, yv = split
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS)
+    m.conformal_scale_ = _cqr_scales(
+        m.predict(Xv), np.asarray(yv, dtype=np.float64), m.quantiles_,
+        *m._median_idx_)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+PROBES = {
+    "ChimeraBoostQuantileUncapped": _fit_chimera_uncapped,
+    "ChimeraBoostQuantileDepth6": _fit_chimera_depth6,
+    "ChimeraBoostQuantileRecentred": _fit_chimera_recentred,
+    "ChimeraBoostQuantileValScaled": _fit_chimera_valscaled,
+}
+
+
 def _register_for_keys(names, decide):
     """Register every suite the requested keys need. Idempotent.
 
@@ -419,8 +509,8 @@ def run_one(ds_name, seed, taus, threads, models):
     out = {}
     for name in models:
         try:
-            Q, fit_s, pred_s, best = ARMS[name](split, Xte, cat, threads,
-                                                taus)
+            Q, fit_s, pred_s, best = {**ARMS, **PROBES}[name](
+                split, Xte, cat, threads, taus)
             out[name] = (score(yte, Q, taus, split[2]), fit_s, pred_s, best)
         except Exception as e:
             # Same convention as run_benchmarks: a model that structurally
@@ -571,7 +661,7 @@ def main(argv=None):
                          "suites with their @sus25/@sus50 twins and the @time "
                          "twins of the hc: regressions.")
     ap.add_argument("--models", nargs="+", default=list(ARMS),
-                    choices=list(ARMS))
+                    choices=list({**ARMS, **PROBES}))
     ap.add_argument("--datasets", nargs="+", default=None,
                     help="dataset keys; default = every Grinsztajn regression "
                          "set (--decide: the full decision tier)")

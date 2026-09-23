@@ -234,8 +234,8 @@ def run_one(regime, n, seed, taus, threads, models):
     out = {}
     for name in models:
         try:
-            Q, fit_s, pred_s, best = qs.ARMS[name](split, Xte, cat, threads,
-                                                   taus)
+            Q, fit_s, pred_s, best = {**qs.ARMS, **qs.PROBES}[name](
+                split, Xte, cat, threads, taus)
             m = qs.score(yte, Q, taus, split[2])
             m["excess_crps"] = float(m["crps"] - oracle_crps)
             out[name] = (m, fit_s, pred_s, best)
@@ -424,7 +424,7 @@ def main(argv=None):
                          "processes; each gets threads/jobs threads "
                          "(default: 1, serial).")
     ap.add_argument("--models", nargs="+", default=list(qs.ARMS),
-                    choices=list(qs.ARMS))
+                    choices=list({**qs.ARMS, **qs.PROBES}))
     ap.add_argument("--list-datasets", action="store_true")
     ap.add_argument("--save", action="store_true")
     args = ap.parse_args(argv)

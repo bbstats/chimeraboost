@@ -158,6 +158,8 @@ fact: 2026-09-23 | standing quantile BASE = `results/quantile-20260923-115727.js
 fact: 2026-09-23 | the 36 Grinsztajn base keys re-scored bit-identically to `quantile-20260830-175359.json` for the head, our per-level models and CatBoost MQ (108 of 108 records each; LightGBM 94 of 108): their builders draw nothing from the seeded stream, and the head's outputs have not moved since August
 fact: 2026-09-23 | test suite on `campaign/quantile-plan` (Phase 1 bench, no library change) = 1188 passed, 1 skipped, 129 s
 fact: 2026-09-23 | the quantile head (flat learning rate 0.1) reaches the 2000-round cap on 11 of 36 gr regression sets in `quantile-20260923-115727.json`; on those it loses CRPS 2W-9L to RigidShift (median −5.03%) and 1W-10L to CatBoost MQ (−3.79%), on the other 25 it wins 18W-7L (+1.10%) and loses 6W-19L (−0.26%). Median-level pinball: vs RigidShift 16W-20L, vs CatBoost 5W-31L; 90% interval score: 28W-8L, 25W-11L
+fact: 2026-09-23 | Q0 probe battery (`results/quantile-20260923-135654.json`, gr regression): lifting the head's cap to 8000 rounds changes only the 13 cap-bound sets and wins all 13 (median +1.73%; visualizing_soil +22.8%, pol +12.7%, superconduct +7.5%); depth 6 wins 31W-5L (+0.35%) at 0.87× the fit but worsens the 90% coverage error by 1.06 points (hc 3.24); the library's CQR factors computed on the early-stopping rows cut the 90% error from 3.43 to 0.50 points at a CRPS change of +0.02% (21W-15L); recentring on RigidShift's median is 18W-18L
+fact: 2026-09-23 | the size fade would LOWER the head's rate (0.1 at ≥ 15k training rows, 0.07 at ≤ 5k), the wrong way for the capped sets; the harness passes n_estimators = rb.MAX_ITERS = 2000 to every arm, the head's own default, so a library budget change cannot show in the bench
 
 ## Beam
 
@@ -169,7 +171,7 @@ fact: 2026-09-23 | the quantile head (flat learning rate 0.1) reaches the 2000-r
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, DONE (I056); its PR waits for the maintainer | **Q0** once the Phase 1 PR merges: a bench-only T0 probe battery, one decide run + the synth screen, four arms against the head and RigidShift: uncapped (8000 rounds), depth 6, recentred on RigidShift's median, validation-rescaled (Q-B4: the head hits the 2000-round cap on 11 of 36 gr sets and loses them 2W-9L to RigidShift, wins the other 25 18W-7L; the CRPS is lost at the median level, not the tails). The paying question picks the first library rung: Q3 learning rate, a depth default, a location design, or Q1. Then Q2 CatBoost ablation, Q1 (P16), Q4 spread-aware categorical TS. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails; PR waits for the maintainer | **Q3 T0** once the Q0 PR merges: flat learning rates 0.15 and 0.2 for the head (the cap-bound sets need 3–4× the rounds at 0.1), plus, as a separate question in the same run, depth 6 with the validation-row calibration. Then the library rungs in order: Q3's rate, calibration on the early-stopping rows (Q0's (d) paid), depth 6 if calibration rescues its guard; then Q2 CatBoost ablation, Q1 (P16), Q4. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -436,6 +438,130 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I057 2026-09-23 F7 Q0 (the quantile probe battery: uncapped rounds, depth 6, recentred on a squared-error median, rescaled on the early-stopping rows; bench-only T0, pre-registered)
+why now: I056 merged (PR #156 at f5bac6b). No campaign PR open, bench
+idle. Q-B4 left one question with four candidate answers: the head ties
+RigidShift on CRPS because it loses the median level, mostly on the 11
+Grinsztajn sets where it hits the 2000-round cap. Branch
+`campaign/quantile-q0-probes` from main; muse task
+`20260923-q0-probe-battery.md`.
+arms (bench-only, `quantile_suite.PROBES`, opt-in through `--models`; the
+seven-arm default is unchanged):
+(a) `ChimeraBoostQuantileUncapped`, `n_estimators` 8000;
+(b) `ChimeraBoostQuantileDepth6`, depth 6;
+(c) `ChimeraBoostQuantileRecentred`, the head's grid shifted per row so its
+median equals RigidShift's median column (both fits reused unchanged);
+(d) `ChimeraBoostQuantileValScaled`, the library's own CQR factors
+(`_cqr_scales`) computed on the shared early-stopping rows instead of a
+carved 20% fold.
+barriers (`barrier_check.py`: B19, B11, B5, B6). B19 (the stopping round is
+not a free axis): (a) keeps the raw-argmin rule and only lifts a cap that
+binds before the argmin (best round 1999 on the capped sets); B19's own
+finding, that everything before the argmin is uphill, predicts (a) helps
+there. B11: nothing changes how stopping works; (d) calibrates after the
+fit. B5: (d) estimates a common correction on out-of-sample rows, the case
+B5 leaves open (P15 failed on pooled in-sample residuals). B6: (b) is one
+mechanism-motivated knob, not a search; depth 4 was the build request's
+setting for the LightGBM comparison (the acceptance ledger), never measured
+against CRPS on real data, and CatBoost's MultiQuantile uses 6.
+runs (Claude, after review, one at a time): the synth screen
+(`quantile_synth.py --seeds 3 --jobs 5 --models` head, RigidShift and the
+four probes, `--save`, ~5 min), then the decide tier (`quantile_suite.py
+--decide --seeds 3 --jobs 5`, same arms, `--save`, ~40 min). Scored against
+the head of the same run (`compare_runs.py J J --model ChimeraBoostQuantile
+--model-new <probe> --metric crps --by-suite`), each probe against
+RigidShift, the capped / uncapped split (the 11 gr sets whose Q-B4 best
+round reached 1999), and the quantile Pareto.
+forecast (gr regression, 36 sets, against the head unless said; hc and the
+twins are pointers):
+(a) bit-identical to the head on the 25 uncapped sets (the inert control:
+any drift is a finding); on the 11 capped it wins ≥ 8 with a median gain
+there ≥ +1%; guard ok; against RigidShift ≥ 22 of 36 (from 20); total fit
+1.5–2.5× the head's.
+(b) a genuine coin: 16–26 wins, median −0.3% to +0.5%; guard FAIL likely
+(fewer rows per leaf, narrower in-sample leaf quantiles); fit 1.3–2×.
+(c) 18–24 wins against the head (most of the capped 11, fewer than half of
+the other 25, where the head's median beat RigidShift's on 15); against
+RigidShift ≥ 24 of 36; guard ok; fit 1.3×.
+(d) the median column identical to the head's by construction; ≥ 22 wins
+with a median change in [0, +0.3%]; the guard IMPROVES (median 90% error
+from 3.43 to ≤ 1.5 points); against RigidShift still 18–22 wins; fit 1.0×.
+synth screen: (a) ties the head on most keys (synthetic fits rarely reach
+2000 rounds); (d) cuts the head's 90% coverage error at n = 1k from ~13 to
+≤ 5 points.
+reading rule, written before the run: a probe PAYS if, against the head on
+gr, it wins ≥ half + 1 of the decided sets with median CRPS change > 0 and
+the guard holds (the Phase 2 gate's form, used as a screen). Among paying
+probes the next library rung goes to the largest median gain per unit of
+fit cost; ties break toward the smaller library change. (a) → Q3, the
+head's rate or budget; (b) → a depth default; (c) → a location design;
+(d) → Q1 or calibration on the early-stopping rows. None pays → Q2, the
+CatBoost ablation, aimed at the capped sets.
+ran (muse, exit 0, ~10 min, no sandbox error): `PROBES` in
+`quantile_suite.py` (opt-in; both `--models` defaults unchanged), the head's
+construction factored into `_fit_head_model` (the head bit-identical), 5
+tests. Claude: the diff reads correct; **1193 passed, 1 skipped**. Muse's
+smoke (1 seed, anecdote): on pol the head stops at the cap (CRPS 1.630),
+uncapped runs to round 7529 (1.411) and RigidShift reads 0.970; on cpu_act
+uncapped equals the head to the last digit.
+synth screen (`results/quantile-synth-20260923-133626.json`, 12 keys × 3
+seeds, ~4 min; excess CRPS ×1000 over the oracle, median over keys; the
+head 42.92 and RigidShift 68.20 reproduce Q-B4a exactly): **uncapped
+42.92, identical on all 12 keys** (no synthetic fit reaches 2000 rounds);
+**depth 6 46.88, worse on 12 of 12**; **recentred 57.74, better only on
+`location`** (2 of 12, the homoscedastic regime where RigidShift itself
+wins); **validation-rescaled 44.46, worse on 9 of 12** (skewed/n1k 67.9
+against 50.3) while its 90% coverage error falls from 7.31 to 2.13 points.
+Forecast: (a) HIT (ties everywhere); (d) coverage HIT (the head's n = 1k
+median error is ~9.7, not the ~13 written, and the probe's ~2.7 is under
+5). The CRPS cost of (d) was not forecast: the library's CQR scales each
+symmetric PAIR by one factor (the larger of its two sides' scores), so a
+band that under-covers on one side widens on both, and CRPS charges the
+wasted side.
+decide tier (`results/quantile-20260923-135654.json`, 59 keys × 3 seeds ×
+6 arms, 17 min; the head and RigidShift reproduce Q-B4 exactly). Against the
+head on Grinsztajn regression (36), CRPS sign test with the guard:
+
+| probe | CRPS W-L-T | median change (engaged) | guard, 90% / 80% (points) | total fit vs the head |
+|:--|--:|--:|:--|--:|
+| (a) uncapped | 13-0-23 | +1.73% [CI +0.57..+4.29] | +0.10 / +0.17, ok | 1.48× |
+| (b) depth 6 | 31-5 | +0.35% [CI +0.07..+0.71] | +1.06 / +0.92, FAIL | 0.87× |
+| (c) recentred | 18-18 | +0.03% | +1.35 / +2.06, FAIL | 1.27× |
+| (d) validation-rescaled | 21-15 | +0.02% [CI −0.00..+0.08] | −2.93 / −3.99, ok | 0.99× |
+
+(a): the 13 changed sets are exactly the fits the cap cut short (the 11
+capped, plus MiamiHousing and elevators, each cap-bound on one seed); every
+other fit is bit-identical, the inert control. The gain sits where the head
+was furthest short: visualizing_soil +22.8% (still at the 8000 cap), pol
++12.7%, superconduct +7.5%, Brazilian_houses +4.3% / +2.5%. (b) wins the
+median level 30-6 and loses the 90% interval score 14-22, the depth
+docstring's own mechanism (deep leaves overfit the tails, the quantiles
+collapse toward the median), now measured; on hc its 90% error worsens
+3.24 points. (c) wins the capped sets (+8.35%), loses 9-16 elsewhere, and
+its shifted shape loses the 90% interval score 8-28. (d) leaves the median
+untouched (36 ties, by construction), wins the 90% interval score 21-15,
+and cuts the 90% coverage error from 3.43 to 0.50 points (hc 9.24 → 0.22)
+at no CRPS cost on real data. Pareto over 59 keys (CRPS skill @ slowdown,
+90% error): depth 6 0.5928 @ 2.8× (0.074) and RigidShift 0.5869 @ 1.2×
+(0.008) form the frontier; uncapped 0.5925 @ 4.2×, the head 0.5916 @ 3.4×,
+validation-rescaled 0.5912 @ 3.4× (0.009), recentred 0.5867 @ 4.6×.
+forecast: 16 of 22 counts HIT. MISS: (a) against RigidShift 21 of 36 (bar
+22) and total fit 1.48× (floor 1.5); (b) 31 wins (forecast 16–26) and
+FASTER at 0.87× (forecast 1.3–2×), since deeper trees converge in fewer
+rounds; (c) the guard failed; (d) 21 wins (bar 22).
+verdict (the pre-registered rule): **(a) and (d) PAY; (b) misses on its
+guard alone (+1.06 against the 1.00 limit); (c) does not pay.** The larger
+gain per unit of fit cost is (a), so **the next library rung is Q3, the
+head's rate or budget.** The budget is not a library lever: the harness
+hands every arm `n_estimators = rb.MAX_ITERS = 2000`, the head's own
+default, so the lever is the rate, and the size fade LOWERS it below 15k
+rows, the wrong way for the capped sets (most hold 8k–16k training rows).
+Nothing ships from this rung; the four probes stay opt-in bench arms. PR for
+the maintainer (touches `tests/`).
+next: Q3 T0 once this PR merges: flat learning rates 0.15 and 0.2 and, as a
+separate pre-registered question in the same run, depth 6 with the
+validation-row calibration (does (d) rescue (b)'s guard?).
+
 #### I056 2026-09-23 F7 Phase 1 (the quantile bench: Q-B1 decide tier, Q-B2 synthetic screen, Q-B3 quantile Pareto, Q-B4 baseline; benchmark tooling, pre-registered)
 why now: the maintainer moved the loop to the multi-quantile head after
 merging #155 ("We don't have much benching built for it"), then approved
@@ -477,7 +603,8 @@ synthetic counts HIT.
 verdict: **PASS (tooling) → one PR for the maintainer** (touches `tests/`,
 adds `images/quantile_pareto.png`). No library change; the internal quantile
 chart is new, and no ship gate reads it. Phase 2 re-ranked on the read:
-Q0 probe battery first, Q1 from first to fourth.
+Q0 probe battery first, Q1 from first to fourth. **MERGED by the maintainer
+as PR #156 (f5bac6b); branch deleted.**
 next: Q0 once the PR merges (F7's `next:` line).
 
 #### I055 2026-09-22 H(11) + H(12) (the pub: download race; the Pareto chart's title and partial-coverage points; harness, pre-registered)

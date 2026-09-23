@@ -176,3 +176,135 @@ def test_unknown_dataset_key_exits_before_running(monkeypatch):
     with pytest.raises(SystemExit):
         qs.main(["--datasets", "hc:Moneyball", "hc:bogus",
                  "--seeds", "1", "--models", "RigidShift"])
+
+
+# ---------------------------------------------------------------------------
+# Q0 probe battery: the four opt-in arms in `qs.PROBES` (no network).
+# ---------------------------------------------------------------------------
+
+def _q0_split(n=800, seed=0):
+    """Small heteroscedastic regression split on the suite's data path."""
+    from sklearn.model_selection import train_test_split
+
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((n, 5))
+    y = (2.0 * X[:, 0] + np.sin(2.0 * X[:, 2])
+         + np.exp(0.6 * X[:, 1]) * rng.standard_normal(n))
+    Xtr, Xte, ytr, _ = train_test_split(X, y, test_size=0.25,
+                                        random_state=seed)
+    split = rb._val_split(Xtr, ytr, "regression", 0)
+    taus = np.array([0.05, 0.25, 0.5, 0.75, 0.95])
+    return split, Xte, taus
+
+
+def _q0_capture_models(monkeypatch):
+    """Record every head model the arms fit, for reading fitted attributes."""
+    seen = []
+    real = qs.ChimeraBoostQuantileRegressor
+
+    class _Spy(real):
+        def fit(self, *args, **kwargs):
+            super().fit(*args, **kwargs)
+            seen.append(self)
+            return self
+
+    monkeypatch.setattr(qs, "ChimeraBoostQuantileRegressor", _Spy)
+    return seen
+
+
+def test_q0_probes_are_opt_in(monkeypatch):
+    """Both suites default to the seven field arms; every probe parses."""
+    import quantile_synth as qsyn
+
+    assert len(qs.ARMS) == 7
+    assert len(qs.PROBES) == 4
+    _stub_registry(monkeypatch, ["gr:reg_num/houses"],
+                   {"gr:reg_num/houses": "regression"})
+
+    seen = {}
+    monkeypatch.setattr(qs, "_print_dataset_list",
+                        lambda n, a, t: seen.setdefault("suite", a.models))
+    assert qs.main(["--list-datasets", "--seeds", "1"]) == 0
+    assert seen["suite"] == list(qs.ARMS)
+    assert qs.main(["--list-datasets", "--seeds", "1",
+                    "--models"] + list(qs.PROBES)) == 0
+
+    monkeypatch.setattr(qsyn, "_print_dataset_list",
+                        lambda k, a, t: seen.setdefault("synth", a.models))
+    assert qsyn.main(["--list-datasets", "--seeds", "1"]) == 0
+    assert seen["synth"] == list(qs.ARMS)
+    assert qsyn.main(["--list-datasets", "--seeds", "1",
+                      "--models"] + list(qs.PROBES)) == 0
+
+
+def test_q0_uncapped_matches_head_when_head_stops_early(monkeypatch):
+    """Below the shared cap the uncapped probe is the head, bit for bit."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert best_h is not None and best_h < rb.MAX_ITERS
+    Qu, _, _, best_u = qs._fit_chimera_uncapped(split, Xte, None, 1, taus)
+    assert best_u == best_h
+    if not np.array_equal(Qu, Qh):
+        i, j = np.argwhere(Qu != Qh)[0]
+        pytest.fail(f"uncapped differs from head at [{i}, {j}]: "
+                    f"head={Qh[i, j]!r} uncapped={Qu[i, j]!r}")
+    assert np.array_equal(Qu, Qh)
+
+
+def test_q0_recentred_sits_on_the_rigid_centre(monkeypatch):
+    """Recentred is the head's shape shifted onto RigidShift's median."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    from chimeraboost.quantile_api import _median_index
+
+    split, Xte, taus = _q0_split()
+    Qc, _, _, best_c = qs._fit_chimera_recentred(split, Xte, None, 1, taus)
+    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qs, _, _, _ = qs._fit_rigid_shift(split, Xte, None, 1, taus)
+    mi, mw = _median_index(taus)
+    assert mw == 0.0
+    np.testing.assert_allclose(Qc[:, mi], Qs[:, mi], rtol=1e-12)
+    d = Qc - Qh
+    same = np.broadcast_to(d[:, [mi]], d.shape)  # constant along each row
+    np.testing.assert_allclose(d, same)
+    assert np.all(np.diff(Qc, axis=1) >= 0)
+    assert best_c == best_h
+
+
+def test_q0_valscaled_scales_about_the_median(monkeypatch):
+    """ValScaled keeps the median and wears the library's own CQR factors."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    from chimeraboost.quantile_api import _cqr_scales
+
+    split, Xte, taus = _q0_split()
+    Xv, yv = split[1], np.asarray(split[3], dtype=np.float64)
+    seen = _q0_capture_models(monkeypatch)
+    Qv, _, _, _ = qs._fit_chimera_valscaled(split, Xte, None, 1, taus)
+    Qh, _, _, _ = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert len(seen) == 2
+    m = seen[0]
+    mi = int(np.argmin(np.abs(taus - 0.5)))
+    assert taus[mi] == 0.5
+    assert np.array_equal(Qv[:, mi], Qh[:, mi])
+    saved = np.asarray(m.conformal_scale_)
+    # The unscaled validation predictions the probe calibrated on: with the
+    # factors reset to ones, predict returns them exactly.
+    m.conformal_scale_ = np.ones_like(saved)
+    ref = _cqr_scales(m.predict(Xv), yv, m.quantiles_, *m._median_idx_)
+    assert np.array_equal(saved, ref)
+    m.conformal_scale_ = saved
+    Qvv = m.predict(Xv)
+    assert taus[0] == 0.05 and taus[-1] == 0.95
+    band = (yv >= Qvv[:, 0]) & (yv <= Qvv[:, -1])
+    assert float(np.mean(band)) >= 0.90
+    assert np.all(np.diff(Qv, axis=1) >= 0)
+
+
+def test_q0_depth6_fits_depth6_trees(monkeypatch):
+    """The Depth6 probe's fitted booster carries depth 6; the head's, 4."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    seen = _q0_capture_models(monkeypatch)
+    qs._fit_chimera_depth6(split, Xte, None, 1, taus)
+    qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert [m.model_.depth for m in seen] == [6, 4]

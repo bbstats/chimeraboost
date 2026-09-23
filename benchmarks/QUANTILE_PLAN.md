@@ -247,8 +247,8 @@ read in every verdict. The small-data and time twins are pointers (§2).
 ### Phase 2 — the idea queue, ranked (re-ranked 2026-09-23 on Q-B4)
 
 Q-B4 moved the queue: the CRPS is lost at the centre and on the capped
-datasets, and calibration is a small lever on it. Q1 was first; it is now
-fourth.
+datasets, and calibration is a small lever on it. Q1 was first; Q-B4 moved
+it to fourth and Q0 (below) to fifth.
 
 0. **Q0, the T0 probe battery (bench-only, no library change: one decide
    run and one synthetic screen).** Four arms, each answering one question,
@@ -266,13 +266,42 @@ fourth.
    The question that pays picks the first library rung: (a) Q3, a rate or
    budget change; (b) a depth default; (c) a location design, the centre
    or the structure from squared error; (d) Q1.
+   **DONE 2026-09-23 (I057, `results/quantile-20260923-135654.json`).**
+   Against the head on Grinsztajn regression: (a) wins all 13 cap-bound
+   sets, median +1.73%, and is bit-identical everywhere else (visualizing_soil
+   +22.8%, pol +12.7%, superconduct +7.5%; 1.48× the total fit); (b) wins
+   31-5, +0.35%, at 0.87× the fit, but its 90% coverage error worsens 1.06
+   points (the limit is 1.00; hc 3.24): it wins the median level 30-6 and
+   loses the 90% interval score 14-22, deep leaves overfitting the tails as
+   the depth docstring warns; (c) 18-18, guard fails; (d) 21-15, +0.02%,
+   and the 90% coverage error falls from 3.43 to 0.50 points (hc 9.24 to
+   0.22) for free. (a) and (d) pay, (a) by more per unit of fit cost, so
+   Q3 goes next. The synthetic screen disagreed on (d) (worse CRPS on 9 of
+   12 keys, mostly skewed noise, where one factor per symmetric pair widens
+   the side that was already right); on real data it is neutral.
 1. **Q3, the head's learning rate.** Flat 0.1: `adaptive_learning_rate` is
    pinned False in `quantile_api.py` ("Measure before flipping"), never
-   measured. The capped datasets make it the first suspect.
-2. **Q2, CatBoost MultiQuantile's CRPS edge (7W-29L on 2026-08-30 and
-   again on Q-B4).** Ablate the opponent, one knob at a time; depth is
-   already in Q0.
-3. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
+   measured. Q0 made it first: the cap-bound sets need 3 to 4 times the
+   rounds at 0.1 (pol and superconduct stop between 5000 and 7500), and the
+   budget is not a library lever (the harness and the head both default to
+   2000 rounds). The size fade would LOWER the rate below 15k rows, the
+   wrong way for these sets, most of which hold 8k to 16k training rows.
+   **T0 first, bench-only:** flat 0.15 and 0.2. In the same run, as its own
+   pre-registered question, depth 6 with the validation-row calibration:
+   does (d) rescue (b)'s guard?
+2. **Calibration on the early-stopping rows** (from Q0's (d), which paid):
+   the head's own CQR factors computed on the rows early stopping already
+   holds out, instead of a carved 20% fold. A library rung after Q3; the
+   design question is P16's objection (the fold also chose the stopping
+   round) against the measured result: the probe's 90% band covers 0.905
+   on average over the 59 keys, erring wide, so the reuse shows no visible
+   optimism.
+3. **Depth 6**, if the Q3 T0's combined question says calibration rescues
+   its guard: the strongest CRPS signal in Q0 (31-5 at 0.87× the fit).
+4. **Q2, CatBoost MultiQuantile's CRPS edge (7W-29L on 2026-08-30 and
+   again on Q-B4).** Ablate the opponent, one knob at a time; depth and
+   budget are now measured on our side.
+5. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
    out-of-sample. Drafted as P16 in `LEAFTUNE_PLAN.md`, never pre-registered.
@@ -280,14 +309,15 @@ fourth.
    for coverage, which is what a user reads off an interval (the head is
    3.4 points short at 90% on Grinsztajn, 9.2 on hc, 17.5 under the time
    shift), and its CRPS bar is the gate as written.
-4. **Q4 (added 2026-09-23 from the synthetic baseline), spread-aware
+6. **Q4 (added 2026-09-23 from the synthetic baseline), spread-aware
    categorical encoding.** On `catscale` at 10k the head loses 42.4 to
    CatBoost's 30.9 excess CRPS: our ordered TS is a per-category MEAN, blind
    to a category that sets the spread. Probe first (monkeypatch an extra TS
    of |y − median| per categorical), then the real-data hc regressions.
-5. Later: the leaf refit's cost (~90% of a round). The RigidShift gap
-   itself is Q0's subject (Q-B4: a CRPS tie made of a win on 25 datasets
-   and a loss on the 11 capped ones).
+7. Later: the leaf refit's cost (~90% of a round). The RigidShift gap
+   was Q0's subject: the capped sets explain it, and uncapped rounds and
+   depth 6 move the count against RigidShift from 20-16 to 21-15 and
+   22-14.
 
 ## Status, 2026-08-30
 
