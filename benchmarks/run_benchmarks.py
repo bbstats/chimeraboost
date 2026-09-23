@@ -880,7 +880,10 @@ def _public_parquet_path(data_id):
         return path
     import urllib.request
     url = _PUBLIC_PQ_URL.format(pad=data_id // 10000, did=data_id)
-    tmp = path + ".part"
+    # Per-process temp name: on a cold cache with --jobs > 1 the seed tasks of
+    # one dataset download at once, and one shared "<path>.part" lets workers
+    # clobber each other's bytes (same fix as _grinsztajn_local_csv).
+    tmp = f"{path}.{os.getpid()}.part"
     req = urllib.request.Request(
         url, headers={"User-Agent": "chimeraboost-benchmarks/public-suite"})
     with urllib.request.urlopen(req, timeout=600) as resp, open(tmp, "wb") as f:
@@ -889,7 +892,16 @@ def _public_parquet_path(data_id):
             if not chunk:
                 break
             f.write(chunk)
-    os.replace(tmp, path)   # never leave a truncated file looking complete
+    try:
+        os.replace(tmp, path)   # never leave a truncated file looking complete
+    except (PermissionError, FileExistsError):
+        # Another worker won the race: on Windows os.replace raises WinError 32
+        # while a sibling holds the final file open. If the final file is now
+        # complete, drop our temp copy and use it; otherwise re-raise.
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            os.remove(tmp)
+            return path
+        raise
     return path
 
 

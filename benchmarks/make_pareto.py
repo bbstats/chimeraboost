@@ -299,6 +299,62 @@ def pareto_frontier(scored, key="winrate"):
     return front
 
 
+# Dataset-key prefixes that name the suites pooled in a run, in display order.
+# The skill panels pool every suite in the run (decision runs carry the
+# high-cardinality suite plus the small-data / time-split twins), so figure and
+# table titles are built from what is actually present, not hard-coded.
+SUITE_TITLE_PARTS = (("gr:", "Grinsztajn"), ("hc:", "high-cardinality"),
+                     ("pub:", "public"), ("syn:", "synthetic"))
+
+
+def suite_label(keys):
+    """Short suite label from dataset key prefixes: "Grinsztajn" for a pure
+    Grinsztajn run, "Grinsztajn + high-cardinality (with variants)" for a
+    decision run, and so on. Unknown prefixes contribute nothing; a run with
+    none of the known suites reads "Mixed suites"."""
+    parts = [name for pre, name in SUITE_TITLE_PARTS
+             if any(k.startswith(pre) for k in keys)]
+    label = " + ".join(parts) if parts else "Mixed suites"
+    if any("@" in k for k in keys):
+        label += " (with variants)"
+    return label
+
+
+def suite_title(keys):
+    """Figure title for the skill chart, from the run's dataset keys."""
+    return f"Strength vs slowdown — {suite_label(keys)}"
+
+
+# One line, shared by the skill text table and the skill figure: a model scored
+# on fewer datasets than its panel is averaged over an easier subset, so it is
+# shown but never on the frontier.
+PARTIAL_COVERAGE_NOTE = ("Partial-coverage models are shown but never on the "
+                         "frontier.")
+
+
+def skill_frontier(scored):
+    """Pareto frontier over one skill panel's full-coverage models.
+
+    A model scored on fewer datasets than the panel's maximum (sklearn_HGB
+    skips the high-cardinality sets it cannot fit, so it is averaged over an
+    easier subset) must not define the frontier: it is excluded here, and the
+    callers label it with its coverage instead. Full-coverage models are
+    compared exactly as pareto_frontier compares them.
+    """
+    if not scored:
+        return set()
+    n_max = max(s["n"] for s in scored.values())
+    full = {m: s for m, s in scored.items() if s["n"] == n_max}
+    return pareto_frontier(full, key="strength")
+
+
+def _coverage_tag(model, n, n_max):
+    """Chart label for one skill point: full coverage reads short ("HGB"),
+    partial coverage carries its counts ("HGB (38/44)")."""
+    tag = _short(model)
+    return tag if n == n_max else f"{tag} ({n}/{n_max})"
+
+
 def _f(v, suf="", w=8, dec=1):
     return f"{'--':>{w}}" if v is None else f"{v:>{w}.{dec}f}{suf}"
 
@@ -557,32 +613,50 @@ def render_image(scored, meta, out_path, metric="winrate"):
     plt.close(fig)
 
 
-def format_skill_text(skill, label=None):
-    """Phone-readable tables for the two skill panels."""
+def format_skill_text(skill, label=None, keys=None):
+    """Phone-readable tables for the two skill panels.
+
+    `keys` is the run's dataset keys; when given, the suite title built from
+    them heads the tables. Models below the panel's maximum coverage read
+    "partial n/N" in the Pareto column and never join the frontier.
+    """
     lines = [label] if label else []
+    if keys is not None:
+        lines.append(suite_title(keys))
+    any_partial = False
     for task, ylab in (("classification", "Brier skill"), ("regression", "R2")):
         scored = skill.get(task) or {}
         if not scored:
             continue
-        front = pareto_frontier(scored, key="strength")
+        front = skill_frontier(scored)
         n = max(s["n"] for s in scored.values())
         lines.append(f"\n{task.capitalize()} — {n} datasets")
         lines.append(f"{'Model':24s}{ylab:>12s}{'Slowdown':>11s}  Pareto")
         lines.append("-" * 60)
         for m, s in sorted(scored.items(), key=lambda kv: -kv[1]["strength"]):
-            mark = "yes" if m in front else "-"
+            if s["n"] < n:
+                mark = f"partial {s['n']}/{n}"
+                any_partial = True
+            else:
+                mark = "yes" if m in front else "-"
             lines.append(f"{m:24s}{s['strength']:12.4f}{s['slowdown']:10.1f}x"
                          f"  {mark}")
+    if any_partial:
+        lines.append(f"* {PARTIAL_COVERAGE_NOTE}")
     return "\n".join(lines)
 
 
-def render_skill_image(skill, out_path):
+def render_skill_image(skill, out_path, keys=None):
     """The headline chart: two panels, classification and regression.
 
     Both y-axes are truncated. That is legitimate here because these are dot
     plots -- position, not length, encodes the value -- but it does mean the
     axis range is doing work, so read the tick labels rather than the visual
     gaps. The whole field typically sits within ~0.02 of skill.
+
+    `keys` is the run's dataset keys; when given, the title names the
+    suites actually pooled in the run. Partial-coverage models are
+    labelled with their coverage and never join the frontier.
     """
     plt = _plt()
     import numpy as np
@@ -590,13 +664,15 @@ def render_skill_image(skill, out_path):
     fig, axes = plt.subplots(1, 2, figsize=(14.5, 6.2))
     panels = (("classification", "Brier skill score (higher = better)"),
               ("regression", "R² (higher = better)"))
+    any_partial = False
 
     for ax, (task, ylab) in zip(axes, panels):
         scored = skill.get(task) or {}
         if not scored:
             ax.set_visible(False)
             continue
-        front = pareto_frontier(scored, key="strength")
+        front = skill_frontier(scored)
+        n_max = max(s["n"] for s in scored.values())
         pts = sorted(scored.items(), key=lambda kv: kv[1]["slowdown"])
 
         fx = np.array([s["slowdown"] for m, s in pts if m in front])
@@ -612,12 +688,14 @@ def render_skill_image(skill, out_path):
                        color=MODEL_COLOR.get(model, "#777777"),
                        edgecolor="#222" if on else "white",
                        linewidth=1.3 if on else 1.0, zorder=3)
-            ax.annotate(_short(model), (s["slowdown"], s["strength"]),
+            tag = _coverage_tag(model, s["n"], n_max)
+            if s["n"] < n_max:
+                any_partial = True
+            ax.annotate(tag, (s["slowdown"], s["strength"]),
                         textcoords="offset points", xytext=(9, 4),
                         fontsize=8.5, color="#1a1a1a")
 
-        n = max(s["n"] for s in scored.values())
-        ax.set_title(f"{task.capitalize()} — {n} datasets", fontsize=12,
+        ax.set_title(f"{task.capitalize()} — {n_max} datasets", fontsize=12,
                      fontweight="bold", pad=10)
         ax.set_xlabel("← Slowdown — mean fit-time multiple vs fastest",
                       fontsize=9)
@@ -627,9 +705,13 @@ def render_skill_image(skill, out_path):
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
 
-    fig.suptitle("Strength vs slowdown — Grinsztajn et al. (2022)",
-                 fontsize=13.5, fontweight="bold", y=0.99)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    title = (suite_title(keys) if keys is not None
+             else "Strength vs slowdown — Grinsztajn et al. (2022)")
+    fig.suptitle(title, fontsize=13.5, fontweight="bold", y=0.99)
+    if any_partial:
+        fig.text(0.5, 0.01, PARTIAL_COVERAGE_NOTE, ha="center", fontsize=8.5,
+                 color="#555", style="italic")
+    fig.tight_layout(rect=[0, 0.04 if any_partial else 0, 1, 0.95])
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
@@ -742,6 +824,11 @@ def main():
 
     scored, meta, primary = score_models(data)
     label = f"# {os.path.basename(path)}"
+    keys = list(data.get("datasets", {}))
+    # Every figure and text table names the run's suites the same way: from the
+    # dataset key prefixes actually present. The win-rate/blended renderers read
+    # meta["suite"], so point it at that label; the skill paths take keys.
+    meta["suite"] = suite_label(keys)
     if args.metric == "skill":
         skill = skill_scores(data)
         if not any(skill.values()):
@@ -750,7 +837,7 @@ def main():
                   "dataset metadata; runs made before 0.30.0 lack class_prior. "
                   "Re-run the benchmark, or use --metric winrate.")
             return
-        print(format_skill_text(skill, label))
+        print(format_skill_text(skill, label, keys=keys))
     else:
         print(format_text(scored, meta, primary, label, metric=args.metric))
 
@@ -761,7 +848,8 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
         wrote = []
         if args.metric == "skill":
-            render_skill_image(skill, os.path.join(out_dir, "pareto.png"))
+            render_skill_image(skill, os.path.join(out_dir, "pareto.png"),
+                               keys=keys)
             wrote.append("pareto.png")
             # The who-beats-whom matrix is a standalone diagnostic, not tied to
             # whichever axis is headline, so it keeps being refreshed here.

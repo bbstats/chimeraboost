@@ -236,3 +236,64 @@ def test_r2_prefers_the_test_split_target_scale():
     assert with_test != pytest.approx(only_full)
     # rmse 1.0 / (y_std_test 20) -> 1 - 0.0025 ; rmse 0.5 / 200 -> 1 - 6.25e-6
     assert with_test == pytest.approx(((1 - 0.0025) + (1 - 6.25e-06)) / 2)
+
+# ---------------------------------------------------------------------------
+# H(12): suite titles from key prefixes + partial-coverage models never define
+# the skill frontier. Pinned alongside the chart contracts above.
+# ---------------------------------------------------------------------------
+
+def _partial_skill():
+    """One skill panel where the partial-coverage model beats the field on both
+    axes: sklearn_HGB skips the high-cardinality sets it cannot fit, so its
+    0.4349 classification skill is averaged over an easier subset."""
+    return {"classification": {
+        "ChimeraBoost": {"strength": 0.410, "slowdown": 5.0, "n": 44},
+        "CatBoost": {"strength": 0.405, "slowdown": 8.0, "n": 44},
+        "sklearn_HGB": {"strength": 0.4349, "slowdown": 1.0, "n": 38},
+    }}
+
+
+def test_skill_frontier_excludes_partial_coverage_models():
+    panel = _partial_skill()["classification"]
+    front = make_pareto.skill_frontier(panel)
+    assert "sklearn_HGB" not in front      # best on both axes, still out
+    full = {m: s for m, s in panel.items() if m != "sklearn_HGB"}
+    assert front == make_pareto.pareto_frontier(full, key="strength")
+    assert front == {"ChimeraBoost"}       # outright dominates CatBoost
+
+
+def test_skill_text_marks_partial_coverage_and_footnotes():
+    txt = make_pareto.format_skill_text(_partial_skill(), "# fixture")
+    hgb = next(line for line in txt.splitlines()
+               if line.startswith("sklearn_HGB"))
+    assert "partial 38/44" in hgb and "yes" not in hgb
+    ours = next(line for line in txt.splitlines()
+                if line.startswith("ChimeraBoost"))
+    assert ours.rstrip().endswith("yes")
+    assert txt.count("never on the frontier") == 1     # one footnote line
+
+
+def test_skill_text_full_coverage_has_no_partial_marks():
+    skill = make_pareto.skill_scores(_skill_data())
+    txt = make_pareto.format_skill_text(skill, "# fixture")
+    assert "partial" not in txt and "never on the frontier" not in txt
+
+
+def test_coverage_tag_labels_partial_models_only():
+    assert make_pareto._coverage_tag("sklearn_HGB", 38, 44) == "HGB (38/44)"
+    assert make_pareto._coverage_tag("sklearn_HGB", 44, 44) == "HGB"
+
+
+def test_suite_title_builds_from_key_prefixes():
+    assert make_pareto.suite_title({"gr:x", "hc:y", "hc:z@time"}) == \
+        "Strength vs slowdown — Grinsztajn + high-cardinality (with variants)"
+    assert make_pareto.suite_title({"gr:x"}) == \
+        "Strength vs slowdown — Grinsztajn"
+
+
+def test_suite_title_covers_all_suites_and_heads_the_text():
+    assert make_pareto.suite_label({"pub:a", "syn:b@c"}) == \
+        "public + synthetic (with variants)"
+    txt = make_pareto.format_skill_text(_partial_skill(), "# fixture",
+                                        keys=["gr:a", "hc:b@c"])
+    assert "Strength vs slowdown — Grinsztajn + high-cardinality" in txt
