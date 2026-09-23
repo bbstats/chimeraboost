@@ -14,10 +14,25 @@ stack works on the output unchanged:
     python benchmarks/quantile_suite.py --seeds 3 --save
     python benchmarks/compare_runs.py BASE.json NEW.json --metric crps
 
+With `--decide` it runs the full decision tier for quantiles: Grinsztajn
+regression plus high-cardinality regression, their `@sus25` / `@sus50`
+small-data twins, and the `@time` twins of the hc regressions.
+
+Row pairing. From 2026-09-23 on, each dataset builder is called with
+``np.random.default_rng(1000 + seed)`` and split exactly the way
+``run_benchmarks._run_seed_task`` splits it -- the 75/25 random split, or the
+temporal window for `@time` twins, then the `@sus` train shrink -- so these
+runs are row-paired with the point-model `--decide` runs. The 2026-08-30 JSON
+called the builders with ``default_rng(seed)``, which changes only builders
+that draw from the stream; the 36 Grinsztajn base keys draw nothing, and
+re-run on 2026-09-23 they came back bit-identical for every arm but LightGBM
+(`QUANTILE_PLAN.md`, Q-B4).
+
 Deliberately NOT wired into `run_benchmarks.py --decide`. That tier is
 protocol-gated, and a third task kind would ripple through the variant
 families, the per-stratum sign tests and the Pareto panels for no gain. This
-borrows the harness's dataset registry and its split, and nothing else.
+mirrors the harness's suite registration and per-(dataset, seed) data path
+instead, and stays a separate script.
 
 Arms
 ----
@@ -27,6 +42,15 @@ ChimeraBoostPerLevel   K independent `ChimeraBoostRegressor(loss="Quantile")`
                        structure has to justify itself against
 LightGBMPerLevel       K independent LightGBM quantile boosters
 CatBoostMultiQuantile  CatBoost `MultiQuantile`, the same idea as ours
+RigidShift             the trivial conditional-location baseline from LEAFTUNE
+                       P10-P14: one default squared-error fit, plus the
+                       empirical quantiles of its validation residuals
+                       (`np.quantile` with numpy's default method) added to
+                       every row -- one width for every row
+ChimeraBoostQuantileCQR  the head with `conformalize=True`
+NGBoost                `NGBRegressor(Dist=Normal)` on the shared split,
+                       categoricals ordinal-encoded, quantiles from the
+                       fitted Normal
 
 Scoring is `chimeraboost.quantile_metrics`, so the numbers here and the ones a
 user reads from `model.report()` are the same numbers.
@@ -42,6 +66,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_benchmarks as rb  # noqa: E402  (the repo's one dataset loader)
+import summarize  # noqa: E402  (stratum labels for --list-datasets)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from chimeraboost import (ChimeraBoostQuantileRegressor,  # noqa: E402
@@ -150,12 +175,177 @@ def _fit_catboost_mq(split, Xte, cat, threads, taus):
     return Q, fit_s, time.time() - t, int(m.tree_count_)
 
 
+def _fit_rigid_shift(split, Xte, cat, threads, taus):
+    """One squared-error fit plus the empirical quantiles of its residuals.
+
+    The trivial conditional-location baseline from LEAFTUNE P10-P14: the
+    point model predicts the location and every row gets the SAME width --
+    the quantiles of the validation residuals, added as a constant offset
+    vector. One width for every row. Any head that conditions width on x has
+    to beat this to justify its structure. Offsets use `np.quantile` with
+    numpy's default method (linear interpolation).
+    """
+    Xf, Xv, yf, yv = split
+    m = ChimeraBoostRegressor(n_estimators=rb.MAX_ITERS,
+                              early_stopping_rounds=rb.PATIENCE,
+                              thread_count=threads, random_state=0)
+    t = time.time()
+    m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
+    fit_s = time.time() - t
+    t = time.time()
+    pred_val = np.asarray(m.predict(Xv), dtype=np.float64).ravel()
+    offsets = np.quantile(np.asarray(yv, dtype=np.float64) - pred_val, taus)
+    pred_test = np.asarray(m.predict(Xte), dtype=np.float64).ravel()
+    Q = pred_test[:, None] + offsets[None, :]
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_cqr(split, Xte, cat, threads, taus):
+    """The head exactly as `_fit_chimera_head`, with `conformalize=True`."""
+    Xf, Xv, yf, yv = split
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=rb.MAX_ITERS,
+        early_stopping_rounds=rb.PATIENCE, thread_count=threads,
+        random_state=0, conformalize=True)
+    t = time.time()
+    m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_ngboost(split, Xte, cat, threads, taus):
+    """NGBoost with a Normal predictive distribution, on the shared split.
+
+    The import lives inside the arm: NGBoost is a benchmark opponent, never
+    a library dependency, so a missing install must skip only this arm.
+    """
+    import ngboost
+    from ngboost.learners import default_tree_learner
+    from sklearn.base import clone
+    from sklearn.preprocessing import OrdinalEncoder
+    Xf, Xv, yf, yv = split
+    cat_idx = sorted(set(cat)) if cat else []
+    num_idx = [i for i in range(Xf.shape[1]) if i not in set(cat_idx)]
+
+    def _num(X):
+        if not num_idx:
+            return np.empty((X.shape[0], 0), dtype=np.float64)
+        # NaN left as NaN: scikit-learn 1.8 trees accept it.
+        return np.asarray(X[:, num_idx], dtype=np.float64)
+
+    if cat_idx:
+        enc = OrdinalEncoder(handle_unknown="use_encoded_value",
+                             unknown_value=-1, encoded_missing_value=-1)
+        enc.fit(np.asarray(Xf[:, cat_idx], dtype=object))
+
+        def _enc(X):
+            return enc.transform(np.asarray(X[:, cat_idx], dtype=object))
+
+        Xf_in = np.hstack([_num(Xf), _enc(Xf)])
+        Xv_in = np.hstack([_num(Xv), _enc(Xv)])
+        Xte_in = np.hstack([_num(Xte), _enc(Xte)])
+    else:
+        Xf_in, Xv_in, Xte_in = _num(Xf), _num(Xv), _num(Xte)
+
+    # NGBRegressor's random_state never reaches its base learner (the
+    # default tree has random_state=None), so ties break at random and reruns
+    # drift. Clone the default learner with a fixed seed, keeping every other
+    # parameter.
+    base = clone(default_tree_learner).set_params(random_state=0)
+    m = ngboost.NGBRegressor(Dist=ngboost.distns.Normal,
+                             n_estimators=rb.MAX_ITERS,
+                             early_stopping_rounds=rb.PATIENCE,
+                             Base=base, random_state=0, verbose=False)
+    t = time.time()
+    m.fit(Xf_in, yf, X_val=Xv_in, Y_val=yv)
+    fit_s = time.time() - t
+    t = time.time()
+    best = getattr(m, "best_val_loss_itr", None)
+    # NGBoost stops `early_stopping_rounds` AFTER its best validation round
+    # and keeps those trees, while every other arm predicts at its best
+    # round -- so score it at its best round too. `best` is a 0-based index
+    # and `pred_param` breaks before applying tree `max_iter`, hence + 1
+    # (which is also why `best=0` still works: `max_iter` is tested for
+    # truthiness, so a bare 0 would silently use all trees).
+    if best is not None:
+        dist = m.pred_dist(Xte_in, max_iter=int(best) + 1)
+    else:
+        dist = m.pred_dist(Xte_in)
+    # ppf takes one level at a time (a vector argument does not broadcast
+    # against the per-row parameters), so the (n, K) grid is stacked.
+    Q = np.column_stack([np.asarray(dist.ppf(float(tau)), dtype=np.float64)
+                         for tau in taus])
+    pred_s = time.time() - t
+    return Q, fit_s, pred_s, int(best) if best is not None else None
+
+
 ARMS = {
     "ChimeraBoostQuantile": _fit_chimera_head,
     "ChimeraBoostPerLevel": _fit_chimera_per_level,
     "LightGBMPerLevel": _fit_lightgbm_per_level,
     "CatBoostMultiQuantile": _fit_catboost_mq,
+    "RigidShift": _fit_rigid_shift,
+    "ChimeraBoostQuantileCQR": _fit_chimera_cqr,
+    "NGBoost": _fit_ngboost,
 }
+
+
+def _register_for_keys(names, decide):
+    """Register every suite the requested keys need. Idempotent.
+
+    Without ``decide`` the registration follows the keys: ``gr:`` keys need
+    Grinsztajn, ``hc:`` keys need high-card, and any ``@`` twin needs the
+    variant pass after its base suite -- so an explicit ``--datasets``
+    selection runs the suites it names instead of only Grinsztajn. With
+    ``decide`` this is the full decision tier. The parent calls this before
+    validating the keys, and every worker calls it for its own key, since
+    workers spawn fresh on Windows and register the suites themselves.
+    """
+    if decide:
+        rb._add_grinsztajn_datasets()
+        rb._add_highcard_datasets()
+        rb._add_variant_datasets(list(rb.DATASETS))
+        return
+    if any(k.startswith("gr:") for k in names):
+        rb._add_grinsztajn_datasets()
+    if any(k.startswith("hc:") for k in names):
+        rb._add_highcard_datasets()
+    if any(rb.VARIANT_SEP in k for k in names):
+        rb._add_variant_datasets(list(rb.DATASETS))
+
+
+def select_datasets(decide):
+    """Dataset keys for the run.
+
+    Without ``decide`` this is today's default: every Grinsztajn regression
+    base key. With it, every REGRESSION key across the gr:/hc: suites and
+    their registered `@sus25`/`@sus50` twins, plus the `@time` twins of the
+    hc: regressions -- registered the way the harness registers them, and
+    judged by `rb._task_of`, never by hard-coded names.
+    """
+    if not decide:
+        rb._add_grinsztajn_datasets()
+        return sorted(
+            k for k in rb.DATASETS
+            if k.startswith("gr:") and rb._task_of(k) == "regression")
+    rb._add_grinsztajn_datasets()
+    rb._add_highcard_datasets()
+    rb._add_variant_datasets(list(rb.DATASETS))
+    out = []
+    for k in rb.DATASETS:
+        if not (k.startswith("gr:") or k.startswith("hc:")):
+            continue
+        if rb._task_of(k) != "regression":
+            continue
+        variant = (k.split(rb.VARIANT_SEP, 1)[1]
+                   if rb.VARIANT_SEP in k else "")
+        if variant in ("", "sus25", "sus50"):
+            out.append(k)
+        elif variant == "time" and k.startswith("hc:"):
+            out.append(k)
+    return sorted(out)
 
 
 def score(y, Q, taus, y_train):
@@ -187,17 +377,38 @@ def score(y, Q, taus, y_train):
 
 
 def run_one(ds_name, seed, taus, threads, models):
-    X, y, cat, _ = rb.DATASETS[ds_name](1, np.random.default_rng(seed))
-    from sklearn.model_selection import train_test_split
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
-                                          random_state=seed)
+    """One (dataset, seed) draw, on the harness's data path, exactly.
+
+    Returns (meta, out). A degenerate `@time` window returns (None, {}) with
+    a printed note, as the harness does.
+    """
+    X, y, cat, _ = rb.DATASETS[ds_name](1, np.random.default_rng(1000 + seed))
+    variant = (ds_name.split(rb.VARIANT_SEP, 1)[1]
+               if rb.VARIANT_SEP in ds_name else "")
+    if variant == "time":
+        win = rb._temporal_split(X, y, seed, "regression")
+        if win is None:
+            print(f"  [skip] {ds_name} (seed {seed}): temporal window "
+                  "degenerate (fewer than 2 training or test rows)")
+            return None, {}
+        Xtr, Xte, ytr, yte = win
+    else:
+        from sklearn.model_selection import train_test_split
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                              random_state=seed)
+        if variant in rb.SUS_FRACTIONS:
+            # Shrink TRAINING rows only, so the twin keeps the parent's test
+            # rows -- the harness's convention.
+            Xtr, ytr = rb._subsample_train(Xtr, ytr,
+                                           rb.SUS_FRACTIONS[variant],
+                                           "regression")
     # One early-stopping split, shared by every arm, so no model is judged on
     # more data than another. Same carve the harness uses.
     split = rb._val_split(Xtr, ytr, "regression", 0)
 
     meta = {"task": "quantile", "n_train": int(Xtr.shape[0]),
             "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),
-            "has_cats": bool(cat), "variant": None,
+            "has_cats": bool(cat), "variant": variant or None,
             "y_std": float(np.std(y)), "y_std_test": float(np.std(yte)),
             # The no-skill CRPS: what the unconditional grid scores. This is
             # the quantile twin of y_std / class_prior, so a reader can form a
@@ -219,6 +430,22 @@ def run_one(ds_name, seed, taus, threads, models):
                   f"{type(e).__name__}: {e}")
             out[name] = None
     return meta, out
+
+
+def _run_seed_task_quantile(task):
+    """Fit every requested arm on one (dataset, seed) draw. Top-level and
+    picklable so it can run in a worker process -- spawn on Windows, so each
+    worker registers the suites itself. Returns (ds, seed, meta, out); a
+    failing task is reported as a skip, never allowed to kill the run."""
+    ds_name, seed, taus, threads, models, decide = task
+    _register_for_keys([ds_name], decide)
+    try:
+        meta, out = run_one(ds_name, seed, taus, threads, models)
+    except Exception as e:
+        print(f"  [skip] {ds_name} (seed {seed}): {type(e).__name__}: {e}",
+              flush=True)
+        return ds_name, seed, None, {}
+    return ds_name, seed, meta, out
 
 
 def aggregate(records, models):
@@ -257,56 +484,133 @@ def format_table(rows, base="ChimeraBoostQuantile"):
     return "\n".join(lines)
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--seeds", type=int, default=1)
-    ap.add_argument("--threads", type=int, default=None,
-                    help="thread budget per model (None = all cores).")
-    ap.add_argument("--models", nargs="+", default=list(ARMS),
-                    choices=list(ARMS))
-    ap.add_argument("--datasets", nargs="+", default=None,
-                    help="dataset keys; default = every Grinsztajn regression "
-                         "set")
-    ap.add_argument("--quantiles", type=float, nargs="+", default=None,
-                    help="tau grid; default = the head's own 19 levels")
-    ap.add_argument("--list-datasets", action="store_true")
-    ap.add_argument("--save", action="store_true")
-    args = ap.parse_args(argv)
+def _print_dataset_list(names, args, taus):
+    """The --list-datasets page: the selection grouped by stratum (suite x
+    variant) with counts, the way the harness prints it."""
+    strata = summarize.split_strata(names)
+    for stratum, ds_names in strata.items():
+        print(f"\n{summarize.stratum_label(stratum)}  ({len(ds_names)})")
+        for ds in ds_names:
+            print(f"  {ds}")
+    n_str = len(strata)
+    print(f"\ntotal: {len(names)} datasets in {n_str} "
+          f"{'stratum' if n_str == 1 else 'strata'} x {args.seeds} "
+          f"seed(s) x {len(args.models)} models, K={len(taus)}")
 
-    rb._add_grinsztajn_datasets()
-    names = args.datasets or sorted(
-        k for k in rb.DATASETS
-        if k.startswith("gr:") and rb._task_of(k) == "regression")
-    taus = (np.asarray(args.quantiles, dtype=np.float64) if args.quantiles
-            else TAUS)
 
-    if args.list_datasets:
-        for n in names:
-            print(n)
-        print(f"\n{len(names)} datasets x {args.seeds} seeds x "
-              f"{len(args.models)} models, K={len(taus)}")
-        return 0
+def _run_serial(tasks):
+    """Today's serial behaviour: every (dataset, seed) task inline."""
+    collected = {}  # (ds, seed) -> (meta, out)
+    for t in tasks:
+        ds, s = t[0], t[1]
+        t0 = time.time()
+        _, seed, meta, out = _run_seed_task_quantile(t)
+        collected[(ds, seed)] = (meta, out)
+        # Flushed: a full run is long enough that a buffered log is
+        # indistinguishable from a hung process.
+        print(f"  {ds} seed {s}: {time.time() - t0:.1f}s",
+              flush=True)
+    return collected
 
-    print(f"{len(names)} datasets, {args.seeds} seed(s), K={len(taus)} levels, "
-          f"models: {', '.join(args.models)}", flush=True)
 
+def _run_parallel(tasks, jobs):
+    """The same tasks across a process pool, like run_benchmarks."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    collected = {}
+    with ProcessPoolExecutor(max_workers=jobs) as ex:
+        futs = {ex.submit(_run_seed_task_quantile, t): t for t in tasks}
+        for fut in as_completed(futs):
+            try:
+                ds, seed, meta, out = fut.result()
+            except Exception as e:
+                ds, seed = futs[fut][0], futs[fut][1]
+                print(f"  [skip] {ds} (seed {seed}): "
+                      f"{type(e).__name__}: {e}", flush=True)
+                collected[(ds, seed)] = (None, {})
+                continue
+            collected[(ds, seed)] = (meta, out)
+            print(f"  {ds} seed {seed} done", flush=True)
+    return collected
+
+
+def _assemble_records(names, seeds, models, collected):
+    """Records in a deterministic order -- dataset, then seed, then model --
+    whatever order the workers finished in."""
     records, ds_meta = [], {}
     for ds in names:
-        for seed in range(args.seeds):
-            t0 = time.time()
-            meta, out = run_one(ds, seed, taus, args.threads, args.models)
+        for seed in range(seeds):
+            got_all = collected.get((ds, seed))
+            if got_all is None:
+                continue
+            meta, out = got_all
+            if meta is None:
+                continue  # skipped task (degenerate window or failure)
             ds_meta[ds] = meta
-            for name, got in out.items():
+            for name in models:
+                got = out.get(name)
                 if got is None:
                     continue
                 m, fit_s, pred_s, best = got
                 records.append({"dataset": ds, "model": name, "seed": seed,
                                 "metrics": m, "fit_time": fit_s,
                                 "predict_time": pred_s, "best_iter": best})
-            # Flushed: a full run is long enough that a buffered log is
-            # indistinguishable from a hung process.
-            print(f"  {ds} seed {seed}: {time.time() - t0:.1f}s",
-                  flush=True)
+    return records, ds_meta
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--seeds", type=int, default=1)
+    ap.add_argument("--threads", type=int, default=None,
+                    help="total thread budget across all parallel jobs "
+                         "(None = all cores).")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="(dataset, seed) tasks to run in parallel processes; "
+                         "each gets threads/jobs threads (default: 1, serial).")
+    ap.add_argument("--decide", action="store_true",
+                    help="the decision tier: Grinsztajn + high-card regression "
+                         "suites with their @sus25/@sus50 twins and the @time "
+                         "twins of the hc: regressions.")
+    ap.add_argument("--models", nargs="+", default=list(ARMS),
+                    choices=list(ARMS))
+    ap.add_argument("--datasets", nargs="+", default=None,
+                    help="dataset keys; default = every Grinsztajn regression "
+                         "set (--decide: the full decision tier)")
+    ap.add_argument("--quantiles", type=float, nargs="+", default=None,
+                    help="tau grid; default = the head's own 19 levels")
+    ap.add_argument("--list-datasets", action="store_true")
+    ap.add_argument("--save", action="store_true")
+    args = ap.parse_args(argv)
+
+    names = args.datasets or select_datasets(args.decide)
+    _register_for_keys(names, args.decide)
+    unknown = [k for k in names if k not in rb.DATASETS]
+    if unknown:
+        ap.error(f"Unknown datasets: {sorted(unknown)} "
+                 f"({len(rb.DATASETS)} registered).")
+    taus = (np.asarray(args.quantiles, dtype=np.float64) if args.quantiles
+            else TAUS)
+
+    if args.list_datasets:
+        _print_dataset_list(names, args, taus)
+        return 0
+
+    # Split the thread budget across parallel jobs: GBDT thread scaling is
+    # sublinear, so running J tasks at threads/J each beats one fit at all
+    # cores. Same convention as run_benchmarks.
+    jobs = max(1, args.jobs)
+    total_threads = args.threads or os.cpu_count() or 1
+    threads_per = max(1, total_threads // jobs)
+
+    print(f"{len(names)} datasets, {args.seeds} seed(s), K={len(taus)} levels, "
+          f"jobs={jobs} threads/job={threads_per}, "
+          f"models: {', '.join(args.models)}", flush=True)
+
+    tasks = [(ds, s, taus, threads_per, args.models, args.decide)
+             for ds in names for s in range(args.seeds)]
+    collected = (_run_serial(tasks) if jobs == 1
+                 else _run_parallel(tasks, jobs))
+    records, ds_meta = _assemble_records(names, args.seeds, args.models,
+                                         collected)
 
     rows = aggregate(records, args.models)
     print()
@@ -320,7 +624,9 @@ def main(argv=None):
             json.dump({
                 "config": {"seeds": args.seeds, "models": args.models,
                            "quantiles": [float(t) for t in taus],
-                           "timing": "fit_only", "suite": "quantile"},
+                           "timing": "fit_only", "suite": "quantile",
+                           "decide": args.decide, "jobs": jobs,
+                           "threads_per_model": threads_per},
                 "provenance": rb._provenance(sys.argv, {}),
                 "datasets": ds_meta,
                 "records": records,

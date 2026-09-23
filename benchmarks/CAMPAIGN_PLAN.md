@@ -154,6 +154,10 @@ fact: 2026-09-22 | I039's variant lines were read on `primary` (F1): on the deci
 fact: 2026-09-22 | ROOT CAUSE of the muse sandbox failure (I048, read-only `icacls`): every launch appends a `MuseSandboxUsers` DENY pair and a per-session-SID DENY pair to the ACL of `C:\Users\Nathan\.config\muse` and never removes them; at 1,786 duplicate `MuseSandboxUsers` entries (893 pairs) plus the stale session pairs, the ACL reached Windows' size limit and `SetNamedSecurityInfoW` returns 1340 (ERROR_BAD_INHERITANCE_ACL). A muse bug; the fix is an ACL reset on that folder, outside the repo and the maintainer's call. RESET 2026-09-22 on his approval (`icacls C:\Users\Nathan\.config\muse /reset /T /C /Q`, 1,786 → 0) and the next muse run (I049) had no sandbox error; one launch put back 32 entries (16 pairs), so at that rate the ACL fills again after roughly 50 launches — reset again when the 1340 error returns, and report it upstream
 fact: 2026-09-22 | muse's Windows sandbox can fail mid-task, host-wide and deterministically: every shell call returns "windows_elevated unified exec session launcher unavailable: sandbox enforcement unavailable … SetNamedSecurityInfoW failed: 1340" (I047; a subagent's shell failed the same way). The task's written files survive; the planner may run a finished, reviewed script itself — running is not authoring
 fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc fit ratio median ×1.20 (colleges 1.07 … kick 1.26), ×1.14 with the hc variants; inert hc ×1.01; a chart-grade --decide run with the I015 field took 55 min
+fact: 2026-09-23 | standing quantile BASE = `results/quantile-20260923-115727.json` (main 81be911 + the Phase 1 bench, `quantile_suite.py --decide --seeds 3 --jobs 5`, 59 regression keys × 7 arms, 2 h 49 min): gr head vs CatBoost MQ 7W-29L median −0.45%, vs RigidShift 20W-16L +0.41% (a tie), vs LightGBM per-level 23W-13L, vs our per-level 32W-4L, vs head+CQR 33W-3L, vs NGBoost 35W-1L; the head's 90% coverage 0.869 gr / 0.817 hc, RigidShift's 0.898 / 0.896
+fact: 2026-09-23 | the 36 Grinsztajn base keys re-scored bit-identically to `quantile-20260830-175359.json` for the head, our per-level models and CatBoost MQ (108 of 108 records each; LightGBM 94 of 108): their builders draw nothing from the seeded stream, and the head's outputs have not moved since August
+fact: 2026-09-23 | test suite on `campaign/quantile-plan` (Phase 1 bench, no library change) = 1188 passed, 1 skipped, 129 s
+fact: 2026-09-23 | the quantile head (flat learning rate 0.1) reaches the 2000-round cap on 11 of 36 gr regression sets in `quantile-20260923-115727.json`; on those it loses CRPS 2W-9L to RigidShift (median −5.03%) and 1W-10L to CatBoost MQ (−3.79%), on the other 25 it wins 18W-7L (+1.10%) and loses 6W-19L (−0.26%). Median-level pinball: vs RigidShift 16W-20L, vs CatBoost 5W-31L; 90% interval score: 28W-8L, 25W-11L
 
 ## Beam
 
@@ -165,6 +169,7 @@ fact: 2026-09-22 | the count column's cost, same run (I046 S4c): engaged base-hc
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, DONE (I056); its PR waits for the maintainer | **Q0** once the Phase 1 PR merges: a bench-only T0 probe battery, one decide run + the synth screen, four arms against the head and RigidShift: uncapped (8000 rounds), depth 6, recentred on RigidShift's median, validation-rescaled (Q-B4: the head hits the 2000-round cap on 11 of 36 gr sets and loses them 2W-9L to RigidShift, wins the other 25 18W-7L; the CRPS is lost at the median level, not the tails). The paying question picks the first library rung: Q3 learning rate, a depth default, a location design, or Q1. Then Q2 CatBoost ablation, Q1 (P16), Q4 spread-aware categorical TS. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -259,6 +264,20 @@ parent-evidence: hc suite build record 2026-07-15; B3 = seven partial ports, sev
 barriers: B3 hard; B4 (ordered boosting closed)
 kill: any proposal that is a partial CatBoost mechanism port dies at S0
 next: none until a beam refill produces a genuinely integrated mechanism
+
+## Direction change 2026-09-23: the loop moves to the multi-quantile head
+
+The maintainer, in chat after merging #155: "I would like to shift focus to
+the multi quantile 'quantiles' model now though. We don't have much
+benching built for it though. Let's plan." The point-model queue goes on
+hold as it stands: the multiclass rate/Hessian trade (I052), S1 parked on
+`campaign/s1-predict-cat-lookup` (its 2026-09-29 dated close still runs),
+the binary linear-leaf race pointer (I047) and a point-model refill. The
+quantile program's plan lives in `benchmarks/QUANTILE_PLAN.md` (section
+"Campaign 2026-09-23"); its verdicts flow back here as log entries. On the
+proposal, the same morning: "Just add ngboost, not the rf though. I like
+crps. Ok yea go ahead on it" — NGBoost joins the field, quantile forests do
+not, CRPS is the decision score, Phase 1 (the bench) starts.
 
 ## Refill shortlist 2026-09-22 (PICKED the same day, by the loop on the maintainer's delegation: S1 S2 S3 S4 S6; beam cap 5)
 
@@ -416,6 +435,50 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I056 2026-09-23 F7 Phase 1 (the quantile bench: Q-B1 decide tier, Q-B2 synthetic screen, Q-B3 quantile Pareto, Q-B4 baseline; benchmark tooling, pre-registered)
+why now: the maintainer moved the loop to the multi-quantile head after
+merging #155 ("We don't have much benching built for it"), then approved
+the plan with NGBoost in the field, no quantile forests, and CRPS as the
+decision score. Branch `campaign/quantile-plan` from main 81be911; muse
+tasks `20260923-qb1-quantile-decide-tier.md`, `-qb2-quantile-synth-screen.md`,
+`-qb3-quantile-pareto.md`, `-qb-review-fixes.md`. Program, forecasts and
+the full verdict: `QUANTILE_PLAN.md` "Campaign 2026-09-23".
+barriers (`barrier_check.py`: B5, B11): keyword matches for tooling. B5
+binds Q1, not this: a correction built from in-sample quantities cannot
+fix a common bias, which is why Q0's calibration arm rescales on the
+held-out early-stopping rows.
+ran: muse, four passes, all exit 0 (Q-B1, Q-B2, Q-B3, then two review
+fixes: NGBoost now predicts at its best round, and `--datasets` without
+`--decide` registers the suites its keys need instead of skipping
+silently). Claude ran the two baselines: the synthetic screen
+(`results/quantile-synth-20260923-090818.json`, ~5 min) and the decide
+tier (`results/quantile-20260923-115727.json`, 2 h 49 min, 59 keys × 3
+seeds × 7 arms, nothing skipped). **1188 passed, 1 skipped.**
+result (Grinsztajn regression, 36, CRPS sign tests, seeds averaged): the
+head loses to CatBoost MultiQuantile 7W-29L (−0.45%, the same as August to
+the last digit, at 14.6× the head's fit), TIES RigidShift 20W-16L (+0.41%,
+CI −2.07..+1.86; the rigid width fits at 0.27× and covers 0.898 against
+the head's 0.869), beats head+CQR 33W-3L, LightGBM per-level 23W-13L (a
+tie), our per-level 32W-4L and NGBoost 35W-1L. Every arm's coverage drops
+under the hc time shift. Pareto over all 59 keys: RigidShift 0.5869 @ 1.3×
+→ the head 0.5916 @ 3.5× → CatBoost MQ 0.5982 @ 136× (`images/quantile_pareto.png`).
+read: the RigidShift tie is two populations. The head reaches the
+2000-round cap (flat learning rate 0.1) on 11 of the 36 and loses them
+2W-9L to RigidShift (−5.03%) and 1W-10L to CatBoost; on the other 25 it
+beats RigidShift 18W-7L (+1.10%) and trails CatBoost by a median 0.26%.
+The CRPS is lost at the median level (vs RigidShift 16W-20L; vs CatBoost
+5W-31L) while the head wins the 90% interval score (28W-8L; 25W-11L).
+CQR's median, which its scale cannot move, loses 2W-34L to the plain head:
+the 20% fold's data tax, measured cleanly; calibration itself bought ~0.15%.
+forecast: 7 of 9 real-data counts HIT; MISS on RigidShift (20 of 36
+against a bar of 24) and on NGBoost (forecast even, lost 1-35). All three
+synthetic counts HIT.
+verdict: **PASS (tooling) → one PR for the maintainer** (touches `tests/`,
+adds `images/quantile_pareto.png`). No library change; the internal quantile
+chart is new, and no ship gate reads it. Phase 2 re-ranked on the read:
+Q0 probe battery first, Q1 from first to fourth.
+next: Q0 once the PR merges (F7's `next:` line).
 
 #### I055 2026-09-22 H(11) + H(12) (the pub: download race; the Pareto chart's title and partial-coverage points; harness, pre-registered)
 why now: I054 shipped (PR #153 merged by the maintainer at 611466a). No
@@ -4416,6 +4479,8 @@ verdict: PASS
 next: F1 S0 entry, then step-0 compute items in sequence (tests → attribution → baseline decide run)
 
 ## Open items (owner named, close-the-loop)
+
+- OPEN 2026-09-23, owner the loop (harness, H(13)): `make_pareto.py --metric blended` dies with `NameError: name 'FixedLocator' is not defined` (render_image, the blended branch; `FuncFormatter` is unimported too). Reproduced on main's code against `20260922-144219.json`; ruff flags it (F821). A diagnostic path only, the headline charts are unaffected. Fix with the next harness task.
 
 - CLOSED 2026-09-21: remote `e2/forced-cross-features`, `method/e2-prereg`, `loop-scaffolding` and the five merged `campaign/*` rung branches deleted (each verified fully merged into main first; the four stacked rung branches carried only content-free merge commits on top of commits main already has). The local copies of the five went with them.
 - Stale remotes, the maintainer's call (status verified 2026-09-21). Fully merged into main, safe to delete: `bench/portable-no-openml-api`, `refactor/readable-comments`, `worktree-tabarena-030-readiness`, `issue106-predict-thresh` (its local copy is 1 commit ahead — the calibration study PR #108 carries), `record/f2-loop-20260918` (checked out in `.record-worktree`). NOT merged: `docs/attribution-humility` (5 ahead), `docs/user-focused` (4 ahead), `bbstats-patch-1` (1 ahead), `whitepaper` (PR #108, open). Local worktree branch `f2/subgate-race` still waits on the I017 kill being confirmed.

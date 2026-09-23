@@ -299,3 +299,86 @@ def test_decision_metric_orients_losses_and_per_seed_view(tmp_path):
     # A record with no task metadata and an rmse field is judged as regression.
     rec = {"dataset": "x", "metrics": {"rmse": 2.0}}
     assert compare_runs._judged_value(rec, "decision", {}) == -2.0
+
+
+# --------------------------------------------------------------------------
+# Calibration guard (Q-B1): with --metric crps, one line after each block reads
+# the median |coverage - nominal| at 90% and 80% for BASE and NEW, and FAILs
+# when either median worsens by more than 1.0 point.
+# --------------------------------------------------------------------------
+def _write_quantile(tmp_path, name, rows):
+    """One quantile_suite-shaped run JSON: rows = (ds, crps, cov90, cov80);
+    a None coverage is omitted (the guard must skip and count the dataset)."""
+    datasets = {ds: {"task": "quantile"} for ds, _, _, _ in rows}
+    records = []
+    for ds, crps, c90, c80 in rows:
+        metrics = {"primary": -crps, "crps": crps}
+        if c90 is not None:
+            metrics["coverage_90"] = c90
+        if c80 is not None:
+            metrics["coverage_80"] = c80
+        records.append({"dataset": ds, "model": "M", "seed": 0,
+                        "fit_time": 1.0, "metrics": metrics})
+    path = os.path.join(str(tmp_path), name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"datasets": datasets, "records": records}, fh)
+    return path
+
+
+def test_calibration_guard_fails_when_coverage_worsens(
+        tmp_path, capsys, monkeypatch):
+    base = _write_quantile(tmp_path, "b.json", [
+        ("q1", 1.0, 0.89, 0.79),   # 1 point of error at both levels
+        ("q2", 1.0, 0.91, 0.81),   # 1 point of error at both levels
+        ("q3", 1.0, 0.89, None),   # missing cov80 -> skipped and counted
+    ])
+    new = _write_quantile(tmp_path, "n.json", [
+        ("q1", 0.9, 0.87, 0.77),   # 3 points of error: +2 points
+        ("q2", 0.9, 0.87, 0.77),
+        ("q3", 0.9, 0.89, 0.79),
+    ])
+    out = _main(capsys, monkeypatch,
+                [base, new, "BASE", "NEW", "--model", "M", "--metric", "crps"])
+    lines = [l for l in out.splitlines() if "calibration guard" in l]
+    assert len(lines) == 1
+    assert "GUARD FAIL" in lines[0]
+    assert "skipped 1" in lines[0]
+
+
+def test_calibration_guard_passes_when_coverage_improves(
+        tmp_path, capsys, monkeypatch):
+    base = _write_quantile(tmp_path, "b.json", [
+        ("q1", 1.0, 0.87, 0.77),
+        ("q2", 1.0, 0.87, 0.77),
+    ])
+    new = _write_quantile(tmp_path, "n.json", [
+        ("q1", 0.9, 0.89, 0.79),
+        ("q2", 0.9, 0.89, 0.79),
+    ])
+    out = _main(capsys, monkeypatch,
+                [base, new, "BASE", "NEW", "--model", "M", "--metric", "crps"])
+    lines = [l for l in out.splitlines() if "calibration guard" in l]
+    assert len(lines) == 1
+    assert "guard ok" in lines[0]
+    assert "GUARD FAIL" not in lines[0]
+    # ...and the line appears only under --metric crps.
+    out_other = _main(capsys, monkeypatch,
+                      [base, new, "BASE", "NEW", "--model", "M"])
+    assert "calibration guard" not in out_other
+
+
+def test_calibration_guard_na_when_no_dataset_carries_coverage(
+        tmp_path, capsys, monkeypatch):
+    # The shared set carries no coverage in BASE (NEW has it -- the asymmetric
+    # case): the guard has nothing to read, so it must say n/a. "ok" would
+    # claim a pass it never earned.
+    base = _write_quantile(tmp_path, "b.json", [("q1", 1.0, None, None)])
+    new = _write_quantile(tmp_path, "n.json", [("q1", 0.9, 0.89, 0.79)])
+    out = _main(capsys, monkeypatch,
+                [base, new, "BASE", "NEW", "--model", "M", "--metric", "crps"])
+    lines = [l for l in out.splitlines() if "calibration guard" in l]
+    assert len(lines) == 1
+    assert "guard n/a" in lines[0]
+    assert "skipped 1" in lines[0]
+    assert "guard ok" not in lines[0]
+    assert "GUARD FAIL" not in lines[0]

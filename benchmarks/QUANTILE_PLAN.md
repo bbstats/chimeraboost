@@ -1,5 +1,294 @@
 # Shared-tree multi-quantile head
 
+## Campaign 2026-09-23 — the loop's focus (pre-registered)
+
+**Decisions (the maintainer, in chat, 2026-09-23).** The campaign loop moves
+from the point models to this head ("shift focus to the multi quantile
+'quantiles' model now … We don't have much benching built for it"). On the
+proposal: "Just add ngboost, not the rf though. I like crps. Ok yea go ahead
+on it." So: NGBoost joins the field, quantile regression forests do not;
+**CRPS is the decision score**; the plan below is approved. Verdicts are
+logged in `CAMPAIGN_PLAN.md` like every other rung; this section holds the
+program.
+
+**Environment (2026-09-23).** NGBoost 0.5.11 installed into
+`A:\code\miniconda3` with `--no-deps`, plus sympy 1.14.0 and mpmath 1.3.0:
+its declared dependency `lifelines` would have DOWNGRADED pandas 3.0.3 →
+2.3.3 (lifelines pins pandas < 3), and lifelines is only imported by
+`ngboost.evaluation` (survival plots), never by `NGBRegressor`. numpy
+2.4.6, scipy 1.17.1, scikit-learn 1.8.0 and pandas 3.0.3 verified unchanged;
+`pip check` reports only the missing lifelines. NGBoost is a benchmark
+opponent, never a library dependency.
+
+### Phase 1 — the bench (Q-B1 … Q-B4)
+
+- **Q-B1 (muse): a decision tier for quantiles in `quantile_suite.py`.**
+  `--decide` = Grinsztajn regression (36) + high-cardinality regression (6)
+  + their `@sus25` / `@sus50` twins + the `@time` twins of the hc
+  regressions — the intervals' hardest case, since distribution shift is
+  where coverage breaks. The harness's own builders, seeds (`1000 + seed`),
+  75/25 split, `_subsample_train` and `_temporal_split`, so the data pairs
+  with the point-model decide runs. `--jobs` process pool (one benchmark at
+  a time still). New arms: **RigidShift** (one default squared-error fit +
+  the empirical quantiles of its validation residuals added to every row —
+  the P14 bar the head has never cleared), **ChimeraBoostQuantileCQR**
+  (`conformalize=True`), **NGBoost** (`Normal`, the shared early-stopping
+  split, quantiles from the fitted distribution). `compare_runs.py --metric
+  crps --by-suite` gains a **calibration guard line** (median change in
+  |coverage − nominal| at 80% and 90%).
+- **Q-B2 (muse): a synthetic screen with known true quantiles**
+  (`quantile_synth.py`): location-only, heteroscedastic, skewed,
+  heavy-tailed and bimodal noise; n ∈ {1k, 10k}; early-stopped fits (the
+  2026-08-30 lesson: fixed-round synthetic fits flatter us); scored as excess
+  CRPS over the oracle, so a mechanism shows up without real-data noise.
+- **Q-B3 (muse): the quantile Pareto** — CRPS skill (1 − CRPS / CRPS of the
+  unconditional grid; 0 = no skill) against fit slowdown, coverage error
+  alongside, the partial-coverage rule from #154.
+- **Q-B4 (Claude): the baseline** — one `--decide --seeds 3` run of the full
+  field on main; the standing quantile BASE, the first quantile chart, facts.
+
+**Q-B1 done (2026-09-23, muse, one pass + review).** `--decide` selects 59
+regression keys in 7 strata; the harness's data path (builders at
+`1000 + seed`, so rows pair with the point-model decide runs; the
+Grinsztajn base keys turned out identical to the 2026-08-30 JSON anyway,
+see Q-B4); `--jobs`; arms RigidShift, ChimeraBoostQuantileCQR,
+NGBoost; the guard line in `compare_runs --metric crps`. 1160 tests green
+outside the sandbox path quirk. Smoke, 3 keys × 1 seed, all 7 arms ran:
+fit seconds on cpu_act (6k rows) head 1.26 / per-level 6.18 / LightGBM 3.24
+/ CatBoost MQ 25.9 / RigidShift 0.39 / CQR 0.82 / NGBoost 30.8 — CatBoost
+and NGBoost are ~75% of the task time, so a full `--decide --seeds 3 --jobs
+5` is 1–3 h. Review findings folded into Q-B2's task: NGBoost's
+`random_state` does not reach its base learner (a rerun moved its CRPS
+~0.4%), and the guard printed "ok" with no data to read. Two scratch
+fixtures muse left in the repo root were deleted. The 3-key smoke read is
+anecdote, not evidence: NGBoost best CRPS, the head second, CatBoost MQ
+third; the head's 90% band covered 0.778.
+
+**Q-B2 done (2026-09-23, muse).** `benchmarks/quantile_synth.py`: six
+regimes with exact oracle quantiles (location, hetero, skewed, heavy,
+bimodal by CDF inversion, catscale with a 20-level string column carrying
+the spread), n ∈ {1k, 10k}, 3 seeds, every arm early-stopped through the
+suite's own call, scored as excess CRPS over the oracle; 17 tests pin the
+oracles (monotone, 200k-row band coverage within 0.005 of 0.90, bimodal CDF
+inversion to 1e-8). Q-B1's two review fixes are in: NGBoost's base learner
+seeded (three reruns bit-identical), the guard prints `n/a` with nothing to
+read. Smoke (n = 1k, 1 seed — anecdote): the screen discriminates as
+designed — RigidShift wins `location` (homoscedastic: one width fits) and
+is worst where width must move with x; the head has the lowest excess CRPS
+on skewed / heavy / bimodal and under-covers by ~13 points at 90% (median
+13.4 against per-level 2.6, RigidShift 1.6, CQR 3.4, CatBoost 19.8) —
+the Q1 defect, visible on a known oracle.
+
+**Q-B3 done (2026-09-23, muse).** `make_pareto.py` detects a quantile run
+and prints / draws CRPS skill vs slowdown with the 90% coverage error per
+model, reusing the #154 frontier and partial-coverage rule; point charts
+unchanged. On the 2026-08-30 JSON it reproduces the recorded coverage errors
+exactly (head 0.040, per-level 0.011, LightGBM 0.079, CatBoost 0.075) and
+puts the head on the frontier: CatBoost MQ 0.5832 skill @ 15.4×, the head
+0.5782 @ 1.1×, LightGBM per-level 0.5629 @ 3.1×, our per-level 0.5493 @
+4.5×. Branch: 1184 tests green, `ruff check chimeraboost/` clean.
+
+**Code review of Q-B1–Q-B3 (2026-09-23), two findings, fixed by muse before
+any baseline ran.** (1) NGBoost stops 50 rounds past its best validation
+round and KEEPS those trees; `pred_dist` without `max_iter` used them all,
+so NGBoost was scored with a handicap no other arm had. It now predicts
+with `max_iter = best_val_loss_itr + 1` (verified against the installed
+0.5.11 source: `pred_param` breaks at `i == max_iter`, truthiness-tested).
+(2) `--datasets` without `--decide` registered only Grinsztajn, so `hc:` or
+`@` keys skipped silently into an empty table; registration now follows the
+requested keys and an unknown key exits before any task runs. 66
+quantile / compare / chart tests green.
+
+**Q-B4 forecast, written before the baseline runs.** Decide tier, CRPS per
+stratum: on gr regression the head keeps August's picture — beats our
+per-level models (≥ 30 of 36), ties LightGBM, LOSES to CatBoost MQ (≤ 12 of
+36) — beats RigidShift on at least two thirds (the synth screen says the
+rigid width only wins where noise is homoscedastic), and is roughly even
+with NGBoost (a Normal fit is strong on smooth, near-Gaussian targets and
+weak on skew). Coverage at 90%: the head ~0.87, CQR 0.89–0.92, CatBoost
+~0.82. hc regression and the time twins: first reads, no forecast beyond
+"every arm's coverage drops under the time shift". Synth screen at full
+size: the head's excess CRPS lowest on skewed / heavy / bimodal, RigidShift
+best on location, the head's 90% coverage error ≥ 8 points at n = 1k and
+smaller at n = 10k.
+
+**Q-B4a, the synthetic baseline (2026-09-23,
+`results/quantile-synth-20260923-090818.json`, 6 regimes × {1k, 10k} × 3
+seeds × 7 arms, ~5 min).** Median over the 12 keys:
+
+| arm | excess CRPS ×1000 | 90% coverage error (points) | fit s |
+|:--|--:|--:|--:|
+| **head** | **42.9** | 7.3 | 0.37 |
+| CatBoost MultiQuantile | 48.3 | 9.2 | 15.70 |
+| our per-level (19 models) | 50.3 | **1.4** | 1.76 |
+| head + CQR | 52.4 | 2.5 | 0.27 |
+| LightGBM per-level | 56.0 | 8.2 | 1.86 |
+| RigidShift | 68.2 | **1.4** | 0.19 |
+| NGBoost (Normal) | 71.6 | 1.8 | 10.46 |
+
+Read: the head has the lowest excess CRPS overall and on skewed / heavy at
+both sizes; RigidShift wins only on `location` (7.9 vs the head's 11.7 at
+10k: homoscedastic noise, one width fits); CatBoost edges the head on
+`location` / `hetero` at 10k. The Q1 defect is plain: the head's coverage
+error is 8.8–17.9 points at n = 1k and 1.8–5.8 at 10k, where per-level,
+RigidShift, NGBoost and CQR sit at 0.4–6. **New pointer, `catscale` at 10k:
+the head 42.4 against CatBoost 30.9, NGBoost 32.8, LightGBM 34.5** — when a
+categorical carries the SPREAD, our ordered target statistic (a per-category
+mean) carries nothing about it, while CatBoost's CTRs are computed on the
+binarized target and so see the category's distribution. Candidate Q4:
+encode each category's spread for the quantile head (a TS of |y − median|,
+or TS columns on quantile-binarized targets). Forecast HIT on all three
+synthetic counts.
+
+**Q-B4, the real-data baseline (2026-09-23,
+`results/quantile-20260923-115727.json`, `--decide --seeds 3 --jobs 5`: 59
+keys × 3 seeds × 7 arms, 2 h 49 min, nothing skipped). The standing
+quantile BASE.** First, reproducibility: the 36 Grinsztajn base keys came
+back bit-identical to the 2026-08-30 run for the head, our per-level models
+and CatBoost MQ (108 of 108 records each; LightGBM 94 of 108, most likely
+its thread-count summation order, since this run split the cores five
+ways). The head has not moved since August, and those keys' builders draw
+nothing from the seeded stream.
+
+Grinsztajn regression (36, the one gate-sized stratum). CRPS sign test per
+dataset, seeds averaged; the guard's median |coverage − 0.90| in points
+(the head's own: 3.43); mean 90% coverage; median fit time as a multiple of
+the head's:
+
+| head vs | CRPS W-L | median CRPS change | arm's 90% error | arm's 90% coverage | arm's fit |
+|:--|--:|--:|--:|--:|--:|
+| CatBoost MultiQuantile | 7-29 | −0.45% | 6.01 | 0.825 | 14.6× |
+| RigidShift | 20-16 | +0.41% (CI −2.07..+1.86) | **0.26** | 0.898 | **0.27×** |
+| head + CQR | 33-3 | +0.74% | 0.71 | 0.906 | 0.80× |
+| LightGBM per-level | 23-13 | +0.43% (CI −0.05..+1.45) | 5.27 | 0.827 | 1.66× |
+| our per-level | 32-4 | +1.65% | 0.34 | 0.908 | 2.72× |
+| NGBoost (Normal) | 35-1 | +7.57% | 1.35 | 0.903 | 10.96× |
+
+The head covers 0.869. Pointers (strata under 8 datasets): **hc
+regression (6)** — the head against CatBoost 1-5, RigidShift 3-3, LightGBM
+3-3, per-level 4-2, CQR 4-2, NGBoost 5-1; it covers 0.817 (RigidShift
+0.896) and CatBoost fits 154× slower. **Time shift** (the 3 hc `@time` twins
+against their own base keys): every arm's 90% coverage drops — the head
+0.768 → 0.722, CatBoost 0.744 → 0.644, RigidShift 0.897 → 0.853, CQR 0.905
+→ 0.884, NGBoost 0.894 → 0.878. **Small data:** the head covers 0.852 on
+the `@sus50` twins (4) and 0.830 on `@sus25` (7), CatBoost 0.699 on
+`@sus25`; the hc `@sus25` pair is the head's worst cell at 0.676.
+
+Pareto over all 59 keys (`images/quantile_pareto.png`, CRPS skill @
+slowdown, mean |cov90 − 0.90|): frontier **RigidShift 0.5869 @ 1.3× (0.008)
+→ the head 0.5916 @ 3.5× (0.063) → CatBoost MQ 0.5982 @ 136× (0.108)**; off
+it CQR 0.5846 @ 3.0× (0.012), LightGBM 0.5757 @ 12.6× (0.099), our
+per-level 0.5690 @ 13.2× (0.012), NGBoost 0.5559 @ 45.3× (0.019).
+
+Fairness check on the opponents: NGBoost stops on its own (median best
+round 663; 15 of 177 fits reach the 2000-round cap, against the head's 26
+and CatBoost's 35), so its loss is not a budget artifact.
+
+Forecast: **7 of 9 HIT** — per-level ≥ 30 (32), LightGBM a tie, CatBoost
+≤ 12 (7), coverage head 0.869 / CQR 0.906 / CatBoost 0.825 all inside
+their forecasts, every arm's coverage drops under the time shift (7 of 7).
+**MISS: RigidShift** (20 of 36 against a bar of 24: a tie, not a win) and
+**NGBoost** ("roughly even"; the head wins 35-1). The synthetic screen's
+regimes make width move with x far more than these targets do: there the
+rigid width lost 68.2 to 42.9 excess CRPS, here it ties. The screen stays
+a mechanism probe; it does not predict the real-data margin.
+
+**What this settles.**
+1. **The head does not clear the rigid bar in aggregate, and the tie hides
+   two populations.** One point model plus one validation-residual width
+   for every row ties it on CRPS (20-16) at a quarter of its fit time, and
+   is calibrated where the head is not (0.26 points against 3.43 at 90%;
+   0.896 against 0.817 on hc). But the head reaches the 2000-round cap on
+   11 of the 36 datasets (Brazilian_houses and nyc-taxi in both forms, pol,
+   SGEMM, superconduct, visualizing_soil, Bike_Sharing, diamonds, houses).
+   There it loses CRPS 2-9 to RigidShift (median −5.03%) and 1-10 to
+   CatBoost (−3.79%), and its median-level pinball loss runs 1.6× to 1.95×
+   RigidShift's on Brazilian_houses, pol and visualizing_soil. On the other
+   25 it beats RigidShift 18-7 (+1.10%) and trails CatBoost by a median
+   0.26% (6-19). The head is under-fit where the signal needs many rounds,
+   at the flat learning rate of 0.1 it keeps pinned
+   (`adaptive_learning_rate=False`).
+2. **The CRPS is lost at the centre.** Against RigidShift the head loses
+   the median level's pinball loss (16-20, −0.45%) and wins the 80% and 90%
+   interval scores (26-10, +4.35%; 28-8, +6.03%); against CatBoost it loses
+   the median 5-31 and still wins the 90% interval score 25-11. CRPS
+   weights the central levels most, so the tails' wins barely move it.
+3. **Calibration is a small lever on CRPS.** CQR fixes coverage in every
+   stratum (median error ≤ 2.2 points at 90% everywhere but the time twins,
+   3.4) and loses CRPS 3-33 to the plain head. Its per-level scale about the
+   median cannot move the median itself, and the median loses 2-34 (the
+   head +0.67%): that is the 20% calibration fold's data tax, measured
+   cleanly. If the tax costs the tails what it costs the median, the
+   calibration itself bought about 0.15% on the 90% interval score.
+4. **CatBoost MQ's CRPS edge is stable** (the same 7-29 as August, to the
+   last digit) at 14.6× the head's fit on Grinsztajn and 154× on hc, with
+   the worst calibration in the field; off the capped datasets it is a
+   median 0.26%.
+5. **NGBoost is no threat on CRPS** and is well calibrated; it stays in the
+   field as the distributional reference.
+
+Ledger re-reads on real data (the "Still open" item below): the fit-speed
+row stays a MISS, narrowly on wide data — K = 19 early-stopped LightGBM
+quantile boosters take 1.66× the head's fit on Grinsztajn and 9.46× on the
+six hc sets, against the K/2 = 9.5× target. The CQR coverage row: median
+error on Grinsztajn 1.38 / 0.88 / 0.71 points at 50 / 80 / 90%, erring
+wide (mean +2.1 / +1.1 / +0.6), as the 2026-07-31 synthetic re-measure
+found.
+
+### The gate for Phase 2 changes (pre-registered)
+
+Per stratum, never pooled: on Grinsztajn regression and on hc regression,
+**CRPS wins ≥ half + 1 of the decided datasets AND median CRPS change > 0**
+(seeds averaged per dataset; near-solved by the house convention). Guard:
+the change must not worsen the median coverage error at 80% or at 90% by
+more than **1 point** (absolute). Crossing stays exactly 0. Both Pareto axes
+read in every verdict. The small-data and time twins are pointers (§2).
+
+### Phase 2 — the idea queue, ranked (re-ranked 2026-09-23 on Q-B4)
+
+Q-B4 moved the queue: the CRPS is lost at the centre and on the capped
+datasets, and calibration is a small lever on it. Q1 was first; it is now
+fourth.
+
+0. **Q0, the T0 probe battery (bench-only, no library change: one decide
+   run and one synthetic screen).** Four arms, each answering one question,
+   scored against the head and RigidShift:
+   (a) **uncapped**, the head at `n_estimators=8000`: is the capped
+   datasets' loss truncation?
+   (b) **depth 6**, CatBoost's default: is it capacity?
+   (c) **recentred**, the head's quantiles shifted so their median equals
+   RigidShift's (the squared-error prediction plus the median validation
+   residual): does a squared-error centre with the head's shape beat both
+   parents?
+   (d) **validation-rescaled**, the head's quantiles rescaled per level
+   about its median on the shared early-stopping validation rows, so no
+   fold is carved: what does calibration alone buy? (Q-B4 says little.)
+   The question that pays picks the first library rung: (a) Q3, a rate or
+   budget change; (b) a depth default; (c) a location design, the centre
+   or the structure from squared error; (d) Q1.
+1. **Q3, the head's learning rate.** Flat 0.1: `adaptive_learning_rate` is
+   pinned False in `quantile_api.py` ("Measure before flipping"), never
+   measured. The capped datasets make it the first suspect.
+2. **Q2, CatBoost MultiQuantile's CRPS edge (7W-29L on 2026-08-30 and
+   again on Q-B4).** Ablate the opponent, one knob at a time; depth is
+   already in Q0.
+3. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
+   residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
+   2026-08-30; coverage decays with rounds). Fit leaf quantiles
+   out-of-sample. Drafted as P16 in `LEAFTUNE_PLAN.md`, never pre-registered.
+   Q-B4: calibration is a small lever on CRPS (point 3 above), so Q1 stays
+   for coverage, which is what a user reads off an interval (the head is
+   3.4 points short at 90% on Grinsztajn, 9.2 on hc, 17.5 under the time
+   shift), and its CRPS bar is the gate as written.
+4. **Q4 (added 2026-09-23 from the synthetic baseline), spread-aware
+   categorical encoding.** On `catscale` at 10k the head loses 42.4 to
+   CatBoost's 30.9 excess CRPS: our ordered TS is a per-category MEAN, blind
+   to a category that sets the spread. Probe first (monkeypatch an extra TS
+   of |y − median| per categorical), then the real-data hc regressions.
+5. Later: the leaf refit's cost (~90% of a round). The RigidShift gap
+   itself is Q0's subject (Q-B4: a CRPS tie made of a win on 25 datasets
+   and a loss on the 11 capped ones).
+
 ## Status, 2026-08-30
 
 Three things landed around the head. None of them changes how it fits — the
@@ -68,9 +357,10 @@ Other columns, all 36 datasets:
 4. **Non-crossing is the one uncontested win.** Exactly zero on all 36
    datasets. Every other arm, CatBoost included, crosses on every dataset.
 
-**Next question this raises** (not started): the CRPS gap to CatBoost is a
-sharpness deficit, which is the same axis P14 left open against the rigid
-offset. Worth a pre-registration of its own.
+**Next question this raises:** the CRPS gap to CatBoost is a sharpness
+deficit, which is the same axis P14 left open against the rigid offset.
+Picked up 2026-09-23: the CatBoost gap is Q2, and Q-B4 measured the rigid
+offset on real data (a CRPS tie), which made it Q0's subject.
 
 ### Still open
 
@@ -79,9 +369,14 @@ offset. Worth a pre-registration of its own.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
-- The acceptance-ledger rows below (fit-speed MISS, CQR coverage FAIL) were
-  measured on synthetic data. `quantile_suite.py` is the instrument for
-  re-reading them on real data; doing so is a separate piece of work.
+- `docs/quantiles.md` "How it compares" lists four arms. RigidShift and
+  NGBoost join it with the first Phase 2 ship, or from Q-B4 on 2026-10-07
+  if nothing has shipped by then (added 2026-09-23).
+- RESOLVED 2026-09-23 (Q-B4): the acceptance-ledger rows below (fit-speed
+  MISS, CQR coverage FAIL), measured on synthetic data, re-read on real
+  data. Fit speed is still a MISS (1.66× on Grinsztajn, 9.46× on hc,
+  against 9.5×); CQR's coverage errs wide by a median of at most 1.4 points
+  at any level on Grinsztajn, inside the 2-point target (mean +2.1 at 50%).
 
 One booster, an arbitrary tau grid, a K-vector in every leaf. Replaces "fit K
 independent quantile boosters" for estimating a whole predictive
