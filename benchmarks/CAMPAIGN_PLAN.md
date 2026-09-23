@@ -459,7 +459,13 @@ forecast: HIT on every count (partial HGB, the full-coverage frontier with
 the default on it, regression unchanged).
 verdict: **PASS → PR for the maintainer** (touches `tests/`); a gate-
 adjacent change stated plainly in the PR: the internal chart's frontier
-marks move (no ship gate reads them).
+marks move (no ship gate reads them). **MERGED by the maintainer as PR
+#154 (ed01966).** Charts refreshed the same night from
+`20260922-144219.json` without the control arm (`images/pareto.png`,
+`images/winrate_matrix.png`): the new title, HGB labelled 36/44 and 53/59,
+the classification frontier LightGBM → the default → Ens5 → Ens8;
+`docs/PROJECT_STATUS.md` gains the coverage rule. That PR carries images,
+so it waits for the maintainer.
 next: the named alternates are exhausted. Waiting on the maintainer: the
 multiclass rate/Hessian trade (I052), S1 parked to 2026-09-29, the binary
 linear-leaf race pointer (I047), a beam refill, and regenerating

@@ -85,6 +85,11 @@ explodes on a near-perfectly-solved dataset. Kept as two panels rather than one
 average because BSS and R² occupy different parts of the 0..1 range, and averaging
 buries the classification leg — which is where the field actually spreads.
 
+A model scored on fewer datasets than its panel (sklearn's HGB skips the
+high-cardinality sets it cannot fit, so it is averaged over an easier subset) is
+labelled with its coverage, for example "HGB (36/44)", and is never placed on the
+frontier. The chart's title names the suites the run actually pooled.
+
 The cost, stated plainly: the axis is compressed. The whole field typically sits
 within ~0.02 of skill, so both panels are truncated dot plots — read the tick
 labels, not the visual gaps. This is expected to be superseded by TabArena scores
@@ -106,37 +111,37 @@ The harmonic mean collapses toward the **weaker leg**, so the blended diagnostic
 still answers "which task is weak". Ship decisions are unchanged (per-dataset sign
 tests); the chart axis is legibility only and gates nothing.
 
-**Current standing** (`results/20260731-142609.json`, 3 seeds — the post-0.27.0
-re-run; the 0.27.0 perf pass was bit-identical, so only the speed axis moved).
-The field is the `quality` ladder (benchmarks/SELECT_PLAN.md) plus the external
-models, all co-run so the columns share one field:
+**Current standing** (`results/20260922-144219.json`, 3 seeds, the decision
+suites: Grinsztajn + high-cardinality with their small-data and time-split
+twins; the default includes the count column, on since 2026-09-22). The field
+is the `quality` ladder (benchmarks/SELECT_PLAN.md) plus the external models,
+all co-run:
 
-| Model | `quality` | Win rate | 95% CI | Slowdown | Frontier |
-|---|---|--:|--:|--:|---|
-| ChimeraBoostEns8 | 5 | 95.7% | [94.0, 97.5] | 26.8× | yes |
-| ChimeraBoostEns5 | 4 | 82.0% | [78.7, 85.0] | 18.7× | yes |
-| **ChimeraBoost** *(default)* | **3** | **71.7%** | [68.2, 75.2] | **7.1×** | **yes** |
-| ChimeraBoostNoRefit | 2 | 45.7% | [41.9, 49.6] | 5.4× | yes |
-| CatBoost | — | 41.6% | [35.3, 48.1] | 15.3× | — |
-| ChimeraBoostOneLin | 1 | 28.9% | [24.2, 33.7] | 2.1× | yes |
-| LightGBM | — | 20.8% | [16.8, 25.1] | 1.1× | yes |
-| sklearn_HGB | — | 13.5% | [8.5, 19.0] | 4.7× | — |
+| Model | `quality` | Brier skill (44 clf) | R² (59 reg) | Slowdown clf / reg | Win rate (diagnostic) |
+|---|---|--:|--:|--:|--:|
+| ChimeraBoostEns8 | 5 | 0.4104 | 0.7370 | 17.2× / 23.1× | 94.0% |
+| ChimeraBoostEns5 | 4 | 0.4089 | 0.7361 | 12.4× / 16.0× | 81.0% |
+| **ChimeraBoost** *(default)* | **3** | **0.4052** | **0.7342** | **5.0× / 6.4×** | **70.7%** |
+| CatBoost | — | 0.4057 | 0.7295 | 51.8× / 43.0× | 53.1% |
+| ChimeraBoostNoRefit | 2 | 0.3984 | 0.7290 | 3.8× / 5.0× | 42.0% |
+| ChimeraBoostOneLinX | 1 (reg) | 0.3958 | 0.7273 | 1.8× / 3.0× | 39.4% |
+| ChimeraBoostOneLin | 1 (clf) | 0.3958 | 0.7247 | 1.8× / 1.9× | 30.7% |
+| LightGBM | — | 0.4013 | 0.7223 | 1.0× / 1.2× | 20.4% |
+| sklearn_HGB | — | 0.4349 (36/44) | 0.7173 (53/59) | 4.0× / 6.7× | 14.3% |
 
-*(2026-08-16: rung 1's composition changed — the regressor now keeps cross
-features without their audition, `cross_features="always"`, moving it to
-49.5% @ 2.7× in the E2 decide run's own five-arm field. The table above
-predates that and will be refreshed with the next chart run; see
-benchmarks/SELECT_PLAN.md E2.)*
+On regression every ChimeraBoost rung is on the frontier, with LightGBM at the
+fast end. On classification the frontier is LightGBM, the default and the two
+bagged rungs; CatBoost sits 0.0005 of Brier skill above the default at about
+ten times its fit time, dominated by Ens5. sklearn_HGB's classification score
+is an average over the 36 sets it can fit, an easier subset, so it is shown
+but never on the frontier.
 
-**Every ChimeraBoost rung is on the frontier**, which now runs from 2.1× to
-26.8×; LightGBM holds only the extreme-left corner. The default beats CatBoost
-on 46 of 57 scored datasets while fitting ~2.6× faster than it, leaving
-CatBoost dominated on both axes.
-
-Win rate is **field-relative** — it is the share of (dataset × opponent)
-matchups won, so adding or removing arms moves every row. These numbers are
-not comparable to earlier tables computed against a five-arm field (where the
-default read 55.7% @ 5.1×); only within-run comparisons are meaningful.
+On the pooled slowdown the 2026-07-31 table used, the default went from 7.1× to
+5.8×: the bit-identical speed work shipped since (fused loss kernels, one
+factorization per fit). The 2026-09-18 chart run is not comparable on this
+axis: it timed LightGBM and HGB 4–16× slower than the same libraries run
+today (benchmarks/CAMPAIGN_PLAN.md facts ledger, 2026-09-22). Win rate is
+field-relative, so compare it only within one run.
 
 ---
 
