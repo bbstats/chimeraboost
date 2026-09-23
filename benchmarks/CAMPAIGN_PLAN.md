@@ -417,6 +417,70 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I054 2026-09-22 S5 (C5: fused multiclass cross-entropy eval; exact rewrite, muse task, pre-registered)
+why now: I053 closed (PR #152 self-merged at 6d6f1f3); the self-mergeable
+queue is empty, so the next library rung runs overnight and its PR waits
+for the maintainer's morning review. No campaign PR open, bench idle.
+Class: **exact rewrite** (the maintainer's preferred class). Branch
+`campaign/s5-multiclass-eval-fusion` from main; muse task
+`20260923-s5-multiclass-eval-fusion.md`.
+the object (I026): `MultiSoftmax.eval` on the validation rows every round —
+softmax, clip, log, a K-sum and a weighted mean as separate numpy passes —
+is 4.9–6.5% of a multiclass fit on the hc sets. The binary twin was fused
+at C3 (I029: −4.7 to −5.7% of binary fit, bit-identical); C1 and C1b fused
+the softmax and grad_hess layers. The kernel reuses `_softmax_kernel`'s
+loop verbatim (same max, same accumulation, a divide), clips by
+comparison, sums the K terms in order (the documented K ≤ 7 bit-identity
+boundary) and negates the total; the weighted mean stays in numpy.
+barriers (`barrier_check.py`: B10, B16): B10 closes grow-kernel objects; the
+loss layer is the precedent class that shipped three times (I012, I018,
+I029). B16 — a word collision on "cross".
+forecast: exact (identity N/N, every loss value equal); multiclass fit
+**−3 to −4.5%** on okcupid-stem / Traffic_violations / cjs / eucalyptus
+(a 4.9–6.5% object converting at C3's 50–70%, arithmetic folded into a
+kernel); the binary control flat within ±2%; gr unaffected (no multiclass).
+bars: (a) identity N/N and all tests green; (b) the speed script's arms
+identical on every repeat, Higgs flat within ±2%; (c) multiclass fit
+improves at the median by ≥ 2% with no panel set slower. Pass ⇒ PR for the
+maintainer. (c) failing with (a)(b) intact ⇒ KILL as not worth its code.
+muse pass 1 (exit 0, ~10 min, no sandbox error): `_softmax_ce_kernel`
+(+40 lines: `_softmax_kernel`'s max and exp loops verbatim, the exp
+recomputed rather than stored, a divide, a comparison clip, the in-order
+K-sum negated after) and a guarded `MultiSoftmax.eval` (the old body kept
+as `_eval_numpy`, the oracle); `tests/test_multiclass_eval_kernel.py` (6
+tests); `benchmarks/f4_c5_speed.py` (alternating arm order, as S1 taught).
+Identity 186/186; suite green outside the sandbox's `\\?\` quirk.
+Speed (7 reps, fitted probas and best iterations identical every repeat;
+eval seconds 0.12 → 0.03 on okcupid): okcupid-stem **−5.2%**,
+Traffic_violations **−5.6%**, cjs **−5.0%**, eucalyptus **−3.1%**; Higgs
++0.0% with zero multiclass eval calls in both arms.
+review (Claude): the kernel is right; the TESTS are not CI-safe. They pin
+the kernel to the numpy oracle with exact equality, but the kernel's log()
+is numba's (LLVM libm) and the oracle's is numpy's (SIMD on some hosts):
+they agree to the bit on this machine, and the C3 binary twin had to
+bound the same comparison at 4 ULP per row / 8 ULP on the mean after the
+2026-08-30 runner-pool change broke exact pins (`test_bitident_
+refactors.py`). Follow-up muse task `20260923-s5-test-tolerance.md`: the
+C3 helpers, `valid_history_` within 8 ULP, the kernel comment carrying the
+same caveat. The cross-hardware property of the change itself is the one
+C1 and C3 shipped with (same-machine bit-identity guarded by the identity
+snapshot).
+follow-up (muse, exit 0, ~5 min): the C3 helpers copied with an origin
+note; kernel-vs-oracle comparisons at 4 ULP per row / 8 ULP on means;
+end to end `predict_proba` exact and `best_iteration_` equal, the
+validation history within 8 ULP; the kernel comment carries the caveat;
+no code change. Claude's checks outside the sandbox: **1148 passed, 1
+skipped; identity 186/186; `ruff check chimeraboost/` clean.**
+bars: (a) PASS; (b) PASS (identical outputs every repeat; Higgs +0.0%
+with zero calls); (c) **PASS** — multiclass fit median **−5.1%** (≥ 2%),
+no panel set slower.
+forecast: exact HIT; "−3 to −4.5%" MISSED on the good side (−3.1 to
+−5.6%, median −5.1%): the eval had more to give than C3's conversion rate
+implied — the fused kernel reads eval seconds 0.12 → 0.03 (a 4×).
+verdict: **S5 PASS → PR for the maintainer** (library + tests + a
+benchmark script; not self-mergeable).
+next: after the maintainer's merge, H(11) + H(12) as one harness PR.
+
 #### I053 2026-09-22 S10 (the LightGBM speed price list: rounds, single-thread cost, thread scaling; measurement, pre-registered)
 why now: I052 closed (PR #151 merged by the maintainer at 17541ac; the
 multiclass rate/Hessian trade is with him). Order for the evening: the
