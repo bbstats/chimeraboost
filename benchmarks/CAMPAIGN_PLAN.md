@@ -417,6 +417,54 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I055 2026-09-22 H(11) + H(12) (the pub: download race; the Pareto chart's title and partial-coverage points; harness, pre-registered)
+why now: I054 shipped (PR #153 merged by the maintainer at 611466a). No
+campaign PR open, bench idle. The two harness defects found today go out
+as one PR (both touch `tests/`, so it waits for the maintainer). Class:
+**measurement instruments** — H(12) changes how the internal chart marks
+its frontier (not a ship gate; said so in the PR). Branch
+`campaign/h11-h12-harness-fixes` from main; muse task
+`20260923-h11-h12-harness-fixes.md`.
+H(11): `_public_parquet_path` writes one shared `.part` and `os.replace`s
+it; a cold cache with jobs > 1 raced it to WinError 32 and killed I046's
+first launch. Fix: a per-process temporary, and "the final file exists"
+treated as another worker's success.
+H(12): `make_pareto.py`'s skill chart is titled "Grinsztajn" though its
+panels pool every suite in the run, and sklearn_HGB — scored only on the
+datasets it can fit, an easier subset — sits on the classification
+frontier at 0.4349 against a field near 0.405 (I015's recorded caveat,
+still live in #145's chart). Fix: a title built from the suites present,
+and partial-coverage models labelled n/N and kept off the frontier.
+barriers (`barrier_check.py`: B5, B12, B14): keyword matches only
+("coverage", "race") — tooling, no model change.
+forecast: tests green; on `20260922-144219.json` the text read shows HGB as
+partial (its n below the panel's) and the classification frontier becomes
+the full-coverage one (LightGBM at the fast end, then the default); the
+regression panel unchanged (HGB is not on its frontier). No image is
+regenerated in this PR; the next chart refresh picks the fix up.
+ran (muse, exit 0, ~10 min, no sandbox error): H(11) — per-process
+`.part` name and the lost-race return (the same fix `_grinsztajn_local_csv`
+already had), 3 network-free tests; H(12) — `suite_label` / `suite_title`
+from key prefixes, `skill_frontier` over full-coverage models only,
+`partial n/N` labels and one footnote, `meta["suite"]` routed through the
+same label so the win-rate captions follow; 6 tests. Claude: the diffs
+read correct; **1157 passed, 1 skipped** outside the sandbox. Text read of
+`20260922-144219.json`: title "Strength vs slowdown — Grinsztajn +
+high-cardinality (with variants)"; HGB **partial 36/44** (classification)
+and **53/59** (regression), off both frontiers; the classification
+frontier is now LightGBM → the old default → **the default** → Ens5 → Ens8
+(CatBoost dominated by Ens5), where #145's chart showed HGB's subset point
+on top and every other point off the frontier.
+forecast: HIT on every count (partial HGB, the full-coverage frontier with
+the default on it, regression unchanged).
+verdict: **PASS → PR for the maintainer** (touches `tests/`); a gate-
+adjacent change stated plainly in the PR: the internal chart's frontier
+marks move (no ship gate reads them).
+next: the named alternates are exhausted. Waiting on the maintainer: the
+multiclass rate/Hessian trade (I052), S1 parked to 2026-09-29, the binary
+linear-leaf race pointer (I047), a beam refill, and regenerating
+`images/pareto.png` once this merges (a text-only change until then).
+
 #### I054 2026-09-22 S5 (C5: fused multiclass cross-entropy eval; exact rewrite, muse task, pre-registered)
 why now: I053 closed (PR #152 self-merged at 6d6f1f3); the self-mergeable
 queue is empty, so the next library rung runs overnight and its PR waits
@@ -478,8 +526,9 @@ forecast: exact HIT; "−3 to −4.5%" MISSED on the good side (−3.1 to
 −5.6%, median −5.1%): the eval had more to give than C3's conversion rate
 implied — the fused kernel reads eval seconds 0.12 → 0.03 (a 4×).
 verdict: **S5 PASS → PR for the maintainer** (library + tests + a
-benchmark script; not self-mergeable).
-next: after the maintainer's merge, H(11) + H(12) as one harness PR.
+benchmark script; not self-mergeable). **MERGED by the maintainer as PR
+#153 (611466a), 2026-09-22 evening; branch deleted.**
+next: H(11) + H(12) as one harness PR (I055).
 
 #### I053 2026-09-22 S10 (the LightGBM speed price list: rounds, single-thread cost, thread scaling; measurement, pre-registered)
 why now: I052 closed (PR #151 merged by the maintainer at 17541ac; the
