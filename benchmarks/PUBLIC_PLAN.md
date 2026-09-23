@@ -307,6 +307,26 @@ appears in and one of those includes a weaker rung.
 The defensible sentence remains a cost claim, not a strength claim:
 **within noise of CatBoost at under a third of its median fit time.**
 
+## Second read — 2026-08-01 (run `20260801-174024`, all five rungs)
+
+Same protocol (`--public --seeds 3`, weighted, 21 of 22 scored), full rung
+ladder plus CatBoost and LightGBM. This run is the source of the committed
+`images/public_pareto.png` and the `docs/benchmarks.md` caption (avg ranks
+1.90 default / 1.88 CatBoost, overlapping CIs) — recorded here 2026-09-01
+after review found the caption untraceable.
+
+## 2026-09-01 — slowdown axis rebased to the default (Nathan's call)
+
+All published fit-time multiples are now relative to the ChimeraBoost default
+(`quality=3` = 1x), not the fastest arm: `make_public_pareto.py`
+`slowdown_stats` normalizes by the default's per-dataset fit time, and the
+chart, docs and whitepaper follow. On the 2026-08-01 run the weighted read is:
+q4 1.82 [1.48-2.16] @ 2.4x, CatBoost 1.88 [1.51-2.22] @ 6.5x, default 1.90
+[1.62-2.21] @ 1.0x, LightGBM 2.26 [1.77-2.73] @ 0.1x. Unweighted still favors
+CatBoost (1.79 vs 1.88 weighted). Internal decision tooling
+(`make_pareto.py`, summarize, campaign records) keeps the vs-fastest
+convention for comparability.
+
 **The weighting also flatters us, and that is stated rather than buried.**
 Balancing moves CatBoost 1.81 → 1.92 while our default improves 2.00 → 1.97 —
 because the up-weighted regression datasets are where CatBoost is weakest. The facets and thresholds were fixed

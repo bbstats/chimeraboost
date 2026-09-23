@@ -100,5 +100,6 @@ nav:
           - quantile_metrics: api/quantile-metrics.md
           - warmup: api/warmup.md
       - How it is benchmarked: benchmarks.md
+      - Whitepaper: whitepaper.md
       - Where the ideas come from: attribution.md
       - FAQ: faq.md

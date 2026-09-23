@@ -33,15 +33,15 @@ reg = ChimeraBoostRegressor(quality=1, random_state=0).fit(X_train, y_train)
 
 | `quality` | name | fit time | sets |
 |---|---|--:|---|
-| `1` | fast | **2.7x** | `linear_leaves=True`, `cross_features="always"` (regressor; `False` on the classifier), `refit_full=False` |
-| `2` | balanced | 5.3x | `refit_full=False` |
-| `3` | accurate *(= default)* | 6.9x | nothing (these are the defaults) |
-| `4` | ensemble | 18.1x | `n_ensembles=5` |
-| `5` | max | 26.0x | `n_ensembles=8` |
+| `1` | fast | **0.4x** | `linear_leaves=True`, `cross_features="always"` (regressor; `False` on the classifier), `refit_full=False` |
+| `2` | balanced | 0.8x | `refit_full=False` |
+| `3` | accurate *(= default)* | 1x | nothing (these are the defaults) |
+| `4` | ensemble | 2.6x | `n_ensembles=5` |
+| `5` | max | 3.8x | `n_ensembles=8` |
 
-Fit times are multiples of the fastest gradient boosting library measured on the same
-data, averaged over a benchmark suite. Every rung buys accuracy for its extra time, so
-none of them is a bad deal; pick the one that fits your time budget.
+Fit times are relative to the default, `quality=3` = 1x, averaged over a benchmark
+suite. Every rung buys accuracy for its extra time, so none of them is a bad deal;
+pick the one that fits your time budget.
 
 The default is rung 3, the strongest setting that does not build an ensemble. Rung 2 is
 the same model without the [full-data refit](#full-data-refit). It saves less time than

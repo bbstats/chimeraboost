@@ -97,14 +97,16 @@ def arm_color(model):
 
 
 def slowdown_stats(data, arms, weights=None):
-    """{model: (mean, median)} fit-time multiple vs the fastest arm per dataset.
+    """{model: (mean, median)} fit-time multiple vs the ChimeraBoost default
+    per dataset, so quality=3 reads exactly 1x.
 
-    The mean is what summarize reports, and on this suite it is not a
-    representative number: CatBoost needs 2,883s against LightGBM's 3s on
-    pub:fars, and that single 970x ratio drags its mean to 121x while its
-    median dataset costs 53x. Ratios are right-skewed by construction -- a
-    model can be 900x slower but never 900x faster -- so the median is the
-    typical dataset and the mean is the whole-suite bill. Report both.
+    Normalized to OUR default rather than the fastest arm (Nathan,
+    2026-09-01): the number a user reads answers "what does this cost
+    relative to what pip install gives me?", and it no longer moves when a
+    competitor's speed drifts run to run. Ratios are still right-skewed --
+    one extreme dataset owns the mean (pub:fars once put CatBoost at 970x
+    the fastest arm) -- so the median is the typical dataset and the mean is
+    the whole-suite bill. Report both.
     """
     import statistics
     ft = {}
@@ -114,13 +116,11 @@ def slowdown_stats(data, arms, weights=None):
     ratios = {m: [] for m in arms}
     for ds, per_model in ft.items():
         times = {m: sum(v) / len(v) for m, v in per_model.items() if m in arms}
-        if len(times) < 2:
-            continue
-        best = min(times.values())
-        if best <= 0:
+        base = times.get(DEFAULT_RUNG)
+        if len(times) < 2 or base is None or base <= 0:
             continue
         for m, t in times.items():
-            ratios[m].append((t / best, ds))
+            ratios[m].append((t / base, ds))
     out = {}
     for m, v in ratios.items():
         if not v:
@@ -260,18 +260,19 @@ def text_table(scored, meta):
         lines.append(f"{display_name(m):<30}{s['rank']:>10.2f}{ci:>14}{wr:>8}"
                      f"{sl:>10}{mn:>9}  {'yes' if m in front else ''}")
     lines.append("")
-    lines.append(f"{meta['n_h2h']} datasets scored, weighted. Average rank is vs "
+    wtag = "weighted" if meta.get("weights") else "unweighted"
+    lines.append(f"{meta['n_h2h']} datasets scored, {wtag}. Average rank is vs "
                  "CatBoost + LightGBM only")
     lines.append("(1 = best of three, ties share the midrank); win% is the same "
                  "matchups as a rate.")
     lines.append("Both are competitor-relative: our rungs are never each "
                  "other's opponents, so")
     lines.append("adding or dropping a rung cannot move any other row.")
-    lines.append("Slowdown is the fit-time multiple vs the fastest arm on each "
-                 "dataset. The chart")
-    lines.append("plots the median; the mean is shown because one dataset "
-                 "(fars: 2883s vs 3s)")
-    lines.append("alone doubles CatBoost's.")
+    lines.append("Fit-time multiples are vs the ChimeraBoost default "
+                 "(quality=3 = 1x) on each")
+    lines.append("dataset. The chart plots the median (the typical dataset); "
+                 "the mean is the")
+    lines.append("whole-suite bill, which single extreme datasets dominate.")
     return "\n".join(lines)
 
 
@@ -324,7 +325,8 @@ def render(scored, meta, path=OUT_PNG):
                 color="#999999", zorder=1)
     ax.xaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}x" if v > 0 else ""))
-    ax.set_xlabel("fit-time slowdown vs fastest (median dataset)", fontsize=13)
+    ax.set_xlabel("fit time vs the default (quality=3 = 1x, median dataset)",
+                  fontsize=13)
     ax.set_ylabel("average rank  (1 = best)", fontsize=13)
     ax.tick_params(labelsize=12)
     title = "ChimeraBoost - strength vs speed"

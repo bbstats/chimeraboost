@@ -249,3 +249,29 @@ Tried and reverted: gathering leaf residuals channel-major in one pass. It
 trades K forward strided reads for a transposing write and measured slower --
 the per-channel scan is prefetcher-friendly and the leaf's slice of the score
 matrix stays resident across the K passes.
+
+## 2026-09-01 — Out-of-fold calibration study (issue #106 follow-up)
+
+`benchmarks/quantile_oof_calibration.py`: 7 Grinsztajn reg_num sets (<=20k
+rows), 5-fold OOF, estimator defaults. Measures what real data can measure:
+skill vs the fold-marginal forecast, 20-cell occupancy of the grid (empirical
+KL vs the claimed 5% per cell), interval coverage, and predict_thresh
+reliability (ECE + Brier skill at the marginal 10/30/50/70/90% thresholds).
+
+| dataset | CRPSskill | medSkill | meanR2 | cov90 | tails lo/hi | cellKL | ECE | BrierSk |
+|:--|--:|--:|--:|--:|--:|--:|--:|--:|
+| abalone | 0.358 | 0.364 | 0.541 | 0.857 | .073/.071 | 0.0126 | 0.047 | 0.353 |
+| Bike_Sharing_Demand | 0.528 | 0.527 | 0.699 | 0.863 | .068/.069 | 0.0080 | 0.031 | 0.574 |
+| elevators | 0.641 | 0.623 | 0.891 | 0.829 | .087/.083 | 0.0268 | 0.051 | 0.498 |
+| houses | 0.654 | 0.666 | 0.844 | 0.828 | .087/.085 | 0.0270 | 0.029 | 0.667 |
+| diamonds | 0.778 | 0.790 | 0.946 | 0.881 | .059/.060 | 0.0022 | 0.038 | 0.765 |
+| MiamiHousing2016 | 0.761 | 0.760 | 0.931 | 0.800 | .097/.103 | 0.0475 | 0.037 | 0.770 |
+| medical_charges | 0.883 | 0.891 | 0.978 | 0.887 | .056/.057 | 0.0015 | 0.042 | 0.870 |
+
+Crossing rate exactly 0 on every set. Interior cells near-flat everywhere; the
+raw grid's known narrowness shows only in the two tail cells (5.6-10.3% vs the
+nominal 5%). conformalize=True re-run on the 3 worst (MiamiHousing2016,
+houses, elevators): cov90 0.902/0.902/0.905, every tail cell 0.045-0.050,
+cellKL <= 0.0014, at ~1 point of CRPS skill. Verdict: grid, derived heads and
+predict_thresh are calibrated OOF; tails need conformalize=True when coverage
+is the contract. No open items.
