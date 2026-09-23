@@ -66,6 +66,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ### Changed
+- **Multiclass fits are 3–6% faster; predictions are bit-identical.**
+  Every boosting round the multiclass loss scored the validation rows with
+  a softmax, a clip, a logarithm and a per-row sum, each a separate numpy
+  pass over the whole class matrix. They now run as one numba pass per row
+  that repeats the same operations in the same order, and numpy still
+  takes the final mean. Same-process A/B on the default estimator: 5.6%
+  (Traffic_violations), 5.2% (okcupid-stem), 5.0% (cjs) and 3.1%
+  (eucalyptus) off end-to-end fit time; binary and regression fits never
+  run this code. The exact-output snapshot passes 186 of 186
+  configurations. Inputs the fused path does not cover (more than 7
+  classes, float32, non-contiguous) fall back to the previous code.
 - **Binary classification fits are 4–6% faster; predictions are
   bit-identical.** Every boosting round the binary log-loss computed its
   gradient and hessian as a numba sigmoid followed by two numpy passes,

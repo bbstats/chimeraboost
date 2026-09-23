@@ -531,6 +531,48 @@ def _softmax_grad_hess_kernel(F, Y):
     return grad, hess
 
 
+@njit(cache=True, parallel=True)
+def _softmax_ce_kernel(F, Y):
+    # Per-row cross-entropy for MultiSoftmax.eval: the softmax row plus the
+    # clip, the logs and the class sum in one pass, so the vector is
+    # bit-identical to the `row_ce` line of `_eval_numpy` on the same machine.
+    # Cross-libm caveat, as for the Logloss kernel: numba log() here, numpy log()
+    # in the oracle -- bit-equal here, last-bit-different on some CPUs; tests use 4/8 ULP.
+    # The max loop and the exp loop are `_softmax_kernel`'s verbatim (same row
+    # max, same sequential accumulation into `s`); the final loop recomputes
+    # `exp(F - m)` instead of reloading a stored buffer, which is exact
+    # because exp is a pure function -- the same input reproduces the same
+    # bits -- and the divide stays a divide, since a hoisted reciprocal does
+    # not round like one. The clip is two comparisons so a NaN passes through
+    # exactly as `np.clip` passes it (a NaN fails both comparisons and stays
+    # NaN). The class sum runs k = 0..K-1 over EVERY term, including the
+    # `0 * log(p)` signed zeros, because that is numpy's left-to-right order
+    # for K <= 7, and the row is negated after the sum -- `-np.sum(...)`, not
+    # a sum of negated terms. The mean stays in numpy: numpy's pairwise
+    # summation is not a sequential numba sum, and a fused reduction would
+    # drift.
+    n, K = F.shape
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        m = F[i, 0]
+        for k in range(1, K):
+            if F[i, k] > m:
+                m = F[i, k]
+        s = 0.0
+        for k in range(K):
+            s += np.exp(F[i, k] - m)
+        total = 0.0
+        for k in range(K):
+            p = np.exp(F[i, k] - m) / s
+            if p < 1e-12:
+                p = 1e-12
+            elif p > 1.0:
+                p = 1.0
+            total += Y[i, k] * np.log(p)
+        out[i] = -total
+    return out
+
+
 def _softmax_numpy(F):
     """The reference implementation, and the live path for K > 7.
 
@@ -581,10 +623,22 @@ class MultiSoftmax:
             return _softmax_grad_hess_kernel(F, Y)
         return self._grad_hess_numpy(Y, F)
 
-    def eval(self, Y, F, sample_weight=None):
+    def _eval_numpy(self, Y, F, sample_weight=None):
         P = np.clip(_softmax(F), 1e-12, 1.0)
         row_ce = -np.sum(Y * np.log(P), axis=1)
         return float(np.average(row_ce, weights=sample_weight))
+
+    def eval(self, Y, F, sample_weight=None):
+        if (F.dtype == np.float64 and Y.dtype == np.float64
+                and F.shape == Y.shape
+                and 0 < F.shape[1] <= _SOFTMAX_MAX_K):
+            if not F.flags.c_contiguous:
+                F = np.ascontiguousarray(F)
+            if not Y.flags.c_contiguous:
+                Y = np.ascontiguousarray(Y)
+            row_ce = _softmax_ce_kernel(F, Y)
+            return float(np.average(row_ce, weights=sample_weight))
+        return self._eval_numpy(Y, F, sample_weight)
 
     def transform(self, F):
         return _softmax(F)
