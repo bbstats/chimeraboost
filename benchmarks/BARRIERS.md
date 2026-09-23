@@ -460,6 +460,34 @@ before a grep found C3, which `barrier_check.py` could not see.
 
 ---
 
+### B22 — LightGBM's fit-speed edge is per-round cost and round count, not threading
+tags: lightgbm, speed, fit time, slowdown, thread, threads, threading, parallel, prange, row-parallel, feature-parallel, scaling, decomposition, per-round
+
+LightGBM fits Grinsztajn about 6× faster than the default (median over 59
+sets; the top 15 by excess seconds carry 70% of the gap). Priced
+2026-09-22 (`benchmarks/probe_lgbm_speed_price.py`, `CAMPAIGN_PLAN.md`
+I053; 360 timed fits, one at a time, 1/2/4/8 threads on the top 15): our
+thread scaling MATCHES LightGBM's — median speedup at 2/4/8 threads 1.68 /
+2.44 / 2.77 against its 1.58 / 2.18 / 2.44, a scaling gap of 0.97 / 0.91 /
+0.94 — including on the 6–9-column sets where feature-parallel kernels were
+suspected of splitting unevenly (electricity, nyc-taxi, diamonds, SGEMM
+scale equal or better). The gap is single-thread cost per round of the
+WHOLE fit (median 6.4×, which carries the validation races and the
+full-data refit) times our larger round counts (1–2× on most sets, up to
+6–13× on a few small or noisy ones).
+
+Consequence: do not propose row-parallel histograms, thread-decomposition
+rewrites or any threading change as the answer to the LightGBM gap. A
+cheaper fit has to come from cheaper rounds (the races and the refit are
+the priced objects, B12/B13/B14) or fewer of them (B19: the round count is
+a strength axis).
+
+*Incident*: the 2026-09-22 refill (I042/L3) named feature-parallel
+decomposition as the untested residual; the price list measured it and
+found nothing there.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured

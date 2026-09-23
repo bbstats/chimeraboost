@@ -314,7 +314,9 @@ call). **S4 RESOLVED — KILLED** at S2 (I051: standardized `diff` 23W-23L on
 a fair synth screen; B16 addendum). **S8 CLOSED at S1b, no build**
 (I052: the exact multiclass Hessian and a slower multiclass rate each buy
 ~+0.5% Brier for ~×1.8 multiclass fit — a trade put to the maintainer).
-Next: S5, then S10, with H(11) and H(12) as fill.
+**S10 RESOLVED** (I053: LightGBM's edge is per-round cost × our round
+counts; our threading scales as well as its; B22). Next: S5, then H(11) +
+H(12), both library-class PRs for the maintainer's merge.
 
 Produced by I042: four read-only lenses (L1 fit AND predict profiling with
 a new predict-side wall-clock read, L2 literature mechanisms against the
@@ -414,6 +416,76 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I053 2026-09-22 S10 (the LightGBM speed price list: rounds, single-thread cost, thread scaling; measurement, pre-registered)
+why now: I052 closed (PR #151 merged by the maintainer at 17541ac; the
+multiclass rate/Hessian trade is with him). Order for the evening: the
+self-mergeable measurement first, so the loop progresses without a merge;
+the library rungs (S5, H(11), H(12)) queue for the morning, since each of
+their PRs waits for him and only one may be open. Class: **measurement**
+(the Pareto slowdown axis only), `benchmarks/` only. Branch
+`campaign/s10-lgbm-speed-price` from main; muse writes and runs
+`benchmarks/probe_lgbm_speed_price.py` (task
+`20260922-s10-lgbm-speed-price.md`).
+the question: LightGBM fits Grinsztajn about 5× faster than the default
+(median). The refill (I042/L3) split it roughly as round count ~1.8–2.1×
+and ~2.7× per round overall (4.9× at n ≥ 28k), 15 low-feature large-row
+sets carrying 67% of the excess, and named one untested hypothesis: our
+histogram kernels parallelize over FEATURES, so at the harness's two
+threads per job a 6–9-column set splits unevenly, where LightGBM also
+parallelizes over rows. Part A re-derives the split from today's
+chart-grade run (zero fits); Part B measures thread scaling (1/2/4/8
+threads, both models, the top 15 sets, one fit at a time).
+barriers (`barrier_check.py`: B10, B15, B6, B18, B19): B10 closed the
+measured kernel objects below their ceilings; a thread-decomposition
+object was never measured, and this is its Phase-0 read (no kernel is
+proposed). B15 — subtraction not proposed. B19 — the round count is priced,
+not cut. B6, B18 — keyword only.
+forecast: Part A reproduces I042 (round ratio ~0.5 — LightGBM grows MORE
+rounds — so the whole edge is per-round cost, ~5× at the median and more
+at large n). Part B: LightGBM's speedup(2) ≈ 1.8–1.9, ours ≈ 1.4–1.7 on the
+low-feature sets; the scaling gap at t = 2 **1.1–1.3×**, larger at t = 8;
+single-thread per-round cost carries most of the gap (≥ 3×).
+bars (decision rules, not a ship gate): a scaling gap ≥ 1.5× at the
+harness's t = 2 on the median of the 15 sets ⇒ promote a GROW_PLAN
+Phase-0 ceiling for row-parallel histogram building as a new candidate
+(the maintainer's pick); below 1.5× ⇒ record that the LightGBM edge is
+single-thread per-round cost plus nothing structural in the threading, and
+close the thread-decomposition door as a barrier.
+ran (muse, exit 0, ~30 min, no sandbox error): `probe_lgbm_speed_price.py`;
+Part A from `20260922-144219.json` (59 gr base keys, zero fits); Part B
+360 timed fits (15 keys × 2 models × t ∈ {1, 2, 4, 8} × 3 repeats, one at
+a time, an untimed warm-up first; rounds identical across thread counts).
+Part A: median fit ratio **6.29×**; the top 15 by excess seconds carry
+**69.6%** of the 176 s total excess (covertype ×2, electricity ×2,
+Allstate, superconduct, nyc-taxi ×2, diamonds, pol, SGEMM, jannis,
+road-safety, MiniBooNE, topo). Round ratio: WE grow more rounds on most
+sets (1.1–2.4×; 6–14× on topo, sulfur, house_16H, yprop, pol@clf).
+Part B (medians over the 15): ours/LightGBM **9.7× at 1 thread, 9.1× at
+2, 8.8× at 4, 8.1× at 8**; speedup at 2/4/8 threads ours **1.68 / 2.44 /
+2.77**, LightGBM **1.58 / 2.18 / 2.44**; scaling gap **0.97 / 0.91 /
+0.94** (we scale slightly better); single-thread per-round ratio **6.36×**.
+The low-feature sets named by the hypothesis scale equal or better
+(electricity p = 7, nyc-taxi p = 9, diamonds, SGEMM); LightGBM scales
+better only on three wide sets (jannis p = 54, MiniBooNE p = 50,
+superconduct p = 79; gap 1.14–1.29 at 8 threads).
+decision rule: scaling gap at t = 2 is 0.97, under 1.5 ⇒ **the thread-
+decomposition door is CLOSED, registered as B22.**
+forecast: "round ratio ~0.5, LightGBM grows more" **MISSED** — I misread
+I042's "255 vs 122" (those were ours vs LightGBM's); "scaling gap
+1.1–1.3×" MISSED (0.97); "single-thread per-round ≥ 3× carries most of the
+gap" HIT (6.4×).
+verdict: **S10 RESOLVED — the LightGBM edge is per-round cost of the whole
+fit (races + refit + oblivious per-tree cost) times our larger round
+counts; nothing in the threading.** The price list for the Pareto's
+slowdown axis is now on record: any cheaper default has to come from the
+races, the refit or the per-tree kernel, all priced (B10, B12–B14, B19).
+Self-merged: `benchmarks/` + `.md` only.
+next: the self-mergeable queue is empty. The library rungs wait for the
+maintainer's merge window: **S5** (task written, `20260923-s5-multiclass-
+eval-fusion.md`), then **H(11) + H(12)** as one harness PR. Also waiting
+on him: the multiclass rate/Hessian trade (I052), the parked S1 (to
+2026-09-29), the binary linear-leaf race pointer (I047), a beam refill.
 
 #### I052 2026-09-22 S8 S1 (the exact softmax Hessian for multiclass vector leaves; zero-library probe, pre-registered)
 why now: I051 closed (PR #150 self-merged at 698f888); the five picks are
