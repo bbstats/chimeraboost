@@ -486,6 +486,30 @@ a strength axis).
 decomposition as the untested residual; the price list measured it and
 found nothing there.
 
+### B23 — The quantile head's cap-bound sets need more rounds or more capacity, not bigger steps
+tags: quantile, quantile head, multi-quantile, learning rate, learning_rate, rate, step size, shrinkage, rounds, round cap, n_estimators, convergence, cap-bound, size fade
+
+On 13 of the 36 Grinsztajn regression sets the quantile head (flat rate
+0.1) reaches the 2000-round cap while still improving; lifting the cap to
+8000 rounds wins all 13 (median +1.73%; pol +12.7% and visualizing_soil
++22.8%, where the head keeps improving to rounds 5000–8000). A larger rate
+does NOT get there inside the cap. Measured 2026-09-23 (`CAMPAIGN_PLAN.md`
+I058, `results/quantile-20260923-150433.json`): rates 0.15 and 0.2 each
+split the 13 cap-bound sets 7-6 and lose the stratum (17W-19L and
+11W-25L), and they do worst exactly where the head needs rounds most —
+pol −34% / −74% (early stopping fires at round 1548 / 640 instead of
+reaching the cap), Brazilian_houses −4% to −11%, nyc-taxi −5% to −9%.
+Bigger steps make the head's validation curve turn early, at a worse
+point.
+
+Consequence: do not propose a larger learning rate for the head, or the
+size fade (which LOWERS it below 15k rows), as the fix for its cap-bound
+sets. The measured levers are more rounds (2.06× the fit on those sets)
+and more capacity per round (depth 6 wins 10 of the 13 at 0.98× the fit).
+
+*Incident*: Q3 T0, 2026-09-23 (I058), after I057's uncapped probe named
+the round cap as the head's largest CRPS loss.
+
 ---
 
 ## Adding an entry
