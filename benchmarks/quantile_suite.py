@@ -90,20 +90,34 @@ ALPHAS = (0.1, 0.2, 0.5)
 UNCAPPED_ITERS = 8000
 
 
-def _fit_head_model(split, cat, threads, taus, n_estimators, depth=None):
+def _fit_head_model(split, cat, threads, taus, n_estimators, depth=None,
+                    learning_rate=None):
     """Construct and fit the suite's head.
 
-    Shared by the head arm and the ValScaled probe so the two cannot
+    Shared by the head arm and the head-based probes so they cannot
     drift apart: same constructor, same rows, same early-stopping
-    split. ``depth=None`` is the head's own default, as before.
+    split. ``depth=None`` and ``learning_rate=None`` are the head's own
+    defaults, as before.
     """
     Xf, Xv, yf, yv = split
     m = ChimeraBoostQuantileRegressor(
         quantiles=taus, n_estimators=n_estimators,
         early_stopping_rounds=rb.PATIENCE, thread_count=threads,
-        random_state=0, depth=depth)
+        random_state=0, depth=depth, learning_rate=learning_rate)
     m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
     return m
+
+
+def _calibrate_on_val(m, Xv, yv):
+    """Wear the library's own CQR factors, fit on the validation rows.
+
+    The shared early-stopping rows, so no training rows are given up;
+    that fold also chose the stopping round, a mild optimism the
+    RigidShift offsets share.
+    """
+    m.conformal_scale_ = _cqr_scales(
+        m.predict(Xv), np.asarray(yv, dtype=np.float64), m.quantiles_,
+        *m._median_idx_)
 
 
 def _fit_chimera_head(split, Xte, cat, threads, taus):
@@ -365,9 +379,45 @@ def _fit_chimera_valscaled(split, Xte, cat, threads, taus):
     Xf, Xv, yf, yv = split
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS)
-    m.conformal_scale_ = _cqr_scales(
-        m.predict(Xv), np.asarray(yv, dtype=np.float64), m.quantiles_,
-        *m._median_idx_)
+    _calibrate_on_val(m, Xv, yv)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_lr15(split, Xte, cat, threads, taus):
+    """The head at learning rate 0.15: does the larger rate let it
+    converge within the shared cap?"""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        learning_rate=0.15)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_lr20(split, Xte, cat, threads, taus):
+    """The head at learning rate 0.2: does the larger rate let it
+    converge within the shared cap?"""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        learning_rate=0.2)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_depth6_valscaled(split, Xte, cat, threads, taus):
+    """Depth 6 with the ValScaled calibration: does the
+    early-stopping-row calibration rescue depth 6's coverage?"""
+    Xf, Xv, yf, yv = split
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=6)
+    _calibrate_on_val(m, Xv, yv)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -379,6 +429,9 @@ PROBES = {
     "ChimeraBoostQuantileDepth6": _fit_chimera_depth6,
     "ChimeraBoostQuantileRecentred": _fit_chimera_recentred,
     "ChimeraBoostQuantileValScaled": _fit_chimera_valscaled,
+    "ChimeraBoostQuantileLR15": _fit_chimera_lr15,
+    "ChimeraBoostQuantileLR20": _fit_chimera_lr20,
+    "ChimeraBoostQuantileDepth6ValScaled": _fit_chimera_depth6_valscaled,
 }
 
 

@@ -217,7 +217,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 4
+    assert len(qs.PROBES) == 7
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -308,3 +308,46 @@ def test_q0_depth6_fits_depth6_trees(monkeypatch):
     qs._fit_chimera_depth6(split, Xte, None, 1, taus)
     qs._fit_chimera_head(split, Xte, None, 1, taus)
     assert [m.model_.depth for m in seen] == [6, 4]
+
+
+# ---------------------------------------------------------------------------
+# Q3 rate probes: two learning-rate arms and the depth-6 ValScaled arm.
+# ---------------------------------------------------------------------------
+
+def test_q3_rate_probes_resolve_learning_rate(monkeypatch):
+    """The rate probes' fitted boosters run at 0.15 and 0.2; the head's,
+    at its 0.1 default. Read from the fitted booster, not the constructor."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    seen = _q0_capture_models(monkeypatch)
+    qs.PROBES["ChimeraBoostQuantileLR15"](split, Xte, None, 1, taus)
+    qs.PROBES["ChimeraBoostQuantileLR20"](split, Xte, None, 1, taus)
+    qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert [m.model_.lr_ for m in seen] == [0.15, 0.2, 0.1]
+
+
+def test_q3_depth6_valscaled_calibrates_depth6(monkeypatch):
+    """Depth6ValScaled is depth 6 wearing the library's own CQR factors."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    from chimeraboost.quantile_api import _cqr_scales
+
+    split, Xte, taus = _q0_split()
+    Xv, yv = split[1], np.asarray(split[3], dtype=np.float64)
+    seen = _q0_capture_models(monkeypatch)
+    Qdv, _, _, _ = qs.PROBES["ChimeraBoostQuantileDepth6ValScaled"](
+        split, Xte, None, 1, taus)
+    Qd, _, _, _ = qs._fit_chimera_depth6(split, Xte, None, 1, taus)
+    assert len(seen) == 2
+    assert seen[0].model_.depth == 6
+    mi = int(np.argmin(np.abs(taus - 0.5)))
+    assert taus[mi] == 0.5
+    assert np.array_equal(Qdv[:, mi], Qd[:, mi])
+    m = seen[0]
+    saved = np.asarray(m.conformal_scale_)
+    # The unscaled validation predictions the probe calibrated on: with the
+    # factors reset to ones, predict returns them exactly.
+    m.conformal_scale_ = np.ones_like(saved)
+    ref = _cqr_scales(m.predict(Xv), yv, m.quantiles_, *m._median_idx_)
+    assert np.array_equal(saved, ref)
+    m.conformal_scale_ = saved
+    assert np.all(np.diff(Qdv, axis=1) >= 0)

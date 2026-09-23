@@ -160,6 +160,7 @@ fact: 2026-09-23 | test suite on `campaign/quantile-plan` (Phase 1 bench, no lib
 fact: 2026-09-23 | the quantile head (flat learning rate 0.1) reaches the 2000-round cap on 11 of 36 gr regression sets in `quantile-20260923-115727.json`; on those it loses CRPS 2W-9L to RigidShift (median −5.03%) and 1W-10L to CatBoost MQ (−3.79%), on the other 25 it wins 18W-7L (+1.10%) and loses 6W-19L (−0.26%). Median-level pinball: vs RigidShift 16W-20L, vs CatBoost 5W-31L; 90% interval score: 28W-8L, 25W-11L
 fact: 2026-09-23 | Q0 probe battery (`results/quantile-20260923-135654.json`, gr regression): lifting the head's cap to 8000 rounds changes only the 13 cap-bound sets and wins all 13 (median +1.73%; visualizing_soil +22.8%, pol +12.7%, superconduct +7.5%); depth 6 wins 31W-5L (+0.35%) at 0.87× the fit but worsens the 90% coverage error by 1.06 points (hc 3.24); the library's CQR factors computed on the early-stopping rows cut the 90% error from 3.43 to 0.50 points at a CRPS change of +0.02% (21W-15L); recentring on RigidShift's median is 18W-18L
 fact: 2026-09-23 | the size fade would LOWER the head's rate (0.1 at ≥ 15k training rows, 0.07 at ≤ 5k), the wrong way for the capped sets; the harness passes n_estimators = rb.MAX_ITERS = 2000 to every arm, the head's own default, so a library budget change cannot show in the bench
+fact: 2026-09-23 | Q3 T0 (`results/quantile-20260923-150433.json`, gr regression): the head at learning rate 0.15 goes 17W-19L (−0.04%), at 0.2 11W-25L (−0.09%), each 7-6 on the 13 cap-bound sets, pol −34% / −74% (barrier B23); depth 6 with the library's CQR factors computed on the early-stopping rows goes 31W-5L (+0.33%, CI +0.14..+0.77) with the 90% coverage error 3.43 → 0.47 points (hc 9.24 → 0.85) at 0.90× the fit
 
 ## Beam
 
@@ -171,7 +172,7 @@ fact: 2026-09-23 | the size fade would LOWER the head's rate (0.1 at ≥ 15k tra
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails; PR waits for the maintainer | **Q3 T0** once the Q0 PR merges: flat learning rates 0.15 and 0.2 for the head (the cap-bound sets need 3–4× the rounds at 0.1), plus, as a separate question in the same run, depth 6 with the validation-row calibration. Then the library rungs in order: Q3's rate, calibration on the early-stopping rows (Q0's (d) paid), depth 6 if calibration rescues its guard; then Q2 CatBoost ablation, Q1 (P16), Q4. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR waits for the maintainer | **Q5, the first library rung** once the I058 PR merges: the head's default depth 4 → 6 and its CQR factors computed on the early-stopping rows by default, verified bit-for-bit against the bench's Depth6ValScaled probe; docs and CHANGELOG with it. Then Q2 CatBoost ablation, Q1 (P16), Q4. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -438,6 +439,102 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I058 2026-09-23 F7 Q3 T0 (the head's learning rate: flat 0.15 and 0.2; plus depth 6 with the early-stopping-row calibration as a second question; bench-only, pre-registered)
+why now: I057 merged (PR #157 at 6d4a565). No campaign PR open, bench
+idle. I057's rule named Q3 the next library rung, and a rate change needs
+its rate first. Branch `campaign/quantile-q3-rate` from main; muse task
+`20260923-q3-rate-probes.md`.
+arms (new opt-in `PROBES`; the field default unchanged):
+`ChimeraBoostQuantileLR15` and `ChimeraBoostQuantileLR20`, the head at a
+flat `learning_rate` of 0.15 / 0.2 (the default resolves to 0.1 whenever
+early stopping is on); `ChimeraBoostQuantileDepth6ValScaled`, depth 6 plus
+I057's (d) calibration. Same run, as references: the head, RigidShift,
+uncapped and depth 6.
+barriers (`barrier_check.py`: B11, B5, B19, B6). B19: the stopping rule is
+untouched; a larger rate moves where the argmin falls, it does not smooth
+or truncate it. B11 and B5: the calibration is I057's (d), out-of-sample
+rows, as argued there. B6: one mechanism-motivated knob, not a search: the
+cap binds on 13 of 36 gr sets, and I057 measured what lifting it buys
+(+1.73% on those 13). Not a barrier but on record: SMALLDATA found a LOWER
+rate better on small data (the size fade), so the `@sus` twins are where a
+larger rate should hurt.
+runs (Claude, after review, one at a time): the synth screen, then the
+decide tier, both `--seeds 3 --jobs 5 --save` with the seven arms above;
+scored as in I057 (each probe against the head, per stratum, with the
+guard; the 13 cap-bound sets against the rest; the quantile Pareto).
+forecast (gr regression, 36, against the head):
+Q3 (rate). LR 0.15: on the 13 cap-bound sets wins ≥ 10, median gain there
++0.5% to +1.5% (uncapped got +1.73%); on the other 23 wins 8–15 (a larger
+rate usually costs a little once rounds are not scarce); overall 18–26 wins,
+median −0.1% to +0.3%; guard ok; total fit 0.75–0.9×. LR 0.2: cap-bound
+≥ 11 of 13, the other 23 wins 6–12, overall 17–25 wins, median −0.2% to
++0.3%; guard ok; fit 0.6–0.8×. On the gr `@sus25` twins (a pointer) both
+rates lose more than they win.
+Combined question. Depth 6 + calibration: ≥ 26 wins against the head,
+median +0.3% to +0.5% (depth 6's +0.35% plus calibration's ~0), and the
+guard IMPROVES (90% error ≤ 1.0 point, from depth 6's 4.48); against depth 6
+alone, CRPS within ±0.1% median.
+synth screen: both rates within ±3 excess-CRPS points of the head (×1000,
+median over keys); depth 6 + calibration keeps depth 6's synthetic loss
+(~47) and the calibrated arm's coverage (~2 points).
+reading rule, written before the run. A rate PAYS if against the head on gr
+it wins ≥ half + 1 of the decided sets, its median CRPS change is > 0, and
+the guard holds. If both pay, the larger median gain; on a tie, 0.15 (the
+smaller change). A paying rate becomes the next library rung: the head's
+default rate, with its identity to the probe arm checked and the full
+gate. No rate pays → Q3 is closed, and the cap-bound sets go to the
+combined question. The combined arm PAYS under the same rule; if it pays,
+the library order after the rate is depth 6 with calibration on the
+early-stopping rows as one rung; if not, calibration alone (I057's (d)).
+ran (muse, exit 0, ~10 min, no sandbox error): three probes through the
+shared `_fit_head_model` (now with `learning_rate`) and a
+`_calibrate_on_val` helper that ValScaled also uses (both bit-identical:
+the head's smoke CRPS matches I057's on all three keys); 2 tests. Claude:
+the diff reads correct; **1195 passed, 1 skipped**.
+synth screen (`results/quantile-synth-20260923-144339.json`; excess CRPS
+×1000, median over 12 keys): the head 42.92, LR 0.15 46.11, LR 0.2 43.19,
+depth 6 46.88, depth 6 + calibration 49.09 with 90% coverage error 1.90
+points (the head 7.31).
+decide tier (`results/quantile-20260923-150433.json`, 59 keys × 3 seeds ×
+7 arms, ~20 min; the head, RigidShift, uncapped and depth 6 reproduce I057
+exactly). Against the head on Grinsztajn regression (36):
+
+| probe | CRPS W-L | median change | guard, 90% / 80% (points) | total fit |
+|:--|--:|--:|:--|--:|
+| LR 0.15 | 17-19 | −0.04% [CI −0.27..+0.05] | +0.63 / +0.58, ok | 0.86× |
+| LR 0.2 | 11-25 | −0.09% [CI −0.43..−0.02] | +0.55 / +0.25, ok | 0.73× |
+| depth 6 + calibration | 31-5 | +0.33% [CI +0.14..+0.77] | −2.96 / −4.10, ok | 0.90× |
+
+The rates split the 13 cap-bound sets 7-6 each and lose most where the
+head needs rounds: pol −34% / −74% (stopping at rounds 1548 / 640 where the
+head reaches the cap), Brazilian_houses −4% to −11%, nyc-taxi (num) −9% /
+−5%; visualizing_soil gains +0.8% / +4.4% against uncapped's +22.8%. On
+gr `@sus25` they lose 1-6 and 0-7. The combined arm wins the cap-bound
+sets 10-3 (+2.34%) and the rest 21-2 (+0.17%); it wins the median level
+30-6, and the calibration turns depth 6's 90% interval score from 14-22
+into 22-14 (+0.78%); against depth 6 alone it is 23-13, +0.02%. Its 90%
+error is 0.47 points on gr, 0.85 on hc (from 9.24; hc CRPS 3-3, −0.03%),
+0.40 on gr `@sus25` (CRPS 3-4, −0.35%). The mean CRPS over 59 keys moves
+the other way (313.7 → 322.5), all of it one set, hc:house_prices_nominal
+@time (+9.3%, coverage 0.715 → 0.907) with a target in the thousands;
+the sign test is the gate, as the house rule says. Pareto (59 keys):
+depth 6 0.5928 @ 3.0× (0.074), depth 6 + calibration 0.5920 @ 3.0×
+(0.009), the head 0.5916 @ 3.6× (0.063); LR 0.2 0.5885 @ 2.4× and
+RigidShift 0.5869 @ 1.4× hold the fast end of the frontier.
+forecast: 15 of 22 counts HIT. MISS: LR 0.15 cap-bound wins (7, bar 10)
+and overall wins (17, bar 18); LR 0.2 cap-bound (7, bar 11), other (4, bar
+6) and overall (11, bar 17); synth LR 0.15 (+3.19, band ±3); synth combined
+CRPS (49.1, forecast ~47).
+verdict (the pre-registered rule): **no rate pays → Q3 CLOSED, registered
+as barrier B23** (the cap-bound sets need more rounds or more capacity,
+not bigger steps). **The combined arm PAYS**, so the next library rung is
+depth 6 with calibration on the early-stopping rows, as one rung. Nothing
+ships from this rung; the three probes stay opt-in bench arms. PR for the
+maintainer (touches `tests/`).
+next: the library rung (F7): the head's default depth 4 → 6, and its CQR
+factors computed on the early-stopping rows by default; the bench's
+Depth6ValScaled probe is its exact oracle.
+
 #### I057 2026-09-23 F7 Q0 (the quantile probe battery: uncapped rounds, depth 6, recentred on a squared-error median, rescaled on the early-stopping rows; bench-only T0, pre-registered)
 why now: I056 merged (PR #156 at f5bac6b). No campaign PR open, bench
 idle. Q-B4 left one question with four candidate answers: the head ties
@@ -557,7 +654,8 @@ hands every arm `n_estimators = rb.MAX_ITERS = 2000`, the head's own
 default, so the lever is the rate, and the size fade LOWERS it below 15k
 rows, the wrong way for the capped sets (most hold 8k–16k training rows).
 Nothing ships from this rung; the four probes stay opt-in bench arms. PR for
-the maintainer (touches `tests/`).
+the maintainer (touches `tests/`). **MERGED by the maintainer as PR #157
+(6d4a565); branch deleted.**
 next: Q3 T0 once this PR merges: flat learning rates 0.15 and 0.2 and, as a
 separate pre-registered question in the same run, depth 6 with the
 validation-row calibration (does (d) rescue (b)'s guard?).
