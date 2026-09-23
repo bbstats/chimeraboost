@@ -66,6 +66,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ### Changed
+- **The quantile head's intervals are calibrated by default, and its CRPS
+  improves.** `ChimeraBoostQuantileRegressor` changes two defaults. `depth`
+  is now 6 (it was 4). `conformalize` gains a third value, `"auto"`, which
+  becomes the default: after the fit, each level is rescaled about the
+  predicted median using the rows early stopping already held out (your
+  `eval_set`, or the `validation_fraction` fold), so no extra rows are
+  spent. On the 36 Grinsztajn regression datasets the new default wins CRPS
+  on 31 and loses 5 (median +0.33%), and its 90% intervals miss nominal
+  coverage by a median of 0.5 points instead of 3.4 (0.9 instead of 9.2 on
+  the six high-cardinality regression sets, 0.7 instead of 17.5 on their
+  time-split versions). It fits about 10% faster. Deeper trees place the
+  centre of the distribution better and narrow its tails; the calibration
+  repairs the tails. `"auto"` carries no formal guarantee, because those
+  rows also chose the stopping round: `conformalize=True` still carves a
+  separate fold for that, and `conformalize=False` still returns the raw
+  grid. With early stopping off and no `eval_set` there are no held-out
+  rows, so the raw grid is returned. On small training sets and time-split
+  data the CRPS gain does not hold (3 wins and 4 losses on 25% subsamples
+  of Grinsztajn), since calibration widens the intervals most there; the
+  coverage gain does. Pass `depth=4, conformalize=False` to reproduce
+  earlier releases exactly. Ordinary regressors and classifiers are
+  untouched: the exact-output snapshot moves only the head's three
+  configurations (171 of 186 pins identical). Record:
+  `benchmarks/QUANTILE_PLAN.md`, Phase 2.
 - **Multiclass fits are 3–6% faster; predictions are bit-identical.**
   Every boosting round the multiclass loss scored the validation rows with
   a softmax, a clip, a logarithm and a per-row sum, each a separate numpy

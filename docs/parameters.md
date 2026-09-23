@@ -71,14 +71,16 @@ A whole grid of conditional quantiles from one booster. See the User Guide:
 | Parameter | Default | Effect |
 |---|---|---|
 | `quantiles` | `0.05` to `0.95` in steps of `0.05` | The levels to estimate: ascending, unique, strictly inside (0, 1). Column `k` of `predict` is level `k`. |
-| `conformalize` | `False` | Calibrate the intervals on a fold held out before the early-stopping split. Raises if that fold is too small to certify the levels you asked for. |
+| `conformalize` | `"auto"` | How the intervals are calibrated. `"auto"` rescales them after the fit on the rows early stopping held out (your `eval_set` or the `validation_fraction` fold), so no extra rows are spent; with no such rows, or too few to certify the levels, you get the raw grid. `True` calibrates on a separate fold held out before the early-stopping split, which gives a distribution-free coverage guarantee and raises if that fold is too small. `False` returns the raw grid, which runs narrow. |
 | `calibration_fraction` | `0.2` | Rows reserved for calibration. Ignored unless `conformalize=True`. |
 | `split_projection` | `"rotate"` | How the K gradient columns collapse for the split search. `"rotate"` measured best; `"sum"` is blind to changes in spread; `"gram"` measured no better than `"rotate"`. |
 | `exact_splits` | `False` | Score splits on the exact gain summed across levels instead of a projection. Slightly more accurate, at the cost of K histogram channels per feature. |
 
-Two defaults are set for this head rather than inherited: `depth` is 4, because deep
-leaves overfit tail quantiles, and `min_child_weight` follows the most extreme level on
-your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. `loss`,
+Two defaults are set for this head rather than inherited: `depth` is 6, because deeper
+trees place the centre of the distribution better and the default calibration repairs the
+narrower tails they produce, and `min_child_weight` follows the most extreme level on
+your grid, so a leaf estimating the 5% quantile keeps roughly 20 rows. Earlier releases
+used `depth=4` with no calibration; `depth=4, conformalize=False` reproduces them. `loss`,
 `linear_leaves`, `cross_features`, `ordered_boosting`, `refit_full`, `n_ensembles`, and
 `quality` do not apply here.
 

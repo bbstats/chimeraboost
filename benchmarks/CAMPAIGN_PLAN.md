@@ -160,6 +160,7 @@ fact: 2026-09-23 | test suite on `campaign/quantile-plan` (Phase 1 bench, no lib
 fact: 2026-09-23 | the quantile head (flat learning rate 0.1) reaches the 2000-round cap on 11 of 36 gr regression sets in `quantile-20260923-115727.json`; on those it loses CRPS 2W-9L to RigidShift (median −5.03%) and 1W-10L to CatBoost MQ (−3.79%), on the other 25 it wins 18W-7L (+1.10%) and loses 6W-19L (−0.26%). Median-level pinball: vs RigidShift 16W-20L, vs CatBoost 5W-31L; 90% interval score: 28W-8L, 25W-11L
 fact: 2026-09-23 | Q0 probe battery (`results/quantile-20260923-135654.json`, gr regression): lifting the head's cap to 8000 rounds changes only the 13 cap-bound sets and wins all 13 (median +1.73%; visualizing_soil +22.8%, pol +12.7%, superconduct +7.5%); depth 6 wins 31W-5L (+0.35%) at 0.87× the fit but worsens the 90% coverage error by 1.06 points (hc 3.24); the library's CQR factors computed on the early-stopping rows cut the 90% error from 3.43 to 0.50 points at a CRPS change of +0.02% (21W-15L); recentring on RigidShift's median is 18W-18L
 fact: 2026-09-23 | the size fade would LOWER the head's rate (0.1 at ≥ 15k training rows, 0.07 at ≤ 5k), the wrong way for the capped sets; the harness passes n_estimators = rb.MAX_ITERS = 2000 to every arm, the head's own default, so a library budget change cannot show in the bench
+fact: 2026-09-23 | standing quantile BASE = `results/quantile-20260923-185507.json` (the Q5 default head, depth 6 + `conformalize="auto"`, with the full field, 2 h 47 min): gr head vs CatBoost MQ 15W-21L (−0.24%), vs RigidShift 23W-13L (+0.74%), vs LightGBM per-level 26W-10L, vs our per-level 33W-3L, vs NGBoost 34W-2L, vs head+CQR 35W-1L; the head's 90% coverage 0.904 on gr, its CRPS skill 0.5920 @ 3.0× over 59 keys
 fact: 2026-09-23 | Q3 T0 (`results/quantile-20260923-150433.json`, gr regression): the head at learning rate 0.15 goes 17W-19L (−0.04%), at 0.2 11W-25L (−0.09%), each 7-6 on the 13 cap-bound sets, pol −34% / −74% (barrier B23); depth 6 with the library's CQR factors computed on the early-stopping rows goes 31W-5L (+0.33%, CI +0.14..+0.77) with the 90% coverage error 3.43 → 0.47 points (hc 9.24 → 0.85) at 0.90× the fit
 
 ## Beam
@@ -172,7 +173,7 @@ fact: 2026-09-23 | Q3 T0 (`results/quantile-20260923-150433.json`, gr regression
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR waits for the maintainer | **Q5, the first library rung** once the I058 PR merges: the head's default depth 4 → 6 and its CQR factors computed on the early-stopping rows by default, verified bit-for-bit against the bench's Depth6ValScaled probe; docs and CHANGELOG with it. Then Q2 CatBoost ablation, Q1 (P16), Q4. Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR waits for the maintainer | Once Q5 merges: rebaseline the identity snapshot; then **Q2 T0**, a bench-only ablation of CatBoost MultiQuantile, one knob at a time toward our settings (depth, `l2_leaf_reg`, border count, rate, leaf estimation), to find what carries the one edge left in the field (CatBoost 21W-15L on gr CRPS, −0.24%). Then Q4 spread-aware categorical TS, Q1 (P16, now mostly a CRPS question since the default calibrates). | Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -439,6 +440,92 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I059 2026-09-23 F7 Q5 (the head's default: depth 6 and CQR factors on the early-stopping rows; LIBRARY change, pre-registered)
+why now: I058 merged (PR #158 at 42b0a19); its rule named this the next
+library rung. No campaign PR open, bench idle. The identity baseline
+matches main 186/186 (checked 2026-09-23 at 42b0a19), so it is a clean
+reference. Branch `campaign/quantile-q5-default` from main; muse task
+`20260923-q5-head-default.md`.
+change (`chimeraboost/quantile_api.py`): `depth=None` resolves to 6 (was
+4); `conformalize` gains the value `"auto"`, its new default: after the
+fit, the head's own CQR factors (`_cqr_scales`) are computed on the rows
+early stopping held out (the user's `eval_set` or the carved
+`validation_fraction`), and the raw grid stands when early stopping is off
+or those rows cannot certify the grid (never an error on the default
+path). `True` (the carved pristine fold, its guarantee) and `False` (the
+raw grid) keep their meaning. The bench's probes are pinned to what they
+measured (depth 4 or 6 as named, `conformalize=False`), and the field arm
+follows the library default.
+barriers (B11, B5, B6, B19, B23): as argued in I057 and I058; nothing new.
+B6: the depth change is the measured I058 arm, not a search.
+forecast and bar: (1) identity: on the decide tier the new default head
+reproduces I058's Depth6ValScaled records bit-for-bit (177 of 177 fits),
+so its gate result against the old head is I058's: gr 31W-5L, +0.33%,
+guard −2.96 / −4.10 points; hc 3W-3L. (2) the identity snapshot: every
+point-model config bit-identical, only the head's configs move. (3) tests:
+green after deliberate updates, each changed assertion listed with its
+reason. (4) Pareto: the head moves up and left (0.5916 @ 3.6× → ~0.5920 @
+~3.0×). A miss on (1) or (2) is a defect to fix before anything else reads.
+runs (Claude, after review): the identity snapshot; then one full-field
+decide run (the seven field arms plus the pinned Depth6ValScaled probe,
+~3 h) that serves the identity check, the gate, the refreshed quantile
+chart and the docs' comparison table, in one go.
+ran (muse, exit 0, no sandbox error): `quantile_api.py` — depth 6, the
+`"auto"` default through a `_check_conformalize` validator (strict: `True`,
+`False` or `"auto"`, so `fit` stays at C901 8), the truthiness test in
+`_carve_calibration_fold` made explicit (`is not True`), the calibration
+under `"auto"` computed with `self.predict` while the factors are still
+ones and falling back to the raw grid on any uncertifiable grid; the bench
+probes pinned (`depth=4` or 6, `conformalize=False`). Tests: 7 new (the
+bit-for-bit identity to the probe with an `eval_set`, the carved fold, ES
+off, uncertifiable and asymmetric grids, no carve under `"auto"`, a bad
+value raises) plus the field-arm identity in the suite tests; two old tests
+pinned to `depth=4` — the round-ratchet test (raw coverage 0.837 at depth
+6 against its 0.84 floor, a raw-grid property the default now repairs) and
+the `conformalize=True` coverage test (at depth 6 the 80% band over-covers
+by 2.04 points against a 2.00 tolerance, the safe direction CQR is known to
+err in; measured by Claude, 90/80/70% at +1.67/+2.04/+1.91). Muse's smoke:
+the field arm equals the probe on all three keys to the last digit, and
+the probe still reads I058's values. Claude: the diff reads correct;
+**1202 passed, 1 skipped**; `ruff check chimeraboost/` clean.
+identity snapshot (against the 42b0a19 baseline): **171 of 186 pins
+bit-identical; the 15 that move are exactly the head's three configs**
+(`mq3`, `mq3_w_sub`, `mq3_conf`, five pins each). Every point-model pin is
+identical, forecast (2) HIT. The baseline is rebaselined once this merges.
+decide tier, full field (`results/quantile-20260923-185507.json`, 59 keys ×
+3 seeds × 8 arms, 2 h 47 min, nothing skipped): **identity 177 of 177** —
+the new default head equals the pinned Depth6ValScaled probe on every fit,
+in this run and against I058's records. Gate against the old head
+(`quantile-20260923-150433.json`), per stratum: **gr 31W-5L, +0.33% [CI
++0.14..+0.77], guard −2.96 / −4.10 points: PASS**; hc 3W-3L (−0.03%),
+coverage error 9.24 → 0.85. Pointers: gr `@sus50` 3-1, gr `@sus25` 3-4
+(−0.35%), hc `@sus25` 0-2 (−2.61%), hc `@time` 1-2 (−1.65%), hc `@sus50`
+1-0; the coverage error falls in every stratum (hc `@time` 17.49 → 0.68,
+hc `@sus25` 22.39 → 2.23). The new head against the field on gr: our
+per-level 33W-3L (+2.25%), LightGBM per-level 26W-10L (+0.84%, a tie
+before), CatBoost MQ 15W-21L (−0.24%, 7W-29L before), RigidShift 23W-13L
+(+0.74%, a tie before), NGBoost 34W-2L, head + CQR (now depth 6) 35W-1L;
+its 90% band covers 0.904 on gr. Pareto (the seven field arms, from the
+same JSON with the duplicate probe dropped): **RigidShift 0.5869 @ 1.2×
+→ the head 0.5920 @ 3.0× (coverage error 0.009, from 0.063) → CatBoost MQ
+0.5982 @ 132×**; `images/quantile_pareto.png` refreshed. The mean CRPS over
+59 keys reads 322.5 against 313.7, all of it hc:house_prices_nominal@time
+(I058); the sign test is the gate.
+forecast: (1) identity HIT, (2) snapshot HIT, (3) tests HIT (two old tests
+pinned, both for a stated raw-grid or fold-level reason), (4) Pareto HIT
+(0.5916 @ 3.6× → 0.5920 @ 3.0×).
+docs (Claude): `docs/quantiles.md` (calibration section rewritten around
+the new default; the comparison table re-measured, with the fixed-width
+baseline and NGBoost added, closing the dated line in `QUANTILE_PLAN.md`;
+the depth note), `docs/parameters.md` (the `conformalize` row and the depth
+note), `docs/recipes.md` (the calibration recipe), CHANGELOG (Unreleased,
+Changed). The `conformalize=True` coverage test measured at depth 6 by
+Claude (above) backs the docs' "within about 2 points".
+verdict: **PASS → PR for the maintainer** (library, tests, docs, image).
+The standing quantile BASE becomes `quantile-20260923-185507.json`.
+next: once merged, rebaseline the identity snapshot at the merge commit;
+then Q2's T0 (F7).
+
 #### I058 2026-09-23 F7 Q3 T0 (the head's learning rate: flat 0.15 and 0.2; plus depth 6 with the early-stopping-row calibration as a second question; bench-only, pre-registered)
 why now: I057 merged (PR #157 at 6d4a565). No campaign PR open, bench
 idle. I057's rule named Q3 the next library rung, and a rate change needs
@@ -530,7 +617,8 @@ as barrier B23** (the cap-bound sets need more rounds or more capacity,
 not bigger steps). **The combined arm PAYS**, so the next library rung is
 depth 6 with calibration on the early-stopping rows, as one rung. Nothing
 ships from this rung; the three probes stay opt-in bench arms. PR for the
-maintainer (touches `tests/`).
+maintainer (touches `tests/`). **MERGED by the maintainer as PR #158
+(42b0a19); branch deleted.**
 next: the library rung (F7): the head's default depth 4 → 6, and its CQR
 factors computed on the early-stopping rows by default; the bench's
 Depth6ValScaled probe is its exact oracle.

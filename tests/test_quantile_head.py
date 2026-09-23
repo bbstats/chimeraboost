@@ -191,7 +191,8 @@ def test_coverage_does_not_ratchet_up_with_training():
     X, y = _heteroscedastic(n=6000, seed=5, narrow=True)
     Xt, yt, Xv, yv = X[:4000], y[:4000], X[4000:], y[4000:]
     m = ChimeraBoostQuantileRegressor(
-        random_state=0, n_estimators=400, early_stopping=False).fit(Xt, yt)
+        random_state=0, n_estimators=400, early_stopping=False,
+        depth=4, conformalize=False).fit(Xt, yt)
     lo, hi = 0, TAUS.size - 1               # the 0.05-0.95 band, nominal 0.90
     seen = {}
     for i, Q in enumerate(m.staged_predict(Xv), start=1):
@@ -318,7 +319,8 @@ def test_conformal_coverage_is_near_nominal():
     X, y = _heteroscedastic(n=30000, p=10, seed=10, narrow=False)
     Xt, yt, Xv, yv = X[:10000], y[:10000], X[10000:], y[10000:]
     m = ChimeraBoostQuantileRegressor(
-        random_state=0, n_estimators=400, conformalize=True).fit(Xt, yt)
+        random_state=0, n_estimators=400, conformalize=True,
+        depth=4).fit(Xt, yt)
     for iv in qm.interval_coverage(yv, m.predict(Xv), m.quantiles_):
         assert abs(iv["coverage"] - iv["nominal"]) < 0.02, iv
 
@@ -757,3 +759,81 @@ def test_crps_convention_cannot_change_which_model_wins():
     full = [qm.crps(y, Q, taus, convention="full") for Q in arms]
     assert np.allclose(full, [2 * h for h in half])
     assert np.array_equal(np.argsort(half), np.argsort(full))
+
+
+# --------------------------------------------------------------------------
+# The default head (Q5): depth 6, calibrated by "auto" on the
+# early-stopping rows.
+# --------------------------------------------------------------------------
+
+def test_auto_calibration_matches_valscaled_probe_bit_for_bit():
+    """With an eval_set, the default head IS the Depth6ValScaled probe:
+    the same depth-6 booster, wearing the CQR factors of its own
+    validation predictions."""
+    X, y = _heteroscedastic(n=2000, seed=40)
+    Xt, yt, Xv, yv = X[:1500], y[:1500], X[1500:], y[1500:]
+    kw = dict(random_state=0, n_estimators=200)
+    m = ChimeraBoostQuantileRegressor(**kw).fit(Xt, yt, eval_set=(Xv, yv))
+    assert m.model_.depth == 6
+    r = ChimeraBoostQuantileRegressor(
+        depth=6, conformalize=False, **kw).fit(Xt, yt, eval_set=(Xv, yv))
+    r.conformal_scale_ = _cqr_scales(r.predict(Xv), yv, r.quantiles_,
+                                     *r._median_idx_)
+    assert np.array_equal(m.conformal_scale_, r.conformal_scale_)
+    assert np.array_equal(m.predict(Xv), r.predict(Xv))
+    assert np.array_equal(m.predict(Xt), r.predict(Xt))
+
+
+def test_auto_calibration_uses_the_carved_early_stopping_fold():
+    """Without an eval_set, "auto" calibrates on the fold early stopping
+    carved -- the factors move, and the rows stay ordered."""
+    X, y = _heteroscedastic(n=2000, seed=41)
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=200).fit(X, y)
+    assert not np.all(m.conformal_scale_ == 1.0)
+    assert np.all(np.diff(m.predict(X), axis=1) >= 0.0)
+
+
+def test_auto_calibration_without_eval_rows_keeps_the_raw_grid():
+    """Early stopping off and no eval_set: nothing to calibrate on, so
+    the default ships the raw grid."""
+    X, y = _heteroscedastic(n=1000, seed=42)
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=60, early_stopping=False).fit(X, y)
+    assert np.all(m.conformal_scale_ == 1.0)
+
+
+def test_auto_calibration_degrades_to_the_raw_grid_when_uncertifiable():
+    """Levels the fold cannot certify -- or a grid with no symmetric pair
+    at all -- must not fail the default fit; the raw grid ships
+    instead."""
+    X, y = _heteroscedastic(n=600, seed=43)
+    kw = dict(random_state=0, n_estimators=40)
+    extreme = ChimeraBoostQuantileRegressor(
+        quantiles=[0.001, 0.5, 0.999], **kw).fit(X, y)
+    assert np.all(extreme.conformal_scale_ == 1.0)
+    pair_free = ChimeraBoostQuantileRegressor(
+        quantiles=[0.1, 0.25, 0.8], **kw).fit(X, y)
+    assert np.all(pair_free.conformal_scale_ == 1.0)
+
+
+def test_auto_never_carves_a_calibration_fold():
+    """The "auto" string is truthy, so a truthiness test would silently
+    carve a 20% fold on every default fit. The booster must train on
+    exactly the rows conformalize=False trains on."""
+    X, y = _heteroscedastic(n=1500, seed=44)
+    kw = dict(random_state=0, n_estimators=200)
+    m = ChimeraBoostQuantileRegressor(**kw).fit(X, y)
+    r = ChimeraBoostQuantileRegressor(
+        depth=6, conformalize=False, **kw).fit(X, y)
+    assert m.best_iteration_ == r.best_iteration_
+    np.testing.assert_array_equal(m.model_.predict_raw(X),
+                                  r.model_.predict_raw(X))
+
+
+def test_conformalize_rejects_anything_but_auto_true_or_false():
+    X, y = _heteroscedastic(n=300, seed=45)
+    with pytest.raises(ValueError,
+                           match='conformalize must be "auto", True or False'):
+        ChimeraBoostQuantileRegressor(
+            conformalize="yes", n_estimators=10).fit(X, y)
