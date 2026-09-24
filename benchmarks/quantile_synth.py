@@ -234,9 +234,16 @@ def run_one(regime, n, seed, taus, threads, models):
     out = {}
     for name in models:
         try:
-            Q, fit_s, pred_s, best = {**qs.ARMS, **qs.PROBES}[name](
+            res = {**qs.ARMS, **qs.PROBES}[name](
                 split, Xte, cat, threads, taus)
+            if len(res) == 5:
+                Q, fit_s, pred_s, best, extra = res
+            else:
+                Q, fit_s, pred_s, best = res
+                extra = None
             m = qs.score(yte, Q, taus, split[2])
+            if extra:
+                m.update(extra)
             m["excess_crps"] = float(m["crps"] - oracle_crps)
             out[name] = (m, fit_s, pred_s, best)
         except Exception as e:

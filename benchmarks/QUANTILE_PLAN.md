@@ -353,6 +353,26 @@ Q0 reads moved it down to item 4.
    choice must not give it back on the other 31 (the recentred head alone
    lost 9-16 there in Q0). T0 first, bench-only; the cost is about 2.3×
    the fit, so a pass has to earn it on the Pareto too.
+   **PASSED 2026-09-23 (I061, `results/quantile-20260923-210350.json`), a
+   library candidate.** Against the Q5 default on Grinsztajn: 23W-7L-6T,
+   median +1.57%, sign p = 0.005 (clears the amended gate), guard fine; the
+   five 5W-0L (+21.1%), the other 31 18W-7L-6T (+0.78%, none worse than
+   0.5%); 99% of the per-set best-candidate gain recovered (A2 got 20%,
+   B12); picks R 43, B 33, H 32 of 108 fits; 2.35× the head's fit. On the
+   59-key chart it sits at the top of the frontier, CRPS skill 0.6006 @
+   7.2×, above CatBoost MQ's 0.5982 @ 129×. The recentred candidate alone
+   blows up on tie-heavy targets (analcatdata_supreme, CRPS ×5.5e6: the
+   head's band collapses and the CQR factor divides by it); validation
+   rejected it every time.
+3b. **Q7 (added 2026-09-23 from Q6), the audition in the library.** Build
+   the three-candidate choice into `ChimeraBoostQuantileRegressor`, with
+   the bench arm as its exact oracle. Requirements from Q6: R reachable
+   only through the validation choice, a guard on R's calibration for a
+   collapsed band, the default head when there are no early-stopping rows,
+   and prediction, `staged_predict`, `predict_thresh` and SHAP defined for
+   whichever candidate won. Open product question for the maintainer: on
+   by default (the house rule makes the default the strongest
+   non-ensembling setting, which this is) or opt-in, at 2.35× the fit.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles

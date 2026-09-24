@@ -120,6 +120,31 @@ def _calibrate_on_val(m, Xv, yv):
         *m._median_idx_)
 
 
+def _calibrate(Qv_raw, Qt_raw, yv, taus):
+    """Calibrate two raw grids the way the library's default does.
+
+    The CQR factors come from the validation grid, and each grid is then
+    rescaled about its own predicted median -- the same two operations
+    `conformalize="auto"` performs internally, so every audition
+    candidate is calibrated identically. An uncertifiable grid keeps its
+    raw values, as the library does.
+    """
+    taus = np.asarray(taus, dtype=np.float64)
+    yv = np.asarray(yv, dtype=np.float64)
+    mi, mw = _median_index(taus)
+    try:
+        s = _cqr_scales(np.asarray(Qv_raw, dtype=np.float64), yv,
+                        taus, mi, mw)
+    except ValueError:
+        return Qv_raw, Qt_raw
+    out = []
+    for Q in (Qv_raw, Qt_raw):
+        Q = np.asarray(Q, dtype=np.float64)
+        c = _centre(Q, mi, mw)[:, None]
+        out.append(c + s[None, :] * (Q - c))
+    return out[0], out[1]
+
+
 def _fit_chimera_head(split, Xte, cat, threads, taus):
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS)
@@ -488,6 +513,115 @@ def _fit_chimera_exact_splits(split, Xte, cat, threads, taus):
     return Q, fit_s, time.time() - t, m.best_iteration_
 
 
+def _fit_raw_candidate(split, Xte, cat, threads, taus, **params):
+    """Fit one raw head and predict both grids; the caller calibrates.
+
+    `conformalize=False` keeps the grids raw. Returns the raw validation
+    and test grids, the stopping round, and the fit / validation-predict
+    / test-predict seconds separately, so the caller can sort them into
+    `fit_s` and `pred_s` the way the harness defines them.
+    """
+    Xf, Xv, yf, yv = split
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        conformalize=False, **params)
+    fit_s = time.time() - t
+    t = time.time()
+    Qv_raw = m.predict(Xv)
+    val_s = time.time() - t
+    t = time.time()
+    Qt_raw = m.predict(Xte)
+    pred_s = time.time() - t
+    return Qv_raw, Qt_raw, m.best_iteration_, fit_s, val_s, pred_s
+
+
+def _fit_point_centre(split, Xte, cat, threads):
+    """The squared-error centre RigidShift is built on, on both splits.
+
+    The point model is fitted exactly as `_fit_rigid_shift` fits it; the
+    centre on a split is its prediction plus the median validation
+    residual. Returns the validation and test centres with the fit /
+    validation-predict / test-predict seconds.
+    """
+    Xf, Xv, yf, yv = split
+    m = ChimeraBoostRegressor(n_estimators=rb.MAX_ITERS,
+                              early_stopping_rounds=rb.PATIENCE,
+                              thread_count=threads, random_state=0)
+    t = time.time()
+    m.fit(Xf, yf, cat_features=cat or None, eval_set=(Xv, yv))
+    fit_s = time.time() - t
+    t = time.time()
+    pv = np.asarray(m.predict(Xv), dtype=np.float64).ravel()
+    val_s = time.time() - t
+    t = time.time()
+    pt = np.asarray(m.predict(Xte), dtype=np.float64).ravel()
+    pred_s = time.time() - t
+    off = float(np.quantile(np.asarray(yv, dtype=np.float64) - pv, 0.5))
+    return pv + off, pt + off, fit_s, val_s, pred_s
+
+
+def _recentre_candidates(Qv_raw, Qt_raw, cv, ct, yv, taus):
+    """Shift H's raw grids onto the point centre row by row, then calibrate.
+
+    The shift is constant along each row, so rows stay ordered; the shared
+    calibration then rescales the shifted grids about their new centre.
+    """
+    mi, mw = _median_index(np.asarray(taus, dtype=np.float64))
+    Qv_sh = Qv_raw + (cv - _centre(Qv_raw, mi, mw))[:, None]
+    Qt_sh = Qt_raw + (ct - _centre(Qt_raw, mi, mw))[:, None]
+    return _calibrate(Qv_sh, Qt_sh, yv, taus)
+
+
+def _fit_chimera_recentred_cal(split, Xte, cat, threads, taus):
+    """The head's shape on a squared-error centre, calibrated. Asks whether
+    the centre alone fixes the low-noise losses."""
+    Xf, Xv, yf, yv = split
+    Qv_raw, Qt_raw, best, fit_h, val_h, pred_h = _fit_raw_candidate(
+        split, Xte, cat, threads, taus)
+    cv, ct, fit_p, val_p, pred_p = _fit_point_centre(
+        split, Xte, cat, threads)
+    t = time.time()
+    _, Qt = _recentre_candidates(Qv_raw, Qt_raw, cv, ct, yv, taus)
+    cal_s = time.time() - t
+    return (Qt, fit_h + val_h + fit_p + val_p + cal_s, pred_h + pred_p,
+            best)
+
+
+def _fit_chimera_audition(split, Xte, cat, threads, taus):
+    """H, B and R audition per fit on the validation rows. Asks whether
+    picking the winner per fit beats any single fix."""
+    Xf, Xv, yf, yv = split
+    Qv_hr, Qt_hr, best_h, fit_h, val_h, pred_h = _fit_raw_candidate(
+        split, Xte, cat, threads, taus)
+    t = time.time()
+    Qv_h, Qt_h = _calibrate(Qv_hr, Qt_hr, yv, taus)
+    cal_h = time.time() - t
+    Qv_br, Qt_br, best_b, fit_b, val_b, pred_b = _fit_raw_candidate(
+        split, Xte, cat, threads, taus, max_bins=254)
+    t = time.time()
+    Qv_b, Qt_b = _calibrate(Qv_br, Qt_br, yv, taus)
+    cal_b = time.time() - t
+    cv, ct, fit_p, val_p, pred_p = _fit_point_centre(
+        split, Xte, cat, threads)
+    # The R build and the three validation scorings are selection work, so
+    # they count into fit_s; pred_s holds the test predictions only.
+    t = time.time()
+    Qv_r, Qt_r = _recentre_candidates(Qv_hr, Qt_hr, cv, ct, yv, taus)
+    sh = float(qm.crps(yv, Qv_h, taus))
+    sb = float(qm.crps(yv, Qv_b, taus))
+    sr = float(qm.crps(yv, Qv_r, taus))
+    sel_s = time.time() - t
+    # argmin takes the first minimum: ties go H, then B, then R.
+    choice = int(np.argmin([sh, sb, sr]))
+    grids = [Qt_h, Qt_b, Qt_r]
+    bests = [best_h, best_b, best_h]
+    extra = {"audition_choice": choice, "audition_val_crps_h": sh,
+             "audition_val_crps_b": sb, "audition_val_crps_r": sr}
+    fit_s = (fit_h + val_h + cal_h + fit_b + val_b + cal_b + fit_p + val_p
+             + sel_s)
+    return grids[choice], fit_s, pred_h + pred_b + pred_p, bests[choice], extra
+
+
 PROBES = {
     "ChimeraBoostQuantileUncapped": _fit_chimera_uncapped,
     "ChimeraBoostQuantileDepth6": _fit_chimera_depth6,
@@ -501,6 +635,8 @@ PROBES = {
     "ChimeraBoostQuantileLR03Uncapped": _fit_chimera_lr03_uncapped,
     "ChimeraBoostQuantileDepth8": _fit_chimera_depth8,
     "ChimeraBoostQuantileExactSplits": _fit_chimera_exact_splits,
+    "ChimeraBoostQuantileRecentredCal": _fit_chimera_recentred_cal,
+    "ChimeraBoostQuantileAudition": _fit_chimera_audition,
 }
 
 
@@ -631,9 +767,16 @@ def run_one(ds_name, seed, taus, threads, models):
     out = {}
     for name in models:
         try:
-            Q, fit_s, pred_s, best = {**ARMS, **PROBES}[name](
-                split, Xte, cat, threads, taus)
-            out[name] = (score(yte, Q, taus, split[2]), fit_s, pred_s, best)
+            res = {**ARMS, **PROBES}[name](split, Xte, cat, threads, taus)
+            if len(res) == 5:
+                Q, fit_s, pred_s, best, extra = res
+            else:
+                Q, fit_s, pred_s, best = res
+                extra = None
+            m = score(yte, Q, taus, split[2])
+            if extra:
+                m.update(extra)
+            out[name] = (m, fit_s, pred_s, best)
         except Exception as e:
             # Same convention as run_benchmarks: a model that structurally
             # cannot handle a dataset is recorded as skipped, not allowed to

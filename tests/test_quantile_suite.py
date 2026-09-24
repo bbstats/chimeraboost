@@ -225,7 +225,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 12
+    assert len(qs.PROBES) == 14
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -436,3 +436,160 @@ def test_q2_d6_uncapped_matches_head_when_head_stops_early(monkeypatch):
         pytest.fail(f"d6uncapped differs from head at [{i}, {j}]: "
                     f"head={Qh[i, j]!r} d6uncapped={Qu[i, j]!r}")
     assert np.array_equal(Qu, Qh)
+
+
+# ---------------------------------------------------------------------------
+# Q6 audition: the H/B/R per-fit selection probe and its RecentredCal half.
+# ---------------------------------------------------------------------------
+
+def _q6_fit_raw(split, Xte, taus, **params):
+    """One raw head plus its raw validation and test grids, on the suite's
+    split -- the section-2 candidate recipe before calibration."""
+    Xf, Xv, yf, yv = split
+    m = qs._fit_head_model(split, None, 1, taus, rb.MAX_ITERS,
+                           conformalize=False, **params)
+    return m.predict(Xv), m.predict(Xte), m.best_iteration_
+
+
+def _q6_point_centre(split, Xte):
+    """The R centre: the RigidShift point fit plus the median validation
+    residual, on the validation and test rows."""
+    Xf, Xv, yf, yv = split
+    pm = ChimeraBoostRegressor(n_estimators=rb.MAX_ITERS,
+                              early_stopping_rounds=rb.PATIENCE,
+                              thread_count=1, random_state=0)
+    pm.fit(Xf, yf, eval_set=(Xv, yv))
+    pv = np.asarray(pm.predict(Xv), dtype=np.float64).ravel()
+    pt = np.asarray(pm.predict(Xte), dtype=np.float64).ravel()
+    off = float(np.quantile(np.asarray(yv, dtype=np.float64) - pv, 0.5))
+    return pv + off, pt + off
+
+
+def test_q6_h_equals_field_arm_bit_for_bit(monkeypatch):
+    """H -- the raw head plus the shared calibration -- is the field arm,
+    bit for bit: the library's default does the same thing internally."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Qv_raw, Qt_raw, best = _q6_fit_raw(split, Xte, taus)
+    _, Qt = qs._calibrate(Qv_raw, Qt_raw, split[3], taus)
+    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert best == best_h
+    if not np.array_equal(Qt, Qh):
+        i, j = np.argwhere(Qt != Qh)[0]
+        pytest.fail(f"H differs from the field arm at [{i}, {j}]: "
+                    f"H={Qt[i, j]!r} field={Qh[i, j]!r}")
+    assert np.array_equal(Qt, Qh)
+
+
+def test_q6_audition_picks_the_best_validation_crps(monkeypatch):
+    """The audition returns the lowest validation-CRPS candidate, and its
+    recorded fields match the recomputed scores."""
+    from chimeraboost import quantile_metrics as qm
+    from chimeraboost.quantile_api import _centre, _median_index
+
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Xf, Xv, yf, yv = split
+    Qv_hr, Qt_hr, best_h = _q6_fit_raw(split, Xte, taus)
+    Qv_h, Qt_h = qs._calibrate(Qv_hr, Qt_hr, yv, taus)
+    Qv_br, Qt_br, best_b = _q6_fit_raw(split, Xte, taus, max_bins=254)
+    Qv_b, Qt_b = qs._calibrate(Qv_br, Qt_br, yv, taus)
+    cv, ct = _q6_point_centre(split, Xte)
+    mi, mw = _median_index(taus)
+    Qv_r, Qt_r = qs._calibrate(
+        Qv_hr + (cv - _centre(Qv_hr, mi, mw))[:, None],
+        Qt_hr + (ct - _centre(Qt_hr, mi, mw))[:, None], yv, taus)
+    scores = [float(qm.crps(yv, Qv, taus)) for Qv in (Qv_h, Qv_b, Qv_r)]
+    want = int(np.argmin(scores))
+
+    got = qs._fit_chimera_audition(split, Xte, None, 1, taus)
+    assert len(got) == 5
+    Q, fit_s, pred_s, best, extra = got
+    assert extra["audition_choice"] == want
+    assert best == [best_h, best_b, best_h][want]
+    assert fit_s > 0 and pred_s >= 0
+    np.testing.assert_allclose(
+        [extra["audition_val_crps_h"], extra["audition_val_crps_b"],
+         extra["audition_val_crps_r"]], scores, rtol=1e-12, atol=0)
+    np.testing.assert_array_equal(Q, [Qt_h, Qt_b, Qt_r][want])
+
+
+def test_q6_recentred_cal_sits_on_the_point_centre(monkeypatch):
+    """RecentredCal's median column is the squared-error centre, and every
+    returned grid has non-decreasing rows."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    mi = int(np.argmin(np.abs(taus - 0.5)))
+    assert taus[mi] == 0.5
+    _, ct = _q6_point_centre(split, Xte)
+    Qr, _, _, _ = qs._fit_chimera_recentred_cal(split, Xte, None, 1, taus)
+    Qa, _, _, _, _ = qs._fit_chimera_audition(split, Xte, None, 1, taus)
+    np.testing.assert_allclose(Qr[:, mi], ct, rtol=1e-12, atol=0)
+    assert np.all(np.diff(Qr, axis=1) >= 0)
+    assert np.all(np.diff(Qa, axis=1) >= 0)
+
+
+def test_q6_extra_fields_land_in_metrics_in_both_harnesses(monkeypatch):
+    """A stub arm returning a 5th dict gets its fields merged into the
+    record's metrics in both run_one harnesses; a 4-value arm's record is
+    exactly what score() returns."""
+    import quantile_synth as qsyn
+    from chimeraboost import quantile_metrics as qm
+    from sklearn.model_selection import train_test_split
+
+    taus = np.array([0.1, 0.5, 0.9])
+
+    def _grid(n, k):
+        base = np.linspace(-1.0, 1.0, n)
+        return base[:, None] + np.linspace(-0.5, 0.5, k)[None, :]
+
+    def _stub5(split, Xte, cat, threads, taus):
+        return (_grid(Xte.shape[0], len(taus)), 0.1, 0.2, 7,
+                {"probe_x": 1.5, "probe_n": 3})
+
+    def _stub4(split, Xte, cat, threads, taus):
+        return _grid(Xte.shape[0], len(taus)), 0.1, 0.2, 7
+
+    monkeypatch.setattr(qs, "ARMS", {"Stub5": _stub5, "Stub4": _stub4})
+
+    def _fake_builder(n_tasks, rng):
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((60, 3))
+        y = X[:, 0] * 2.0 + rng.standard_normal(60)
+        return X, y, None, {}
+
+    monkeypatch.setattr(rb, "DATASETS", {"gr:reg_num/fake": _fake_builder})
+    meta, out = qs.run_one("gr:reg_num/fake", 0, taus, 1,
+                           ["Stub5", "Stub4"])
+    assert meta["task"] == "quantile"
+    m5, fit5, pred5, best5 = out["Stub5"]
+    m4, _, _, _ = out["Stub4"]
+    assert (fit5, pred5, best5) == (0.1, 0.2, 7)
+    assert m5["probe_x"] == 1.5
+    assert m5["probe_n"] == 3
+    assert set(m5) == set(m4) | {"probe_x", "probe_n"}
+    X, y, _, _ = _fake_builder(1, None)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                          random_state=0)
+    split = rb._val_split(Xtr, ytr, "regression", 0)
+    ref = qs.score(yte, _grid(Xte.shape[0], len(taus)), taus, split[2])
+    assert m4 == ref
+
+    meta_s, out_s = qsyn.run_one("location", 200, 0, taus, 1,
+                                 ["Stub5", "Stub4"])
+    assert meta_s["task"] == "quantile"
+    ms5, _, _, _ = out_s["Stub5"]
+    ms4, _, _, _ = out_s["Stub4"]
+    assert ms5["probe_x"] == 1.5
+    assert ms5["probe_n"] == 3
+    assert set(ms5) == set(ms4) | {"probe_x", "probe_n"}
+    Xn, yn, Q_or = qsyn.REGIMES["location"](200, 0, taus)
+    idx_tr, idx_te = train_test_split(np.arange(200), test_size=0.25,
+                                      random_state=0)
+    Xtr, Xte = Xn[idx_tr], Xn[idx_te]
+    ytr, yte = yn[idx_tr], yn[idx_te]
+    split = rb._val_split(Xtr, ytr, "regression", 0)
+    ref = qs.score(yte, _grid(Xte.shape[0], len(taus)), taus, split[2])
+    ref["excess_crps"] = float(
+        ref["crps"] - qm.crps(yte, Q_or[idx_te], taus))
+    assert ms4 == ref
