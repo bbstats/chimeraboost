@@ -225,7 +225,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 7
+    assert len(qs.PROBES) == 12
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -376,3 +376,63 @@ def test_q5_field_arm_is_depth6_valscaled_bit_for_bit(monkeypatch):
         split, Xte, None, 1, taus)
     assert best_h == best_d
     assert np.array_equal(Qh, Qd)
+
+
+# ---------------------------------------------------------------------------
+# Q2 CatBoost-knob probes: five one-knob arms off the current default head.
+# ---------------------------------------------------------------------------
+
+def test_q2_probes_carry_their_one_knob(monkeypatch):
+    """Each Q2 probe's fitted booster carries its one change, read where the
+    booster stores it, and keeps the library defaults otherwise: depth 6,
+    128 bins, the resolved 0.1 rate, projection splits -- with the default
+    "auto" calibration run (scales not all ones)."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    seen = _q0_capture_models(monkeypatch)
+    names = ["ChimeraBoostQuantileBins254",
+             "ChimeraBoostQuantileD6Uncapped",
+             "ChimeraBoostQuantileLR03Uncapped",
+             "ChimeraBoostQuantileDepth8",
+             "ChimeraBoostQuantileExactSplits"]
+    for name in names:
+        qs.PROBES[name](split, Xte, None, 1, taus)
+    assert len(seen) == 5
+    bins, d6u, lr03u, d8, exact = seen
+
+    # The one change each arm carries.
+    assert bins.model_.max_bins == 254
+    assert d6u.n_estimators == qs.UNCAPPED_ITERS
+    assert lr03u.n_estimators == qs.UNCAPPED_ITERS
+    assert lr03u.model_.lr_ == 0.03
+    assert d8.model_.depth == 8
+    assert exact.model_.exact_splits is True
+
+    # Library defaults otherwise.
+    for m in seen:
+        if m is not d8:
+            assert m.model_.depth == 6
+        if m is not bins:
+            assert m.model_.max_bins == 128
+        if m is not lr03u:
+            assert m.model_.lr_ == 0.1
+        if m is not exact:
+            assert m.model_.exact_splits is False
+        assert not np.all(np.asarray(m.conformal_scale_) == 1.0)
+
+
+def test_q2_d6_uncapped_matches_head_when_head_stops_early(monkeypatch):
+    """Below the shared cap the D6Uncapped probe is the field arm, bit for
+    bit: same constructor, same rows, only a larger round budget."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    assert best_h is not None and best_h < rb.MAX_ITERS
+    Qu, _, _, best_u = qs.PROBES["ChimeraBoostQuantileD6Uncapped"](
+        split, Xte, None, 1, taus)
+    assert best_u == best_h
+    if not np.array_equal(Qu, Qh):
+        i, j = np.argwhere(Qu != Qh)[0]
+        pytest.fail(f"d6uncapped differs from head at [{i}, {j}]: "
+                    f"head={Qh[i, j]!r} d6uncapped={Qu[i, j]!r}")
+    assert np.array_equal(Qu, Qh)

@@ -162,6 +162,8 @@ fact: 2026-09-23 | Q0 probe battery (`results/quantile-20260923-135654.json`, gr
 fact: 2026-09-23 | the size fade would LOWER the head's rate (0.1 at ≥ 15k training rows, 0.07 at ≤ 5k), the wrong way for the capped sets; the harness passes n_estimators = rb.MAX_ITERS = 2000 to every arm, the head's own default, so a library budget change cannot show in the bench
 fact: 2026-09-23 | standing quantile BASE = `results/quantile-20260923-185507.json` (the Q5 default head, depth 6 + `conformalize="auto"`, with the full field, 2 h 47 min): gr head vs CatBoost MQ 15W-21L (−0.24%), vs RigidShift 23W-13L (+0.74%), vs LightGBM per-level 26W-10L, vs our per-level 33W-3L, vs NGBoost 34W-2L, vs head+CQR 35W-1L; the head's 90% coverage 0.904 on gr, its CRPS skill 0.5920 @ 3.0× over 59 keys
 fact: 2026-09-23 | Q3 T0 (`results/quantile-20260923-150433.json`, gr regression): the head at learning rate 0.15 goes 17W-19L (−0.04%), at 0.2 11W-25L (−0.09%), each 7-6 on the 13 cap-bound sets, pol −34% / −74% (barrier B23); depth 6 with the library's CQR factors computed on the early-stopping rows goes 31W-5L (+0.33%, CI +0.14..+0.77) with the 90% coverage error 3.43 → 0.47 points (hc 9.24 → 0.85) at 0.90× the fit
+fact: 2026-09-23 | Q2 T0 (`results/quantile-20260923-195957.json`, gr regression, against the Q5 default): 254 bins 18W-13L-5T (sign p 0.47) but +21.1% SGEMM, +15% Brazilian_houses, +7.3% nyc-taxi, −23.6% pol, +4.9% cpu_act; rate 0.03 with 8000 rounds 23W-13L (p 0.13) at 2.97× the fit; depth 8 21W-15L (p 0.41) at 0.94×; 8000 rounds 7W-0L on the cap-bound sets (+1.18%); exact splits 9W-27L (p 0.004). RigidShift beats the head by +30.6% to +35.3% on Brazilian_houses and pol
+fact: 2026-09-23 | the quantile Phase 2 gate, tightened prospectively at I060: a default change must also clear a two-sided sign test at p < 0.05 on gr regression (≥ 25 of 36 decided, no ties)
 
 ## Beam
 
@@ -173,7 +175,7 @@ fact: 2026-09-23 | Q3 T0 (`results/quantile-20260923-150433.json`, gr regression
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | open: the published chart (`public_pareto.png`) refresh, a ~5 h run, its own go; S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR waits for the maintainer | Once Q5 merges: rebaseline the identity snapshot; then **Q2 T0**, a bench-only ablation of CatBoost MultiQuantile, one knob at a time toward our settings (depth, `l2_leaf_reg`, border count, rate, leaf estimation), to find what carries the one edge left in the field (CatBoost 21W-15L on gr CRPS, −0.24%). Then Q4 spread-aware categorical TS, Q1 (P16, now mostly a CRPS question since the default calibrates). | Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR waits for the maintainer | **Q6 T0** once the I060 PR merges: a validation-chosen head — the early-stopping rows pick among the default head, the head at 254 bins, and the head recentred on a squared-error median — scored on whether it keeps the five low-noise sets' +7% to +35% without giving it back on the other 31. Then Q4 spread-aware categorical TS, Q1 (P16, now mostly a CRPS question since the default calibrates). | Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -440,6 +442,121 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I060 2026-09-23 F7 Q2 T0 (what carries CatBoost MultiQuantile's last edge: five probes from our side; bench-only, pre-registered)
+why now: I059 merged (PR #159 at bda646b); the identity snapshot is
+rebaselined there (186/186). CatBoost MQ is the one arm still ahead of the
+new default on CRPS (gr 21W-15L, median −0.24%), and the edge is
+concentrated: five low-noise sets (Brazilian_houses in both forms, pol,
+SGEMM, nyc-taxi) carry −0.084 of the −0.116 summed skill gap, with the
+head's median-level pinball up to 50% worse there. The plan said "ablate
+CatBoost one knob at a time"; its resolved settings (`get_all_params` on a
+bench-shaped fit) differ from ours in five places — rate 0.03 (ours 0.1),
+254 borders (128), `l2_leaf_reg` 3 (1), MVS 0.8 subsampling (none),
+Cosine scoring on the full gradient (a projection) — and our fits cost 1/17
+of CatBoost's, so this rung probes from OUR side, where a winner is
+directly shippable. Branch `campaign/quantile-q2-probes` from main; muse
+task `20260923-q2-catboost-knobs.md`.
+arms (new opt-in `PROBES`, each the new default with ONE change):
+`ChimeraBoostQuantileBins254` (`max_bins=254`),
+`ChimeraBoostQuantileD6Uncapped` (`n_estimators=8000`),
+`ChimeraBoostQuantileLR03Uncapped` (`learning_rate=0.03`, 8000 rounds:
+CatBoost's rate with room to converge), `ChimeraBoostQuantileDepth8`,
+`ChimeraBoostQuantileExactSplits` (`exact_splits=True`, the exact gain
+summed across levels instead of the projection). References in the same
+run: the head and RigidShift; CatBoost from `quantile-20260923-185507.json`
+(deterministic data, so CRPS pairs across runs).
+barriers (`barrier_check.py`: B23, B20, B3, B4, B5, B6, B16, B19). **B20**
+(finer bins sharpen a few high-signal sets and overfit the rest; a flat
+increase needs a mechanism): this arm is a diagnostic, not a default
+proposal. The head's deficit sits on exactly the high-signal sets B20
+names as the ones bins sharpen, so the question is whether resolution
+carries CatBoost's edge there; the per-set read will show whether the
+June reversal (cpu_act −17% on the point model) repeats, and only a
+noise-aware rule could follow. **B23**: the rate arm is SMALLER steps with
+the rounds to take them, the direction B23 leaves open ("more rounds"),
+not bigger steps. B6: five single mechanism-motivated knobs, each copying
+a measured difference from the one arm that beats us, not a search. B3:
+no categorical mechanism is ported. B4, B5, B16, B19: keyword matches.
+forecast (gr regression, 36, against the head; the five low-noise sets
+named above are "the five"):
+(a) bins 254: wins ≥ 3 of the five with gains ≥ 5%; overall 12–22 wins,
+median −0.15% to +0.10% (B20's shape); cpu_act loses; fit 1.1–1.3×.
+(b) uncapped at depth 6: changes only the fits still cap-bound at depth 6
+(pol, SGEMM, superconduct, visualizing_soil and a few more), wins ≥ 75% of
+the changed sets, median gain on them +0.5% to +3%, guard ok; total fit
+1.2–1.6×.
+(c) rate 0.03 uncapped: 14–24 wins, median −0.1% to +0.3%; smaller steps
+help the low-noise sets (≥ 3 of the five improve) and are neutral
+elsewhere; total fit 2.5–4×.
+(d) depth 8: 16–26 wins, median −0.1% to +0.3%; loses on the small-data
+twins; fit 1.2–2×.
+(e) exact splits: 18–28 wins, median 0 to +0.3%; fit 1.5–4×.
+Coverage: every arm keeps the default calibration, so the guard holds on
+all five (|Δ| < 1 point).
+reading rule, written before the run: a probe PAYS if, against the head on
+gr, it wins ≥ half + 1 of the decided sets with median CRPS change > 0 and
+the guard holds. Among paying probes, the next library rung goes to the
+largest median gain per unit of total fit cost; ties break toward the
+smaller change. Separately, the diagnostic: the share of CatBoost's CRPS
+gap on the five that each probe closes (a probe closing ≥ 50% there names
+the carrier even if it does not pay overall). None pays and none closes
+half → the gap is not in these knobs; Q4 and Q1 follow.
+ran (muse, exit 0, no sandbox error): five probes through
+`_fit_head_model`, each passing only its one setting; 2 tests (each probe's
+fitted booster carries its change and the defaults otherwise; D6Uncapped
+equals the head where the head stops early). Claude: the diff reads
+correct; **1204 passed, 1 skipped**.
+synth screen (`results/quantile-synth-20260923-193053.json`, excess CRPS
+×1000, median over 12 keys): the head 49.09, bins 254 52.44, D6 uncapped
+49.09, rate 0.03 uncapped 46.39, depth 8 50.42, exact splits 44.89.
+decide tier (`results/quantile-20260923-195957.json`, 59 keys × 3 seeds ×
+7 arms, ~30 min; the head reproduces I059 on 36 of 36). Against the head
+on gr regression (36), with the sign test's two-sided p:
+
+| probe | W-L-T | median (engaged) | sign p | guard 90 / 80 | total fit | CatBoost gap closed on the five |
+|:--|--:|--:|--:|:--|--:|--:|
+| bins 254 | 18-13-5 | +0.02% | 0.47 | −0.02 / +0.19 ok | 1.02× | median 63% |
+| D6 uncapped | 7-0-29 | +1.18% | 0.016 | −0.05 / −0.09 ok | 1.36× | 1% |
+| rate 0.03 uncapped | 23-13 | +0.13% | 0.13 | +0.01 / +0.25 ok | 2.97× | 13% |
+| depth 8 | 21-15 | +0.06% | 0.41 | −0.16 / −0.01 ok | 0.94× | 7% |
+| exact splits | 9-27 | −0.16% | 0.004 | +0.18 / +0.73 ok | 2.35× | −34% |
+
+Per set on the five: bins 254 wins SGEMM +21.1%, Brazilian_houses +15.1% /
++14.9%, nyc-taxi +7.3% and LOSES pol −23.6%; RigidShift, the squared-error
+location, wins Brazilian_houses +32.7% / +30.6% and pol +35.3%, but not
+SGEMM (+1.6%) or nyc-taxi (−6.5%). The two carriers are complementary.
+cpu_act, B20's June reversal for the point model, goes the other way for
+the head at 254 bins (+4.9%). Pareto (59 keys): bins 254 0.5949 @ 3.0× and
+depth 8 0.5929 @ 2.6× push the frontier past the head (0.5920 @ 2.9×); the
+mean-skill axis rewards bins' large wins on a few sets.
+forecast: 18 of 23 counts HIT. MISS: bins' cpu_act (forecast a loss, won
++4.9%) and its fit (1.02×, floor 1.1); depth 8's fit (0.94×, floor 1.2);
+exact splits' wins and median (9-27, −0.16%; the synthetic screen had it
+best at 44.89, the second time the screen misread a real-data margin).
+verdict (the pre-registered rule): bins 254, rate 0.03 uncapped and depth 8
+PAY by the letter; D6 uncapped is a pointer (7 decided, fewer than 8);
+exact splits FAILS. The rule nominates depth 8 for the next library rung
+(the largest median gain per unit of fit). **Not run.** All three passes
+are coin flips (sign p 0.47 / 0.13 / 0.41, every CI spanning 0), and
+depth 8's own synthetic screen reads worse. The Phase 2 gate as written
+admits results at this noise level, so it is TIGHTENED, prospectively and
+before any library rung (written after seeing these marginal passes, so
+labelled post-hoc; it only makes shipping harder): **a default change must
+also clear a two-sided sign test at p < 0.05 on gr regression** (at least
+25 wins of 36 decided, without ties). Q5 clears it (31W-5L, p ≈ 2e-5).
+Under it nothing from Q2 ships. **Q2 CLOSED with a diagnosis instead**: on
+the five low-noise sets CatBoost's edge is resolution (bins) on SGEMM and
+nyc-taxi and location (a squared-error centre) on Brazilian_houses and
+pol. Docs corrected in the same change: `docs/quantiles.md` and
+`docs/parameters.md` called `exact_splits=True` "slightly more accurate";
+on real data it lost 27 of 36. PR for the maintainer (touches `tests/` and
+`docs/`; it edits the quantile gate, said so in the PR).
+next: Q6 T0, a validation-chosen head: per fit, the early-stopping rows
+choose among the default head, the head at 254 bins, and the head
+recentred on a squared-error median. The five hold +7% to +35% for
+whichever candidate suits them; the audition must not give it back on the
+other 31.
+
 #### I059 2026-09-23 F7 Q5 (the head's default: depth 6 and CQR factors on the early-stopping rows; LIBRARY change, pre-registered)
 why now: I058 merged (PR #158 at 42b0a19); its rule named this the next
 library rung. No campaign PR open, bench idle. The identity baseline
@@ -523,6 +640,8 @@ Changed). The `conformalize=True` coverage test measured at depth 6 by
 Claude (above) backs the docs' "within about 2 points".
 verdict: **PASS → PR for the maintainer** (library, tests, docs, image).
 The standing quantile BASE becomes `quantile-20260923-185507.json`.
+**MERGED by the maintainer as PR #159 (bda646b); branch deleted; identity
+snapshot rebaselined at bda646b (186/186).**
 next: once merged, rebaseline the identity snapshot at the merge commit;
 then Q2's T0 (F7).
 

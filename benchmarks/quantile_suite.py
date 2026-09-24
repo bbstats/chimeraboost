@@ -434,6 +434,60 @@ def _fit_chimera_depth6_valscaled(split, Xte, cat, threads, taus):
     return Q, fit_s, time.time() - t, m.best_iteration_
 
 
+def _fit_chimera_bins254(split, Xte, cat, threads, taus):
+    """The head with 254 borders, CatBoost MultiQuantile's border count."""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        max_bins=254)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_d6_uncapped(split, Xte, cat, threads, taus):
+    """The head at default depth with the cap lifted: the room to converge."""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_lr03_uncapped(split, Xte, cat, threads, taus):
+    """The head at CatBoost's 0.03 rate, with the lifted cap as that room."""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS,
+                        learning_rate=0.03)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_depth8(split, Xte, cat, threads, taus):
+    """The head with a deeper tree: depth 8, one past the shared default 6."""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        depth=8)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_exact_splits(split, Xte, cat, threads, taus):
+    """The head scoring splits on the full gradient instead of a projection."""
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
+                        exact_splits=True)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
+
+
 PROBES = {
     "ChimeraBoostQuantileUncapped": _fit_chimera_uncapped,
     "ChimeraBoostQuantileDepth6": _fit_chimera_depth6,
@@ -442,6 +496,11 @@ PROBES = {
     "ChimeraBoostQuantileLR15": _fit_chimera_lr15,
     "ChimeraBoostQuantileLR20": _fit_chimera_lr20,
     "ChimeraBoostQuantileDepth6ValScaled": _fit_chimera_depth6_valscaled,
+    "ChimeraBoostQuantileBins254": _fit_chimera_bins254,
+    "ChimeraBoostQuantileD6Uncapped": _fit_chimera_d6_uncapped,
+    "ChimeraBoostQuantileLR03Uncapped": _fit_chimera_lr03_uncapped,
+    "ChimeraBoostQuantileDepth8": _fit_chimera_depth8,
+    "ChimeraBoostQuantileExactSplits": _fit_chimera_exact_splits,
 }
 
 
