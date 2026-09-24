@@ -1667,6 +1667,11 @@ for 3 or more.</p>
 <td>Rows reserved for calibration. Ignored unless <code>conformalize=True</code>.</td>
 </tr>
 <tr>
+<td><code>audition</code></td>
+<td><code>True</code></td>
+<td>Fit three candidates and keep the one with the best CRPS on the rows early stopping held out: the head as configured, the same head with 254 histogram bins, and the head's shape moved onto the median of a squared-error <code>ChimeraBoostRegressor</code>. Every prediction method and <code>shap_values</code> serve the winner, recorded in <code>audition_</code>. About 2.35 times the fit time of one head. It needs early-stopping rows and <code>conformalize="auto"</code>; otherwise one head is fitted. <code>False</code> fits one head, as in earlier releases.</td>
+</tr>
+<tr>
 <td><code>split_projection</code></td>
 <td><code>"rotate"</code></td>
 <td>How the K gradient columns collapse for the split search. <code>"rotate"</code> measured best; <code>"sum"</code> is blind to changes in spread; <code>"gram"</code> measured no better than <code>"rotate"</code>.</td>

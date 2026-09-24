@@ -505,6 +505,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#three-candidates-one-kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three candidates, one kept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1207,6 +1218,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#three-candidates-one-kept" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three candidates, one kept
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1394,11 +1416,34 @@ when there are none (early stopping off and no <code>eval_set</code>), it return
 residual quantiles of the rows in that leaf, measured on those same rows, which is
 optimistic. The deeper trees of the default narrow it further, and the calibration
 repairs that.</p>
+<h2 id="three-candidates-one-kept">Three candidates, one kept<a class="headerlink" href="#three-candidates-one-kept" title="Permanent link">&para;</a></h2>
+<p>By default the fit builds three candidates and keeps the one with the best CRPS on the
+rows early stopping held out:</p>
+<ul>
+<li>the head as configured;</li>
+<li>the same head with 254 histogram bins, which resolves very fine-grained signal;</li>
+<li>the head's shape moved onto the median of an ordinary squared-error
+  <code>ChimeraBoostRegressor</code>, which places the centre better on low-noise targets.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">model</span><span class="o">.</span><span class="n">audition_</span><span class="p">[</span><span class="s2">"selected"</span><span class="p">]</span>     <span class="c1"># "head", "bins" or "recentred"</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">model</span><span class="o">.</span><span class="n">audition_</span><span class="p">[</span><span class="s2">"crps"</span><span class="p">]</span>         <span class="c1"># each candidate's score on the held-out rows</span>
+</code></pre></div>
+<p>Each candidate is calibrated the same way before it is scored. Every prediction method
+serves the winner, and so does <code>shap_values</code>: for the recentred candidate the
+squared-error model's attributions are added to every level, so the attributions still
+add up to the prediction.</p>
+<p>On the 36 Grinsztajn regression datasets the choice beats a single head on 23 and loses
+on 7 (on the other 6 it keeps the single head), with a median CRPS gain of 1.6% where the
+two differ. The gain is largest on low-noise targets: 7% to 30% on five of them. It
+costs about 2.35 times the fit time of a single head. The choice needs held-out rows, so
+with early stopping off and no <code>eval_set</code>, or with <code>conformalize</code> set to <code>True</code> or
+<code>False</code>, one head is fitted. <code>audition=False</code> fits one head, as earlier releases did.</p>
 <h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
 <p><code>chimeraboost.quantile_metrics</code> scores a predicted grid.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1446,10 +1491,10 @@ repairs that.</p>
 <p>CRPS is the one number for "is this predictive distribution any good". Lower is better,
 and only the true conditional distribution reaches the minimum. Exactly three things
 make it worse, and the score alone will not tell you which:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">norm</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">taus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.91</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">y</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="mi">20_000</span><span class="p">)</span>                     <span class="c1"># the truth is standard normal</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">loc</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">loc</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">taus</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">norm</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">taus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.91</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">y</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="mi">20_000</span><span class="p">)</span>                     <span class="c1"># the truth is standard normal</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">loc</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">loc</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">taus</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">))</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1497,21 +1542,21 @@ outcome that falls outside, and so cannot be gamed in either direction.</p>
 <p>The PIT histogram is the instrument for the under-dispersion described above. It asks
 where in the predicted grid each outcome actually landed: flat means calibrated, a U
 means the bands are too narrow, a hump means too wide.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
 </code></pre></div>
 <p><code>predict(kind="mean")</code> integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.</p>
 <h2 id="explaining-a-predicted-distribution">Explaining a predicted distribution<a class="headerlink" href="#explaining-a-predicted-distribution" title="Permanent link">&para;</a></h2>
 <p><code>shap_values</code> gives exact TreeSHAP attributions with a channel per level:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
 </code></pre></div>
 <p>The one no per-level approach can give you is the attribution of interval <strong>width</strong> —
 which features make a particular row's prediction more <em>uncertain</em>, as opposed to
 higher or lower:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
 </code></pre></div>
 <p>Shapley values are linear in the value function, so the difference between two levels'
 attributions is exactly the attribution of their difference. On heteroscedastic data
@@ -1525,14 +1570,15 @@ that across rows mixes rows that were reordered differently.</p>
 <p><code>shap_importances</code> already handles this — it explains the levels <em>before</em>
 rearrangement, where every row is on the same footing. If you are building your own
 global summary or a beeswarm plot, ask for the same thing:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
 </code></pre></div>
 <p>Per-prediction explanations need none of this; the default is what you want.</p>
 <h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
 <p>Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
 early-stopping split and budget (<code>benchmarks/quantile_suite.py</code>). Win-loss is per
 dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
-and miscoverage together. Fit time is each arm's median against ours, in the same run.</p>
+and miscoverage together. Fit time is each arm's median against ours (which includes the
+three-candidate choice), in the same run.</p>
 <table>
 <thead>
 <tr>
@@ -1546,53 +1592,55 @@ and miscoverage together. Fit time is each arm's median against ours, in the sam
 <tbody>
 <tr>
 <td style="text-align: left;">19 <code>loss="Quantile"</code> models</td>
-<td style="text-align: left;"><strong>33W-3L</strong></td>
+<td style="text-align: left;"><strong>34W-2L</strong></td>
 <td style="text-align: left;"><strong>33W-3L</strong></td>
 <td style="text-align: left;">0.00 vs 0.16</td>
-<td style="text-align: left;">3.7x ours</td>
+<td style="text-align: left;">1.5x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">19 LightGBM quantile boosters</td>
-<td style="text-align: left;"><strong>26W-10L</strong></td>
-<td style="text-align: left;"><strong>31W-5L</strong></td>
+<td style="text-align: left;"><strong>30W-6L</strong></td>
+<td style="text-align: left;"><strong>30W-6L</strong></td>
 <td style="text-align: left;">0.00 vs 0.22</td>
-<td style="text-align: left;">2.1x ours</td>
+<td style="text-align: left;">0.9x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">CatBoost <code>MultiQuantile</code></td>
-<td style="text-align: left;">15W-21L</td>
-<td style="text-align: left;"><strong>25W-11L</strong></td>
+<td style="text-align: left;"><strong>27W-9L</strong></td>
+<td style="text-align: left;"><strong>26W-10L</strong></td>
 <td style="text-align: left;">0.00 vs 0.06</td>
-<td style="text-align: left;">17x ours</td>
+<td style="text-align: left;">6.8x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">one squared-error model, fixed width</td>
-<td style="text-align: left;"><strong>23W-13L</strong></td>
 <td style="text-align: left;"><strong>29W-7L</strong></td>
+<td style="text-align: left;"><strong>28W-8L</strong></td>
 <td style="text-align: left;">none on either side</td>
-<td style="text-align: left;">0.34x ours</td>
+<td style="text-align: left;">0.14x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">NGBoost, Normal distribution</td>
-<td style="text-align: left;"><strong>34W-2L</strong></td>
-<td style="text-align: left;"><strong>34W-2L</strong></td>
+<td style="text-align: left;"><strong>35W-1L</strong></td>
+<td style="text-align: left;"><strong>33W-3L</strong></td>
 <td style="text-align: left;">none on either side</td>
-<td style="text-align: left;">15x ours</td>
+<td style="text-align: left;">5.2x ours</td>
 </tr>
 </tbody>
 </table>
-<p><strong>CatBoost's shared head is still slightly sharper on CRPS.</strong> It wins 21 of the 36
-datasets, by a median of 0.24%, at 17 times our fit time. Its 90% intervals cover 83% on
-average, so on the interval score, which prices coverage and width together, we come out
-ahead.</p>
+<p><strong>CatBoost's shared head no longer leads on CRPS.</strong> We win 27 of the 36 datasets, by a
+median of 0.29%, in about a seventh of its fit time. Its 90% intervals cover 83% on
+average against our 90%, so on the interval score, which prices coverage and width
+together, the lead is wider: 26 of 36, by a median of 2.3%.</p>
 <p>The fixed-width row is the simplest honest baseline: fit an ordinary squared-error model,
 take the quantiles of its validation residuals, and add the same offsets to every
-prediction, so every row gets the same interval. It fits in a third of our time and its
-intervals are well calibrated. We beat it on 23 of 36 datasets on CRPS, by a median of
-0.74%, and on 29 of 36 on the interval score, because our widths follow the data. If one
-width for every row suits your problem, it is a reasonable choice.</p>
+prediction, so every row gets the same interval. It fits in about a seventh of our time
+and its intervals are well calibrated. We beat it on 29 of 36 datasets on CRPS, by a
+median of 1.9%, and on 28 of 36 on the interval score, because our widths follow the
+data. If one width for every row suits your problem and fit time matters most, it is a
+reasonable choice.</p>
 <p>Against a stack of independent per-level models, ours or LightGBM's, the shared structure
-clearly pays: better accuracy, a shorter fit, and levels that never cross.</p>
+clearly pays in accuracy, and its levels never cross. Fit time is now similar: our own 19
+per-level models take 1.5 times as long, LightGBM's 19 boosters about 0.9 times.</p>
 <p>Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
 (<code>benchmarks/quantile_head.py</code>), which flatters us. The table above is the real-data
@@ -1610,6 +1658,8 @@ calibration repairs the tails. Earlier releases used <code>depth=4</code> with n
 <code>depth=4, conformalize=False</code> to reproduce them exactly. <code>min_child_weight</code> follows the
 most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
 about 20 rows.</p>
+<p>When fit time matters more than the last 1.6%, <code>audition=False</code> fits a single head in
+less than half the time.</p>
 <p><code>split_projection</code> chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: <code>"rotate"</code> measured
 best, <code>"sum"</code> is blind to changes in spread, and <code>"gram"</code> measured no better than
