@@ -74,7 +74,7 @@ A whole grid of conditional quantiles from one booster. See the User Guide:
 | `conformalize` | `"auto"` | How the intervals are calibrated. `"auto"` rescales them after the fit on the rows early stopping held out (your `eval_set` or the `validation_fraction` fold), so no extra rows are spent; with no such rows, or too few to certify the levels, you get the raw grid. `True` calibrates on a separate fold held out before the early-stopping split, which gives a distribution-free coverage guarantee and raises if that fold is too small. `False` returns the raw grid, which runs narrow. |
 | `calibration_fraction` | `0.2` | Rows reserved for calibration. Ignored unless `conformalize=True`. |
 | `split_projection` | `"rotate"` | How the K gradient columns collapse for the split search. `"rotate"` measured best; `"sum"` is blind to changes in spread; `"gram"` measured no better than `"rotate"`. |
-| `exact_splits` | `False` | Score splits on the exact gain summed across levels instead of a projection. Slightly more accurate, at the cost of K histogram channels per feature. |
+| `exact_splits` | `False` | Score splits on the exact gain summed across levels instead of a projection, at the cost of K histogram channels per feature. Measured worse on real data (a worse CRPS on 27 of 36 Grinsztajn regression datasets), so it is a reference setting only. |
 
 Two defaults are set for this head rather than inherited: `depth` is 6, because deeper
 trees place the centre of the distribution better and the default calibration repairs the

@@ -244,6 +244,14 @@ the change must not worsen the median coverage error at 80% or at 90% by
 more than **1 point** (absolute). Crossing stays exactly 0. Both Pareto axes
 read in every verdict. The small-data and time twins are pointers (§2).
 
+**Amended 2026-09-23 (I060), prospectively, before any further library
+rung:** a DEFAULT change must also clear a two-sided sign test at
+**p < 0.05** on Grinsztajn regression (at least 25 wins of 36 decided,
+without ties). Written after Q2's three marginal passes (sign p 0.47 /
+0.13 / 0.41), so it is post-hoc, and it only ever makes shipping harder.
+Q5 clears it (31W-5L, p ≈ 2e-5). T0 probes keep the original form as a
+screen; only a library default needs the significance.
+
 ### Phase 2 — the idea queue, ranked (re-ranked 2026-09-23 on Q-B4)
 
 Q-B4 moved the queue: the CRPS is lost at the centre and on the capped
@@ -327,6 +335,24 @@ Q0 reads moved it down to item 4.
    one knob at a time toward our settings (depth, `l2_leaf_reg`, border
    count, rate, leaf estimation); depth and budget are already measured on
    our side. The next rung once Q5 merges.
+   **CLOSED 2026-09-23 (I060, `results/quantile-20260923-195957.json`)
+   with a diagnosis, nothing shipped.** Probed from our side, each the Q5
+   default with one of CatBoost's settings: 254 bins 18W-13L-5T, rate 0.03
+   with 8000 rounds 23W-13L, depth 8 21W-15L (sign p 0.47 / 0.13 / 0.41,
+   none clears the amended gate); 8000 rounds 7W-0L on the cap-bound sets
+   (a pointer); exact split gain 9W-27L (killed). The edge sits on five
+   low-noise sets and has two complementary carriers: resolution (254 bins:
+   SGEMM +21%, Brazilian_houses +15%, nyc-taxi +7%, but pol −24%) and
+   location (a squared-error centre, RigidShift: Brazilian_houses +31% to
+   +33%, pol +35%). B20's June cpu_act reversal does not repeat for the
+   head (+4.9% at 254 bins).
+3a. **Q6 (added 2026-09-23 from Q2), a validation-chosen head.** Per fit,
+   the early-stopping rows choose among the default head, the head at 254
+   bins, and the head recentred on a squared-error median. The five
+   low-noise sets hold +7% to +35% for whichever candidate suits each; the
+   choice must not give it back on the other 31 (the recentred head alone
+   lost 9-16 there in Q0). T0 first, bench-only; the cost is about 2.3×
+   the fit, so a pass has to earn it on the Pareto too.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
