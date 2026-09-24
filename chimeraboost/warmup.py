@@ -128,6 +128,7 @@ def warmup(verbose=False, background=False, shap=False):
     called directly below, with the dtypes the real call passes.
     """
     global _NOTICE_DONE
+    _NOTICE_DONE = True   # this call is the compile, or starts it -- do not narrate it
 
     if background:
         t = threading.Thread(target=warmup,
@@ -135,8 +136,6 @@ def warmup(verbose=False, background=False, shap=False):
                              name="chimeraboost-warmup", daemon=True)
         t.start()
         return t
-
-    _NOTICE_DONE = True   # this call *is* the compile -- do not narrate it
 
     t0 = time.perf_counter()
     rng = np.random.default_rng(0)

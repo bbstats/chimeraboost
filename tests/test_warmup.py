@@ -253,3 +253,35 @@ def test_warm_cache_fit_is_silent(capsys):
     ChimeraBoostClassifier(n_estimators=5, random_state=0).fit(X, y)
     captured = capsys.readouterr()
     assert captured.err == "" and captured.out == ""
+
+
+def test_background_warmup_suppresses_notice_before_thread_runs(monkeypatch, capsys):
+    """Issue #84: warmup(background=True) must arm _NOTICE_DONE in the caller,
+    before the daemon thread starts. Otherwise a fit racing the thread sees
+    the flag unset and prints the cold-compile notice -- the exact case the
+    notice exists to avoid, since a warmup is already in flight."""
+    w = warmup_module
+    monkeypatch.setattr(w, "_NOTICE_DONE", False)
+    monkeypatch.delenv("CHIMERABOOST_NO_NOTICE", raising=False)
+    monkeypatch.delenv("CHIMERABOOST_WARMUP", raising=False)
+    monkeypatch.setattr(w, "_cache_is_cold", lambda: True)
+
+    real_warmup = w.warmup
+    entered = threading.Event()
+    release = threading.Event()
+
+    def stand_in(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=300)
+
+    monkeypatch.setattr(w, "warmup", stand_in)
+    t = real_warmup(background=True)
+    try:
+        assert entered.wait(timeout=300)
+        assert w._NOTICE_DONE is True
+        w._maybe_notice_cold_compile()
+        assert capsys.readouterr().err == ""
+    finally:
+        release.set()
+        t.join(timeout=300)
+    assert not t.is_alive()

@@ -452,6 +452,40 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I064 2026-09-24 issue #84 (`warmup(background=True)` can still print the cold-compile notice; LIBRARY bug fix, pre-registered)
+why now: the first rung under the 2026-09-24 focus rule (GitHub issues,
+bugs first). PR #167 merged (4289fe4), issue #163 closed. Branch
+`campaign/issue84-warmup-notice` from main 4289fe4; muse task
+`20260924-issue84-warmup-notice.md`.
+change (`chimeraboost/warmup.py`, `tests/test_warmup.py`): `_NOTICE_DONE =
+True` moves above the `if background:` branch, so the caller marks the
+notice done before the daemon thread exists; a fit on the main thread in
+the window before the thread runs `warmup()` no longer prints "compiling
+numba kernels". The env route (`CHIMERABOOST_WARMUP`) was never affected.
+New regression test: the real `warmup(background=True)` with its thread
+target held on an Event, asserting the flag is set and
+`_maybe_notice_cold_compile()` prints nothing while the thread is blocked;
+it must fail on the unfixed code.
+barriers: B22 matched on "thread" only (fit-speed threading against
+LightGBM); this touches no fit path. None applies.
+forecast: (1) the new test fails before the fix, passes after; (2) full
+suite green; (3) identity snapshot 186/186 identical (only a stderr notice
+moves), so both Pareto axes are untouched: strength exactly equal, fit
+time unchanged.
+muse (exit 0): the one-line move, with the comment now "this call is the
+compile, or starts it"; the new test
+`test_background_warmup_suppresses_notice_before_thread_runs` holds the
+thread on an Event (an `entered` event proves it is parked; the timeouts
+are hang guards only). Fail-before: `assert False is True` on the flag;
+pass-after: 1 passed. Ruff clean on `chimeraboost/`.
+result: (1) HIT (muse's revert-and-run). (2) HIT: 1219 passed, 1 skipped
+(conda python, outside the sandbox). (3) HIT: identity snapshot 186/186
+bit-identical.
+verdict: **PASS → PR for the maintainer** (library + test).
+next: issue #81 (task file `20260924-issue81-research-ideas.md` written):
+the self-test half was fixed on 2026-08-10 (3ef96bd); seven `ideas.py`
+entries still claim `implemented=True` for flags the library removed.
+
 #### I063 2026-09-24 F7 issue #163 (the quantile suite's NGBoost opponent moves to the RoNGBa settings; BENCH-only, pre-registered)
 why now: the maintainer's issue #163 (2026-09-24), "Use RONGBA as default
 NGBoost benchmark", with the settings in code. The paper is Ren, Sun and
