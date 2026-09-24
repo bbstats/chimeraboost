@@ -114,6 +114,34 @@ residual quantiles of the rows in that leaf, measured on those same rows, which 
 optimistic. The deeper trees of the default narrow it further, and the calibration
 repairs that.
 
+## Three candidates, one kept
+
+By default the fit builds three candidates and keeps the one with the best CRPS on the
+rows early stopping held out:
+
+- the head as configured;
+- the same head with 254 histogram bins, which resolves very fine-grained signal;
+- the head's shape moved onto the median of an ordinary squared-error
+  `ChimeraBoostRegressor`, which places the centre better on low-noise targets.
+
+```python
+model = ChimeraBoostQuantileRegressor().fit(X, y)
+model.audition_["selected"]     # "head", "bins" or "recentred"
+model.audition_["crps"]         # each candidate's score on the held-out rows
+```
+
+Each candidate is calibrated the same way before it is scored. Every prediction method
+serves the winner, and so does `shap_values`: for the recentred candidate the
+squared-error model's attributions are added to every level, so the attributions still
+add up to the prediction.
+
+On the 36 Grinsztajn regression datasets the choice beats a single head on 23 and loses
+on 7 (on the other 6 it keeps the single head), with a median CRPS gain of 1.6% where the
+two differ. The gain is largest on low-noise targets: 7% to 30% on five of them. It
+costs about 2.35 times the fit time of a single head. The choice needs held-out rows, so
+with early stopping off and no `eval_set`, or with `conformalize` set to `True` or
+`False`, one head is fitted. `audition=False` fits one head, as earlier releases did.
+
 ## Scoring
 
 `chimeraboost.quantile_metrics` scores a predicted grid.
@@ -234,30 +262,33 @@ Per-prediction explanations need none of this; the default is what you want.
 Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
 early-stopping split and budget (`benchmarks/quantile_suite.py`). Win-loss is per
 dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
-and miscoverage together. Fit time is each arm's median against ours, in the same run.
+and miscoverage together. Fit time is each arm's median against ours (which includes the
+three-candidate choice), in the same run.
 
 | against | CRPS | interval score | crossing | fit time |
 |:--|:--|:--|:--|:--|
-| 19 `loss="Quantile"` models | **33W-3L** | **33W-3L** | 0.00 vs 0.16 | 3.7x ours |
-| 19 LightGBM quantile boosters | **26W-10L** | **31W-5L** | 0.00 vs 0.22 | 2.1x ours |
-| CatBoost `MultiQuantile` | 15W-21L | **25W-11L** | 0.00 vs 0.06 | 17x ours |
-| one squared-error model, fixed width | **23W-13L** | **29W-7L** | none on either side | 0.34x ours |
-| NGBoost, Normal distribution | **34W-2L** | **34W-2L** | none on either side | 15x ours |
+| 19 `loss="Quantile"` models | **34W-2L** | **33W-3L** | 0.00 vs 0.16 | 1.5x ours |
+| 19 LightGBM quantile boosters | **30W-6L** | **30W-6L** | 0.00 vs 0.22 | 0.9x ours |
+| CatBoost `MultiQuantile` | **27W-9L** | **26W-10L** | 0.00 vs 0.06 | 6.8x ours |
+| one squared-error model, fixed width | **29W-7L** | **28W-8L** | none on either side | 0.14x ours |
+| NGBoost, Normal distribution | **35W-1L** | **33W-3L** | none on either side | 5.2x ours |
 
-**CatBoost's shared head is still slightly sharper on CRPS.** It wins 21 of the 36
-datasets, by a median of 0.24%, at 17 times our fit time. Its 90% intervals cover 83% on
-average, so on the interval score, which prices coverage and width together, we come out
-ahead.
+**CatBoost's shared head no longer leads on CRPS.** We win 27 of the 36 datasets, by a
+median of 0.29%, in about a seventh of its fit time. Its 90% intervals cover 83% on
+average against our 90%, so on the interval score, which prices coverage and width
+together, the lead is wider: 26 of 36, by a median of 2.3%.
 
 The fixed-width row is the simplest honest baseline: fit an ordinary squared-error model,
 take the quantiles of its validation residuals, and add the same offsets to every
-prediction, so every row gets the same interval. It fits in a third of our time and its
-intervals are well calibrated. We beat it on 23 of 36 datasets on CRPS, by a median of
-0.74%, and on 29 of 36 on the interval score, because our widths follow the data. If one
-width for every row suits your problem, it is a reasonable choice.
+prediction, so every row gets the same interval. It fits in about a seventh of our time
+and its intervals are well calibrated. We beat it on 29 of 36 datasets on CRPS, by a
+median of 1.9%, and on 28 of 36 on the interval score, because our widths follow the
+data. If one width for every row suits your problem and fit time matters most, it is a
+reasonable choice.
 
 Against a stack of independent per-level models, ours or LightGBM's, the shared structure
-clearly pays: better accuracy, a shorter fit, and levels that never cross.
+clearly pays in accuracy, and its levels never cross. Fit time is now similar: our own 19
+per-level models take 1.5 times as long, LightGBM's 19 boosters about 0.9 times.
 
 Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
@@ -279,6 +310,9 @@ calibration repairs the tails. Earlier releases used `depth=4` with no calibrati
 `depth=4, conformalize=False` to reproduce them exactly. `min_child_weight` follows the
 most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
 about 20 rows.
+
+When fit time matters more than the last 1.6%, `audition=False` fits a single head in
+less than half the time.
 
 `split_projection` chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: `"rotate"` measured

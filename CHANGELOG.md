@@ -66,6 +66,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   0.9]`): the answer would be mostly interpolation, not an estimate.
 
 ### Changed
+- **The quantile head now chooses among three candidates by default, and
+  its CRPS passes CatBoost MultiQuantile's.** `ChimeraBoostQuantileRegressor`
+  gains `audition=True`. The fit builds the head as configured, the same
+  head with 254 histogram bins, and the head's shape moved onto the median
+  of a squared-error `ChimeraBoostRegressor`; calibrates each the same way;
+  and keeps whichever scores the best CRPS on the rows early stopping held
+  out. On the 36 Grinsztajn regression datasets it beats the single head on
+  23 and loses on 7 (median +1.6% CRPS where the two differ, and +7% to +30%
+  on five low-noise datasets), and it now beats CatBoost MultiQuantile on 27
+  of the 36 in about a seventh of its fit time. Over all 59 benchmark
+  datasets its CRPS skill is 0.601 against CatBoost's 0.598. It costs about
+  2.35 times the fit of a single head. Every prediction method,
+  `staged_predict` and `shap_values` serve the winner, recorded in
+  `audition_`; for the recentred candidate the squared-error model's
+  attributions are added to every level, so they still sum to the
+  prediction. The choice needs early-stopping rows and
+  `conformalize="auto"`; otherwise one head is fitted, and
+  `audition=False` restores the single head. One caveat: on three
+  time-split datasets the 90% coverage error rises from 0.7 to 2.1 points
+  (the 80% one falls from 3.2 to 1.8). Ordinary regressors and classifiers
+  are untouched: the exact-output snapshot moves only one quantile
+  configuration (182 of 186 pins identical). Record:
+  `benchmarks/QUANTILE_PLAN.md`, Phase 2.
 - **The quantile head's intervals are calibrated by default, and its CRPS
   improves.** `ChimeraBoostQuantileRegressor` changes two defaults. `depth`
   is now 6 (it was 4). `conformalize` gains a third value, `"auto"`, which

@@ -772,7 +772,7 @@ def test_auto_calibration_matches_valscaled_probe_bit_for_bit():
     validation predictions."""
     X, y = _heteroscedastic(n=2000, seed=40)
     Xt, yt, Xv, yv = X[:1500], y[:1500], X[1500:], y[1500:]
-    kw = dict(random_state=0, n_estimators=200)
+    kw = dict(random_state=0, n_estimators=200, audition=False)
     m = ChimeraBoostQuantileRegressor(**kw).fit(Xt, yt, eval_set=(Xv, yv))
     assert m.model_.depth == 6
     r = ChimeraBoostQuantileRegressor(
@@ -822,7 +822,7 @@ def test_auto_never_carves_a_calibration_fold():
     carve a 20% fold on every default fit. The booster must train on
     exactly the rows conformalize=False trains on."""
     X, y = _heteroscedastic(n=1500, seed=44)
-    kw = dict(random_state=0, n_estimators=200)
+    kw = dict(random_state=0, n_estimators=200, audition=False)
     m = ChimeraBoostQuantileRegressor(**kw).fit(X, y)
     r = ChimeraBoostQuantileRegressor(
         depth=6, conformalize=False, **kw).fit(X, y)
@@ -837,3 +837,151 @@ def test_conformalize_rejects_anything_but_auto_true_or_false():
                            match='conformalize must be "auto", True or False'):
         ChimeraBoostQuantileRegressor(
             conformalize="yes", n_estimators=10).fit(X, y)
+
+
+# --------------------------------------------------------------------------
+# The audition default (Q7): H/B/R per-fit choice, on by default.
+# --------------------------------------------------------------------------
+
+
+_AUD_TAUS = [0.05, 0.25, 0.5, 0.75, 0.95]
+
+
+def _aud_split(X, y, split_seed):
+    """Train/val/test split matching the bench: 75/25, then 80/20 val."""
+    from sklearn.model_selection import train_test_split
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                          random_state=split_seed)
+    Xf, Xv, yf, yv = train_test_split(Xtr, ytr, test_size=0.2,
+                                      random_state=0)
+    return (Xf, Xv, yf, yv), (Xte, yte)
+
+
+def _aud_data(kind):
+    """Small synthetic sets where H, B and R each win (verified)."""
+    if kind == "head":
+        rng = np.random.default_rng(1)
+        n = 1000
+        X = rng.standard_normal((n, 5))
+        y = 2.0 * X[:, 0] + np.exp(0.6 * X[:, 1]) * rng.standard_normal(n)
+        return X, y, 1
+    if kind == "bins":
+        rng = np.random.default_rng(7)
+        n = 1200
+        X = rng.uniform(-1.0, 1.0, size=(n, 3))
+        y = ((X[:, 0] > 0.712345).astype(float) * 5.0
+             + rng.standard_normal(n) * 0.2)
+        return X, y, 0
+    assert kind == "recentred"
+    rng = np.random.default_rng(2)
+    n = 1000
+    X = rng.standard_normal((n, 4))
+    y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
+    return X, y, 0
+
+
+def _aud_fit(kind):
+    """Fit the default head on the kind's split; return (model, Xte, yte)."""
+    X, y, sseed = _aud_data(kind)
+    (Xf, Xv, yf, yv), (Xte, yte) = _aud_split(X, y, sseed)
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=_AUD_TAUS, n_estimators=300, early_stopping_rounds=50,
+        thread_count=1, random_state=0).fit(Xf, yf, eval_set=(Xv, yv))
+    return m, Xte, yte
+
+
+def test_audition_false_equals_single_head():
+    """audition=False is the Q5 single head: auto factors on its own rows."""
+    X, y = _heteroscedastic(n=1500, seed=50)
+    Xt, yt, Xv, yv = X[:1100], y[:1100], X[1100:], y[1100:]
+    kw = dict(random_state=0, n_estimators=120, audition=False)
+    m = ChimeraBoostQuantileRegressor(**kw).fit(Xt, yt, eval_set=(Xv, yv))
+    assert m.audition_ is None
+    r = ChimeraBoostQuantileRegressor(
+        depth=6, conformalize=False, **kw).fit(Xt, yt, eval_set=(Xv, yv))
+    r.conformal_scale_ = _cqr_scales(r.predict(Xv), yv, r.quantiles_,
+                                     *r._median_idx_)
+    assert np.array_equal(m.conformal_scale_, r.conformal_scale_)
+    assert np.array_equal(m.predict(Xv), r.predict(Xv))
+    assert np.array_equal(m.predict(Xt), r.predict(Xt))
+
+
+def test_audition_each_candidate_can_win():
+    """H, B and R each win on a small synthetic set; selection recorded."""
+    for kind in ("head", "bins", "recentred"):
+        m, _, _ = _aud_fit(kind)
+        assert m.audition_["selected"] == kind, (kind, m.audition_)
+        assert set(m.audition_["crps"]) == {"head", "bins", "recentred"}
+        scores = m.audition_["crps"]
+        assert all(np.isfinite(v) for v in scores.values())
+        assert scores[kind] == min(scores.values())
+
+
+def test_audition_none_without_eval_rows_or_without_auto():
+    """No audition without evaluation rows, or with True/False."""
+    X, y = _heteroscedastic(n=600, seed=51)
+    Xt, yt, Xv, yv = X[:400], y[:400], X[400:], y[400:]
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=30, early_stopping=False).fit(X, y)
+    assert m.audition_ is None
+    mt = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=30, conformalize=True).fit(Xt, yt)
+    assert mt.audition_ is None
+    mf = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=30, conformalize=False).fit(
+            Xt, yt, eval_set=(Xv, yv))
+    assert mf.audition_ is None
+    mt2 = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=30, conformalize=True).fit(
+            Xt, yt, eval_set=(Xv, yv))
+    assert mt2.audition_ is None
+
+
+def test_audition_bins_skipped_when_max_bins_high():
+    """B never runs when the head already has 254 or more bins."""
+    X, y = _heteroscedastic(n=800, seed=52)
+    Xt, yt, Xv, yv = X[:600], y[:600], X[600:], y[600:]
+    for bins in (254, 300):
+        m = ChimeraBoostQuantileRegressor(
+            random_state=0, n_estimators=40, max_bins=bins).fit(
+                Xt, yt, eval_set=(Xv, yv))
+        assert m.audition_ is not None
+        assert set(m.audition_["crps"]) == {"head", "recentred"}
+        assert m.audition_["selected"] in ("head", "recentred")
+
+
+def test_audition_tie_heavy_never_picks_recentred():
+    """Collapsed band: R's factors blow up, validation rejects it."""
+    rng = np.random.default_rng(53)
+    n = 500
+    X = rng.standard_normal((n, 3))
+    y = np.zeros(n)
+    y[::10] = 1.0
+    Xt, yt, Xv, yv = X[:350], y[:350], X[350:], y[350:]
+    m = ChimeraBoostQuantileRegressor(
+        random_state=0, n_estimators=50).fit(Xt, yt, eval_set=(Xv, yv))
+    assert m.audition_["selected"] in ("head", "bins")
+    Q = m.predict(Xv)
+    assert np.isfinite(Q).all()
+    assert np.all(np.diff(Q, axis=1) >= 0.0)
+
+
+def test_audition_winner_staged_and_pickle():
+    """Staged final equals predict and pickle round-trips for H/B/R wins."""
+    for kind in ("head", "bins", "recentred"):
+        m, Xte, _ = _aud_fit(kind)
+        assert m.audition_["selected"] == kind
+        Xt = Xte[:20]
+        stages = list(m.staged_predict(Xt))
+        assert len(stages) == m.best_iteration_
+        np.testing.assert_array_equal(stages[-1], m.predict(Xt))
+        m2 = pickle.loads(pickle.dumps(m))
+        np.testing.assert_array_equal(m2.predict(Xt), m.predict(Xt))
+        assert m2.audition_ == m.audition_
+
+
+def test_audition_rejects_anything_but_true_or_false():
+    X, y = _heteroscedastic(n=300, seed=54)
+    with pytest.raises(ValueError, match="audition must be True or False"):
+        ChimeraBoostQuantileRegressor(
+            audition="yes", n_estimators=10).fit(X, y)

@@ -212,6 +212,66 @@ def _check_conformalize(value):
         f"{value!r}.")
 
 
+def _check_audition(value):
+    """Accept only True or False; anything else is a loud error.
+
+    A module function so ``fit`` stays under the complexity ratchet.
+    """
+    if value is True or value is False:
+        return
+    raise ValueError(f"audition must be True or False; got {value!r}.")
+
+
+def _calibrate_candidate(Qv_raw, yv, taus, mi, mw):
+    """Calibrate one audition candidate exactly as the "auto" path does.
+
+    Returns ``(s, Qv)``: the CQR factors from the evaluation rows' raw grid
+    and the calibrated evaluation grid. Uncertifiable (``_cqr_scales``
+    raises) keeps factors of one and the raw grid, as the library does.
+    """
+    taus = np.asarray(taus, dtype=np.float64)
+    yv = np.asarray(yv, dtype=np.float64)
+    try:
+        s = _cqr_scales(np.asarray(Qv_raw, dtype=np.float64), yv,
+                        taus, mi, mw)
+    except ValueError:
+        return np.ones(taus.shape[0]), Qv_raw
+    Qv = np.asarray(Qv_raw, dtype=np.float64)
+    c = _centre(Qv, mi, mw)[:, None]
+    return s, c + s[None, :] * (Qv - c)
+
+
+def _shift_onto_centre(Q_raw, centre, mi, mw):
+    """Move each raw grid row onto ``centre`` by a constant row shift."""
+    Q_raw = np.asarray(Q_raw, dtype=np.float64)
+    centre = np.asarray(centre, dtype=np.float64).ravel()
+    return Q_raw + (centre - _centre(Q_raw, mi, mw))[:, None]
+
+
+def _pick_audition_winner(ordered):
+    """Pick the lowest score; ties go first, non-finite never wins.
+
+    ``ordered`` is ``[(name, score), ...]`` in tie order (H, B, R with B
+    omitted when skipped). All non-finite falls back to the first.
+    """
+    best_name = ordered[0][0]
+    best_score = np.inf
+    for name, score in ordered:
+        if not np.isfinite(score):
+            continue
+        if score < best_score:
+            best_score = float(score)
+            best_name = name
+    return best_name
+
+
+def _phi_centre(phi, mi, mw):
+    """Centre of attributions along the level axis, mirroring ``_centre``."""
+    if mw == 0.0:
+        return phi[..., mi]
+    return phi[..., mi] + mw * (phi[..., mi + 1] - phi[..., mi])
+
+
 class ChimeraBoostQuantileRegressor(BaseEstimator):
     """Gradient boosting for a whole predictive distribution at once.
 
@@ -263,6 +323,18 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     calibration_fraction : float
         Share of training rows reserved for conformalization. Ignored unless
         ``conformalize=True``.
+    audition : bool, default True
+        Choose per fit among three candidates on the evaluation rows and keep
+        the lowest CRPS. H is the head as configured; B is the same booster
+        with ``max_bins=254`` (skipped when ``max_bins`` is already 254 or
+        more); R is H's raw grid moved onto a squared-error centre (a default
+        ``ChimeraBoostRegressor`` plus the median evaluation residual) and
+        then calibrated. Each candidate is calibrated exactly as
+        ``conformalize="auto"`` calibrates the head and scored unweighted;
+        ties go H, then B, then R. Needs ``conformalize="auto"`` and
+        evaluation rows (the user's ``eval_set`` or the carved fold);
+        otherwise the single head is fitted. Costs about 2.35x the fit.
+        ``False`` fits a single head as in earlier releases.
 
     Attributes
     ----------
@@ -271,7 +343,13 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     conformal_scale_ : ndarray of shape (n_quantiles,)
         Per-level conformal scale about the predicted median; all ones when
         the fit left the raw grid untouched (``conformalize=False``, or
-        ``"auto"`` with no certifiable evaluation rows).
+        ``"auto"`` with no certifiable evaluation rows). With an audition
+        win, the winner's factors (R's for a recentred win).
+    audition_ : dict or None
+        ``{"selected": "head" | "bins" | "recentred", "crps": {name: score}}``
+        for the candidates that ran, or ``None`` when no audition ran (no
+        evaluation rows, ``conformalize`` True or False, or
+        ``audition=False``).
 
     Notes
     -----
@@ -291,7 +369,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                  quantize_gradients=True, early_stopping=True,
                  validation_fraction=0.2, split_projection="rotate",
                  exact_splits=False, conformalize="auto",
-                 calibration_fraction=0.2):
+                 calibration_fraction=0.2, audition=True):
         self.quantiles = quantiles
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -316,6 +394,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         self.exact_splits = exact_splits
         self.conformalize = conformalize
         self.calibration_fraction = calibration_fraction
+        self.audition = audition
 
     def __sklearn_is_fitted__(self):
         return hasattr(self, "model_")
@@ -374,7 +453,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             es_rounds = 50
         return X, y, sample_weight, eval_set, es_rounds
 
-    def _make_mq_booster(self, taus, es_rounds, cat_features, n_rows):
+    def _make_mq_booster(self, taus, es_rounds, cat_features, n_rows,
+                         max_bins=None):
         """Resolve the auto defaults and construct the booster."""
         depth = 6 if self.depth is None else self.depth
         mcw = (_auto_min_child_weight(taus) if self.min_child_weight is None
@@ -384,12 +464,14 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         if cat_combos is None:
             cat_combos = _auto_cat_combinations(
                 cat_features, self.n_features_in_, n_rows)
+        if max_bins is None:
+            max_bins = self.max_bins
 
         return MultiQuantileBoosting(
             quantiles=taus, split_projection=self.split_projection,
             exact_splits=self.exact_splits,
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
-            depth=depth, l2_leaf_reg=self.l2_leaf_reg, max_bins=self.max_bins,
+            depth=depth, l2_leaf_reg=self.l2_leaf_reg, max_bins=max_bins,
             subsample=self.subsample,
             colsample=1.0 if self.colsample is None else self.colsample,
             cat_smoothing=self.cat_smoothing,
@@ -418,6 +500,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 'split_projection must be "rotate", "sum" or "gram"; got '
                 f"{self.split_projection!r}.")
         _check_conformalize(self.conformalize)
+        _check_audition(self.audition)
         if not 0.0 < self.calibration_fraction < 1.0:
             raise ValueError("calibration_fraction must be in (0, 1); got "
                              f"{self.calibration_fraction!r}.")
@@ -432,6 +515,9 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         self.quantiles_ = taus
         self._median_idx_ = _median_index(taus)
         self.conformal_scale_ = np.ones(taus.shape[0])
+        self.audition_ = None
+        self._centre_model_ = None
+        self._centre_off_ = None
 
         X = as_model_array(X, bool(cat_features))
         y = np.asarray(y, dtype=np.float64)
@@ -456,6 +542,9 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             mi, mw = self._median_idx_
             self.conformal_scale_ = _cqr_scales(
                 self.model_.predict_raw(cal[0]), cal[1], taus, mi, mw)
+        elif self._wants_audition(eval_set):
+            self._run_audition(X, y, sample_weight, eval_set, es_rounds,
+                               cat_features, callbacks, taus)
         elif self.conformalize == "auto" and eval_set is not None:
             mi, mw = self._median_idx_
             try:
@@ -467,6 +556,129 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 pass   # uncertifiable: keep the raw grid, never raise
 
         return self
+
+    def _wants_audition(self, eval_set):
+        """True when the fit should audition rather than fit H alone."""
+        return (self.audition is True and self.conformalize == "auto"
+                and eval_set is not None)
+
+    def _fit_bins_booster(self, taus, es_rounds, cat_features, X, y,
+                          sample_weight, eval_set, callbacks):
+        """Fit the B candidate: identical to H except 254 bins."""
+        booster = self._make_mq_booster(taus, es_rounds, cat_features,
+                                       len(y), max_bins=254)
+        booster.fit(X, y, cat_features=cat_features, eval_set=eval_set,
+                    sample_weight=sample_weight, callbacks=callbacks)
+        return booster
+
+    def _fit_audition_centre(self, X, y, sample_weight, eval_set,
+                             es_rounds, cat_features):
+        """Fit the R centre on H's rows; return (model, off, eval centre)."""
+        from .sklearn_api import ChimeraBoostRegressor
+        centre = ChimeraBoostRegressor(
+            n_estimators=self.n_estimators,
+            early_stopping_rounds=es_rounds,
+            thread_count=self.thread_count, random_state=self.random_state)
+        Xe_arr = as_model_array(eval_set[0], bool(cat_features))
+        if len(eval_set) == 3:
+            eval_c = (Xe_arr, eval_set[1], eval_set[2])
+        else:
+            eval_c = (Xe_arr, eval_set[1])
+        centre.fit(X, y, cat_features=cat_features, eval_set=eval_c,
+                   sample_weight=sample_weight)
+        yv = np.asarray(eval_set[1], dtype=np.float64)
+        pv = np.asarray(
+            centre.model_.predict_raw(Xe_arr) + centre.quantile_offset_,
+            dtype=np.float64).ravel()
+        off = float(np.quantile(yv - pv, 0.5))
+        return centre, off, pv + off
+
+    def _run_audition(self, X, y, sample_weight, eval_set, es_rounds,
+                      cat_features, callbacks, taus):
+        """Fit B and R, score H/B/R on the evaluation rows, keep the winner."""
+        mi, mw = self._median_idx_
+        yv = np.asarray(eval_set[1], dtype=np.float64)
+        Qv_h_raw = self.predict(eval_set[0])
+        s_h, Qv_h = _calibrate_candidate(Qv_h_raw, yv, taus, mi, mw)
+        ordered = [("head", float(quantile_metrics.crps(yv, Qv_h, taus)))]
+        scales = {"head": s_h}
+        bins_booster = None
+        if self.max_bins < 254:
+            bins_booster = self._fit_bins_booster(
+                taus, es_rounds, cat_features, X, y, sample_weight,
+                eval_set, callbacks)
+            Qv_b_raw = bins_booster.predict_raw(eval_set[0])
+            s_b, Qv_b = _calibrate_candidate(Qv_b_raw, yv, taus, mi, mw)
+            ordered.append(
+                ("bins", float(quantile_metrics.crps(yv, Qv_b, taus))))
+            scales["bins"] = s_b
+        centre, off, cv = self._fit_audition_centre(
+            X, y, sample_weight, eval_set, es_rounds, cat_features)
+        Qv_sh = _shift_onto_centre(Qv_h_raw, cv, mi, mw)
+        s_r, Qv_r = _calibrate_candidate(Qv_sh, yv, taus, mi, mw)
+        ordered.append(
+            ("recentred", float(quantile_metrics.crps(yv, Qv_r, taus))))
+        scales["recentred"] = s_r
+        selected = _pick_audition_winner(ordered)
+        self.audition_ = {"selected": selected,
+                          "crps": {n: float(s) for n, s in ordered}}
+        if selected == "head":
+            self.conformal_scale_ = scales["head"]
+        elif selected == "bins":
+            self.model_ = bins_booster
+            self.conformal_scale_ = scales["bins"]
+        else:
+            self.conformal_scale_ = scales["recentred"]
+            self._centre_model_ = centre
+            self._centre_off_ = off
+        return self
+
+    def _is_recentred(self):
+        """True when the audition picked R and its centre is present."""
+        aud = getattr(self, "audition_", None)
+        return (aud is not None and aud.get("selected") == "recentred"
+                and getattr(self, "_centre_model_", None) is not None)
+
+    def _delivered_grid(self, X):
+        """Delivered (n, K) grid for the winner on already-converted X."""
+        if self._is_recentred():
+            return self._predict_recentred(X)
+        return self._conformalize(self.model_.predict_raw(X))
+
+    def _predict_recentred(self, X):
+        """R's delivered grid: H's raw moved onto the final centre, scaled."""
+        H_raw = np.asarray(self.model_.predict_raw(X), dtype=np.float64)
+        centre = self._centre_model_
+        pm = np.asarray(
+            centre.model_.predict_raw(X) + centre.quantile_offset_,
+            dtype=np.float64).ravel()
+        c_pm = pm + float(self._centre_off_)
+        mi, mw = self._median_idx_
+        Q_sh = H_raw + (c_pm - _centre(H_raw, mi, mw))[:, None]
+        s = np.asarray(self.conformal_scale_, dtype=np.float64)
+        if np.all(s == 1.0):
+            return Q_sh
+        c_sh = _centre(Q_sh, mi, mw)[:, None]
+        return c_sh + s[None, :] * (Q_sh - c_sh)
+
+    def _staged_recentred(self, X):
+        """Yield R's stages: each H stage moved onto the final centre."""
+        centre = self._centre_model_
+        pm = np.asarray(
+            centre.model_.predict_raw(X) + centre.quantile_offset_,
+            dtype=np.float64).ravel()
+        c_pm = pm + float(self._centre_off_)
+        mi, mw = self._median_idx_
+        s = np.asarray(self.conformal_scale_, dtype=np.float64)
+        all_one = bool(np.all(s == 1.0))
+        for S in self.model_.staged_predict_raw(X):
+            S = np.asarray(S, dtype=np.float64)
+            Q_sh = S + (c_pm - _centre(S, mi, mw))[:, None]
+            if all_one:
+                yield Q_sh
+            else:
+                c_sh = _centre(Q_sh, mi, mw)[:, None]
+                yield c_sh + s[None, :] * (Q_sh - c_sh)
 
     def _conformalize(self, Q):
         """Apply the calibrated scale about each row's predicted median. A
@@ -545,10 +757,12 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         Unlike ``"interval"``, ``"cdf"`` and ``"sample"`` interpolate between
         levels. That is a different question -- reading a fitted curve at a
         point, rather than claiming a level was fitted when it was not.
+
+        Serves the audition winner (``audition_``): the head, the 254-bin
+        head, or the recentred grid.
         """
         Xv = _check_predict_input(self, X)
-        Q = self._conformalize(
-            self.model_.predict_raw(X if Xv is None else Xv))
+        Q = self._delivered_grid(X if Xv is None else Xv)
 
         if kind == "quantiles":
             return Q
@@ -591,6 +805,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         (n_samples, T)), or a 2-D (n_samples, T) array read row against row
         (returns (n_samples, T)). The rule is dimensionality, never length:
         stack several per-row threshold lists with ``np.column_stack``.
+
+        Serves the audition winner, like ``predict``.
         """
         if direction not in ("greater", "less"):
             raise ValueError(
@@ -600,8 +816,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                 "predict_thresh needs `thresholds`: the values t to compare "
                 "the target against.")
         Xv = _check_predict_input(self, X)
-        Q = self._conformalize(
-            self.model_.predict_raw(X if Xv is None else Xv))
+        Q = self._delivered_grid(X if Xv is None else Xv)
         cdf = self._cdf_from_quantiles(Q, thresholds)
         if np.ndim(thresholds) == 0:
             cdf = cdf[:, 0]
@@ -699,16 +914,21 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
     def staged_predict(self, X):
         """Yield the (n, K) quantile matrix after each successive tree. The
         conformal rescaling is a post-fit transform, so it is applied at every
-        stage and the last one equals ``predict``."""
+        stage and the last one equals ``predict``. For a recentred win each
+        head stage is moved onto the final centre and scaled by R's factors.
+
+        Serves the audition winner."""
         Xv = _check_predict_input(self, X)
         X = X if Xv is None else Xv
-
+        if self._is_recentred():
+            yield from self._staged_recentred(X)
+            return
         for staged in self.model_.staged_predict_raw(X):
             yield self._conformalize(staged)
 
     def score(self, X, y, sample_weight=None):
         """Negative CRPS (mean pinball loss over the grid). Higher is better,
-        per the sklearn convention."""
+        per the sklearn convention. Serves the audition winner."""
         return -quantile_metrics.crps(y, self.predict(X), self.quantiles_,
                                       sample_weight)
 
@@ -721,6 +941,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         ``baseline`` sets what the skill score is measured against -- pass the
         training targets to score against the marginal distribution the model
         actually had, rather than the hindsight marginal of ``y``.
+
+        Serves the audition winner.
         """
         return quantile_metrics.quantile_report(y, self.predict(X),
                                                 self.quantiles_, sample_weight,
@@ -763,12 +985,109 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             base = base @ L
         return phi, base
 
+    def _recentre_shap_inputs(self, X, X_background):
+        """Head raw SHAP plus the centre model's SHAP on the same rows."""
+        phi_h, base_h = self.model_.shap_values(X, background=X_background)
+        raw = self.model_._raw_scores(X)
+        centre = self._centre_model_
+        phi_c, base_c = centre.model_.shap_values(X, background=X_background)
+        return phi_h, base_h, raw, phi_c, float(base_c)
+
+    def _recentred_raw_shap(self, phi_h, base_h, phi_c, base_c):
+        """R's raw-space attribution: head mapped, centre added per level."""
+        mi, mw = self._median_idx_
+        s = np.asarray(self.conformal_scale_, dtype=np.float64)
+        off = float(self._centre_off_)
+        ch_phi = _phi_centre(phi_h, mi, mw)
+        ch_base = _phi_centre(base_h, mi, mw)
+        phi = s[None, None, :] * (phi_h - ch_phi[:, :, None])
+        phi = phi + phi_c[:, :, None]
+        base = s * (base_h - ch_base) + base_c + off
+        centre = self._centre_model_
+        return phi, base + float(centre.quantile_offset_)
+
+    def _recentred_delivered_shap(self, phi_h, base_h, raw, phi_c, base_c):
+        """R's delivered attribution: sorted head mapped, centre added."""
+        mi, mw = self._median_idx_
+        s = np.asarray(self.conformal_scale_, dtype=np.float64)
+        off = float(self._centre_off_)
+        order = np.argsort(raw, axis=1, kind="stable")
+        phi_s = np.take_along_axis(phi_h, order[:, None, :], axis=2)
+        base_s = base_h[order]
+        ch_phi = _phi_centre(phi_s, mi, mw)
+        ch_base = _phi_centre(base_s, mi, mw)
+        phi = s[None, None, :] * (phi_s - ch_phi[:, :, None])
+        phi = phi + phi_c[:, :, None]
+        base = s[None, :] * (base_s - ch_base[:, None]) + base_c + off
+        centre = self._centre_model_
+        return phi, base + float(centre.quantile_offset_)
+
+    def _shap_recentred(self, X, X_background, kind, alpha, quantile, space):
+        """SHAP for a recentred win, exact by linearity (see ``shap_values``)."""
+        phi_h, base_h, raw, phi_c, base_c = self._recentre_shap_inputs(
+            X, X_background)
+        if kind == "quantiles" and space == "raw":
+            phi, base = self._recentred_raw_shap(
+                phi_h, base_h, phi_c, base_c)
+            if quantile is not None:
+                k = self._level_index(quantile)
+                phi, base = phi[:, :, k], base[k]
+            self.expected_value_ = base
+            return phi
+        phi, base = self._recentred_delivered_shap(
+            phi_h, base_h, raw, phi_c, base_c)
+        if kind == "mean":
+            w = self._mean_from_quantiles(np.eye(self.quantiles_.shape[0]))
+            self.expected_value_ = base @ w
+            return phi @ w
+        if kind == "width":
+            i, j = self._interval_levels(
+                alpha, caller='shap_values(kind="width")')
+            self.expected_value_ = base[:, j] - base[:, i]
+            return phi[:, :, j] - phi[:, :, i]
+        if quantile is not None:
+            k = self._level_index(quantile)
+            phi, base = phi[:, :, k], base[:, k]
+        self.expected_value_ = base
+        return phi
+
+    def _shap_single(self, X, X_background, kind, alpha, quantile, space):
+        """SHAP for a single-head win (H or B): today's path."""
+        phi, base = self.model_.shap_values(X, background=X_background)
+        if kind == "quantiles" and space == "raw":
+            if quantile is not None:
+                k = self._level_index(quantile)
+                phi, base = phi[:, :, k], base[k]
+            self.expected_value_ = base
+            return phi
+        phi, base = self._delivered_shap(phi, base,
+                                         self.model_._raw_scores(X))
+        if kind == "mean":
+            w = self._mean_from_quantiles(np.eye(self.quantiles_.shape[0]))
+            self.expected_value_ = base @ w
+            return phi @ w
+        if kind == "width":
+            i, j = self._interval_levels(
+                alpha, caller='shap_values(kind="width")')
+            self.expected_value_ = base[:, j] - base[:, i]
+            return phi[:, :, j] - phi[:, :, i]
+        if quantile is not None:
+            k = self._level_index(quantile)
+            phi, base = phi[:, :, k], base[:, k]
+        self.expected_value_ = base
+        return phi
+
     def shap_values(self, X, X_background=None, kind="quantiles", alpha=None,
                     quantile=None, space="delivered"):
         """Exact interventional TreeSHAP for a predicted quantile grid.
 
         Explains what ``predict`` returned. Contributions plus
         ``expected_value_`` (set by this call) reconstruct it, level by level.
+        Serves the audition winner. For a recentred win the delivered grid is
+        linear in the head's raw channels plus the centre prediction, so the
+        attribution is exact: the head's mapped through ``v -> s * (v -
+        centre(v))``, plus the centre model's own ``shap_values`` on every
+        level, its offset folded into the expected value.
 
         ``kind`` selects the explained quantity:
 
@@ -808,35 +1127,11 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
             # skew every baseline.
             bg = _check_predict_input(self, X_background)
             X_background = X_background if bg is None else bg
-
-        phi, base = self.model_.shap_values(X, background=X_background)
-
-        if kind == "quantiles" and space == "raw":
-            if quantile is not None:
-                k = self._level_index(quantile)
-                phi, base = phi[:, :, k], base[k]
-            self.expected_value_ = base
-            return phi
-
-        phi, base = self._delivered_shap(phi, base,
-                                         self.model_._raw_scores(X))
-
-        if kind == "mean":
-            w = self._mean_from_quantiles(np.eye(self.quantiles_.shape[0]))
-            self.expected_value_ = base @ w
-            return phi @ w
-
-        if kind == "width":
-            i, j = self._interval_levels(
-                alpha, caller='shap_values(kind="width")')
-            self.expected_value_ = base[:, j] - base[:, i]
-            return phi[:, :, j] - phi[:, :, i]
-
-        if quantile is not None:
-            k = self._level_index(quantile)
-            phi, base = phi[:, :, k], base[:, k]
-        self.expected_value_ = base
-        return phi
+        if self._is_recentred():
+            return self._shap_recentred(X, X_background, kind, alpha,
+                                       quantile, space)
+        return self._shap_single(X, X_background, kind, alpha, quantile,
+                                 space)
 
     def _level_index(self, quantile):
         """Grid position of one level, refusing anything not fitted -- the same
@@ -872,14 +1167,16 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
     @property
     def best_iteration_(self):
+        """Best round of the winner's booster (the head's for R)."""
         return self.model_.best_iteration_
 
     @property
     def validation_history_(self):
         """Per-round validation CRPS from ``fit`` (empty without a validation
-        set)."""
+        set). From the winner's booster (the head's for R)."""
         return list(self.model_.valid_history_)
 
     @property
     def feature_importances_(self):
+        """Split-gain importances from the winner's booster (the head's for R)."""
         return self.model_.feature_importances_

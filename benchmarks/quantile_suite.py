@@ -356,7 +356,7 @@ def _fit_chimera_uncapped(split, Xte, cat, threads, taus):
     """
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS,
-                        depth=4, conformalize=False)
+                        depth=4, conformalize=False, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -371,7 +371,7 @@ def _fit_chimera_depth6(split, Xte, cat, threads, taus):
     """
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=6, conformalize=False)
+                        depth=6, conformalize=False, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -386,7 +386,7 @@ def _fit_chimera_recentred(split, Xte, cat, threads, taus):
     """
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=4, conformalize=False)
+                        depth=4, conformalize=False, audition=False)
     fit_h = time.time() - t
     t = time.time()
     Q_head = m.predict(Xte)
@@ -411,7 +411,7 @@ def _fit_chimera_valscaled(split, Xte, cat, threads, taus):
     Xf, Xv, yf, yv = split
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=4, conformalize=False)
+                        depth=4, conformalize=False, audition=False)
     _calibrate_on_val(m, Xv, yv)
     fit_s = time.time() - t
     t = time.time()
@@ -424,7 +424,7 @@ def _fit_chimera_lr15(split, Xte, cat, threads, taus):
     converge within the shared cap?"""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=4, conformalize=False,
+                        depth=4, conformalize=False, audition=False,
                         learning_rate=0.15)
     fit_s = time.time() - t
     t = time.time()
@@ -437,7 +437,7 @@ def _fit_chimera_lr20(split, Xte, cat, threads, taus):
     converge within the shared cap?"""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=4, conformalize=False,
+                        depth=4, conformalize=False, audition=False,
                         learning_rate=0.2)
     fit_s = time.time() - t
     t = time.time()
@@ -451,7 +451,7 @@ def _fit_chimera_depth6_valscaled(split, Xte, cat, threads, taus):
     Xf, Xv, yf, yv = split
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=6, conformalize=False)
+                        depth=6, conformalize=False, audition=False)
     _calibrate_on_val(m, Xv, yv)
     fit_s = time.time() - t
     t = time.time()
@@ -463,7 +463,7 @@ def _fit_chimera_bins254(split, Xte, cat, threads, taus):
     """The head with 254 borders, CatBoost MultiQuantile's border count."""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        max_bins=254)
+                        max_bins=254, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -473,7 +473,8 @@ def _fit_chimera_bins254(split, Xte, cat, threads, taus):
 def _fit_chimera_d6_uncapped(split, Xte, cat, threads, taus):
     """The head at default depth with the cap lifted: the room to converge."""
     t = time.time()
-    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS)
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS,
+                        audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -484,7 +485,7 @@ def _fit_chimera_lr03_uncapped(split, Xte, cat, threads, taus):
     """The head at CatBoost's 0.03 rate, with the lifted cap as that room."""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS,
-                        learning_rate=0.03)
+                        learning_rate=0.03, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -495,7 +496,7 @@ def _fit_chimera_depth8(split, Xte, cat, threads, taus):
     """The head with a deeper tree: depth 8, one past the shared default 6."""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        depth=8)
+                        depth=8, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -506,7 +507,7 @@ def _fit_chimera_exact_splits(split, Xte, cat, threads, taus):
     """The head scoring splits on the full gradient instead of a projection."""
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        exact_splits=True)
+                        exact_splits=True, audition=False)
     fit_s = time.time() - t
     t = time.time()
     Q = m.predict(Xte)
@@ -524,7 +525,7 @@ def _fit_raw_candidate(split, Xte, cat, threads, taus, **params):
     Xf, Xv, yf, yv = split
     t = time.time()
     m = _fit_head_model(split, cat, threads, taus, rb.MAX_ITERS,
-                        conformalize=False, **params)
+                        conformalize=False, audition=False, **params)
     fit_s = time.time() - t
     t = time.time()
     Qv_raw = m.predict(Xv)
