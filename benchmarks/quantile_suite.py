@@ -48,7 +48,8 @@ RigidShift             the trivial conditional-location baseline from LEAFTUNE
                        (`np.quantile` with numpy's default method) added to
                        every row -- one width for every row
 ChimeraBoostQuantileCQR  the head with `conformalize=True`
-NGBoost                `NGBRegressor(Dist=Normal)` on the shared split,
+NGBoost                RoNGBa (`NGBRegressor(Dist=Normal)`, 500 rounds
+                       at rate 0.04 on 31-leaf trees) on the shared split,
                        categoricals ordinal-encoded, quantiles from the
                        fitted Normal
 
@@ -88,6 +89,11 @@ ALPHAS = (0.1, 0.2, 0.5)
 # The uncapped probe's budget: four times the shared cap, so a head
 # that stopped for lack of rounds has room to show it.
 UNCAPPED_ITERS = 8000
+
+# RoNGBa settings for the NGBoost arm (Ren, Sun and Wu 2019, arXiv:1912.02338; issue #163).
+RONGBA_ROUNDS = 500
+RONGBA_LEARNING_RATE = 0.04
+RONGBA_LEAVES = 31
 
 
 def _fit_head_model(split, cat, threads, taus, n_estimators, **params):
@@ -271,15 +277,37 @@ def _fit_chimera_cqr(split, Xte, cat, threads, taus):
     return Q, fit_s, time.time() - t, m.best_iteration_
 
 
-def _fit_ngboost(split, Xte, cat, threads, taus):
-    """NGBoost with a Normal predictive distribution, on the shared split.
+def _rongba(random_state=0):
+    """The RoNGBa booster (Ren, Sun and Wu 2019): a Normal likelihood fit
+    by natural-gradient boosting, 31-leaf regression trees, 500 rounds at
+    rate 0.04.
 
-    The import lives inside the arm: NGBoost is a benchmark opponent, never
-    a library dependency, so a missing install must skip only this arm.
+    The import lives inside the builder: NGBoost is a benchmark opponent,
+    never a library dependency, so a missing install must skip only this
+    arm.
     """
     import ngboost
-    from ngboost.learners import default_tree_learner
-    from sklearn.base import clone
+    from sklearn.tree import DecisionTreeRegressor
+    # NGBRegressor's random_state never reaches its base learner, so ties
+    # break at random and reruns drift -- seed the RoNGBa tree directly.
+    base = DecisionTreeRegressor(criterion="friedman_mse",
+                                 max_leaf_nodes=RONGBA_LEAVES,
+                                 max_depth=None, random_state=random_state)
+    return ngboost.NGBRegressor(
+        Dist=ngboost.distns.Normal, Base=base, natural_gradient=True,
+        n_estimators=RONGBA_ROUNDS, learning_rate=RONGBA_LEARNING_RATE,
+        early_stopping_rounds=rb.PATIENCE, random_state=random_state,
+        verbose=False)
+
+
+def _fit_ngboost(split, Xte, cat, threads, taus):
+    """NGBoost on the RoNGBa settings, on the shared split.
+
+    The round count is chosen on the shared validation rows, capped at
+    500 -- the paper's own protocol without its refit on train plus
+    validation (no arm in this suite refits). Quantiles come from the
+    fitted Normal.
+    """
     from sklearn.preprocessing import OrdinalEncoder
     Xf, Xv, yf, yv = split
     cat_idx = sorted(set(cat)) if cat else []
@@ -305,15 +333,7 @@ def _fit_ngboost(split, Xte, cat, threads, taus):
     else:
         Xf_in, Xv_in, Xte_in = _num(Xf), _num(Xv), _num(Xte)
 
-    # NGBRegressor's random_state never reaches its base learner (the
-    # default tree has random_state=None), so ties break at random and reruns
-    # drift. Clone the default learner with a fixed seed, keeping every other
-    # parameter.
-    base = clone(default_tree_learner).set_params(random_state=0)
-    m = ngboost.NGBRegressor(Dist=ngboost.distns.Normal,
-                             n_estimators=rb.MAX_ITERS,
-                             early_stopping_rounds=rb.PATIENCE,
-                             Base=base, random_state=0, verbose=False)
+    m = _rongba()
     t = time.time()
     m.fit(Xf_in, yf, X_val=Xv_in, Y_val=yv)
     fit_s = time.time() - t

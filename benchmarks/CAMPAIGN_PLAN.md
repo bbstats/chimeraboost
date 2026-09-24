@@ -447,6 +447,48 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I063 2026-09-24 F7 issue #163 (the quantile suite's NGBoost opponent moves to the RoNGBa settings; BENCH-only, pre-registered)
+why now: the maintainer's issue #163 (2026-09-24), "Use RONGBA as default
+NGBoost benchmark", with the settings in code. The paper is Ren, Sun and
+Wu 2019, "RoNGBa: A Robustly Optimized Natural Gradient Boosting Training
+Approach with Leaf Number Clipping" (arXiv:1912.02338): best-first trees
+clipped at 31 leaves with no depth limit, learning rate 0.04, 500
+estimators, the number of stages chosen on a 20% validation hold-out by
+log-likelihood, then a refit on train + validation. Its Table 1 beats stock
+NGBoost on 8 of 10 UCI sets (worse on the two smallest, Boston and Yacht)
+at 1.5-4.85x less training time. Queued behind the F5 chart refresh (PR
+#166 up). Branch `campaign/ngboost-rongba` from main 12fcd66; muse task
+`20260924-ngboost-rongba.md`.
+change (`benchmarks/quantile_suite.py`, `tests/test_quantile_suite.py`):
+the `NGBoost` arm keeps its name, split, encoding, stopping rule and
+scoring; only the learner changes, to `DecisionTreeRegressor(criterion=
+"friedman_mse", max_leaf_nodes=31, max_depth=None, random_state=0)` at
+`learning_rate=0.04`, `n_estimators=500`, Normal, natural gradient. The
+harness's early stopping (patience 50 on the shared validation rows,
+scored at the best round) is the paper's validation-chosen M; the paper's
+refit is dropped because no arm in the suite refits. The stock learner
+(depth 3, rate 0.01, 2000-round cap) is removed, not kept as a switch.
+barriers: B23 (a larger rate loses) is about OUR head's cap-bound sets and
+B19 (the stopping round is not a free axis) about our stopping rule; this
+rung changes an opponent and keeps the shared rule. Neither applies.
+forecast (gr = the 36 Grinsztajn regression keys; the chart uses all 59):
+(1) RoNGBa beats the stock arm (BASE `quantile-20260924-005306.json`) on
+CRPS on >= 26 of 36 gr keys, median gain >= 2%: the paper's gains are on
+mid-size and large sets, which is most of gr. (2) The head still beats it
+on CRPS on >= 27 of 36 (stock NGBoost: 35W-1L). (3) NGBoost's median fit
+falls from 5.2x ours to 1.5-4x. (4) It stays off the quantile frontier.
+(5) The 500-round cap binds (best round >= 450) on <= 25% of its fits.
+(6) Every other arm's per-key CRPS equals BASE exactly: 0.33.0 is the code
+BASE measured.
+reading rules: no ship gate (bench-only). If RoNGBa LOSES to the stock arm
+on >= 19 of 36 gr keys, the swap weakens our opponent: stop, keep both
+arms, and ask the maintainer which one the docs quote. Otherwise the docs
+table's NGBoost row and `images/quantile_pareto.png` take the new run, and
+it becomes the standing quantile BASE.
+run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save`, the full
+field, so the docs table and the chart come from one run (~2.5 h).
+verdict: PENDING(muse task 20260924-ngboost-rongba, then the full-field run)
+
 #### I062 2026-09-23 F7 Q7 (the audition in `ChimeraBoostQuantileRegressor`, on by default; LIBRARY change, pre-registered)
 why now: I061 merged (PR #161 at 58c5cc8); the maintainer merged with no
 objection to the stated plan ("on by default unless you say otherwise"),

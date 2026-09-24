@@ -93,9 +93,7 @@ def test_ngboost_arm_returns_ordered_grid():
 
 
 def test_ngboost_arm_predicts_at_best_round():
-    ngboost = pytest.importorskip("ngboost")
-    from ngboost.learners import default_tree_learner
-    from sklearn.base import clone
+    pytest.importorskip("ngboost")
     rng = np.random.default_rng(2)
     n = 200
     X = rng.normal(size=(n, 4))
@@ -105,15 +103,11 @@ def test_ngboost_arm_predicts_at_best_round():
     taus = np.array([0.1, 0.5, 0.9])
     Q, _, _, best = qs._fit_ngboost(split, Xte, None, None, taus)
     # The reference fit: the same booster on the same rows.
-    base = clone(default_tree_learner).set_params(random_state=0)
-    m = ngboost.NGBRegressor(Dist=ngboost.distns.Normal,
-                             n_estimators=rb.MAX_ITERS,
-                             early_stopping_rounds=rb.PATIENCE,
-                             Base=base, random_state=0, verbose=False)
+    m = qs._rongba()
     m.fit(np.asarray(split[0], dtype=np.float64), split[2],
           X_val=np.asarray(split[1], dtype=np.float64), Y_val=split[3])
     assert m.best_val_loss_itr is not None
-    assert len(m.base_models) < rb.MAX_ITERS  # early stopping triggered
+    assert len(m.base_models) < qs.RONGBA_ROUNDS  # early stopping triggered
     assert int(m.best_val_loss_itr) < len(m.base_models) - 1
     assert best == int(m.best_val_loss_itr)
 
@@ -127,6 +121,20 @@ def test_ngboost_arm_predicts_at_best_round():
     np.testing.assert_allclose(Q, ref, rtol=1e-9)
     all_trees = _grid(m.pred_dist(np.asarray(Xte, dtype=np.float64)))
     assert not np.allclose(Q, all_trees)
+
+
+def test_rongba_settings():
+    ngboost = pytest.importorskip("ngboost")
+    from sklearn.tree import DecisionTreeRegressor
+    m = qs._rongba()
+    assert isinstance(m.Base, DecisionTreeRegressor)
+    assert m.Base.criterion == "friedman_mse"
+    assert m.Base.max_leaf_nodes == 31
+    assert m.Base.max_depth is None
+    assert m.n_estimators == 500
+    assert m.learning_rate == 0.04
+    assert m.natural_gradient is True
+    assert m.Dist is ngboost.distns.Normal
 
 
 def test_explicit_datasets_register_needed_suites(monkeypatch):
