@@ -29,6 +29,7 @@ A shipped preset is a frontier win but not a default win.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 - WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
+- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room.
 
 ## Screening ladder
 
@@ -171,6 +172,8 @@ fact: 2026-09-24 | the muse sandbox ACL on `C:\Users\Nathan\.config\muse` refill
 fact: 2026-09-24 | released 0.33.0 (aeab6ec, tag v0.33.0): CI green on 47ee154 (py3.9-3.13 on Ubuntu, py3.12 on Windows, ruff, docs deploy), 1217 passed locally, a 14-module wheel, `twine check` passed; PyPI and the GitHub release live; a clean-venv install from PyPI passed a smoke test outside the repo (the quantile audition picked `recentred`, 90% coverage 0.91, SHAP (10, 5, 19))
 fact: 2026-09-24 | the published chart on 0.33.0 (`results/20260924-090541.json`, public suite, 22 datasets x 3 seeds, 21 scored): the default avg rank 1.94 [1.64-2.24], CatBoost 1.84 [1.43-2.24], LightGBM 2.23 [1.74-2.70]; median slowdown 5.6x / 47.2x / 1.0x; the harness summary has the default 8W-13L against CatBoost (median -0.17%) and 14W-7L against LightGBM (+0.43%). The 2026-08-01 chart read 1.90 against CatBoost's 1.88 at 7.1x / 53.1x
 fact: 2026-09-24 | the internal chart on 0.33.0 (`results/20260924-130232.json`, decide tier, 3 seeds, the nine-arm field without the NoCatCount control): every per-seed metric equals `20260922-144219`'s bar one LightGBM Brier at the 17th digit, and the win rates are unchanged (default 70.7%). Skill: the default 0.4052 clf / 0.7341 reg at 4.9x / 6.3x, CatBoost 0.4057 / 0.7294 at 53.0x / 47.8x. Every arm's R² still moved by up to 0.0002, because the run's dataset metadata keeps the test-split scale of whichever seed finished first (H(14))
+fact: 2026-09-24 | RoNGBa as the quantile suite's NGBoost opponent (issue #163, I063, `results/quantile-20260924-164257.json`): it beats stock NGBoost 23W-13L on gr (median CRPS +0.94%, CI -0.07..+3.7) at 0.26x its fit, and the 500-round cap never binds (best round max 269); the head beats it 33W-3L (+6.30%) and loses on pol, visualizing_soil and SGEMM, the cap-bound low-noise sets (a parked capacity lead). 2 of 177 fits break down: one training target at z ~ -30 gets its own leaf in round 0's log-scale tree (value ~ -447, line-search multiplier 1), sigma grows ~5.8e7x for the test rows in that leaf, and the validation NLL moves ~0.01, so early stopping cannot see it. Mean CRPS skill -166.5; NGBoost is left off `images/quantile_pareto.png`
+fact: 2026-09-24 | standing quantile BASE = `results/quantile-20260924-164257.json` (the 0.33.0 head, the RoNGBa opponent; every other arm equals `quantile-20260924-005306.json` per key, 354/354)
 
 ## Beam
 
@@ -182,7 +185,7 @@ fact: 2026-09-24 | the internal chart on 0.33.0 (`results/20260924-130232.json`,
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | the published chart (`public_pareto.png`) refresh: DONE 2026-09-24 on 0.33.0 (`results/20260924-090541.json`, `--public --seeds 3`, 22 datasets, ~4 h: the default avg rank 1.94 [1.64-2.24] against CatBoost 1.84 [1.43-2.24] and LightGBM 2.23, at a median 5.6x against 47.2x and 1.0x; `docs/benchmarks.md` prose updated; `pareto.png` re-rendered from `results/20260924-130232.json` and `docs/PROJECT_STATUS.md` synced); S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE 2026-09-23 — the loop's focus (the maintainer's direction change). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0** | **Issue #163** (the maintainer's: the RONGBA settings for the benchmark's NGBoost opponent), then **Q4 T0**: spread-aware categorical encoding (a TS of the spread per category), on the hc regressions and `catscale`. Then Q1 (P16). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | PARKED 2026-09-24 (the maintainer: GitHub issues first; ACTIVE from 2026-09-23). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0** | **I063 DONE (PR #167)**: RoNGBa is the NGBoost opponent (issue #163). **PARKED 2026-09-24** under the maintainer's focus rule (GitHub issues first): Q4 T0, spread-aware categorical encoding (a TS of the spread per category) on the hc regressions and `catscale`; then Q1 (P16); and the I063 capacity lead (pol, visualizing_soil, SGEMM). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -448,6 +451,97 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I063 2026-09-24 F7 issue #163 (the quantile suite's NGBoost opponent moves to the RoNGBa settings; BENCH-only, pre-registered)
+why now: the maintainer's issue #163 (2026-09-24), "Use RONGBA as default
+NGBoost benchmark", with the settings in code. The paper is Ren, Sun and
+Wu 2019, "RoNGBa: A Robustly Optimized Natural Gradient Boosting Training
+Approach with Leaf Number Clipping" (arXiv:1912.02338): best-first trees
+clipped at 31 leaves with no depth limit, learning rate 0.04, 500
+estimators, the number of stages chosen on a 20% validation hold-out by
+log-likelihood, then a refit on train + validation. Its Table 1 beats stock
+NGBoost on 8 of 10 UCI sets (worse on the two smallest, Boston and Yacht)
+at 1.5-4.85x less training time. Queued behind the F5 chart refresh (PR
+#166 up). Branch `campaign/ngboost-rongba` from main 12fcd66; muse task
+`20260924-ngboost-rongba.md`.
+change (`benchmarks/quantile_suite.py`, `tests/test_quantile_suite.py`):
+the `NGBoost` arm keeps its name, split, encoding, stopping rule and
+scoring; only the learner changes, to `DecisionTreeRegressor(criterion=
+"friedman_mse", max_leaf_nodes=31, max_depth=None, random_state=0)` at
+`learning_rate=0.04`, `n_estimators=500`, Normal, natural gradient. The
+harness's early stopping (patience 50 on the shared validation rows,
+scored at the best round) is the paper's validation-chosen M; the paper's
+refit is dropped because no arm in the suite refits. The stock learner
+(depth 3, rate 0.01, 2000-round cap) is removed, not kept as a switch.
+barriers: B23 (a larger rate loses) is about OUR head's cap-bound sets and
+B19 (the stopping round is not a free axis) about our stopping rule; this
+rung changes an opponent and keeps the shared rule. Neither applies.
+forecast (gr = the 36 Grinsztajn regression keys; the chart uses all 59):
+(1) RoNGBa beats the stock arm (BASE `quantile-20260924-005306.json`) on
+CRPS on >= 26 of 36 gr keys, median gain >= 2%: the paper's gains are on
+mid-size and large sets, which is most of gr. (2) The head still beats it
+on CRPS on >= 27 of 36 (stock NGBoost: 35W-1L). (3) NGBoost's median fit
+falls from 5.2x ours to 1.5-4x. (4) It stays off the quantile frontier.
+(5) The 500-round cap binds (best round >= 450) on <= 25% of its fits.
+(6) Every other arm's per-key CRPS equals BASE exactly: 0.33.0 is the code
+BASE measured.
+reading rules: no ship gate (bench-only). If RoNGBa LOSES to the stock arm
+on >= 19 of 36 gr keys, the swap weakens our opponent: stop, keep both
+arms, and ask the maintainer which one the docs quote. Otherwise the docs
+table's NGBoost row and `images/quantile_pareto.png` take the new run, and
+it becomes the standing quantile BASE.
+run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save`, the full
+field, so the docs table and the chart come from one run (~2.5 h).
+muse (exit 0): `_rongba()` builder + `RONGBA_*` constants, `_fit_ngboost`
+builds from it, docstrings name RoNGBa; `test_rongba_settings` pins the
+issue's numbers, the best-round test builds its reference from the
+builder (still stops before 500 as-is); 24/24 in the suite file; smoke on
+pol, cpu_act, Brazilian_houses ran clean (best rounds 139 / 71 / 100).
+Full suite 1218 passed, 1 skipped. Ruff: 4 RUF100 on the untouched
+`sys.path` import block under local ruff 0.15.17; CI lints `chimeraboost/`
+only, with 0.16.5. NGBoost reads the passed validation rows (it carves its
+own 10% only when none are given), for the old arm and the new.
+ran: `results/quantile-20260924-164257.json` (seven arms, 59 keys x 3
+seeds, ~2.4 h). Per-stratum CRPS sign tests printed (`compare_runs.py
+--metric crps --by-suite`; head vs NGBoost via `--model-new`).
+result, forecast by forecast:
+(1) MISS: RoNGBa vs stock 23W-13L on gr, median +0.94% (CI -0.07..+3.7);
+all 59 keys 37-22. Big gains on pol (+68%), visualizing_soil (+85%),
+Bike_Sharing cat (+46%); losses on analcatdata_supreme (-87%) and both
+Brazilian_houses (-27 / -30%).
+(2) HIT: the head beats it 33W-3L on gr (median +6.30%, CI +5.0..+9.9),
+interval score 30W-6L; hc 6W-0L, gr@sus25 6W-1L, gr@sus50 4W-0L, the
+small hc variants 4W-2L (pointers). Its three wins are pol (-47%),
+visualizing_soil (-62%), SGEMM (-8%): the low-noise, cap-bound sets
+(B23's population), where 31-leaf best-first trees resolve what the head
+cannot inside its budget. A capacity lead for the head, PARKED under the
+2026-09-24 focus rule.
+(3) NEAR MISS, low side: NGBoost fit 1.38x ours (was 5.15x); the new
+settings fit 0.26x the stock arm's time.
+(4) HIT, off the frontier: mean CRPS skill -166.5 against the head's 0.6006.
+(5) HIT: the 500 cap never bound (177 fits, best round median 67, max 269).
+(6) HIT: every other arm's per-key mean CRPS equals BASE (354/354).
+unforecast: two fits BREAK DOWN (yprop_4_1 seed 1, CRPS 169.6 against
+~0.0075; topo_2_1 seed 2, 42.0 against ~0.0077). Mechanism, reproduced:
+the training rows hold one target at z ~ -30; round 0's log-scale tree
+gives it a leaf of its own (value ~ -447, line-search multiplier 1), so
+log sigma moves by 0.04 x 447 ~ 17.9 and sigma by ~5.8e7; the one or two
+test rows in that leaf get spreads of 2.5e7-5e7 target sds. The
+validation NLL moves ~0.01, so early stopping cannot see it. Stock
+settings (8-leaf trees, rate 0.01) average the outlier away. No win/loss
+changes (the head wins both keys on the clean seeds too), but the mean
+skill is destroyed, so NGBoost is left OFF `images/quantile_pareto.png`
+(re-rendered from the run without that arm; the head 0.6006 @ 7.3x and
+RigidShift 0.5869 @ 1.2x are the frontier, CatBoost MQ 0.5982 @ 130x).
+docs (Claude): `docs/quantiles.md` (the NGBoost row, the fit column
+re-measured in the same run, a paragraph on RoNGBa and the breakdown, the
+budget sentence), CHANGELOG (Unreleased, Changed).
+verdict: **PASS under the reading rule** (13 losses < 19): the swap
+stands. Standing quantile BASE becomes `quantile-20260924-164257.json`.
+PR for the maintainer (tests, docs, image). PR #166 merged first; main was
+then merged into this branch and the ledger facts and the F7 beam row
+were written here (PR #167).
+next: the 2026-09-24 focus rule: GitHub issue #84.
 
 #### I062 2026-09-23 F7 Q7 (the audition in `ChimeraBoostQuantileRegressor`, on by default; LIBRARY change, pre-registered)
 why now: I061 merged (PR #161 at 58c5cc8); the maintainer merged with no

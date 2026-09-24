@@ -260,7 +260,8 @@ Per-prediction explanations need none of this; the default is what you want.
 ## How it compares
 
 Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
-early-stopping split and budget (`benchmarks/quantile_suite.py`). Win-loss is per
+early-stopping split and round budget, apart from NGBoost's own cap described below
+(`benchmarks/quantile_suite.py`). Win-loss is per
 dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
 and miscoverage together. Fit time is each arm's median against ours (which includes the
 three-candidate choice), in the same run.
@@ -269,9 +270,9 @@ three-candidate choice), in the same run.
 |:--|:--|:--|:--|:--|
 | 19 `loss="Quantile"` models | **34W-2L** | **33W-3L** | 0.00 vs 0.16 | 1.5x ours |
 | 19 LightGBM quantile boosters | **30W-6L** | **30W-6L** | 0.00 vs 0.22 | 0.9x ours |
-| CatBoost `MultiQuantile` | **27W-9L** | **26W-10L** | 0.00 vs 0.06 | 6.8x ours |
-| one squared-error model, fixed width | **29W-7L** | **28W-8L** | none on either side | 0.14x ours |
-| NGBoost, Normal distribution | **35W-1L** | **33W-3L** | none on either side | 5.2x ours |
+| CatBoost `MultiQuantile` | **27W-9L** | **26W-10L** | 0.00 vs 0.06 | 6.7x ours |
+| one squared-error model, fixed width | **29W-7L** | **28W-8L** | none on either side | 0.15x ours |
+| NGBoost with the RoNGBa settings | **33W-3L** | **30W-6L** | none on either side | 1.4x ours |
 
 **CatBoost's shared head no longer leads on CRPS.** We win 27 of the 36 datasets, by a
 median of 0.29%, in about a seventh of its fit time. Its 90% intervals cover 83% on
@@ -289,6 +290,15 @@ reasonable choice.
 Against a stack of independent per-level models, ours or LightGBM's, the shared structure
 clearly pays in accuracy, and its levels never cross. Fit time is now similar: our own 19
 per-level models take 1.5 times as long, LightGBM's 19 boosters about 0.9 times.
+
+The NGBoost row uses the settings from Ren, Sun and Wu (2019), called RoNGBa: trees of
+up to 31 leaves, a learning rate of 0.04 and at most 500 rounds, with the round count
+chosen on the validation rows. They beat NGBoost's stock settings on 23 of the 36
+datasets and fit about four times faster. Two of its 177 fits here broke down. In each,
+one training row sat about 30 standard deviations from the mean and got a leaf of its
+own in the first tree, and the one or two test rows that landed in that leaf were given
+a spread tens of millions of times too wide. The win counts above don't change because
+of it, but it would swamp any average over datasets.
 
 Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
