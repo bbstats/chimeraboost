@@ -1575,7 +1575,8 @@ global summary or a beeswarm plot, ask for the same thing:</p>
 <p>Per-prediction explanations need none of this; the default is what you want.</p>
 <h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
 <p>Measured on 36 Grinsztajn regression datasets, 3 seeds, every arm sharing one
-early-stopping split and budget (<code>benchmarks/quantile_suite.py</code>). Win-loss is per
+early-stopping split and round budget, apart from NGBoost's own cap described below
+(<code>benchmarks/quantile_suite.py</code>). Win-loss is per
 dataset. "Interval score" is the Winkler score of the 90% interval, which charges width
 and miscoverage together. Fit time is each arm's median against ours (which includes the
 three-candidate choice), in the same run.</p>
@@ -1609,21 +1610,21 @@ three-candidate choice), in the same run.</p>
 <td style="text-align: left;"><strong>27W-9L</strong></td>
 <td style="text-align: left;"><strong>26W-10L</strong></td>
 <td style="text-align: left;">0.00 vs 0.06</td>
-<td style="text-align: left;">6.8x ours</td>
+<td style="text-align: left;">6.7x ours</td>
 </tr>
 <tr>
 <td style="text-align: left;">one squared-error model, fixed width</td>
 <td style="text-align: left;"><strong>29W-7L</strong></td>
 <td style="text-align: left;"><strong>28W-8L</strong></td>
 <td style="text-align: left;">none on either side</td>
-<td style="text-align: left;">0.14x ours</td>
+<td style="text-align: left;">0.15x ours</td>
 </tr>
 <tr>
-<td style="text-align: left;">NGBoost, Normal distribution</td>
-<td style="text-align: left;"><strong>35W-1L</strong></td>
+<td style="text-align: left;">NGBoost with the RoNGBa settings</td>
 <td style="text-align: left;"><strong>33W-3L</strong></td>
+<td style="text-align: left;"><strong>30W-6L</strong></td>
 <td style="text-align: left;">none on either side</td>
-<td style="text-align: left;">5.2x ours</td>
+<td style="text-align: left;">1.4x ours</td>
 </tr>
 </tbody>
 </table>
@@ -1641,6 +1642,14 @@ reasonable choice.</p>
 <p>Against a stack of independent per-level models, ours or LightGBM's, the shared structure
 clearly pays in accuracy, and its levels never cross. Fit time is now similar: our own 19
 per-level models take 1.5 times as long, LightGBM's 19 boosters about 0.9 times.</p>
+<p>The NGBoost row uses the settings from Ren, Sun and Wu (2019), called RoNGBa: trees of
+up to 31 leaves, a learning rate of 0.04 and at most 500 rounds, with the round count
+chosen on the validation rows. They beat NGBoost's stock settings on 23 of the 36
+datasets and fit about four times faster. Two of its 177 fits here broke down. In each,
+one training row sat about 30 standard deviations from the mean and got a leaf of its
+own in the first tree, and the one or two test rows that landed in that leaf were given
+a spread tens of millions of times too wide. The win counts above don't change because
+of it, but it would swamp any average over datasets.</p>
 <p>Earlier versions of this page claimed 3.0x-6.2x the speed of LightGBM and 1-3% better
 pinball. Those numbers came from fixed-round fits on synthetic data
 (<code>benchmarks/quantile_head.py</code>), which flatters us. The table above is the real-data
