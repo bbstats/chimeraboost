@@ -371,7 +371,9 @@ def test_q5_field_arm_is_depth6_valscaled_bit_for_bit(monkeypatch):
     rows."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
-    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    mh = qs._fit_head_model(split, None, 1, taus, rb.MAX_ITERS,
+                            audition=False)
+    Qh, best_h = mh.predict(Xte), mh.best_iteration_
     Qd, _, _, best_d = qs.PROBES["ChimeraBoostQuantileDepth6ValScaled"](
         split, Xte, None, 1, taus)
     assert best_h == best_d
@@ -426,7 +428,9 @@ def test_q2_d6_uncapped_matches_head_when_head_stops_early(monkeypatch):
     bit: same constructor, same rows, only a larger round budget."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
-    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    mh = qs._fit_head_model(split, None, 1, taus, rb.MAX_ITERS,
+                            audition=False)
+    Qh, best_h = mh.predict(Xte), mh.best_iteration_
     assert best_h is not None and best_h < rb.MAX_ITERS
     Qu, _, _, best_u = qs.PROBES["ChimeraBoostQuantileD6Uncapped"](
         split, Xte, None, 1, taus)
@@ -472,7 +476,9 @@ def test_q6_h_equals_field_arm_bit_for_bit(monkeypatch):
     split, Xte, taus = _q0_split()
     Qv_raw, Qt_raw, best = _q6_fit_raw(split, Xte, taus)
     _, Qt = qs._calibrate(Qv_raw, Qt_raw, split[3], taus)
-    Qh, _, _, best_h = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    mh = qs._fit_head_model(split, None, 1, taus, rb.MAX_ITERS,
+                            audition=False)
+    Qh, best_h = mh.predict(Xte), mh.best_iteration_
     assert best == best_h
     if not np.array_equal(Qt, Qh):
         i, j = np.argwhere(Qt != Qh)[0]
@@ -593,3 +599,26 @@ def test_q6_extra_fields_land_in_metrics_in_both_harnesses(monkeypatch):
     ref["excess_crps"] = float(
         ref["crps"] - qm.crps(yte, Q_or[idx_te], taus))
     assert ms4 == ref
+
+
+def test_q7_audition_library_matches_bench_oracle_bit_for_bit(monkeypatch):
+    """The default head IS the Audition arm: same grid, same choice."""
+    from chimeraboost import ChimeraBoostQuantileRegressor
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Qb, _, _, best_b, extra = qs._fit_chimera_audition(
+        split, Xte, None, 1, taus)
+    Xf, Xv, yf, yv = split
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=300,
+        early_stopping_rounds=rb.PATIENCE, thread_count=1,
+        random_state=0).fit(Xf, yf, eval_set=(Xv, yv))
+    Ql = m.predict(Xte)
+    if not np.array_equal(Ql, Qb):
+        i, j = np.argwhere(Ql != Qb)[0]
+        pytest.fail(f"library differs from bench at [{i}, {j}]: "
+                    f"lib={Ql[i, j]!r} bench={Qb[i, j]!r}")
+    assert np.array_equal(Ql, Qb)
+    assert m.best_iteration_ == best_b
+    want = {0: "head", 1: "bins", 2: "recentred"}[extra["audition_choice"]]
+    assert m.audition_["selected"] == want

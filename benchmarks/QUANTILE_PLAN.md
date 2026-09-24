@@ -373,6 +373,15 @@ Q0 reads moved it down to item 4.
    whichever candidate won. Open product question for the maintainer: on
    by default (the house rule makes the default the strongest
    non-ensembling setting, which this is) or opt-in, at 2.35× the fit.
+   **PASSED 2026-09-24 (I062, `results/quantile-20260924-005306.json`), PR
+   for the maintainer; on by default (stated with PR #161, not objected
+   to).** `audition=True` reproduces the bench arm on 177 of 177 fits;
+   against the Q5 default, gr 23W-7L-6T, +1.57%, p = 0.005. The guard
+   against R's collapsed band is the validation choice itself (a tie-heavy
+   target picks H; a test pins it). Against the field on gr the head now
+   beats CatBoost MQ 27W-9L and tops the 59-key chart at 0.6006 @ 7.4×,
+   with CatBoost off the frontier. The one flag: hc `@time` (3 sets), 90%
+   coverage error 0.68 → 2.12 points.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles

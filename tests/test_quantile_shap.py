@@ -181,7 +181,7 @@ def test_categoricals_land_in_original_feature_space():
     y = X[:, 0] + cat * 0.5 + 0.3 * rng.standard_normal(n)
     m = ChimeraBoostQuantileRegressor(quantiles=[0.1, 0.5, 0.9],
                                       n_estimators=60, random_state=0,
-                                      cat_features=[1]).fit(X, y)
+                                      cat_features=[1], audition=False).fit(X, y)
     # Explicitly raw, so this pins the original-space mapping rather than
     # relying on a 3-level grid never crossing (which would make the default
     # coincide with raw and the assertion pass for the wrong reason).
@@ -232,3 +232,62 @@ def test_importances_stay_on_the_raw_grid_whatever_the_default_is():
     expected = np.abs(phi_raw).mean(axis=0).mean(axis=1)
     assert np.allclose([got[j] for j in sorted(got)],
                        [expected[j] for j in sorted(got)])
+
+
+def _aud_split_shap(X, y, split_seed):
+    from sklearn.model_selection import train_test_split
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                          random_state=split_seed)
+    Xf, Xv, yf, yv = train_test_split(Xtr, ytr, test_size=0.2,
+                                      random_state=0)
+    return (Xf, Xv, yf, yv), (Xte, yte)
+
+
+def _aud_data_shap(kind):
+    if kind == "head":
+        rng = np.random.default_rng(1)
+        n = 1000
+        X = rng.standard_normal((n, 5))
+        y = 2.0 * X[:, 0] + np.exp(0.6 * X[:, 1]) * rng.standard_normal(n)
+        return X, y, 1
+    if kind == "bins":
+        rng = np.random.default_rng(7)
+        n = 1200
+        X = rng.uniform(-1.0, 1.0, size=(n, 3))
+        y = ((X[:, 0] > 0.712345).astype(float) * 5.0
+             + rng.standard_normal(n) * 0.2)
+        return X, y, 0
+    assert kind == "recentred"
+    rng = np.random.default_rng(2)
+    n = 1000
+    X = rng.standard_normal((n, 4))
+    y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
+    return X, y, 0
+
+
+def _aud_fit_shap(kind):
+    from chimeraboost import ChimeraBoostQuantileRegressor
+    taus = [0.05, 0.25, 0.5, 0.75, 0.95]
+    X, y, sseed = _aud_data_shap(kind)
+    (Xf, Xv, yf, yv), (Xte, yte) = _aud_split_shap(X, y, sseed)
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=300, early_stopping_rounds=50,
+        thread_count=1, random_state=0).fit(Xf, yf, eval_set=(Xv, yv))
+    return m, Xte
+
+
+def test_audition_winner_shap_is_locally_accurate():
+    """SHAP reconstructs the winner for H/B/R, quantiles and width."""
+    for kind in ("head", "bins", "recentred"):
+        m, Xte = _aud_fit_shap(kind)
+        assert m.audition_["selected"] == kind
+        Xt = Xte[:20]
+        phi = m.shap_values(Xt)
+        assert phi.shape == (20, Xt.shape[1], 5)
+        assert np.allclose(phi.sum(axis=1) + m.expected_value_,
+                           m.predict(Xt))
+        iv = m.predict(Xt, kind="interval", alpha=0.1)
+        phiw = m.shap_values(Xt, kind="width", alpha=0.1)
+        assert phiw.shape == (20, Xt.shape[1])
+        assert np.allclose(phiw.sum(axis=1) + m.expected_value_,
+                           iv[:, 1] - iv[:, 0])
