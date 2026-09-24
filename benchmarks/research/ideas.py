@@ -8,7 +8,10 @@ first; the cheap-tier signal is allowed to reprioritize.
 ``implemented=True`` means the variant's flag already exists in the library and
 can be run through the cascade today. The CatBoost-gap levers (C*/G*) are listed
 here as the pre-registered agenda; each flips to implemented as its default-off
-flag lands (one change at a time).
+flag lands (one change at a time). A retired idea (``retired`` set) was run
+through the cascade and killed, and its library flag has since been removed.
+The cascade refuses retired ideas outright; their params and hypotheses stay as
+the pre-registered record.
 
 Two ideas with KNOWN outcomes are kept for the engine self-test:
   * ``crossfeat_off``  -- a known LARGE SIGNAL (removing a shipped default must
@@ -59,7 +62,10 @@ IDEAS = {
     "C1_onehot_low_card": dict(
         params={"onehot_low_card": True},
         category="categorical",
-        implemented=True,   # flipped on in Part C
+        implemented=False,
+        retired="KILLED @ T0 (helps splice/car/adult, regresses "
+                "bank-marketing, 3/8); flag onehot_low_card removed from "
+                "the library; verdict in benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="One-hot encoding low-cardinality categoricals (<= ~8 levels) "
                    "alongside ordered TS lets the tree make exact subset splits "
@@ -84,7 +90,10 @@ IDEAS = {
     "C3_selective_cat_combinations": dict(
         params={"cat_combinations_selective": True},
         category="categorical",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T0 (MI-pruning hurts all-cat sets, kr-vs-kp "
+                "+27%, 1/8); flag cat_combinations_selective removed "
+                "from the library; verdict in benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="Selecting cat-combinations by target association (mutual "
                    "info / gain) instead of all C(n,2), and allowing them on "
@@ -94,7 +103,10 @@ IDEAS = {
     "C4_cat_aware_binning": dict(
         params={"cat_aware_binning": True},
         category="categorical",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T0 (helps car/splice, hurts kr-vs-kp +14.7%, "
+                "3/8); flag cat_aware_binning removed from the library; "
+                "verdict in benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="More/different bins for encoded categorical columns gives "
                    "sharper categorical splits.",
@@ -104,7 +116,11 @@ IDEAS = {
     "G1_forest_joint_leaf_refit": dict(
         params={"forest_leaf_refit": True},
         category="general",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T1 (overfits: train down, test up 6-14%; "
+                "binary gain already in linear_leaves); flag "
+                "forest_leaf_refit removed from the library; verdict in "
+                "benchmarks/research/SUMMARY.md",
         # Post-fit pass: it rewrites leaf values AFTER boosting, so the per-round
         # validation_history_ curve cannot see it. The fast (curve) tier is blind
         # to it -> evaluate directly at the promotion tier (true test metric).
@@ -117,7 +133,10 @@ IDEAS = {
     "G2_adaptive_leaf_shrinkage": dict(
         params={"adaptive_leaf_shrinkage": 1.0},
         category="general",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T0 (helps car -4.3%, hurts kr-vs-kp +6.1%, "
+                "2/8); flag adaptive_leaf_shrinkage removed from the "
+                "library; verdict in benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="Per-leaf L2 scaled by leaf mass regularizes low-mass leaves "
                    "harder; small broad Brier gain.",
@@ -125,7 +144,11 @@ IDEAS = {
     "G3_adaptive_leaf_estimation": dict(
         params={"adaptive_leaf_estimation": True},
         category="general",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T0 (flat: size-scheduling the Newton steps "
+                "buys ~nothing, 1/8); flag adaptive_leaf_estimation "
+                "removed from the library; verdict in "
+                "benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="Scaling leaf_estimation_iterations by data size/signal helps "
                    "where the single Newton step underfits.",
@@ -133,7 +156,10 @@ IDEAS = {
     "G4_ordered_plus_leaf_estimation": dict(
         params={"ordered_boosting": True, "ordered_leaf_estimation": True},
         category="general",
-        implemented=True,
+        implemented=False,
+        retired="KILLED @ T0 (helps some cats, badly hurts kr-vs-kp "
+                "+17%, 3/8); flag ordered_leaf_estimation removed from "
+                "the library; verdict in benchmarks/research/SUMMARY.md",
         direction="lower_better",
         hypothesis="Reconciling ordered_boosting WITH leaf estimation (mutually "
                    "exclusive today) gives CatBoost's 'ordered boosting AND leaf "

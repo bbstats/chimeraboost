@@ -452,6 +452,49 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
+why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84
+closed. Branch `campaign/issue81-research-ideas` from main 3e02ab1; muse
+task `20260924-issue81-research-ideas.md`.
+state found (S0, read-only): half one is ALREADY FIXED: the self-test
+anchors became `crossfeat_off` + `noop` on 2026-08-10 (3ef96bd), with the
+old pair's failure written into `cascade.selftest`'s docstring; the issue
+was never closed. Half two is LIVE: seven `ideas.py` entries (C1, C3, C4,
+G1, G2, G3, G4) say `implemented=True` for flags the library rejects
+(checked against both estimators' `get_params()`); all seven are KILLED
+in `research/SUMMARY.md`, which also records the flags' removal. C2 is
+`implemented=False` (deferred, never built).
+change (`benchmarks/research/ideas.py`, `cascade.py`, new
+`tests/test_research_ideas.py`): the seven get `implemented=False` and a
+`retired` note pointing at SUMMARY.md, their pre-registered params and
+hypotheses kept; `cascade()` refuses a retired idea with its note, and
+refuses any idea whose params the current regressor rejects, before any
+fit; a CI test asserts every implemented idea's params are accepted by
+both estimators, so the next flag removal fails CI rather than a run.
+barriers: none matched.
+forecast: (1) the new tests pass, and test (a) fails when one of the seven
+is flipped back; (2) `--idea C1_onehot_low_card` refuses at once; (3)
+`cascade.py --selftest` PASSES (crossfeat_off moves some dataset by more
+than 1%, noop exactly flat), which is the evidence for closing half one;
+(4) full suite green; the library is untouched, so both Pareto axes are
+unchanged by construction.
+muse (exit 0): the seven retired with a `retired` note (tier, one-phrase
+reason from SUMMARY.md, the removed flag); `_refuse_stale_idea()` holds
+both refusals (inlined, `cascade()` reached C901 12) and checks params
+against BOTH estimators, since `runner._est` builds either from the same
+dict. G4 also sets `ordered_boosting`, which still exists; its note names
+only the removed `ordered_leaf_estimation`.
+result: (1) HIT: 4 new tests pass; flipping G2 back to implemented fails
+test (a) (`'adaptive_leaf_shrinkage' not a regressor param`). (2) HIT:
+`--idea C1_onehot_low_card --tier T0` exits at once with the retired note;
+all seven refuse the same way. (3) HIT: `--selftest --jobs 3` PASS in 12 s,
+crossfeat_off max +5.38% (covertype), kick +1.13%, noop bit-identical on
+8 datasets. (4) HIT: full suite 1223 passed, 1 skipped (conda python);
+`chimeraboost/` identical to main.
+verdict: **PASS → PR for the maintainer** (a new file under `tests/`).
+Closes #81: half one was fixed by 3ef96bd, confirmed here by the self-test.
+next: issue #131, `refresh(X, y)` with an opt-in stored training set.
+
 #### I064 2026-09-24 issue #84 (`warmup(background=True)` can still print the cold-compile notice; LIBRARY bug fix, pre-registered)
 why now: the first rung under the 2026-09-24 focus rule (GitHub issues,
 bugs first). PR #167 merged (4289fe4), issue #163 closed. Branch
