@@ -1613,8 +1613,10 @@ about 20 rows.</p>
 <p><code>split_projection</code> chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: <code>"rotate"</code> measured
 best, <code>"sum"</code> is blind to changes in spread, and <code>"gram"</code> measured no better than
-<code>"rotate"</code>. <code>exact_splits=True</code> scores the exact gain summed across levels, which is
-slightly more accurate at the cost of K histogram channels per feature.</p>
+<code>"rotate"</code>. <code>exact_splits=True</code> scores the exact gain summed across levels instead of
+the projection, at the cost of K histogram channels per feature. It is not more accurate
+in practice: on the 36 Grinsztajn regression datasets it scored a worse CRPS than the
+default on 27, so leave it off.</p>
 <p><code>benchmarks/QUANTILE_PLAN.md</code> records why each of those defaults is what it is.</p>
 
 

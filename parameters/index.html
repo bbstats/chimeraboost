@@ -1674,7 +1674,7 @@ for 3 or more.</p>
 <tr>
 <td><code>exact_splits</code></td>
 <td><code>False</code></td>
-<td>Score splits on the exact gain summed across levels instead of a projection. Slightly more accurate, at the cost of K histogram channels per feature.</td>
+<td>Score splits on the exact gain summed across levels instead of a projection, at the cost of K histogram channels per feature. Measured worse on real data (a worse CRPS on 27 of 36 Grinsztajn regression datasets), so it is a reference setting only.</td>
 </tr>
 </tbody>
 </table>
