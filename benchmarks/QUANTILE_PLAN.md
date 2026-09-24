@@ -373,8 +373,8 @@ Q0 reads moved it down to item 4.
    whichever candidate won. Open product question for the maintainer: on
    by default (the house rule makes the default the strongest
    non-ensembling setting, which this is) or opt-in, at 2.35× the fit.
-   **PASSED 2026-09-24 (I062, `results/quantile-20260924-005306.json`), PR
-   for the maintainer; on by default (stated with PR #161, not objected
+   **PASSED 2026-09-24 (I062, `results/quantile-20260924-005306.json`);
+   merged as PR #162 and released in 0.33.0 the same day; on by default (stated with PR #161, not objected
    to).** `audition=True` reproduces the bench arm on 177 of 177 fits;
    against the Q5 default, gr 23W-7L-6T, +1.57%, p = 0.005. The guard
    against R's collapsed band is the validation choice itself (a tie-heavy
