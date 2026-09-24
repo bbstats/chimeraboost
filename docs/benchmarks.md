@@ -21,9 +21,10 @@ and the leaderboard we quote never feeds back into the code.
 ![strength vs speed](https://raw.githubusercontent.com/bbstats/chimeraboost/main/images/public_pareto.png)
 
 Average rank across the public suite against median fit time, both measured only against
-CatBoost and LightGBM. The honest summary is that the default sits within noise of
-CatBoost at about a seventh of its median fit time: average ranks of 1.90 and 1.88 with
-overlapping intervals, at 7.1x versus 53.1x slowdown.
+CatBoost and LightGBM, measured on 0.33.0. The honest summary is that the default sits
+within noise of CatBoost, a little behind it on average rank, at about an eighth of its
+median fit time: average ranks of 1.94 and 1.84 with overlapping intervals, at 5.6x
+versus 47.2x slowdown.
 
 Datasets are picked on data properties alone: row counts, cardinality, missingness, task
 type. No benchmark result is allowed to influence which datasets are in a suite, or it

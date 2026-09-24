@@ -111,33 +111,33 @@ The harmonic mean collapses toward the **weaker leg**, so the blended diagnostic
 still answers "which task is weak". Ship decisions are unchanged (per-dataset sign
 tests); the chart axis is legibility only and gates nothing.
 
-**Current standing** (`results/20260922-144219.json`, 3 seeds, the decision
-suites: Grinsztajn + high-cardinality with their small-data and time-split
-twins; the default includes the count column, on since 2026-09-22). The field
-is the `quality` ladder (benchmarks/SELECT_PLAN.md) plus the external models,
-all co-run:
+**Current standing** (`results/20260924-130232.json`, the 0.33.0 release, 3
+seeds, the decision suites: Grinsztajn + high-cardinality with their small-data
+and time-split twins; the default includes the count column, on since
+2026-09-22). The field is the `quality` ladder (benchmarks/SELECT_PLAN.md) plus
+the external models, all co-run:
 
 | Model | `quality` | Brier skill (44 clf) | R² (59 reg) | Slowdown clf / reg | Win rate (diagnostic) |
 |---|---|--:|--:|--:|--:|
-| ChimeraBoostEns8 | 5 | 0.4104 | 0.7370 | 17.2× / 23.1× | 94.0% |
-| ChimeraBoostEns5 | 4 | 0.4089 | 0.7361 | 12.4× / 16.0× | 81.0% |
-| **ChimeraBoost** *(default)* | **3** | **0.4052** | **0.7342** | **5.0× / 6.4×** | **70.7%** |
-| CatBoost | — | 0.4057 | 0.7295 | 51.8× / 43.0× | 53.1% |
-| ChimeraBoostNoRefit | 2 | 0.3984 | 0.7290 | 3.8× / 5.0× | 42.0% |
-| ChimeraBoostOneLinX | 1 (reg) | 0.3958 | 0.7273 | 1.8× / 3.0× | 39.4% |
-| ChimeraBoostOneLin | 1 (clf) | 0.3958 | 0.7247 | 1.8× / 1.9× | 30.7% |
-| LightGBM | — | 0.4013 | 0.7223 | 1.0× / 1.2× | 20.4% |
-| sklearn_HGB | — | 0.4349 (36/44) | 0.7173 (53/59) | 4.0× / 6.7× | 14.3% |
+| ChimeraBoostEns8 | 5 | 0.4104 | 0.7368 | 17.0× / 23.1× | 94.0% |
+| ChimeraBoostEns5 | 4 | 0.4089 | 0.7360 | 12.4× / 15.9× | 81.0% |
+| **ChimeraBoost** *(default)* | **3** | **0.4052** | **0.7341** | **4.9× / 6.3×** | **70.7%** |
+| CatBoost | — | 0.4057 | 0.7294 | 53.0× / 47.8× | 53.1% |
+| ChimeraBoostNoRefit | 2 | 0.3984 | 0.7289 | 3.7× / 5.0× | 42.0% |
+| ChimeraBoostOneLinX | 1 (reg) | 0.3958 | 0.7271 | 1.8× / 3.0× | 39.4% |
+| ChimeraBoostOneLin | 1 (clf) | 0.3958 | 0.7246 | 1.8× / 1.9× | 30.7% |
+| LightGBM | — | 0.4013 | 0.7221 | 1.0× / 1.2× | 20.4% |
+| sklearn_HGB | — | 0.4349 (36/44) | 0.7172 (53/59) | 4.3× / 6.4× | 14.3% |
 
 On regression every ChimeraBoost rung is on the frontier, with LightGBM at the
 fast end. On classification the frontier is LightGBM, the default and the two
 bagged rungs; CatBoost sits 0.0005 of Brier skill above the default at about
-ten times its fit time, dominated by Ens5. sklearn_HGB's classification score
+eleven times its fit time, dominated by Ens5. sklearn_HGB's classification score
 is an average over the 36 sets it can fit, an easier subset, so it is shown
 but never on the frontier.
 
 On the pooled slowdown the 2026-07-31 table used, the default went from 7.1× to
-5.8×: the bit-identical speed work shipped since (fused loss kernels, one
+5.7×: the bit-identical speed work shipped since (fused loss kernels, one
 factorization per fit). The 2026-09-18 chart run is not comparable on this
 axis: it timed LightGBM and HGB 4–16× slower than the same libraries run
 today (benchmarks/CAMPAIGN_PLAN.md facts ledger, 2026-09-22). Win rate is
