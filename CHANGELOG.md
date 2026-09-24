@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.33.0] - 2026-09-24
 ### Added
 - **`cat_count_features`, on by default: a rarity signal for
   high-cardinality categorical columns.** Every categorical column with at
