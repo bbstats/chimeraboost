@@ -24,6 +24,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
+from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from research import curves, datasets, ideas, runner, report  # noqa: E402
 
@@ -156,16 +158,38 @@ def run_promo_tier(idea_params, seed, threads, jobs, keys, max_rows=None,
     return verdict
 
 
-# ---------------------------------------------------------------------------
-# Full cascade for one idea.
-# ---------------------------------------------------------------------------
-def cascade(idea_name, tiers, seed, threads, jobs):
-    spec = ideas.get(idea_name)
+def _refuse_stale_idea(idea_name, spec):
+    """Refuse ideas that cannot run -- retired, unimplemented, or setting
+    flags the current estimators no longer accept. Returns the idea's params.
+    Raises SystemExit before any fit starts."""
+    if spec.get("retired"):
+        raise SystemExit(
+            f"idea {idea_name!r} is retired: {spec['retired']}")
     if not spec["implemented"]:
         raise SystemExit(
             f"idea {idea_name!r} is not implemented yet (no library flag). "
             f"Implement its default-off flag first.")
     params = spec["params"]
+    # Guard against flag removal: runner._est builds BOTH estimators from
+    # the same params (regressor or classifier per dataset task), so every
+    # param must be accepted by both.
+    reg_keys = ChimeraBoostRegressor().get_params()
+    clf_keys = ChimeraBoostClassifier().get_params()
+    unknown = [k for k in params if k not in reg_keys or k not in clf_keys]
+    if unknown:
+        raise SystemExit(
+            f"idea {idea_name!r} sets unknown flag(s) {unknown} that the "
+            f"current estimators do not accept; re-point the idea at a live "
+            f"flag or retire it.")
+    return params
+
+
+# ---------------------------------------------------------------------------
+# Full cascade for one idea.
+# ---------------------------------------------------------------------------
+def cascade(idea_name, tiers, seed, threads, jobs):
+    spec = ideas.get(idea_name)
+    params = _refuse_stale_idea(idea_name, spec)
     out = dict(idea=idea_name, hypothesis=spec["hypothesis"],
                category=spec["category"], params=params, tiers={})
     print(report.preregister(idea_name, spec), flush=True)
