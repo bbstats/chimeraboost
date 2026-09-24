@@ -3,6 +3,17 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- **The quantile benchmark's NGBoost opponent now uses the RoNGBa
+  settings** (Ren, Sun and Wu 2019; #163): trees of up to 31 leaves, a
+  learning rate of 0.04 and at most 500 rounds, in place of NGBoost's stock
+  learner. It beats the stock settings on 23 of the 36 Grinsztajn
+  regression datasets and fits about four times faster; the head still
+  wins 33 of the 36 on CRPS against it. Two of its 177 fits break down on
+  a single extreme training row, so it is left off the internal quantile
+  chart. `docs/quantiles.md` has the re-measured row.
+
 ## [0.33.0] - 2026-09-24
 ### Added
 - **`cat_count_features`, on by default: a rarity signal for

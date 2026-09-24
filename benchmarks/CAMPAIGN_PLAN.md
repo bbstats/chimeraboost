@@ -29,6 +29,7 @@ A shipped preset is a frontier win but not a default win.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 - WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
+- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room.
 
 ## Screening ladder
 
@@ -487,7 +488,56 @@ table's NGBoost row and `images/quantile_pareto.png` take the new run, and
 it becomes the standing quantile BASE.
 run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save`, the full
 field, so the docs table and the chart come from one run (~2.5 h).
-verdict: PENDING(muse task 20260924-ngboost-rongba, then the full-field run)
+muse (exit 0): `_rongba()` builder + `RONGBA_*` constants, `_fit_ngboost`
+builds from it, docstrings name RoNGBa; `test_rongba_settings` pins the
+issue's numbers, the best-round test builds its reference from the
+builder (still stops before 500 as-is); 24/24 in the suite file; smoke on
+pol, cpu_act, Brazilian_houses ran clean (best rounds 139 / 71 / 100).
+Full suite 1218 passed, 1 skipped. Ruff: 4 RUF100 on the untouched
+`sys.path` import block under local ruff 0.15.17; CI lints `chimeraboost/`
+only, with 0.16.5. NGBoost reads the passed validation rows (it carves its
+own 10% only when none are given), for the old arm and the new.
+ran: `results/quantile-20260924-164257.json` (seven arms, 59 keys x 3
+seeds, ~2.4 h). Per-stratum CRPS sign tests printed (`compare_runs.py
+--metric crps --by-suite`; head vs NGBoost via `--model-new`).
+result, forecast by forecast:
+(1) MISS: RoNGBa vs stock 23W-13L on gr, median +0.94% (CI -0.07..+3.7);
+all 59 keys 37-22. Big gains on pol (+68%), visualizing_soil (+85%),
+Bike_Sharing cat (+46%); losses on analcatdata_supreme (-87%) and both
+Brazilian_houses (-27 / -30%).
+(2) HIT: the head beats it 33W-3L on gr (median +6.30%, CI +5.0..+9.9),
+interval score 30W-6L; hc 6W-0L, gr@sus25 6W-1L, gr@sus50 4W-0L, the
+small hc variants 4W-2L (pointers). Its three wins are pol (-47%),
+visualizing_soil (-62%), SGEMM (-8%): the low-noise, cap-bound sets
+(B23's population), where 31-leaf best-first trees resolve what the head
+cannot inside its budget. A capacity lead for the head, PARKED under the
+2026-09-24 focus rule.
+(3) NEAR MISS, low side: NGBoost fit 1.38x ours (was 5.15x); the new
+settings fit 0.26x the stock arm's time.
+(4) HIT, off the frontier: mean CRPS skill -166.5 against the head's 0.6006.
+(5) HIT: the 500 cap never bound (177 fits, best round median 67, max 269).
+(6) HIT: every other arm's per-key mean CRPS equals BASE (354/354).
+unforecast: two fits BREAK DOWN (yprop_4_1 seed 1, CRPS 169.6 against
+~0.0075; topo_2_1 seed 2, 42.0 against ~0.0077). Mechanism, reproduced:
+the training rows hold one target at z ~ -30; round 0's log-scale tree
+gives it a leaf of its own (value ~ -447, line-search multiplier 1), so
+log sigma moves by 0.04 x 447 ~ 17.9 and sigma by ~5.8e7; the one or two
+test rows in that leaf get spreads of 2.5e7-5e7 target sds. The
+validation NLL moves ~0.01, so early stopping cannot see it. Stock
+settings (8-leaf trees, rate 0.01) average the outlier away. No win/loss
+changes (the head wins both keys on the clean seeds too), but the mean
+skill is destroyed, so NGBoost is left OFF `images/quantile_pareto.png`
+(re-rendered from the run without that arm; the head 0.6006 @ 7.3x and
+RigidShift 0.5869 @ 1.2x are the frontier, CatBoost MQ 0.5982 @ 130x).
+docs (Claude): `docs/quantiles.md` (the NGBoost row, the fit column
+re-measured in the same run, a paragraph on RoNGBa and the breakdown, the
+budget sentence), CHANGELOG (Unreleased, Changed).
+verdict: **PASS under the reading rule** (13 losses < 19): the swap
+stands. Standing quantile BASE becomes `quantile-20260924-164257.json`.
+PR for the maintainer (tests, docs, image). The ledger facts for I063 and
+the F7 beam row are written once PR #166 merges, since both edit those
+lines (owner: the loop, first step after the merge).
+next: the 2026-09-24 focus rule: GitHub issue #84.
 
 #### I062 2026-09-23 F7 Q7 (the audition in `ChimeraBoostQuantileRegressor`, on by default; LIBRARY change, pre-registered)
 why now: I061 merged (PR #161 at 58c5cc8); the maintainer merged with no
