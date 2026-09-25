@@ -452,6 +452,52 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I068 2026-09-25 issue #113 remainder: the entity-ID auto-route kill-or-keep probe (BENCH only, pre-registered)
+why now: decision (3) of the maintainer's 2026-09-25 go on #113 demoted the
+auto-route from a default candidate to this probe; it closes that bullet
+of the issue. PR #172 merged (522710c). Branch
+`campaign/issue113-autoroute-probe` from main; muse task
+`20260925-issue113-autoroute-probe.md`.
+design (RANDEFF_PLAN.md "Slice 2"): a qualifying column is a categorical
+with >= 1,000 training levels at a median of <= 5 rows per level; on
+each set the top qualifying column (most levels) is routed. Arms, on hc
+wine-reviews, colleges and employee_salaries, seeds 0-2, a random 75/25
+split: A the default model (the column as a categorical: ordered target
+statistics plus its default count column); B the column dropped and
+`random_effects=True` on it (a shrunk intercept; unseen levels get 0);
+C = B plus the column's training-row count as a numeric feature.
+kill bar (pre-registered in the design pass): kill the auto-route unless
+a route arm beats A on >= 2 of 3 sets with a median gap > 0.
+barriers: none new; I040 (per-column shrinkage of the TS killed: "the
+count column keeps evidence the shrinkage deletes") is the prior against.
+forecast: KILL. A wins at least 2 of 3 on test RMSE against both route
+arms (the default's TS + count column already carry what a shrunk
+intercept would); C closes part of B's gap.
+ran (muse exit 0): `benchmarks/probe_entity_route.py`,
+`results/probe-entity-route-20260925-083329.json`, 27 fits. Routed:
+wine `designation` (~10.7k levels, median 1 row), colleges `zip` (~4.7k),
+employee `date_first_hired` (~1.95k); no alias drops. Seed-mean test RMSE,
+A / B / C: wine 2.1212 / 2.1208 / 2.1246; colleges 0.1408 / 0.1421 /
+0.1410; employee 4062.6 / 4055.1 / 4109.7. B vs A: wine +0.02%, colleges
+-0.92%, employee +0.18% (route-better positive); C lost all three
+(median -0.19%). Fit times flat.
+result: the letter of the bar says KEEP for a fuller gate (B wins 2/3,
+median +0.02%). The robustness read (GATE_ROBUSTNESS.md 2, 3 and the
+short version) says noise: 3 datasets is a pointer; the median is a
+just-above-threshold tie (wine to three decimals); employee's win is
+seed 0 alone (B loses seeds 1-2); dropping it leaves no real win; the
+count variant loses everywhere. Forecast KILL: MISS on the letter, HIT in
+substance.
+verdict: **PARKED, not shipped.** No fuller gate is possible: only these
+3 hc regression sets have a qualifying column, and a classification
+route needs a logistic mixed model (a slice of its own). The default
+categorical path stays; nothing changes in the library.
+#113 now: random slopes NOT SHIPPED (I067, code archived); the auto-route
+PARKED on a tie; a second grouping column and a guarded slopes 2b not
+started (no evidence calls for either). Closing the issue is the
+maintainer's call.
+next: #45 (loose ends).
+
 #### I067 2026-09-25 issue #113 slice 2 (random slopes on top of random intercepts; LIBRARY feature, opt-in, pre-registered)
 why now: the focus rule's next issue; the maintainer's go 2026-09-25 with
 the four design calls as recommended. PR #171 merged (a65c8b2). Branch

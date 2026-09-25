@@ -369,3 +369,15 @@ one-to-one alias of the group column. Re-scored on slice 1's 11 sets, RE
 vs Drop and vs Cat go from 9W-2L to 8W-3L (real sets 3W-2L -> 2W-3L; the
 alias had let RE's trees see the department). The synthetic sweeps that
 carried slice 1's ship are unchanged.
+
+### Entity-ID auto-route probe (2026-09-25): PARKED
+
+`benchmarks/probe_entity_route.py` (CAMPAIGN_PLAN I068): routing the
+largest ID-like column (>= 1,000 training levels, median <= 5 rows per
+level) to a shrunk random intercept, against the default categorical path,
+on hc wine (designation), colleges (zip) and employee (date_first_hired),
+seeds 0-2. Test RMSE, route vs default: wine +0.02% (a tie), colleges
+-0.92%, employee +0.18% (seed 0 alone); route plus a count column lost all
+three. It meets the letter of the pre-registered keep bar on a tie, and no
+fuller gate exists (3 qualifying regression sets; classification would
+need a logistic mixed model). Parked; the default path is unchanged.
