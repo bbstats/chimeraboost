@@ -397,8 +397,8 @@ Q0 reads moved it down to item 4.
    fits: N 80, B 40, H 38, S 13, R 6. S alone (8W-3L-25T, p 0.23) is
    mostly subsumed by N; 8000 rounds (6W-3L-27T, p 0.51, 1.27×) fails.
 3d. **Q9, S and N in the library default.**
-   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`), PR
-   for the maintainer.** The default equals the bench arm on 177 of 177
+   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`);
+   merged as PR #177 (a6a90d2) the same day.** The default equals the bench arm on 177 of 177
    fits. Against the single head (Q5): gr 25W-5L-6T, +3.04%, at 2.6× its
    fit. Against the field on gr: CatBoost MQ 29W-7L, RigidShift 35W-1L,
    LightGBM per-level 31W-5L, our per-level 34W-2L, NGBoost 33W-3L; on the
