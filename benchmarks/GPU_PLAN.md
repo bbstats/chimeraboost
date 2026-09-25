@@ -191,7 +191,7 @@ Awkward parts, in order of how badly they are usually underestimated:
 
 No kernel should be written before these are answered:
 
-1. **Hardware and honesty check (Nathan's call, not measurable):** is there
+1. **Hardware and honesty check (Nathan's call, not measurable):** (WON'T DO, 2026-09-25: the maintainer closed this program's open question; no GPU work is planned.) is there
    a CUDA card on this box, and is a GPU arm something we would ever put on
    a chart, given it must be charted against GPU competitors?
 2. **The batching prior, on CPU.** Before any CUDA, confirm the Option-A
