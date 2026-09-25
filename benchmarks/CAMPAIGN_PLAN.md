@@ -29,7 +29,7 @@ A shipped preset is a frontier win but not a default win.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 - WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
-- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room.
+- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room. UPDATE 2026-09-25: #84 and #81 are merged; #131 slice 1 is PR #170, PARKED OPEN by the maintainer ("not sure I want it implemented"), which does NOT hold the one-campaign-PR-at-a-time rule, since he asked the loop to keep going; #113: the maintainer's go 2026-09-25 ("Yes 113 is 'another issue' so you may work on it"); its four design calls go with the stated recommendations (one slope column with independent variances; the real-set covariate by the correlation rule; the entity-ID auto-route demoted to a kill-or-keep probe; fix the employee alias leak and report slice 1's old and new numbers). Next: #113 (random slopes), then #45.
 
 ## Screening ladder
 
@@ -451,6 +451,124 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
+why now: the focus rule's third issue. PR #169 merged (5b27b06), #81
+closed. Program file `benchmarks/REFRESH_PLAN.md` (design, decisions,
+later slices). Branch `campaign/issue131-refresh-slice1` from main 5b27b06;
+two muse passes: `20260924-issue131-slice1a-internals.md`, then
+`...-slice1b-api.md` after review.
+change: slice 1 as REFRESH_PLAN.md specifies (regressor + binary
+classifier, single model; bagging, multiclass, `loss="Quantile"` and
+random effects raise at fit when `store_training_data=True`). The default
+path changes only by a bit-identical refactor (`_fit_gdiff` arithmetic
+shared with the stored-rows path).
+barriers: B13 (replay is a screening, not a selection instrument) and B2
+(the refit amplifies a bad audition) matched on "replay". Refresh selects
+nothing and changes no default or audition; B13's bit-identical round trip
+is the invariant this rung relies on.
+forecast: (1) pass 1a: the stored-rows preprocessing path reproduces the
+replay path's binned matrix bit for bit on the same rows, and with new rows
+equals the replay path on the concatenated raw rows, over every column
+block; (2) identity snapshot 186/186 and the goldens unchanged after 1a
+and after 1b; (3) pass 1b: refresh with zero new rows is bit-identical to
+the fitted model in every configuration of REFRESH_PLAN.md's test (a);
+refresh(A) then refresh(B) equals refresh(A+B); (4) full suite green. Both
+Pareto axes untouched (opt-in, default path bit-identical).
+pass 1a (muse exit 0): the twin design as first written
+(`fit_transform_stored`, `Binner.transform_block`, shared `_gdiff_means`,
+`stored=` booster plumbing): forecast (1) HIT, every equality exact (binned
+matrix, fitted preprocessor state, leaf values, predict_raw), 5 tests, full
+suite green in the sandbox. DISCARDED at review: +551 library lines, ~400 of
+them a second implementation of the preprocessing to be kept in step by
+hand. Redesign (REFRESH_PLAN.md, "the ONE preprocessing path"): keep bins
+for plain numerics and RAW floats only for cross parents, map each bin back
+to a value that bins identically (bin = number of borders <= v, binning.py:
+82-93), and feed the rebuilt X to the existing replay refit unchanged.
+Linear leaves read the binned matrix (booster.py:888), so they are
+unaffected. Same storage, one code path, no booster plumbing.
+forecast for pass 1a' (`20260924-issue131-slice1a2-rows.md`): (1') every
+stored bin round-trips exactly (every feature, every bin index incl. the
+missing slot); `fit_transform` on the rebuilt X equals `fit_transform` on
+the raw rows (matrix and fitted state), with and without new rows; the
+booster replay refit on the rebuilt X equals it on the raw rows (leaf
+values, predict_raw); library diff under ~200 lines.
+pass 1a' (muse exit 0): `chimeraboost/training_rows.py` (173 lines) +
+`GradientBoosting.replay_kwargs()` (25 lines, read off
+`inspect.signature(_BaseBooster.__init__)`): 198 library lines against the
+twin's 551. Forecast (1') HIT: tests (a)-(f) all bit for bit on a forced
+block of all three cross kinds (12 diff/prod, 8 gdiff; plain [2, 3],
+parents [0, 1, 4, 5]), a count column, one combo pair, linear leaves (99 of
+100 trees with `lin_coef`), 5% NaN numerics, NaN categories, zero weights,
+300 appended rows with unseen categories; the missing category maps back
+through `"__nan__"` -> `np.nan`. Full suite 1230 passed, 1 skipped (conda
+python); identity snapshot 186/186 bit-identical. Committed on the branch
+as the pass-1 checkpoint.
+pass 1b (muse exit 0): `sklearn_api.py` +291 (the parameter, the slice-1
+gate inside `_quality_applied` plus the multiclass check once classes are
+known, capture at the end of both `_fit_single`, `refresh` through
+`_refresh_single` and helpers, each C901 <= 6); `training_rows.py`
+unchanged; 29 new tests. Slice 1 library total 489 lines (training_rows
+173, booster 25, sklearn_api 291).
+result: (2) HIT: identity snapshot 186/186 after both passes. (3) HIT:
+zero-row refresh bit-identical in all 15 configurations (refit_full
+"replay"/True/False, eval_set, no early stopping, a 350-level categorical,
+all three cross kinds, linear leaves, weights, NaNs, ordered boosting, MAE,
+Poisson, a custom objective, subsample + colsample, a weighted binary
+classifier with string labels); refresh equals a manual replay on the
+stacked raw rows; refresh(A) then refresh(B) equals refresh(A + B); pinned
+state unchanged; pickle; every error. (4) HIT: full suite 1259 passed, 1
+skipped (conda python); ruff clean on `chimeraboost/`. Review: a DataFrame
+with reordered columns is refused by `_check_feature_names_match` before
+any append; SHAP after a refresh adds up to `predict_raw` within 4e-13.
+Usefulness smoke (not a gate): test RMSE 0.8543 on the 60% model, 0.7975
+after refreshing with the next 30%, 0.7698 for a full refit on 90%:
+refresh recovers ~67% of the full refit's gain without growing a tree.
+docs (Claude): `docs/parameters.md` (the row), `docs/recipes.md`
+("Refreshing with new rows"), CHANGELOG (Unreleased, Added); the API pages
+render the `refresh` docstring.
+verdict: **PASS → PR for the maintainer** (library, tests, docs). Issue
+#131 stays open for slices 2-7 (REFRESH_PLAN.md).
+next: issue #113 (random effects, slice 2) per the focus rule.
+follow-up (the maintainer, 2026-09-24, on PR #170): "Use a larger dataset
+to prove refresh's purpose", then "the prime use case is more of a 'daily
+refit' after a day of data comes in", then "Let's put the fast kernel in.
+Pretend you're like a maintainer adjusting an initial PR". Measured:
+Zurich delays at scale (fit 3.3M rows 259 s, refresh +1.6M 141 s, full
+refit on 4.9M 459 s; RMSE 3.0406 / 3.0402 / 3.0402); a daily refresh
+(517k-row store + 17k new rows) 5.0 s against a 15.6 s fit and a 0.56 s
+predict pass. Per tree 11.0 ms, of which `_linear_leaf_fit` 9.2 ms: a
+2.3 ms serial counting sort, then per-leaf sums bound by the largest leaf
+(median 38%, max 60% of rows). Muse task `20260924-issue131-fast-replay.md`
+on the PR branch: parallel stable sort, contiguous leaf-sorted gather,
+parallel over (leaf, accumulator) so one big leaf no longer serializes,
+every sum in the same row order.
+forecast (kernel): identity snapshot 186/186 and the goldens unchanged;
+`_linear_leaf_fit` 9.2 -> <= 3 ms at 517k rows; the daily refresh 5.0 ->
+<= 2.5 s; linear-leaf default fits faster by the kernel's share.
+muse (exit 0), `tree.py` only: `_linear_leaf_fit` keeps today's code as
+the arm for `n <= _SMALL_N`; above it, a parallel stable counting sort, one
+parallel gather into leaf-sorted contiguous buffers (`gs`, `hs`, `Xd` as
+(k, n)), and parallel (leaf, accumulator-group) tasks, accumulator-major,
+each sum in increasing row order with today's expressions;
+`replay_oblivious_tree` uses the parallel `donor.apply`. 21 new tests
+against a verbatim copy of the old kernel (sizes, empty and tiny leaves, a
+60% leaf, NaN bins, k 1 and 6, 1 and 12 threads).
+result: bit-identical HIT (identity snapshot 186/186; full suite 1280
+passed, 1 skipped; ruff clean). Speed MISS against the targets: at 517k
+rows `_linear_leaf_fit` 9.93 -> 7.81 ms (1.27x, target <= 3), replay per
+tree 11.74 -> 9.17 ms, the daily refresh 5.0 -> 3.6 s (target <= 2.5), a
+500k-row linear-leaf fit 15.9 -> 13.4 s (1.19x, the grow path shares the
+kernel). The gather alone moves ~76 MB per call (3.55 ms, RAM-bound).
+Untried lead: gather uint16 bins (6 MB) instead of float64 design values
+(24 MB), looking centres up in L1.
+verdict (kernel): PASS as a bit-identical speedup, shipped in PR #170.
+2026-09-25, the maintainer on PR #170: "Gonna leave it open for now as I'm
+not sure I want it implemented. Let's keep going on any other issues."
+PR #170 is PARKED OPEN (not merged, not closed); issue #131 stays open.
+The loop moves on to the other issues; if he closes #170, the kernel
+speedup (435e866, bit-identical, 1.19x on linear-leaf fits) is worth
+salvaging as its own PR, since it helps every default fit.
 
 #### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
 why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84
