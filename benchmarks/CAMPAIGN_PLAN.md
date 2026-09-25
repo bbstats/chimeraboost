@@ -490,7 +490,9 @@ reliably), `test_q9_..._bit_for_bit` on an S-win and an N-win split, probe
 count 17; 1225 passed, 1 skipped; ruff clean. Smoke (4 keys): the default
 and AuditionSN equal (pol N, visualizing_soil N, elevators S, sulfur R).
 Identity snapshot: 183/186, only `mq3_w_sub`'s three pins move (S or N
-wins that config): rebaseline after the merge. Commit 181dc5c.
+wins that config): rebaseline after the merge. Commit 181dc5c. Review
+follow-up (muse, exit 0, c9a1435, docstrings only): `validation_history_`
+for an S or N win is the centre model's squared-error history, not CRPS.
 full-field run (`results/quantile-20260925-172250.json`, the new standing
 quantile BASE): the default equals I070's AuditionSN on 177/177 records,
 every metric; every field arm equals I063's run (6 x 177/177). Against the
