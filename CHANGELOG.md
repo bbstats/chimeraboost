@@ -4,6 +4,19 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **`store_training_data` and `refresh(X, y)`** on the regressor and the
+  binary classifier (#131, first slice). With `store_training_data=True` a
+  model keeps its training rows in compact form (bins for plain numeric
+  columns, raw values only for the columns that feed cross features,
+  category codes), and `refresh` folds in new rows by replaying every
+  tree's splits on the old and new rows together and refitting only the
+  leaf values. It is the same replay the default full-data refit uses,
+  with the tree count, learning rate and splits pinned; refreshing with no
+  new rows reproduces the model bit for bit. Bagged models, multiclass,
+  `loss="Quantile"` and `random_effects=True` are not supported yet. The
+  default fit is unchanged.
+
 ### Changed
 - **The quantile benchmark's NGBoost opponent now uses the RoNGBa
   settings** (Ren, Sun and Wu 2019; #163): trees of up to 31 leaves, a

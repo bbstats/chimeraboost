@@ -114,3 +114,8 @@ Still open, for their slices:
   review for the reconstruct design above: the same storage, one code path,
   no booster plumbing. The twin's diff and tests are kept outside the repo
   only as a reference.
+- 2026-09-24: slice 1 done (I066): pass 1a' `training_rows.py` + `replay_kwargs`
+  (198 lines), pass 1b the public API (291 lines); zero-row refresh exact in
+  15 configurations, chained refreshes compose, identity snapshot unchanged.
+  Smoke: a 60% model refreshed with 30% more rows recovered ~67% of a full
+  90% refit's RMSE gain. Awaiting the maintainer's merge.

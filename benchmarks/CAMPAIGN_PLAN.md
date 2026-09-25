@@ -504,7 +504,32 @@ parents [0, 1, 4, 5]), a count column, one combo pair, linear leaves (99 of
 through `"__nan__"` -> `np.nan`. Full suite 1230 passed, 1 skipped (conda
 python); identity snapshot 186/186 bit-identical. Committed on the branch
 as the pass-1 checkpoint.
-verdict: PENDING(muse 1b, `20260924-issue131-slice1b-api.md`)
+pass 1b (muse exit 0): `sklearn_api.py` +291 (the parameter, the slice-1
+gate inside `_quality_applied` plus the multiclass check once classes are
+known, capture at the end of both `_fit_single`, `refresh` through
+`_refresh_single` and helpers, each C901 <= 6); `training_rows.py`
+unchanged; 29 new tests. Slice 1 library total 489 lines (training_rows
+173, booster 25, sklearn_api 291).
+result: (2) HIT: identity snapshot 186/186 after both passes. (3) HIT:
+zero-row refresh bit-identical in all 15 configurations (refit_full
+"replay"/True/False, eval_set, no early stopping, a 350-level categorical,
+all three cross kinds, linear leaves, weights, NaNs, ordered boosting, MAE,
+Poisson, a custom objective, subsample + colsample, a weighted binary
+classifier with string labels); refresh equals a manual replay on the
+stacked raw rows; refresh(A) then refresh(B) equals refresh(A + B); pinned
+state unchanged; pickle; every error. (4) HIT: full suite 1259 passed, 1
+skipped (conda python); ruff clean on `chimeraboost/`. Review: a DataFrame
+with reordered columns is refused by `_check_feature_names_match` before
+any append; SHAP after a refresh adds up to `predict_raw` within 4e-13.
+Usefulness smoke (not a gate): test RMSE 0.8543 on the 60% model, 0.7975
+after refreshing with the next 30%, 0.7698 for a full refit on 90%:
+refresh recovers ~67% of the full refit's gain without growing a tree.
+docs (Claude): `docs/parameters.md` (the row), `docs/recipes.md`
+("Refreshing with new rows"), CHANGELOG (Unreleased, Added); the API pages
+render the `refresh` docstring.
+verdict: **PASS → PR for the maintainer** (library, tests, docs). Issue
+#131 stays open for slices 2-7 (REFRESH_PLAN.md).
+next: issue #113 (random effects, slice 2) per the focus rule.
 
 #### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
 why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84

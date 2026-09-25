@@ -361,6 +361,45 @@ reg = ChimeraBoostRegressor(refit_full=False, random_state=0).fit(X_train, y_tra
 reg = ChimeraBoostRegressor(quality=2, random_state=0).fit(X_train, y_train)
 ```
 
+## Refreshing with new rows
+
+When new labelled rows arrive after a fit, `refresh` folds them in without starting
+over. It keeps every tree's splits and refits only the leaf values on the old rows plus
+the new ones, which is the same replay the default full-data refit uses, so it costs
+about what that refit costs: roughly a third of growing the model again. The model has
+to keep its training rows for this, so ask for it at fit time:
+
+```python
+reg = ChimeraBoostRegressor(store_training_data=True, random_state=0)
+reg.fit(X_old, y_old)
+reg.refresh(X_new, y_new)       # leaves refit on the old and new rows together
+reg.n_samples_trained_          # how many rows the leaves now come from
+```
+
+What a refresh leaves alone:
+
+- The trees' splits, the number of trees and the learning rate. A refresh cannot add a
+  split the original data never called for, so a shift that needs new splits still
+  needs a refit.
+- The binary classifier's probability calibration (`temperature_`).
+- Every setting chosen at fit time. `set_params` after the fit does not change what a
+  refresh does.
+
+Worth knowing:
+
+- The stored rows take much less room than X itself. Plain numeric columns are kept as
+  bin indices, only the few columns that feed cross features keep their raw values, and
+  categories are kept as integer codes. For numeric data expect about a third of the size
+  of X as 64-bit floats. The store travels with the pickled model and grows with every
+  refresh.
+- If the model was fit with `sample_weight`, pass weights for the new rows too, in the
+  same units.
+- The classifier cannot learn new classes this way. Refit instead.
+- Fit with an integer `random_state` if you need refreshes to be exactly reproducible.
+- Bagged models (`n_ensembles > 1`, including `quality=4` and `5`), multiclass
+  classification, `loss="Quantile"` and `random_effects=True` do not support
+  `store_training_data` yet.
+
 ## Early stopping
 
 Early stopping is on by default. With no `eval_set`, the estimator holds out a
