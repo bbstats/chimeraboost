@@ -1669,7 +1669,7 @@ for 3 or more.</p>
 <tr>
 <td><code>audition</code></td>
 <td><code>True</code></td>
-<td>Fit three candidates and keep the one with the best CRPS on the rows early stopping held out: the head as configured, the same head with 254 histogram bins, and the head's shape moved onto the median of a squared-error <code>ChimeraBoostRegressor</code>. Every prediction method and <code>shap_values</code> serve the winner, recorded in <code>audition_</code>. About 2.35 times the fit time of one head. It needs early-stopping rows and <code>conformalize="auto"</code>; otherwise one head is fitted. <code>False</code> fits one head, as in earlier releases.</td>
+<td>Fit five candidates and keep the one with the best CRPS on the rows early stopping held out: the head as configured, the same head with 254 histogram bins, the head's shape moved onto the median of a squared-error <code>ChimeraBoostRegressor</code>, that regressor's prediction plus one offset per level (<code>"fixed"</code>, the same width for every row), and the same centre plus a second regressor's predicted spread times one factor per level (<code>"scaled"</code>). Every prediction method and <code>shap_values</code> serve the winner, recorded in <code>audition_</code>. About 2.6 times the fit time of one head. It needs early-stopping rows and <code>conformalize="auto"</code>; otherwise one head is fitted. <code>False</code> fits one head, as releases before 0.33.0 did.</td>
 </tr>
 <tr>
 <td><code>split_projection</code></td>
