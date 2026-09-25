@@ -556,13 +556,18 @@ def _fit_raw_candidate(split, Xte, cat, threads, taus, **params):
     return Qv_raw, Qt_raw, m.best_iteration_, fit_s, val_s, pred_s
 
 
-def _fit_point_centre(split, Xte, cat, threads):
-    """The squared-error centre RigidShift is built on, on both splits.
+def _fit_point_raw(split, Xte, cat, threads, predict_train=False):
+    """The squared-error point fit RigidShift is built on, with its raw
+    predictions.
 
-    The point model is fitted exactly as `_fit_rigid_shift` fits it; the
+    The point model is fitted exactly as `_fit_rigid_shift` fits it. The
     centre on a split is its prediction plus the median validation
-    residual. Returns the validation and test centres with the fit /
-    validation-predict / test-predict seconds.
+    residual. Returns the raw validation / test / (optionally) training
+    predictions, the validation and test centres, the stopping round, and
+    the fit / validation-predict / test-predict / training-predict
+    seconds. The training prediction runs only when asked (the N
+    candidate's spread target needs it), so the other candidates pay
+    nothing for it.
     """
     Xf, Xv, yf, yv = split
     m = ChimeraBoostRegressor(n_estimators=rb.MAX_ITERS,
@@ -577,8 +582,83 @@ def _fit_point_centre(split, Xte, cat, threads):
     t = time.time()
     pt = np.asarray(m.predict(Xte), dtype=np.float64).ravel()
     pred_s = time.time() - t
+    pf, train_s = None, 0.0
+    if predict_train:
+        t = time.time()
+        pf = np.asarray(m.predict(Xf), dtype=np.float64).ravel()
+        train_s = time.time() - t
     off = float(np.quantile(np.asarray(yv, dtype=np.float64) - pv, 0.5))
-    return pv + off, pt + off, fit_s, val_s, pred_s
+    return (pv, pt, pf, pv + off, pt + off, m.best_iteration_, fit_s,
+            val_s, pred_s, train_s)
+
+
+def _fit_point_centre(split, Xte, cat, threads):
+    """The squared-error centre RigidShift is built on, on both splits.
+
+    The point model is fitted exactly as `_fit_rigid_shift` fits it; the
+    centre on a split is its prediction plus the median validation
+    residual. Returns the validation and test centres with the fit /
+    validation-predict / test-predict seconds.
+    """
+    _, _, _, cv, ct, _, fit_s, val_s, pred_s, _ = _fit_point_raw(
+        split, Xte, cat, threads)
+    return cv, ct, fit_s, val_s, pred_s
+
+
+def _rigid_raw_grids(pv, pt, yv, taus):
+    """S's raw grids: the point prediction plus, per level, the empirical
+    quantile of the validation residuals -- RigidShift's grid, built
+    exactly as `_fit_rigid_shift` builds it, so the raw test grid equals
+    RigidShift's. The caller calibrates.
+    """
+    offsets = np.quantile(np.asarray(yv, dtype=np.float64) - pv, taus)
+    return (pv[:, None] + offsets[None, :],
+            pt[:, None] + offsets[None, :])
+
+
+def _fit_spread_model(split, Xte, pf, pv, cat, threads):
+    """The N candidate's spread model: a default regressor on the point
+    model's absolute residuals, `|yf - pf|`, with the validation absolute
+    residuals as its eval set. Returns the floored validation and test
+    spreads, the stopping round, the fit / validation-predict /
+    test-predict seconds, and the floor.
+
+    The floor is 1e-3 times the median raw spread over the validation
+    rows (1e-8 if that median is not positive, which keeps the floor a
+    small positive value on degenerate fits); both splits are raised to
+    it, so the standardized residuals never divide by zero.
+    """
+    Xf, Xv, yf, yv = split
+    t = time.time()
+    zf = np.abs(np.asarray(yf, dtype=np.float64) - pf)
+    zv = np.abs(np.asarray(yv, dtype=np.float64) - pv)
+    m = ChimeraBoostRegressor(n_estimators=rb.MAX_ITERS,
+                              early_stopping_rounds=rb.PATIENCE,
+                              thread_count=threads, random_state=0)
+    m.fit(Xf, zf, cat_features=cat or None, eval_set=(Xv, zv))
+    fit_s = time.time() - t
+    t = time.time()
+    sv_raw = np.asarray(m.predict(Xv), dtype=np.float64).ravel()
+    val_s = time.time() - t
+    t = time.time()
+    st_raw = np.asarray(m.predict(Xte), dtype=np.float64).ravel()
+    pred_s = time.time() - t
+    floor = 1e-3 * float(np.median(sv_raw))
+    if not floor > 0:
+        floor = 1e-8
+    return (np.maximum(sv_raw, floor), np.maximum(st_raw, floor),
+            m.best_iteration_, fit_s, val_s, pred_s, floor)
+
+
+def _scaled_raw_grids(cv, ct, sv, st, yv, taus):
+    """N's raw grids: the centre plus the spread times, per level, the
+    empirical quantile of the standardized validation residuals
+    `(yv - cv) / s(xv)` -- a heteroscedastic S with no Normal
+    assumption. The caller calibrates.
+    """
+    q = np.quantile((np.asarray(yv, dtype=np.float64) - cv) / sv, taus)
+    return (cv[:, None] + sv[:, None] * q[None, :],
+            ct[:, None] + st[:, None] * q[None, :])
 
 
 def _recentre_candidates(Qv_raw, Qt_raw, cv, ct, yv, taus):
@@ -608,9 +688,20 @@ def _fit_chimera_recentred_cal(split, Xte, cat, threads, taus):
             best)
 
 
-def _fit_chimera_audition(split, Xte, cat, threads, taus):
-    """H, B and R audition per fit on the validation rows. Asks whether
-    picking the winner per fit beats any single fix."""
+def _fit_audition(split, Xte, cat, threads, taus, with_s, with_n):
+    """The shared audition: H, B and R, plus S and N when asked.
+
+    H is the default head, B the head at 254 bins, R H's raw grid moved
+    onto the squared-error centre, S RigidShift's grid (the point
+    prediction plus the empirical quantiles of the validation residuals),
+    N the centre plus the predicted spread times the quantiles of the
+    standardized validation residuals. Every candidate is calibrated with
+    `_calibrate` and scored by CRPS on the validation rows; the lowest
+    wins, and argmin takes the first minimum, so ties go H, B, R, S, N.
+    S reuses R's point fit, so it costs only a quantile computation; N
+    adds the spread-model fit. Every selection-only fit and scoring
+    counts into fit_s; pred_s holds the test predictions only.
+    """
     Xf, Xv, yf, yv = split
     Qv_hr, Qt_hr, best_h, fit_h, val_h, pred_h = _fit_raw_candidate(
         split, Xte, cat, threads, taus)
@@ -622,25 +713,102 @@ def _fit_chimera_audition(split, Xte, cat, threads, taus):
     t = time.time()
     Qv_b, Qt_b = _calibrate(Qv_br, Qt_br, yv, taus)
     cal_b = time.time() - t
-    cv, ct, fit_p, val_p, pred_p = _fit_point_centre(
-        split, Xte, cat, threads)
-    # The R build and the three validation scorings are selection work, so
-    # they count into fit_s; pred_s holds the test predictions only.
+    pv, pt, pf, cv, ct, best_p, fit_p, val_p, pred_p, train_p = \
+        _fit_point_raw(split, Xte, cat, threads, predict_train=with_n)
+    if with_n:
+        sv, st, best_n, fit_n, val_n, pred_n, _ = _fit_spread_model(
+            split, Xte, pf, pv, cat, threads)
+    else:
+        sv, st, best_n = None, None, None
+        fit_n, val_n, pred_n = 0.0, 0.0, 0.0
+    # The candidate builds and the validation scorings are selection
+    # work, so they count into fit_s; pred_s holds the test predictions
+    # only.
     t = time.time()
     Qv_r, Qt_r = _recentre_candidates(Qv_hr, Qt_hr, cv, ct, yv, taus)
     sh = float(qm.crps(yv, Qv_h, taus))
     sb = float(qm.crps(yv, Qv_b, taus))
     sr = float(qm.crps(yv, Qv_r, taus))
+    if with_s or with_n:
+        Qv_s_raw, Qt_s_raw = _rigid_raw_grids(pv, pt, yv, taus)
+        Qv_s, Qt_s = _calibrate(Qv_s_raw, Qt_s_raw, yv, taus)
+        ss = float(qm.crps(yv, Qv_s, taus))
+    if with_n:
+        Qv_n_raw, Qt_n_raw = _scaled_raw_grids(cv, ct, sv, st, yv, taus)
+        Qv_n, Qt_n = _calibrate(Qv_n_raw, Qt_n_raw, yv, taus)
+        sn = float(qm.crps(yv, Qv_n, taus))
     sel_s = time.time() - t
-    # argmin takes the first minimum: ties go H, then B, then R.
-    choice = int(np.argmin([sh, sb, sr]))
-    grids = [Qt_h, Qt_b, Qt_r]
-    bests = [best_h, best_b, best_h]
-    extra = {"audition_choice": choice, "audition_val_crps_h": sh,
-             "audition_val_crps_b": sb, "audition_val_crps_r": sr}
+    if with_n:
+        # argmin takes the first minimum: ties go H, B, R, S, N.
+        choice = int(np.argmin([sh, sb, sr, ss, sn]))
+        grids = [Qt_h, Qt_b, Qt_r, Qt_s, Qt_n]
+        bests = [best_h, best_b, best_h, best_p, best_n]
+        extra = {"audition_choice": choice, "audition_val_crps_h": sh,
+                 "audition_val_crps_b": sb, "audition_val_crps_r": sr,
+                 "audition_val_crps_s": ss, "audition_val_crps_n": sn,
+                 "audition_spread_best_iter": best_n}
+    elif with_s:
+        # argmin takes the first minimum: ties go H, B, R, S.
+        choice = int(np.argmin([sh, sb, sr, ss]))
+        grids = [Qt_h, Qt_b, Qt_r, Qt_s]
+        bests = [best_h, best_b, best_h, best_p]
+        extra = {"audition_choice": choice, "audition_val_crps_h": sh,
+                 "audition_val_crps_b": sb, "audition_val_crps_r": sr,
+                 "audition_val_crps_s": ss}
+    else:
+        # argmin takes the first minimum: ties go H, then B, then R.
+        choice = int(np.argmin([sh, sb, sr]))
+        grids = [Qt_h, Qt_b, Qt_r]
+        bests = [best_h, best_b, best_h]
+        extra = {"audition_choice": choice, "audition_val_crps_h": sh,
+                 "audition_val_crps_b": sb, "audition_val_crps_r": sr}
     fit_s = (fit_h + val_h + cal_h + fit_b + val_b + cal_b + fit_p + val_p
-             + sel_s)
-    return grids[choice], fit_s, pred_h + pred_b + pred_p, bests[choice], extra
+             + train_p + fit_n + val_n + sel_s)
+    return (grids[choice], fit_s, pred_h + pred_b + pred_p + pred_n,
+            bests[choice], extra)
+
+
+def _fit_chimera_audition(split, Xte, cat, threads, taus):
+    """H, B and R audition per fit on the validation rows. Asks whether
+    picking the winner per fit beats any single fix."""
+    return _fit_audition(split, Xte, cat, threads, taus, with_s=False,
+                         with_n=False)
+
+
+def _fit_chimera_audition_s(split, Xte, cat, threads, taus):
+    """H, B, R and S audition per fit on the validation rows. S is
+    RigidShift as a candidate: the point prediction plus the empirical
+    quantiles of the validation residuals, calibrated like the others.
+    Asks whether the fixed width wins where the head is under-fit."""
+    return _fit_audition(split, Xte, cat, threads, taus, with_s=True,
+                         with_n=False)
+
+
+def _fit_chimera_audition_sn(split, Xte, cat, threads, taus):
+    """H, B, R, S and N audition per fit on the validation rows. N is a
+    scaled-residual candidate: the centre plus the predicted spread times
+    the quantiles of the standardized validation residuals -- a
+    heteroscedastic S with no Normal assumption. Asks whether a spread
+    that moves with x beats the fixed width."""
+    return _fit_audition(split, Xte, cat, threads, taus, with_s=True,
+                         with_n=True)
+
+
+def _fit_chimera_default_uncapped(split, Xte, cat, threads, taus):
+    """The library default head with only the round cap lifted to
+    `UNCAPPED_ITERS`.
+
+    No constructor param is pinned, so this always measures the default
+    -- whatever the field arm builds, through the same shared helper --
+    at a larger budget. Asks whether the cap-bound sets' loss is
+    truncation.
+    """
+    t = time.time()
+    m = _fit_head_model(split, cat, threads, taus, UNCAPPED_ITERS)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    return Q, fit_s, time.time() - t, m.best_iteration_
 
 
 PROBES = {
@@ -658,6 +826,9 @@ PROBES = {
     "ChimeraBoostQuantileExactSplits": _fit_chimera_exact_splits,
     "ChimeraBoostQuantileRecentredCal": _fit_chimera_recentred_cal,
     "ChimeraBoostQuantileAudition": _fit_chimera_audition,
+    "ChimeraBoostQuantileAuditionS": _fit_chimera_audition_s,
+    "ChimeraBoostQuantileAuditionSN": _fit_chimera_audition_sn,
+    "ChimeraBoostQuantileDefaultUncapped": _fit_chimera_default_uncapped,
 }
 
 
@@ -857,7 +1028,7 @@ def format_table(rows, base="ChimeraBoostQuantile"):
             f"{r.get('interval_score_90', float('nan')):10.4f}"
             f"{r.get('crossing_rate', float('nan')):8.4f}"
             f"{r['fit_s']:9.2f}{rel:>9s}")
-    return "\n".join(lines)
+    return "\r\n".join(lines)
 
 
 def _print_dataset_list(names, args, taus):
@@ -865,11 +1036,11 @@ def _print_dataset_list(names, args, taus):
     variant) with counts, the way the harness prints it."""
     strata = summarize.split_strata(names)
     for stratum, ds_names in strata.items():
-        print(f"\n{summarize.stratum_label(stratum)}  ({len(ds_names)})")
+        print(f"\r\n{summarize.stratum_label(stratum)}  ({len(ds_names)})")
         for ds in ds_names:
             print(f"  {ds}")
     n_str = len(strata)
-    print(f"\ntotal: {len(names)} datasets in {n_str} "
+    print(f"\r\ntotal: {len(names)} datasets in {n_str} "
           f"{'stratum' if n_str == 1 else 'strata'} x {args.seeds} "
           f"seed(s) x {len(args.models)} models, K={len(taus)}")
 
@@ -1007,7 +1178,7 @@ def main(argv=None):
                 "datasets": ds_meta,
                 "records": records,
             }, fh, indent=1)
-        print(f"\nsaved -> {path}")
+        print(f"\r\nsaved -> {path}")
     return 0
 
 

@@ -29,7 +29,7 @@ A shipped preset is a frontier win but not a default win.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 - WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
-- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room. UPDATE 2026-09-25: #84 and #81 are merged; #131 slice 1 is PR #170, PARKED OPEN by the maintainer ("not sure I want it implemented"), which does NOT hold the one-campaign-PR-at-a-time rule, since he asked the loop to keep going; #113: the maintainer's go 2026-09-25 ("Yes 113 is 'another issue' so you may work on it"); its four design calls go with the stated recommendations (one slope column with independent variances; the real-set covariate by the correlation rule; the entity-ID auto-route demoted to a kill-or-keep probe; fix the employee alias leak and report slice 1's old and new numbers). Next: #113 (random slopes), then #45.
+- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room. UPDATE 2026-09-25: #84 and #81 are merged; #131 slice 1 is PR #170, PARKED OPEN by the maintainer ("not sure I want it implemented"), which does NOT hold the one-campaign-PR-at-a-time rule, since he asked the loop to keep going; #113: the maintainer's go 2026-09-25 ("Yes 113 is 'another issue' so you may work on it"); its four design calls go with the stated recommendations (one slope column with independent variances; the real-set covariate by the correlation rule; the entity-ID auto-route demoted to a kill-or-keep probe; fix the employee alias leak and report slice 1's old and new numbers). Next: #113 (random slopes), then #45. UPDATE 2026-09-25 (later): the queue is empty (#84, #81, #45 closed; #113, #109 closed after I067/I068; #131 = PR #170, which the maintainer is testing by hand). The maintainer: "yeah we can continue on the quantile thread" (option B): F7 is ACTIVE again, first target the head's cap-bound low-noise losses (I070).
 
 ## Screening ladder
 
@@ -174,6 +174,7 @@ fact: 2026-09-24 | the published chart on 0.33.0 (`results/20260924-090541.json`
 fact: 2026-09-24 | the internal chart on 0.33.0 (`results/20260924-130232.json`, decide tier, 3 seeds, the nine-arm field without the NoCatCount control): every per-seed metric equals `20260922-144219`'s bar one LightGBM Brier at the 17th digit, and the win rates are unchanged (default 70.7%). Skill: the default 0.4052 clf / 0.7341 reg at 4.9x / 6.3x, CatBoost 0.4057 / 0.7294 at 53.0x / 47.8x. Every arm's R² still moved by up to 0.0002, because the run's dataset metadata keeps the test-split scale of whichever seed finished first (H(14))
 fact: 2026-09-24 | RoNGBa as the quantile suite's NGBoost opponent (issue #163, I063, `results/quantile-20260924-164257.json`): it beats stock NGBoost 23W-13L on gr (median CRPS +0.94%, CI -0.07..+3.7) at 0.26x its fit, and the 500-round cap never binds (best round max 269); the head beats it 33W-3L (+6.30%) and loses on pol, visualizing_soil and SGEMM, the cap-bound low-noise sets (a parked capacity lead). 2 of 177 fits break down: one training target at z ~ -30 gets its own leaf in round 0's log-scale tree (value ~ -447, line-search multiplier 1), sigma grows ~5.8e7x for the test rows in that leaf, and the validation NLL moves ~0.01, so early stopping cannot see it. Mean CRPS skill -166.5; NGBoost is left off `images/quantile_pareto.png`
 fact: 2026-09-24 | standing quantile BASE = `results/quantile-20260924-164257.json` (the 0.33.0 head, the RoNGBa opponent; every other arm equals `quantile-20260924-005306.json` per key, 354/354)
+fact: 2026-09-25 | standing quantile BASE = `results/quantile-20260925-172250.json` (the I071 five-candidate default, 2 h 25 min; the head equals I070's AuditionSN on 177/177 records, every field arm equals `quantile-20260924-164257.json` on 6 x 177/177): gr head vs CatBoost MQ 29W-7L (+1.32%), vs RigidShift 35W-1L (+2.40%), vs LightGBM per-level 31W-5L, vs our per-level 34W-2L, vs NGBoost 33W-3L, vs head+CQR 35W-1L; 90% coverage 0.901 on gr; CRPS skill 0.6046 @ 8.3x over 59 keys (NGBoost off the chart), CatBoost MQ 0.5982 @ 133x off the frontier
 
 ## Beam
 
@@ -185,7 +186,7 @@ fact: 2026-09-24 | standing quantile BASE = `results/quantile-20260924-164257.js
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | the published chart (`public_pareto.png`) refresh: DONE 2026-09-24 on 0.33.0 (`results/20260924-090541.json`, `--public --seeds 3`, 22 datasets, ~4 h: the default avg rank 1.94 [1.64-2.24] against CatBoost 1.84 [1.43-2.24] and LightGBM 2.23, at a median 5.6x against 47.2x and 1.0x; `docs/benchmarks.md` prose updated; `pareto.png` re-rendered from `results/20260924-130232.json` and `docs/PROJECT_STATUS.md` synced); S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | PARKED 2026-09-24 (the maintainer: GitHub issues first; ACTIVE from 2026-09-23). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0** | **I063 DONE (PR #167)**: RoNGBa is the NGBoost opponent (issue #163). **PARKED 2026-09-24** under the maintainer's focus rule (GitHub issues first): Q4 T0, spread-aware categorical encoding (a TS of the spread per category) on the hc regressions and `catscale`; then Q1 (P16); and the I063 capacity lead (pol, visualizing_soil, SGEMM). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE again 2026-09-25 (the maintainer: "we can continue on the quantile thread"; PARKED 2026-09-24 for GitHub issues; ACTIVE from 2026-09-23). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0**. **Q8 T0 PASSED (I070)**: a fixed-width (S) and a scaled-residual (N) audition candidate, gr 18W-1L-17T against the Q7 default (p 7.6e-5) at 1.11x the fit; S alone and uncapped rounds fail. **Q9 PASSED (I071): S and N in the library default** (identity 177/177; CatBoost MQ 29W-7L, RigidShift 35W-1L; the 59-key chart 0.6046 @ 8.3x); PR for the maintainer; flag: hc `@time` 90% coverage error 2.12 -> 4.69 (Moneyball, a pointer) | **I063 DONE (PR #167)**: RoNGBa is the NGBoost opponent (issue #163). next: the rest of NGBoost's lead (visualizing_soil -34%, SGEMM -8%), a read-only diagnosis first (centre or width); then Q4 T0, spread-aware categorical encoding (a TS of the spread per category) on the hc regressions and `catscale`; then Q1 (P16). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -451,6 +452,164 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I071 2026-09-25 F7 Q9 (the S and N candidates in `ChimeraBoostQuantileRegressor`'s audition, on by default; LIBRARY change, pre-registered)
+why now: I070's AuditionSN passed the default gate (gr 18W-1L, p 7.6e-5;
+hc 5W-0L; coverage error better; 1.11x fit). Same branch, renamed
+`campaign/quantile-q8-sn-audition`; muse task
+`20260925-quantile-q9-sn-library.md` (the Q7 pattern: the bench arm is
+the exact oracle).
+change (`chimeraboost/quantile_api.py`): after R, two candidates on R's
+centre model: S "fixed" (the centre model's prediction plus the
+validation residuals' empirical quantiles) and N "scaled" (the centre
+plus a spread model's floored prediction times the standardized
+validation residuals' quantiles), each calibrated and scored like H, B, R;
+ties head, bins, recentred, fixed, scaled. Every read path, SHAP included,
+serves the winner. `audition=False` and the no-evaluation-rows path
+unchanged. Also: the probe-count test (14 -> 17) and a `bench_status.py`
+guard for result files without `datasets`.
+barriers: as I070.
+forecast: (1) identity: the default head equals the bench arm bit for bit
+(grid and choice); (2) tests green, `audition=False` bit-identical; (3)
+the identity snapshot moves only on its quantile-head configs (the
+default head's grid), nothing else; (4) the I070 numbers therefore stand
+for the new default without a re-run (gr 18W-1L against the Q7 default).
+docs (Claude): `docs/quantiles.md` (five candidates; the comparison
+table's rows re-read from I070 against the same field runs),
+`docs/parameters.md` (the `audition` row), CHANGELOG.
+muse (exit 0, then the keep-head follow-up, exit 0): S and N built on R's
+centre fit (`_fit_audition_centre` now returns `pv`), the spread model and
+its floor verbatim from the bench arm, `_store_audition_winner` keeps only
+the winner's fits; `model_` stays the head booster for every winner (the
+first cut set it to None for S and N, which would break any reader of
+`model_.trees_`). SHAP: S tiles the centre's SHAP (width exactly 0); N is
+centre SHAP + k_tau x spread SHAP, exact above the floor and approximate on
+floored rows (documented; the test checks unfloored rows and asserts the
+mask is non-empty). Tests: five-candidate fixtures (S and N each win
+reliably), `test_q9_..._bit_for_bit` on an S-win and an N-win split, probe
+count 17; 1225 passed, 1 skipped; ruff clean. Smoke (4 keys): the default
+and AuditionSN equal (pol N, visualizing_soil N, elevators S, sulfur R).
+Identity snapshot: 183/186, only `mq3_w_sub`'s three pins move (S or N
+wins that config): rebaseline after the merge. Commit 181dc5c. Review
+follow-up (muse, exit 0, c9a1435, docstrings only): `validation_history_`
+for an S or N win is the centre model's squared-error history, not CRPS.
+full-field run (`results/quantile-20260925-172250.json`, the new standing
+quantile BASE): the default equals I070's AuditionSN on 177/177 records,
+every metric; every field arm equals I063's run (6 x 177/177). Against the
+Q7 default, as I070: gr 18W-1L-17T, +2.18%, p 7.6e-5, guard ok (0.41 ->
+0.32 at 90%); hc 5W-0L-1T, guard ok (0.61 -> 0.35). Against the single
+head (Q5, `results/quantile-20260923-210350.json`, CRPS deterministic):
+gr 25W-5L-6T, +3.04% (losses all <= 0.13%; visualizing_soil +44.7%, pol
++39.5%, Brazilian_houses +34.3 / +32.1%, SGEMM +21.1%); fit 2.6x (in-run
+ratios 2.35 x 1.11; the cross-run ratio agrees, 2.57x). Field on gr
+(CRPS, IS90, fit x ours): per-level 34-2, 34-2, 1.27x; LightGBM 31-5,
+31-5, 0.83x; CatBoost MQ 29-7 (+1.32%), 28-8 (+3.89%), 6.22x; RigidShift
+35-1 (+2.40%; the loss, elevators, by 0.001%), 32-4, 0.13x; NGBoost 33-3,
+31-5, 1.20x (still loses visualizing_soil -34.3%, SGEMM -8.2%, pol -1.4%);
+CQR 35-1. Coverage on gr: 80.3% / 90.1% (median error 0.37 / 0.32 points).
+59-key chart (NGBoost off, as since I063): the head 0.6046 @ 8.3x (was
+0.6006 @ 7.3x) and RigidShift 0.5869 @ 1.2x are the frontier; CatBoost MQ
+0.5982 @ 133x. Picks (I070's arm, identical): N 80, B 40, H 38, S 13, R 6
+of 177; gr 46 / 27 / 27 / 5 / 3 of 108.
+forecast: (1) HIT, bit for bit on 177/177 fits; (2) HIT; (3) HIT, 183/186;
+(4) HIT, the re-run reproduces I070 exactly.
+unforecast: the hc `@time` guard FAILS (3 sets, a pointer, so no gate):
+median 90% coverage error 2.12 -> 4.69 points, 80% 1.75 -> 4.68. It was
+in I070's run too and went unreported there. The rise is one set,
+Moneyball@time: S wins 2 of 3 seeds and covers 84.4% at 90%, like
+RigidShift's 84.2% (a fixed width misses the shift); employee_salaries@time
+(83.0 -> 85.3%) and house_prices_nominal@time (89.3 -> 90.5%) improve, and
+CatBoost MQ covers 62-69% there. Stated in the CHANGELOG caveat and in
+`docs/quantiles.md` (one sentence on time shift).
+verdict: **PASS -> PR for the maintainer** (library, tests, docs, image).
+After the merge: rebaseline the identity snapshot, delete the branch.
+next (F7): the rest of NGBoost's lead (visualizing_soil -34%, SGEMM -8%):
+a read-only diagnosis first (centre or width: per-level pinball, NGBoost's
+mean on our grid), then Q4 T0, then Q1 (P16).
+
+#### I070 2026-09-25 F7 Q8 T0 (the head's low-noise losses: a fixed-width and a scaled-residual audition candidate, and the round cap; BENCH-only, pre-registered)
+why now: the maintainer, 2026-09-25: "yeah we can continue on the quantile
+thread", picking option B (the head's largest measured weakness) after
+the issue queue emptied; F7 is ACTIVE again. #45 closed. Branch
+`campaign/quantile-q8-probe` from main 9c34c64; muse task
+`20260925-quantile-q8-probe.md`.
+diagnosis (`quantile-20260924-164257.json`, read-only): on pol,
+visualizing_soil and SGEMM the head's best round is the 2000 cap on
+every seed (NGBoost stops at 90-140). pol: 90% width 45.2 against
+NGBoost 7.2 and RigidShift 11.4 at the same coverage; CRPS 1.287 against
+RigidShift 0.945. visualizing_soil: NGBoost's median error is 3x ours.
+Oracle headroom on the 36 gr sets: min(head, RigidShift) improves 7
+(pol +26.5%, visualizing_soil +15.7%, Brazilian_houses +4.1 / +3.3%,
+cpu_act +3.3%, elevators +3.1%, wine_quality +3.0%); min(head, NGBoost)
+improves 3 (visualizing_soil +38.2%, pol +32.2%, SGEMM +7.6%). Q0 already
+measured the cap: 8000 rounds wins all 13 cap-bound sets (median +1.73%),
+bit-identical elsewhere, 1.48x the total fit.
+arms (bench probes; the library is untouched): (1) `AuditionS`: the bench
+audition (H, B, R; identical to the library default since Q7) plus S, the
+squared-error point model plus the validation residuals' empirical
+quantiles (RigidShift as a candidate), calibrated and scored like the
+others; (2) `AuditionSN`: plus N, a scaled-residual candidate: the same
+centre, a spread model (a `ChimeraBoostRegressor` on the training rows'
+|residual|), and the quantiles of the validation residuals divided by the
+predicted spread, scaled back per row (a heteroscedastic S, no Normal
+assumption); (3) `DefaultUncapped`: the library default at
+`n_estimators=8000`. Baseline: `ChimeraBoostQuantile` in the same run.
+barriers: B23 is this rung's premise (more rounds, not a bigger rate: arm
+3). B12 (portfolios die on cost): S reuses R's point model, so it costs a
+quantile computation; N adds one model fit, so its fit ratio is reported
+and weighed. B2/B14/B17/B19 are about the point model's refit, the
+selection budget, CV races and the stopping round; this audition keeps
+the Q6/Q7 selection rule (validation CRPS), which recovered 99% of its
+oracle. B1: the audition runs only with early-stopping rows, as today.
+B5: N's spread is fit in-sample, and the held-out calibration rescales it,
+so no shrinkage has to undo a shared bias.
+gate (the amended Q gate, per stratum on gr and hc, each arm against the
+default): wins >= half + 1 of decided (exact ties excluded), median CRPS
+gain > 0, the coverage guard (median |coverage - nominal| at 80 and 90
+not worse by > 1 point); a default change also needs a two-sided sign test
+p < 0.05 on gr. Cost read: median fit ratio against the default.
+forecast: (1) AuditionS engages on 5-9 gr sets and wins 5-8 of them,
+pol and visualizing_soil among them (median over the engaged +3 to +15%);
+(2) AuditionSN engages more (10-18) with pol and visualizing_soil
+improving past S, and costs ~1.3x; (3) DefaultUncapped wins the 13
+cap-bound sets at ~1.5x total fit, ties elsewhere; (4) none of the three
+moves the other 20+ sets (exact ties or pick-noise inside +-0.5%).
+run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save --models
+ChimeraBoostQuantile ChimeraBoostQuantileAuditionS
+ChimeraBoostQuantileAuditionSN ChimeraBoostQuantileDefaultUncapped`.
+muse (exit 0, committed f318f40): one shared audition implementation
+(`_fit_audition(with_s, with_n)`), S reusing R's point model, N's spread
+model on `|yf - pf|` with the validation rows for early stopping and a
+floor of 1e-3 x the validation median; the existing Audition arm
+bit-identical and still equal to the library default.
+ran: `results/quantile-20260925-141117.json` (4 arms, 59 keys x 3 seeds).
+result against the default, same run (compare_runs --metric crps
+--by-suite): AuditionSN gr **18W-1L-17T**, two-sided sign p = 7.6e-5,
+engaged median +2.18% (CI +0.83..+3.80), coverage error better (90%
+0.41 -> 0.32, 80% 0.48 -> 0.37); hc 5W-0L-1T, median +1.12%, guard ok;
+the variants all pointers (hc@time 3-0, hc@sus25 2-0, hc@sus50 1-0,
+gr@sus25 4-2, gr@sus50 1-1). Gains: pol +31.2%, visualizing_soil +17.0%,
+Brazilian_houses +6.2 / +5.7%, superconduct +4.0%, cpu_act +3.8%,
+wine_quality +3.2%, Bike_Sharing +3.1%, elevators +3.1%, the rest +0.1 to
++2.2%; the one loss sulfur -0.31%. Picks over 177 fits: N 80, B 40, H 38,
+S 13, R 6. Fit median 1.11x. Against the field (field arms from
+`quantile-20260924-164257`, same splits): RigidShift 35W-1L (was 29-7),
+CatBoost MQ 29W-7L (was 27-9), LightGBM per-level 31W-5L (30-6), NGBoost
+33W-3L (unchanged: pol, visualizing_soil, SGEMM, pol now within 1.4%).
+AuditionS gr 8W-3L-25T, sign p 0.23: FAILS the default bar (S is mostly
+subsumed by N). DefaultUncapped gr 6W-3L-27T, p 0.51, hc all ties, 1.27x:
+FAILS.
+forecast: (1) S engaged 11 and won 8 (forecast 5-9 / 5-8): about HIT, but
+it fails the gate; (2) SN engaged 19 (forecast 10-18) and cost 1.11x
+(forecast ~1.3x): HIT on direction, cheaper and broader than forecast;
+(3) uncapped MISS (forecast all 13 cap-bound sets; on top of the audition
+it wins 6 of 9); (4) MISS for SN: it moved 19 sets, 18 for the better.
+verdict: **AuditionSN PASSES the default gate.** Next rung (I071): build
+S and N into `ChimeraBoostQuantileRegressor`'s audition as the default,
+bit-identical to the bench arm (the Q7 pattern). S and uncapped are not
+pursued on their own.
+NOTE (I071): this run's hc `@time` pointer fails its coverage guard (90%
+error 2.12 -> 4.69 points); missed here, recorded in I071.
 
 #### I069 2026-09-25 issue #45 (loose ends: harness H(13) + H(14), a plan-file audit, repo hygiene; BENCH + markdown)
 why now: the focus rule's last issue; #113 is explored (I067 not

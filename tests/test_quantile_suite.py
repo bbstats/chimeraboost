@@ -233,7 +233,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 14
+    assert len(qs.PROBES) == 17
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -630,3 +630,59 @@ def test_q7_audition_library_matches_bench_oracle_bit_for_bit(monkeypatch):
     assert m.best_iteration_ == best_b
     want = {0: "head", 1: "bins", 2: "recentred"}[extra["audition_choice"]]
     assert m.audition_["selected"] == want
+
+
+def _q9_split(kind):
+    """An S-win and an N-win split with an eval_set, on bench-style rows
+    (75/25, then the 80/20 validation carve). Same fixtures as the
+    "fixed" and "scaled" winners in tests/test_quantile_head.py."""
+    from sklearn.model_selection import train_test_split
+    if kind == "fixed":
+        rng = np.random.default_rng(3)
+        n = 600
+        X = rng.standard_normal((n, 6))
+        y = 2.0 * X[:, 0] + 0.1 * rng.standard_normal(n)
+        sseed = 1
+    else:
+        assert kind == "scaled"
+        rng = np.random.default_rng(41)
+        n = 2500
+        X = rng.standard_normal((n, 5))
+        y = 2.0 * X[:, 0] + np.exp(0.5 * X[:, 1]) * rng.standard_normal(n)
+        sseed = 4
+    Xtr, Xte, ytr, _ = train_test_split(X, y, test_size=0.25,
+                                        random_state=sseed)
+    Xf, Xv, yf, yv = train_test_split(Xtr, ytr, test_size=0.2,
+                                      random_state=0)
+    return (Xf, Xv, yf, yv), Xte
+
+
+def test_q9_audition_sn_library_matches_bench_oracle_bit_for_bit(monkeypatch):
+    """The five-candidate default IS the AuditionSN arm: same grid, same
+    choice -- on an S-win split and an N-win split, so both new grids are
+    pinned, not just the selection."""
+    from chimeraboost import ChimeraBoostQuantileRegressor
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    monkeypatch.setattr(rb, "PATIENCE", 50)
+    taus = np.array([0.05, 0.25, 0.5, 0.75, 0.95])
+    names = {0: "head", 1: "bins", 2: "recentred", 3: "fixed", 4: "scaled"}
+    for kind in ("fixed", "scaled"):
+        split, Xte = _q9_split(kind)
+        Qb, _, _, best_b, extra = qs._fit_chimera_audition_sn(
+            split, Xte, None, 1, taus)
+        Xf, Xv, yf, yv = split
+        m = ChimeraBoostQuantileRegressor(
+            quantiles=taus, n_estimators=300, early_stopping_rounds=50,
+            thread_count=1, random_state=0).fit(Xf, yf, eval_set=(Xv, yv))
+        assert m.audition_["selected"] == kind, (kind, m.audition_)
+        assert names[extra["audition_choice"]] == kind
+        Ql = m.predict(Xte)
+        if not np.array_equal(Ql, Qb):
+            i, j = np.argwhere(Ql != Qb)[0]
+            pytest.fail(f"library differs from bench at [{i}, {j}]: "
+                        f"lib={Ql[i, j]!r} bench={Qb[i, j]!r}")
+        assert np.array_equal(Ql, Qb)
+        # Best round agrees everywhere except an N win, where the bench
+        # records the spread model's round and the library the centre's.
+        if kind != "scaled":
+            assert m.best_iteration_ == best_b
