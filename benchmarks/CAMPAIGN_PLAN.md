@@ -452,6 +452,60 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
+why now: the focus rule's third issue. PR #169 merged (5b27b06), #81
+closed. Program file `benchmarks/REFRESH_PLAN.md` (design, decisions,
+later slices). Branch `campaign/issue131-refresh-slice1` from main 5b27b06;
+two muse passes: `20260924-issue131-slice1a-internals.md`, then
+`...-slice1b-api.md` after review.
+change: slice 1 as REFRESH_PLAN.md specifies (regressor + binary
+classifier, single model; bagging, multiclass, `loss="Quantile"` and
+random effects raise at fit when `store_training_data=True`). The default
+path changes only by a bit-identical refactor (`_fit_gdiff` arithmetic
+shared with the stored-rows path).
+barriers: B13 (replay is a screening, not a selection instrument) and B2
+(the refit amplifies a bad audition) matched on "replay". Refresh selects
+nothing and changes no default or audition; B13's bit-identical round trip
+is the invariant this rung relies on.
+forecast: (1) pass 1a: the stored-rows preprocessing path reproduces the
+replay path's binned matrix bit for bit on the same rows, and with new rows
+equals the replay path on the concatenated raw rows, over every column
+block; (2) identity snapshot 186/186 and the goldens unchanged after 1a
+and after 1b; (3) pass 1b: refresh with zero new rows is bit-identical to
+the fitted model in every configuration of REFRESH_PLAN.md's test (a);
+refresh(A) then refresh(B) equals refresh(A+B); (4) full suite green. Both
+Pareto axes untouched (opt-in, default path bit-identical).
+pass 1a (muse exit 0): the twin design as first written
+(`fit_transform_stored`, `Binner.transform_block`, shared `_gdiff_means`,
+`stored=` booster plumbing): forecast (1) HIT, every equality exact (binned
+matrix, fitted preprocessor state, leaf values, predict_raw), 5 tests, full
+suite green in the sandbox. DISCARDED at review: +551 library lines, ~400 of
+them a second implementation of the preprocessing to be kept in step by
+hand. Redesign (REFRESH_PLAN.md, "the ONE preprocessing path"): keep bins
+for plain numerics and RAW floats only for cross parents, map each bin back
+to a value that bins identically (bin = number of borders <= v, binning.py:
+82-93), and feed the rebuilt X to the existing replay refit unchanged.
+Linear leaves read the binned matrix (booster.py:888), so they are
+unaffected. Same storage, one code path, no booster plumbing.
+forecast for pass 1a' (`20260924-issue131-slice1a2-rows.md`): (1') every
+stored bin round-trips exactly (every feature, every bin index incl. the
+missing slot); `fit_transform` on the rebuilt X equals `fit_transform` on
+the raw rows (matrix and fitted state), with and without new rows; the
+booster replay refit on the rebuilt X equals it on the raw rows (leaf
+values, predict_raw); library diff under ~200 lines.
+pass 1a' (muse exit 0): `chimeraboost/training_rows.py` (173 lines) +
+`GradientBoosting.replay_kwargs()` (25 lines, read off
+`inspect.signature(_BaseBooster.__init__)`): 198 library lines against the
+twin's 551. Forecast (1') HIT: tests (a)-(f) all bit for bit on a forced
+block of all three cross kinds (12 diff/prod, 8 gdiff; plain [2, 3],
+parents [0, 1, 4, 5]), a count column, one combo pair, linear leaves (99 of
+100 trees with `lin_coef`), 5% NaN numerics, NaN categories, zero weights,
+300 appended rows with unseen categories; the missing category maps back
+through `"__nan__"` -> `np.nan`. Full suite 1230 passed, 1 skipped (conda
+python); identity snapshot 186/186 bit-identical. Committed on the branch
+as the pass-1 checkpoint.
+verdict: PENDING(muse 1b, `20260924-issue131-slice1b-api.md`)
+
 #### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
 why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84
 closed. Branch `campaign/issue81-research-ideas` from main 3e02ab1; muse

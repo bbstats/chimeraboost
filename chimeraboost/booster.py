@@ -824,6 +824,31 @@ class GradientBoosting(_BaseBooster):
         self.loss_name = loss
         self.loss_kwargs = loss_kwargs or {}
 
+    def replay_kwargs(self):
+        """Constructor kwargs that rebuild an equivalent booster.
+
+        Every ``_BaseBooster.__init__`` parameter (each stored under its own
+        name, so read off ``inspect.signature`` rather than a hand-kept
+        list) plus ``loss`` (from ``loss_name``) and ``loss_kwargs``; lists
+        and dicts are copied.
+        """
+        import inspect
+
+        kw = {}
+        params = inspect.signature(_BaseBooster.__init__).parameters
+        for name in params:
+            if name == "self":
+                continue
+            v = getattr(self, name)
+            if isinstance(v, list):
+                v = list(v)
+            elif isinstance(v, dict):
+                v = dict(v)
+            kw[name] = v
+        kw["loss"] = self.loss_name
+        kw["loss_kwargs"] = dict(self.loss_kwargs)
+        return kw
+
     def _fit_impl(self, X, y, cat_features=None, eval_set=None,
                   sample_weight=None, callbacks=None, prep_cache=None):
         """Fit the additive model.
