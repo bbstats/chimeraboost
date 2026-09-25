@@ -339,3 +339,33 @@ path is untouched, so both Pareto axes are unchanged by construction.
 Execution: campaign rung I067, branch `campaign/issue113-random-slopes`:
 muse pass 1 the library and tests, muse pass 2 the gate changes here, then
 the gate run and the verdict.
+
+### Slice 2 verdict (2026-09-25): NOT SHIPPED
+
+Gate run 1 (`grouped-20260925-072649.json`) was INVALID: `predict` never
+applied the slope term (the resolved column was cleared by the fit's
+stale-state reset), so it scored intercepts evaluated at the slope centre.
+Fixed with tests that compare against a hand-built prediction; the slope
+REML search trimmed to 2 cycles x 40 iterations (28 -> 9 ms).
+
+Gate run 2 (`grouped-20260925-075425.json`, same sets, seeds and bars):
+
+| bar | result |
+|---|---|
+| (a) planted slopes | PASS: seen RMSE -20.8 / -23.8 / -31.9%, overall -2.1 to -3.3%, 8/9 cells |
+| (b) no harm elsewhere | FAIL on seen rows: +0.75% (many-small), +1.75% (null arm, skewed), -1.30% (x-confounded); overall within +-0.25% everywhere |
+| (c) real sets | BREACH: employee +2.21% overall; house -3.50% seen (as forecast), -0.52% overall; the rest within +-0.1% |
+| (d) cost | FAIL: median fit ratio 1.73x |
+
+The mechanism works where the data has per-group slopes, but it does not
+clear the no-harm, real-data and cost bars, so the rule keeps it out. The
+code is archived unmerged on branch `campaign/issue113-random-slopes`
+(fbc52ef). A guarded slice 2b (keep slopes only when the held-out rows
+prefer them) is the one open door; the design probe found a validation
+race halves the employee damage at best.
+
+Also found and fixed in the gate: employee's `department_name` is a
+one-to-one alias of the group column. Re-scored on slice 1's 11 sets, RE
+vs Drop and vs Cat go from 9W-2L to 8W-3L (real sets 3W-2L -> 2W-3L; the
+alias had let RE's trees see the department). The synthetic sweeps that
+carried slice 1's ship are unchanged.

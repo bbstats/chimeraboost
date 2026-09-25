@@ -504,7 +504,42 @@ bars; run 1 is recorded as invalid, not as evidence either way.
 Slice 1's table re-scored with the alias fix (run 1, the RE/Cat/Drop/
 LightGBM/CatBoost arms are unaffected by the bug): RE vs Drop 11W-3L, vs
 Cat 11W-3L, vs LightGBM 11W-3L, vs CatBoost 10W-4L over 14 sets.
-verdict: PENDING(muse fix, then gate run 2)
+fix (muse exit 0, committed fbc52ef): the reset order
+(`_random_slope_idx` stored after the reset block); 3 tests against a
+hand-built prediction that fail on the old code (5 failed) and pass now;
+the slope search at 2 cycles x 40 iterations (28 -> 9 ms, ratios equal to
+4 significant figures). Full suite 1243 passed, 1 skipped; identity
+snapshot 186/186.
+gate run 2 (`grouped-20260925-075425.json`; same 14 sets, seeds and
+bars): (a) PASS: planted slopes cut seen RMSE by 20.8 / 23.8 / 31.9% and
+overall by 2.1-3.3%, 8/9 cells on both. (b) FAIL on seen rows: overall
+within +-0.25% on every no-slope config and for the null arm, but seen
+rows leave the +-0.5% band in three cells: many-small +0.75% (RS), skewed
++1.75% (null arm), x-confounded -1.30% (a gain, still outside). (c)
+BREACH: employee +2.21% overall (+2.78% seen), slope on
+2016_gross_pay_received; house -0.52% overall and -3.50% seen (the
+forecast's 3-5%); the other three within +-0.1%. (d) FAIL: median fit
+ratio 1.73x (3.8x in run 1; the synthetic fits take ~0.1 s).
+verdict: **NOT SHIPPED.** The pre-registered rule needed (a), (b) and
+(d) to pass with no (c) breach. The mechanism is real, but the no-harm,
+real-data and cost bars fail. The library code is archived unmerged on
+branch `campaign/issue113-random-slopes` (fbc52ef): correct and tested,
+the starting point for a guarded slice 2b if one is ever wanted (the
+design probe found a validation race halves the employee damage at
+best). Kept: the gate's alias fix, a real benchmark bug, as its own PR
+from main. Dropped with the feature: the slope configs and the ChimeraRS
+arms.
+slice 1 re-scored with the alias fix (its original 11 sets): RE vs Drop
+9W-2L -> 8W-3L, vs Cat 9W-2L -> 8W-3L, vs LightGBM 8W-3L and vs CatBoost
+7W-4L unchanged. Synthetic sets are untouched (6W-0L), so the real-set
+record vs our own alternatives goes from 3W-2L to 2W-3L. Employee: RE
+6708 -> 7151 (the alias had let RE's trees see the department), Cat
+7235 -> 6515, Drop 6771 -> 6672, LightGBM and CatBoost unchanged. Slice
+1's opt-in ship still rests on its synthetic sweeps; its real-data
+pointer is now weaker than recorded on 2026-09-20.
+next: the maintainer's call on the rest of #113 (the auto-route
+kill-or-keep probe, the second grouping column, a guarded slice 2b); the
+loop moves to #45.
 
 #### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
 why now: the focus rule's third issue. PR #169 merged (5b27b06), #81
