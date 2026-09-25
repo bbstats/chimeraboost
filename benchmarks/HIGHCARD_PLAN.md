@@ -218,7 +218,7 @@ Grinsztajn), so replacements were found by property search on OpenML metadata
 (`MaxNominalAttDistinctValues ≥ 50`, cardinality filters) BEFORE any fit —
 yielding `wine-reviews`, `colleges`, `kdd_ipums_la_97-small`, `cjs`. KDD98
 (id 23513, 25847-card reg) surfaced in that search but is DEFERRED (heavy +
-license-awkward — Nathan's call, per the plan).
+license-awkward — Nathan's call, per the plan). WON'T DO, 2026-09-25: the maintainer declined it; the frozen N=14 suite stands.
 
 ## Frozen HC suite — N=14
 
