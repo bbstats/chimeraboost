@@ -29,7 +29,7 @@ A shipped preset is a frontier win but not a default win.
 - Delivery is PRs only (the maintainer, 2026-09-18): no merges to `main`, no PyPI releases from these sessions until he says otherwise. Ships land as pull requests; merging and releasing stay his call.
 - AMENDED 2026-09-21 (the maintainer, in chat): "if tests come back bit identical, we can very safely merge any PRs that are just incrementing markdown files, I don't need to give input on that if it's just like hey, here's something we learned. If we are changing actual code I need a PR though." Read strictly: the loop merges its own PR (merge commit, then deletes the branch) ONLY when every changed path is a `.md` file and `chimeraboost/` + `tests/` are identical to main, so the last green suite and identity snapshot still hold. Any other file in the diff — library, tests, config, or a script under `benchmarks/` — waits for him. Releases stay his call, always.
 - WIDENED the same day (the maintainer, in chat, asked whether probe scripts count as code): "benchmarks can be self-mergable as well." The rule now: the loop merges its own PR when every changed path is a `.md` file or lives under `benchmarks/`, and `chimeraboost/` + `tests/` are identical to main. Still his: `chimeraboost/`, `tests/`, packaging and CI config, releases. `benchmarks/tabarena/` stays hands-off (sealed). A self-merged PR that changes how a gate SCORES (`run_benchmarks.py`, `compare_runs.py`, `synth_report.py`, `synthgen/`) or a policy file (a skill, `AGENTS.md`) says so in the step report.
-- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room. UPDATE 2026-09-25: #84 and #81 are merged; #131 slice 1 is PR #170, PARKED OPEN by the maintainer ("not sure I want it implemented"), which does NOT hold the one-campaign-PR-at-a-time rule, since he asked the loop to keep going; #113: the maintainer's go 2026-09-25 ("Yes 113 is 'another issue' so you may work on it"); its four design calls go with the stated recommendations (one slope column with independent variances; the real-set covariate by the correlation rule; the entity-ID auto-route demoted to a kill-or-keep probe; fix the employee alias leak and report slice 1's old and new numbers). Next: #113 (random slopes), then #45.
+- **FOCUS 2026-09-24 (the maintainer, in chat): "next i want us to focus on issues rather than pareto efficiency stuff".** After the #163 rung (I063) closes, the loop's rungs come from the open GitHub issues, ahead of every beam family; F7's Q4/Q1 and the other ACTIVE families are parked until he says otherwise. Order (bugs first, per his standing preference): (1) #84, `warmup(background=True)` sets its notice flag inside the thread, so a fit in that window still prints the cold-compile notice; set it in the caller before `start()` (library, his merge). (2) #81, `benchmarks/research/`: the cascade self-test's anchors are no longer off by default (`linear_leaves` is auditioned, `early_stopping_rounds` moves the curve) and several `ideas.py` entries set flags removed on 2026-06-15 (benchmarks-only, self-merge). (3) #131, `refresh(X, y)` with an opt-in stored training set, structure pinned, leaves replayed on old + new rows (library). (4) #113, random effects slice 2: slopes, a second grouping column, the entity-ID auto-route; gate `grouped_suite.py`, the auto-route on hc `--decide` (library). (5) #45, loose ends: a fresh sweep, and his call on the fully merged remote branches. #109 (random effects) is the umbrella slice 1 shipped from; #113 carries its remaining scope, so closing it is his call. The harness open items H(13) and H(14) ride along as small benchmarks-only fixes when a rung has room. UPDATE 2026-09-25: #84 and #81 are merged; #131 slice 1 is PR #170, PARKED OPEN by the maintainer ("not sure I want it implemented"), which does NOT hold the one-campaign-PR-at-a-time rule, since he asked the loop to keep going; #113: the maintainer's go 2026-09-25 ("Yes 113 is 'another issue' so you may work on it"); its four design calls go with the stated recommendations (one slope column with independent variances; the real-set covariate by the correlation rule; the entity-ID auto-route demoted to a kill-or-keep probe; fix the employee alias leak and report slice 1's old and new numbers). Next: #113 (random slopes), then #45. UPDATE 2026-09-25 (later): the queue is empty (#84, #81, #45 closed; #113, #109 closed after I067/I068; #131 = PR #170, which the maintainer is testing by hand). The maintainer: "yeah we can continue on the quantile thread" (option B): F7 is ACTIVE again, first target the head's cap-bound low-noise losses (I070).
 
 ## Screening ladder
 
@@ -451,6 +451,58 @@ Not proposed (checked): AGBM momentum and gradient-mass bin borders (L2, low pri
 Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes and can both resolve in one session; R3 is F5's only sanctioned door and runs while nothing else is on the bench; R4 is the first hc mechanism that is not a port. Process proposal riding with this: amend `AGENTS.md` so muse may edit any file the task file lists (today `benchmarks/` is reserved), which is what makes H and the probe scripts muse rungs instead of Claude's.
 
 ## Iteration log (append-only)
+
+#### I070 2026-09-25 F7 Q8 T0 (the head's low-noise losses: a fixed-width and a scaled-residual audition candidate, and the round cap; BENCH-only, pre-registered)
+why now: the maintainer, 2026-09-25: "yeah we can continue on the quantile
+thread", picking option B (the head's largest measured weakness) after
+the issue queue emptied; F7 is ACTIVE again. #45 closed. Branch
+`campaign/quantile-q8-probe` from main 9c34c64; muse task
+`20260925-quantile-q8-probe.md`.
+diagnosis (`quantile-20260924-164257.json`, read-only): on pol,
+visualizing_soil and SGEMM the head's best round is the 2000 cap on
+every seed (NGBoost stops at 90-140). pol: 90% width 45.2 against
+NGBoost 7.2 and RigidShift 11.4 at the same coverage; CRPS 1.287 against
+RigidShift 0.945. visualizing_soil: NGBoost's median error is 3x ours.
+Oracle headroom on the 36 gr sets: min(head, RigidShift) improves 7
+(pol +26.5%, visualizing_soil +15.7%, Brazilian_houses +4.1 / +3.3%,
+cpu_act +3.3%, elevators +3.1%, wine_quality +3.0%); min(head, NGBoost)
+improves 3 (visualizing_soil +38.2%, pol +32.2%, SGEMM +7.6%). Q0 already
+measured the cap: 8000 rounds wins all 13 cap-bound sets (median +1.73%),
+bit-identical elsewhere, 1.48x the total fit.
+arms (bench probes; the library is untouched): (1) `AuditionS`: the bench
+audition (H, B, R; identical to the library default since Q7) plus S, the
+squared-error point model plus the validation residuals' empirical
+quantiles (RigidShift as a candidate), calibrated and scored like the
+others; (2) `AuditionSN`: plus N, a scaled-residual candidate: the same
+centre, a spread model (a `ChimeraBoostRegressor` on the training rows'
+|residual|), and the quantiles of the validation residuals divided by the
+predicted spread, scaled back per row (a heteroscedastic S, no Normal
+assumption); (3) `DefaultUncapped`: the library default at
+`n_estimators=8000`. Baseline: `ChimeraBoostQuantile` in the same run.
+barriers: B23 is this rung's premise (more rounds, not a bigger rate: arm
+3). B12 (portfolios die on cost): S reuses R's point model, so it costs a
+quantile computation; N adds one model fit, so its fit ratio is reported
+and weighed. B2/B14/B17/B19 are about the point model's refit, the
+selection budget, CV races and the stopping round; this audition keeps
+the Q6/Q7 selection rule (validation CRPS), which recovered 99% of its
+oracle. B1: the audition runs only with early-stopping rows, as today.
+B5: N's spread is fit in-sample, and the held-out calibration rescales it,
+so no shrinkage has to undo a shared bias.
+gate (the amended Q gate, per stratum on gr and hc, each arm against the
+default): wins >= half + 1 of decided (exact ties excluded), median CRPS
+gain > 0, the coverage guard (median |coverage - nominal| at 80 and 90
+not worse by > 1 point); a default change also needs a two-sided sign test
+p < 0.05 on gr. Cost read: median fit ratio against the default.
+forecast: (1) AuditionS engages on 5-9 gr sets and wins 5-8 of them,
+pol and visualizing_soil among them (median over the engaged +3 to +15%);
+(2) AuditionSN engages more (10-18) with pol and visualizing_soil
+improving past S, and costs ~1.3x; (3) DefaultUncapped wins the 13
+cap-bound sets at ~1.5x total fit, ties elsewhere; (4) none of the three
+moves the other 20+ sets (exact ties or pick-noise inside +-0.5%).
+run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save --models
+ChimeraBoostQuantile ChimeraBoostQuantileAuditionS
+ChimeraBoostQuantileAuditionSN ChimeraBoostQuantileDefaultUncapped`.
+verdict: PENDING(muse probe task, then the run)
 
 #### I069 2026-09-25 issue #45 (loose ends: harness H(13) + H(14), a plan-file audit, repo hygiene; BENCH + markdown)
 why now: the focus rule's last issue; #113 is explored (I067 not
