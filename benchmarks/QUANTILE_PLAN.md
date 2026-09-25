@@ -541,8 +541,10 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   refit of the winner after the audition, keeping the calibration taken
   before it, is the candidate. `quantile_suite.py` cannot measure it: it
   passes the shared split as an `eval_set`, which the head must not train
-  on. Needs a no-`eval_set` protocol first; the maintainer's call whether
-  to open it.
+  on. Needs a no-`eval_set` protocol first. **OPENED 2026-09-25 as Q12**
+  (the maintainer picked it over Q1): the head's own carve equals the
+  suite's shared split bit for bit, so the probe is a retrain added to
+  today's arm (`CAMPAIGN_PLAN.md` I075).
 - RESOLVED 2026-09-23 (Q5, I059): `docs/quantiles.md` "How it compares" is
   re-measured against the new default, with the fixed-width baseline and
   NGBoost added.
