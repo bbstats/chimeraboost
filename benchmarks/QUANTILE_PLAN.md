@@ -382,6 +382,31 @@ Q0 reads moved it down to item 4.
    beats CatBoost MQ 27W-9L and tops the 59-key chart at 0.6006 @ 7.4×,
    with CatBoost off the frontier. The one flag: hc `@time` (3 sets), 90%
    coverage error 0.68 → 2.12 points.
+3c. **Q8 (added 2026-09-25, when the maintainer reopened the quantile
+   thread), the head's low-noise losses.** After Q7 the head still lost
+   pol, visualizing_soil and SGEMM to NGBoost and RigidShift. Three
+   bench-only probes: S, the fixed-width grid (RigidShift's) as a fourth
+   audition candidate; S+N, plus a scaled-residual candidate N (a second
+   default regressor predicts the centre's absolute error; per-level
+   factors from the standardized validation residuals); and the default at
+   8000 rounds.
+   **PASSED 2026-09-25 for S+N (I070, `results/quantile-20260925-141117.json`).**
+   Against the Q7 default: gr 18W-1L-17T, median +2.18%, sign p 7.6e-5,
+   90% coverage error 0.41 → 0.32; hc 5W-0L-1T; 1.11× the fit (pol +31%,
+   visualizing_soil +17%, the one loss sulfur −0.31%). Picks over 177
+   fits: N 80, B 40, H 38, S 13, R 6. S alone (8W-3L-25T, p 0.23) is
+   mostly subsumed by N; 8000 rounds (6W-3L-27T, p 0.51, 1.27×) fails.
+3d. **Q9, S and N in the library default.**
+   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`), PR
+   for the maintainer.** The default equals the bench arm on 177 of 177
+   fits. Against the single head (Q5): gr 25W-5L-6T, +3.04%, at 2.6× its
+   fit. Against the field on gr: CatBoost MQ 29W-7L, RigidShift 35W-1L,
+   LightGBM per-level 31W-5L, our per-level 34W-2L, NGBoost 33W-3L; on the
+   59-key chart 0.6046 @ 8.3×, CatBoost MQ 0.5982 @ 133×. The flag: hc
+   `@time` 90% coverage error 2.12 → 4.69 points; the rise comes from
+   Moneyball, where S wins and a fixed width misses the shift (the other
+   two sets improve). Open: NGBoost still wins
+   visualizing_soil (−34%) and SGEMM (−8%).
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles

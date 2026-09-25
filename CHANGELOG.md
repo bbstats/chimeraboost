@@ -5,6 +5,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **The quantile head's audition gains two candidates, and its CRPS improves
+  most on low-noise targets.** `ChimeraBoostQuantileRegressor`'s default
+  choice now also tries `"fixed"`, an ordinary squared-error
+  `ChimeraBoostRegressor`'s prediction plus, per level, the quantile of its
+  errors on the held-out rows, and `"scaled"`, the same centre plus a second
+  regressor's predicted spread times one factor per level. Against 0.33.0's
+  three-candidate default it wins 18 of the 36 Grinsztajn regression
+  datasets, loses 1 and leaves 17 unchanged (median +2.2% CRPS where the two
+  differ; pol +31%, visualizing_soil +17%), and wins 5 of the 6
+  high-cardinality ones, leaving the sixth unchanged; its 90% coverage error
+  falls on both. It now beats CatBoost MultiQuantile on 29 of the 36 (was
+  27) and the fixed-width baseline on 35 (was 29). Over all 59 benchmark
+  datasets its CRPS skill is 0.605 against CatBoost's 0.598. The added cost
+  is the spread model, about 10% of the fit, so the default costs about 2.6
+  times a single head. `audition_["selected"]` gains `"fixed"` and
+  `"scaled"`, and every prediction method, `staged_predict` and
+  `shap_values` serve them; for `"scaled"` the attributions are exact except
+  on rows where the predicted spread sits at its floor. One caveat: on the
+  three time-split datasets the median 90% coverage error rises from 2.1 to
+  4.7 points (80%: 1.8 to 4.7). The rise comes from one dataset,
+  Moneyball, where the fixed-width candidate wins and, like the fixed-width
+  baseline, covers too little after the shift; the other two improve.
+  Ordinary regressors and classifiers are
+  untouched: the exact-output snapshot moves only one quantile
+  configuration (183 of 186 pins identical). Record:
+  `benchmarks/QUANTILE_PLAN.md`, Phase 2 (Q8, Q9).
 - **The quantile benchmark's NGBoost opponent now uses the RoNGBa
   settings** (Ren, Sun and Wu 2019; #163): trees of up to 31 leaves, a
   learning rate of 0.04 and at most 500 rounds, in place of NGBoost's stock
