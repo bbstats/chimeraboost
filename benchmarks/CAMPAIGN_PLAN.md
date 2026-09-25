@@ -186,7 +186,7 @@ fact: 2026-09-25 | standing quantile BASE = `results/quantile-20260925-172250.js
 | F3 | Classifier forced-cross | KILLED 2026-09-21 (S3, I021) | gr binary engaged 10W-13L, median −0.04%: the race earns its fee on the classifier. Knob stays opt-in (PR #117), no rung-1 pin |
 | F5 | hc-Brier gap vs CatBoost | **SHIPPED 2026-09-22 (I046, PR #145, d14bf38): `cat_count_features` on by default** (public 5W-1L, decide hc 6W-1L, bit-identical elsewhere, chart refreshed) — earlier: I038 library form, I039 S3 PASS | the published chart (`public_pareto.png`) refresh: DONE 2026-09-24 on 0.33.0 (`results/20260924-090541.json`, `--public --seeds 3`, 22 datasets, ~4 h: the default avg rank 1.94 [1.64-2.24] against CatBoost 1.84 [1.43-2.24] and LightGBM 2.23, at a median 5.6x against 47.2x and 1.0x; `docs/benchmarks.md` prose updated; `pareto.png` re-rendered from `results/20260924-130232.json` and `docs/PROJECT_STATUS.md` synced); S7 (multiclass CTR width) is the family's next idea if picked. History: **A per-categorical count column closes 47% of CatBoost's hc edge** (I035): 4W-1L on the gap sets, +0.43% Brier median, gains ordered by cardinality, sf-police and Traffic unanimous across seeds. The gap is the encoder (CatBoost on our TS keeps none of its edge); not the prior target, Counter, permutations or quantization (TS quantization kills on big sets, +1.7–3.6% on the two small controls — a small-data pointer, parked). `cat_count_features` (opt-in, card ≥ 256, invisible to the cross and linear-leaf races; I038) on the decision tier (I039): gr 0-0-59 exact ties, the 7 hc sets without a qualifying column exact ties, the engaged 7 **6W-1L** at +0.20% median (sf-police +0.73%, Traffic +0.86% Brier; employee_salaries +2.45%, wine-reviews +0.56% RMSE), hc@time 4-0, fit ×1.09 on hc (engaged median 1.165). PR up with the flag OFF. The random-effects alternative (per-column ANOVA λ for the TS, I040) KILLED: uncapped it collapses the small controls (−3.8 / −9.6%), capped at 10 it is a flat wash and still costs kick and eucalyptus; the count column keeps evidence the shrinkage deletes. Next: the maintainer's go on /experiment S4 for the default flip; meanwhile R4 S0 |
 | F6 | Ordered-TS train/test moment mismatch (shortlist R1) | KILLED 2026-09-21 (S1b, I025) — closed as barrier B18 | The defect is real (rare categories over-trusted, reliability 0.63–0.70) and two transform-side fixes both went 7W-5L against a bar of 8: the gain is sf-police (9 of 9 fits, +0.29% to +0.53%) and nothing else. Nothing ships; the open door is the Counter feature, which belongs to R3 |
-| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE again 2026-09-25 (the maintainer: "we can continue on the quantile thread"; PARKED 2026-09-24 for GitHub issues; ACTIVE from 2026-09-23). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0**. **Q8 T0 PASSED (I070)**: a fixed-width (S) and a scaled-residual (N) audition candidate, gr 18W-1L-17T against the Q7 default (p 7.6e-5) at 1.11x the fit; S alone and uncapped rounds fail. **Q9 PASSED (I071): S and N in the library default** (identity 177/177; CatBoost MQ 29W-7L, RigidShift 35W-1L; the 59-key chart 0.6046 @ 8.3x); PR for the maintainer; flag: hc `@time` 90% coverage error 2.12 -> 4.69 (Moneyball, a pointer) | **I063 DONE (PR #167)**: RoNGBa is the NGBoost opponent (issue #163). next: the rest of NGBoost's lead (visualizing_soil -34%, SGEMM -8%), a read-only diagnosis first (centre or width); then Q4 T0, spread-aware categorical encoding (a TS of the spread per category) on the hc regressions and `catscale`; then Q1 (P16). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
+| F7 | Multi-quantile head (`ChimeraBoostQuantileRegressor`) | ACTIVE again 2026-09-25 (the maintainer: "we can continue on the quantile thread"; PARKED 2026-09-24 for GitHub issues; ACTIVE from 2026-09-23). Phase 1, the bench, MERGED (I056, PR #156); Q0 DONE (I057, PR #157 merged): uncapped and validation-rescaled pay, depth 6 misses on its guard alone, recentred fails. Q3 CLOSED (I058, barrier B23: a larger rate loses); depth 6 + early-stopping-row calibration PAID (31W-5L, +0.33%, 90% error 3.43 → 0.47); PR #158 merged. **Q5 PASSED (I059): the head's default is now depth 6 + `conformalize="auto"`** (gr 31W-5L, +0.33%, 90% coverage error 3.43 → 0.47); PR #159 merged, snapshot rebaselined. **Q2 CLOSED (I060)**: no probe clears the tightened gate (sign p < 0.05); the five low-noise sets need resolution (bins) on two and a squared-error location on two; PR #160 merged. **Q6 T0 PASSED (I061)**: the validation-chosen head wins 23W-7L-6T (p 0.005), recovers 99% of the oracle, and tops the 59-key frontier above CatBoost MQ (0.6006 @ 7.2× against 0.5982 @ 129×); PR #161 merged. **Q7 PASSED (I062): the audition is the head's default** (identity 177/177 with the bench arm; gr 23W-7L-6T against the Q5 default, p 0.005; CatBoost MQ now 9W-27L against us, off the frontier); PR #162 merged, **released in 0.33.0**. **Q8 T0 PASSED (I070)**: a fixed-width (S) and a scaled-residual (N) audition candidate, gr 18W-1L-17T against the Q7 default (p 7.6e-5) at 1.11x the fit; S alone and uncapped rounds fail. **Q9 PASSED (I071): S and N in the library default** (identity 177/177; CatBoost MQ 29W-7L, RigidShift 35W-1L; the 59-key chart 0.6046 @ 8.3x); merged as PR #177 (a6a90d2); flag: hc `@time` 90% coverage error 2.12 -> 4.69 (Moneyball, a pointer). **Q10 T0 (I072) DIAGNOSED**: RoNGBa's lead on visualizing_soil and SGEMM is the S/N centre model's accuracy (our grid on its mean beats it); pol is a width gap. **Q11 T0-a (I073)**: centre settings on five sets: 254 bins matches RoNGBa's lead (visualizing_soil +24%, SGEMM +7%) but costs cpu_act 2.5%; 8000 rounds +5% on visualizing_soil only; bagging +30% (ceiling, not a default). **T0-b (I073b) FAILS**: as extra candidates the 254-bin centre still costs cpu_act 2.5% (validation cannot see the overfit); 8000 rounds closed unrun (the centre is cap-bound on 1 of 59 keys). The RoNGBa line is CLOSED. **I063 DONE (PR #167)**: RoNGBa is the NGBoost opponent (issue #163) | next: Q4 T0, spread-aware categorical encoding (a TS of the spread per category) on the hc regressions and `catscale`; then Q1 (P16). Program: `QUANTILE_PLAN.md` "Campaign 2026-09-23" |
 
 ### F1 — Cross-feature cost trim v2
 status: KILLED 2026-08-16 at S2 (I007 at k=6, I008 at k=12) — closed as barrier B16
@@ -453,6 +453,197 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I072 2026-09-25 F7 Q10 T0 (where NGBoost's remaining CRPS lead on visualizing_soil and SGEMM comes from, centre or width; READ-ONLY diagnosis, pre-registered)
+why now: I071 merged (PR #177). RoNGBa still beats the default on
+visualizing_soil (-34.3%), SGEMM (-8.2%) and pol (-1.4%): the largest
+per-set CRPS gap left against any opponent on gr. F7's `next:` line.
+Branch `campaign/quantile-q10-ngboost-diag` (plan-only; the instrument is
+a scratchpad script, not committed).
+barriers: B23 (cap-bound sets need more rounds or capacity, not bigger
+steps) supports the question and names the levers. B19 (the stopping rule
+is not free) does not apply: the question is the round CAP, which binds
+only where early stopping never fires. B1, B2, B5, B14 matched on
+keywords only ("budget", "quantile"): they concern the regressor's
+internal selection budget, not the head's cap.
+instrument: the suite's exact data path and split (`run_one`), seeds 0-2,
+on visualizing_soil, SGEMM, pol, and two controls the default wins
+against RoNGBa (cpu_act, houses). Per fit: the library default (choice,
+CRPS, median pinball, its S/N centre model's best round against the
+2000 cap), RoNGBa (mean, sigma, CRPS, median pinball), and two swap
+hybrids scored on test CRPS: (a) our delivered grid shifted row-wise onto
+RoNGBa's mean; (b) RoNGBa's grid shifted onto our median. Plus the
+centre model refit at 8000 rounds, for its test RMSE.
+forecast: (1) the lead is at the centre: RoNGBa's median pinball beats
+ours on visualizing_soil and SGEMM by at least the CRPS gap; hybrid (a)
+recovers >= 80% of the gap, (b) <= 20%. (2) On visualizing_soil the centre
+model is cap-bound (best round >= 1900 of 2000 on >= 2 of 3 seeds) and the
+8000-round refit closes >= half of RoNGBa's RMSE lead; on SGEMM it is not
+cap-bound (a resolution gap, as I060 found for the head). (3) On the two
+controls hybrid (a) does not help: RoNGBa's centre is not better in
+general.
+axes: a diagnosis, no change. The follow-on it could name: a larger
+budget for the S/N centre model (costs only where the cap binds; forecast
+<= 1.05x the median fit) or nothing cheap, if the lead is capacity per
+round.
+ran: `scratchpad/q10_diag.py` (not committed; the suite's split, seeds
+0-2, 2 threads): the default and RoNGBa reproduce the benchmark's CRPS on
+15/15 fits each, exactly. (Picks corrected after I073: the first
+draft read the script's one-letter code S as "fixed"; it meant "scaled".) Lead = RoNGBa's CRPS below ours as % of ours
+(the docs' -34% is the same gap as % of RoNGBa's):
+
+| set | picks | CRPS lead | median-pinball lead | (a) ours on its mean | (b) its grid on our median | centre best round (cap 2000) |
+|---|---|---|---|---|---|---|
+| visualizing_soil | N N N | +25.5% | +68.5% | closes 160% | -33% | 1999, 2000, 2000 |
+| SGEMM | B B B | +7.6% | +17.4% | closes 117% | -151% | 427, 411, 478 |
+| pol | N N N | +1.4% | +3.0% | -1% | +6% | 803, 1335, 1564 |
+| cpu_act (control) | N N N | -6.3% | -4.0% | CRPS +2.9% worse | | 255-364 |
+| houses (control) | N N N | -11.0% | -13.4% | CRPS +13% worse | | 594-692 |
+
+findings: (1) on visualizing_soil and SGEMM the whole lead is the centre:
+our grid on RoNGBa's mean beats RoNGBa itself (0.00696 vs 0.00877;
+0.00340 vs 0.00345), and RoNGBa's grid on our median is worse than ours.
+RoNGBa over-covers visualizing_soil (98.4% at 90%). (2) The centre gap is
+MAE-shaped: on visualizing_soil RoNGBa's mean has 3.2x lower MAE (0.0093
+vs 0.0294) but only 8% lower RMSE (0.0598 vs 0.0650): most of its errors
+are near zero, a few are large, and CRPS rewards that. (3) pol is a width
+gap, not a centre one: neither hybrid moves it, and RoNGBa's 90% band is
+37% narrower at equal coverage (7.2 vs 11.4; 89.4% vs 89.6%), even with
+our scaled candidate (N) as the audition's pick. (4) The S/N centre is the point
+regressor WITHOUT its full refit: its test RMSE equals
+`ChimeraBoostNoRefit` in the point decide run `20260924-130232` on all
+five sets to 4 digits. The point default's refit gains 8.8% RMSE on
+visualizing_soil (0.0598, level with RoNGBa's mean) and bagged Ens5 22%
+(0.0464). On SGEMM the point model trails LightGBM by 15%, CatBoost 13%
+and HGB 14% with or without the refit: a point-model gap (reg_cat, where
+the head's own best candidate is the 254-bin one).
+forecast: (1) HIT (median-pinball leads +68.5% / +17.4% exceed the CRPS
+leads; (a) closes 160% / 117%, (b) -33% / -151%). (2) HALF: cap-bound on
+visualizing_soil HIT (1999, 2000, 2000) and SGEMM not cap-bound HIT
+(411-478), but 8000 rounds close only 24% of RoNGBa's RMSE lead there
+(0.0650 -> 0.0638 against 0.0598): MISS. (3) HIT: RoNGBa's mean makes
+both controls worse.
+verdict: **DIAGNOSED; nothing to ship from this rung.** The lever on
+visualizing_soil and SGEMM is the S/N centre model's accuracy, which
+rounds barely move. Two cheap untested levers for it: resolution (254
+bins; RoNGBa splits on exact thresholds) and variance (bagging, a ceiling
+probe at 5x the centre's cost). A design question the suite cannot see,
+since it always passes an `eval_set`: with no `eval_set`, the head could
+refit its centre on all rows after taking the residual quantiles, as the
+point model's refit does (8.8% RMSE here). Next rung: I073.
+
+#### I073 2026-09-25 F7 Q11 T0-a (the S/N centre model's accuracy: 254 bins, 8000 rounds, bagged x5; a five-set screen, bench-only, pre-registered)
+why now: I072 put RoNGBa's lead on visualizing_soil and SGEMM in the S/N
+centre model.
+barriers: as I072. B23 names rounds and capacity as the head's levers;
+this asks the same of the centre model.
+instrument: `scratchpad/q11_screen.py` (not committed): I072's five sets,
+seeds 0-2, the suite's split, 2 threads. H and B once per fit; then R, S
+and N rebuilt with the suite's own functions (`_fit_point_raw`,
+`_fit_spread_model`, `_recentre_candidates`, `_rigid_raw_grids`,
+`_scaled_raw_grids`, `_calibrate`) on four settings of the centre and
+spread models: default (128 bins, 2000 rounds), 254 bins, 8000 rounds,
+and `n_ensembles=5`. Per setting: S's and N's test CRPS, the audition's
+pick over H, B, R, S, N by validation CRPS and the pick's test CRPS, and
+the centre + spread fit seconds. The default setting must reproduce the
+benchmark's CRPS exactly.
+forecast: (1) 254 bins: the pick improves on visualizing_soil by >= 10%
+(resolution on the coordinates), SGEMM by 0-3%, the controls within
++-1%. (2) 8000 rounds: visualizing_soil +1% to +3%, everything else
+unchanged (not cap-bound). (3) Bagged x5: visualizing_soil >= +15% and
+SGEMM >= +3%, controls within +-1%, at >= 4x the centre + spread cost.
+(4) No setting closes RoNGBa's whole lead on visualizing_soil (our grid on
+RoNGBa's mean, 0.00696, is the target).
+decision: a setting that improves the pick on visualizing_soil or SGEMM by
+>= 3% without costing either control more than 0.5% goes to the decide
+tier as a probe arm (a muse task and a full `--decide` run); otherwise F7
+moves to Q4 T0.
+ran: `scratchpad/q11_screen.py`; the default setting reproduces the
+benchmark's default CRPS on 15/15 fits exactly. The pick's CRPS gain over
+the default setting (picks: H head, B bins, R recentred, S fixed, N
+scaled), and the centre + spread fit time against the default's:
+
+| set | default picks | 254 bins | 8000 rounds | bagged x5 | RoNGBa's lead |
+|---|---|---|---|---|---|
+| visualizing_soil | N N N | +24.0% (NNN, 1.1x) | +5.1% (NSN, 1.3x) | +29.9% (NNN, 2.7x) | +25.5% |
+| SGEMM | B B B | +7.3% (NNN, 1.0x) | 0.0% | 0.0% (BBB, 2.4x) | +7.6% |
+| pol | N N N | +0.5% (1.4x) | 0.0% | +8.6% (2.5x) | +1.4% |
+| cpu_act (control) | N N N | **-2.5%** (1.2x) | 0.0% | +0.7% (3.5x) | -6.3% |
+| houses (control) | N N N | 0.0% (1.2x) | 0.0% | +2.1% (2.5x) | -11.0% |
+
+At 254 bins the centre's MAE falls 24% on visualizing_soil (0.0294 ->
+0.0224) and its RMSE 19% on SGEMM (0.0200 -> 0.0161), where the 254-bin N
+now beats the 254-bin head; on cpu_act its RMSE rises 21% (2.25 -> 2.71;
+MAE +2%): the finer grid overfits a few extreme rows. The 254-bin centre
+still reaches the 2000 cap on visualizing_soil (1997-1999).
+forecast: (1) HALF: visualizing_soil >= 10% HIT (+24.0%); SGEMM 0-3% MISS
+(+7.3%); controls within 1% MISS (cpu_act -2.5%). (2) MISS on size
+(visualizing_soil +5.1%, forecast 1-3%); everything else exactly
+unchanged, HIT. (3) HALF: visualizing_soil HIT (+29.9%); SGEMM MISS (0.0%,
+the bins head still wins; S and N alone +8%); controls HIT; cost MISS
+(2.4-3.5x, forecast >= 4x). (4) MISS: bagging passes RoNGBa's lead on
+visualizing_soil and 254 bins nearly matches it (+24.0% against +25.5%).
+verdict: by the pre-registered rule, **254 bins FAILS** (cpu_act -2.5%),
+**8000 rounds PASSES** (+5.1%, nothing else moves), **bagged x5 PASSES
+the rule but is ruled out as a default** (the default is the best
+non-ensembling setting; recorded as the ceiling: the centre's variance is
+worth up to 30% on low-noise sets). Next: T0-b (below), then the decide
+tier.
+
+#### I073b 2026-09-25 F7 Q11 T0-b (the 254-bin centre as EXTRA candidates beside the 128-bin ones; the same five-set screen, bench-only, pre-registered)
+why: 254 bins as a replacement failed only on a control (cpu_act) where it
+overfits. As extra candidates, the validation choice can keep the 128-bin
+centre there. New design, so a new pre-registration.
+instrument: `scratchpad/q11b_screen.py` (not committed), I073's sets,
+seeds and split. Candidates H, B, then R, S, N on the default centre and
+R', S', N' on a second centre and spread model at 254 bins; the pick is
+the lowest validation CRPS over all eight (ties in that order). Two
+versions of the second centre: (i) 254 bins, 2000 rounds; (ii) 254 bins,
+8000 rounds. Every candidate's validation CRPS and the H, B, centre and
+spread fit seconds are recorded.
+forecast: (1) eight candidates (i): visualizing_soil >= +20%, SGEMM >= +5%
+(N' beats B), pol within +-1%, cpu_act no worse than -0.5% (validation
+keeps the 128-bin candidates), houses within +-0.5%. (2) (ii) adds >= 2%
+on visualizing_soil over (i) and nothing elsewhere. (3) (i) costs about
+1.2x the default's whole fit at the median.
+decision: (i) or (ii) passing I073's rule joins 8000 rounds (centre only)
+as probe arms in one decide-tier run (I074, a muse task); if neither
+passes, 8000 rounds goes alone.
+ran: `scratchpad/q11b_screen.py`; the five-candidate pick reproduces the
+benchmark default on 15/15 fits exactly.
+
+| set | eight (i): 254 bins | eight (ii): 254 bins, 8000 rounds | RoNGBa's lead |
+|---|---|---|---|
+| visualizing_soil | +24.0% (N' x3), 1.32x | +28.1% (N' x3), 1.33x | +25.5% |
+| SGEMM | +7.3% (N' x3), 1.11x | +7.3%, 1.11x | +7.6% |
+| pol | +0.7% (N, N', N'), 1.42x | +0.7%, 1.41x | +1.4% |
+| cpu_act (control) | **-2.5%** (N', N', N), 1.37x | **-2.5%**, 1.37x | -6.3% |
+| houses (control) | +0.3% (R', N, N'), 1.21x | +0.3%, 1.20x | -11.0% |
+
+(Fit time: the whole audition against the default's.) On cpu_act the
+254-bin N scores better than the 128-bin N on the validation rows on 2 of
+3 seeds and worse on the test rows on the same 2 (+2.6% and +4.8%): its
+overfit to a few extreme rows is invisible to the early-stopping rows.
+forecast: (1) HALF: visualizing_soil HIT (+24.0%), SGEMM HIT (+7.3%, N'
+beats B), pol HIT, cpu_act MISS (-2.5%: validation does not keep the
+128-bin centre), houses HIT. (2) HIT (+4.1 points on visualizing_soil,
+nothing elsewhere). (3) MISS (1.11x-1.42x the whole fit, forecast 1.2x).
+verdict: **(i) and (ii) FAIL the rule** (cpu_act -2.5%). 8000 rounds, the
+one setting that passed I073's screen, is **CLOSED WITHOUT the decide
+run**: RigidShift's point model is the S/N centre (same constructor, same
+rows), and it reaches the 2000 cap on 1 of the 59 decide keys
+(visualizing_soil, 1999, 2000, 2000). A change that can engage on one set
+cannot clear the gate's sign test (p < 0.05 on gr needs 6 of 6 engaged at
+least). **The RoNGBa line closes:** its lead on visualizing_soil and SGEMM
+is the S/N centre's resolution (254 bins match it at 1.1x the centre's
+cost), but finer bins overfit elsewhere in a way the early-stopping rows
+cannot see (cpu_act here; the 254-bin head went 18W-13L in I060), and the
+remaining lever, bagging the centre, is an ensemble (the default is the
+best non-ensembling setting). Open design question, not measurable in
+this suite (it always passes an `eval_set`): without an `eval_set` the
+head never trains on its carved fold, while the point regressor refits
+on all rows (8.8% RMSE on visualizing_soil, 6.2% on pol); recorded in
+`QUANTILE_PLAN.md`. next (F7): Q4 T0.
+
 #### I071 2026-09-25 F7 Q9 (the S and N candidates in `ChimeraBoostQuantileRegressor`'s audition, on by default; LIBRARY change, pre-registered)
 why now: I070's AuditionSN passed the default gate (gr 18W-1L, p 7.6e-5;
 hc 5W-0L; coverage error better; 1.11x fit). Same branch, renamed
@@ -523,6 +714,9 @@ CatBoost MQ covers 62-69% there. Stated in the CHANGELOG caveat and in
 `docs/quantiles.md` (one sentence on time shift).
 verdict: **PASS -> PR for the maintainer** (library, tests, docs, image).
 After the merge: rebaseline the identity snapshot, delete the branch.
+MERGED 2026-09-25 as PR #177 (a6a90d2); branch deleted; the identity
+snapshot re-checked (183/186, only `mq3_w_sub`) and rebaselined at
+a6a90d2 (186/186).
 next (F7): the rest of NGBoost's lead (visualizing_soil -34%, SGEMM -8%):
 a read-only diagnosis first (centre or width: per-level pinball, NGBoost's
 mean on our grid), then Q4 T0, then Q1 (P16).

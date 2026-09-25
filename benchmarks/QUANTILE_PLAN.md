@@ -397,8 +397,8 @@ Q0 reads moved it down to item 4.
    fits: N 80, B 40, H 38, S 13, R 6. S alone (8W-3L-25T, p 0.23) is
    mostly subsumed by N; 8000 rounds (6W-3L-27T, p 0.51, 1.27×) fails.
 3d. **Q9, S and N in the library default.**
-   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`), PR
-   for the maintainer.** The default equals the bench arm on 177 of 177
+   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`);
+   merged as PR #177 (a6a90d2) the same day.** The default equals the bench arm on 177 of 177
    fits. Against the single head (Q5): gr 25W-5L-6T, +3.04%, at 2.6× its
    fit. Against the field on gr: CatBoost MQ 29W-7L, RigidShift 35W-1L,
    LightGBM per-level 31W-5L, our per-level 34W-2L, NGBoost 33W-3L; on the
@@ -407,6 +407,23 @@ Q0 reads moved it down to item 4.
    Moneyball, where S wins and a fixed width misses the shift (the other
    two sets improve). Open: NGBoost still wins
    visualizing_soil (−34%) and SGEMM (−8%).
+3e. **Q10, where NGBoost's remaining lead comes from (read-only).**
+   **DIAGNOSED 2026-09-25 (I072).** On visualizing_soil and SGEMM the
+   whole lead is the centre: our calibrated grid moved onto RoNGBa's mean
+   beats RoNGBa itself, and RoNGBa's grid on our median is worse than ours.
+   The centre gap is MAE-shaped (visualizing_soil: RoNGBa's mean has 3.2×
+   lower MAE, only 8% lower RMSE). The S/N centre is the point regressor
+   without its full refit. pol's small gap is width, not centre.
+3f. **Q11, the S/N centre's accuracy (five-set screens, bench-only).**
+   **CLOSED 2026-09-25 (I073, I073b), nothing shipped.** 254 bins for the
+   centre and spread models match RoNGBa's lead (visualizing_soil +24%,
+   SGEMM +7%, at 1.1× the centre's cost) but cost cpu_act 2.5%, and as
+   extra candidates beside the 128-bin centre they still do: the finer
+   grid's overfit is invisible to the early-stopping rows. 8000 rounds for
+   the centre help visualizing_soil only (+5%); the centre hits its cap on
+   1 of the 59 decide keys, so it cannot clear the gate. Bagging the centre
+   ×5 is the ceiling (visualizing_soil +30%, pol +9%) and is an ensemble,
+   so not a default.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
@@ -505,6 +522,16 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
+- **The head never trains on its own early-stopping fold** (recorded
+  2026-09-25, I073b). Without an `eval_set` the head carves
+  `validation_fraction` and neither it nor its S/N centre ever sees those
+  rows, while `ChimeraBoostRegressor` refits on all rows by default
+  (`refit_full`), worth 8.8% RMSE on visualizing_soil and 6.2% on pol. A
+  refit of the winner after the audition, keeping the calibration taken
+  before it, is the candidate. `quantile_suite.py` cannot measure it: it
+  passes the shared split as an `eval_set`, which the head must not train
+  on. Needs a no-`eval_set` protocol first; the maintainer's call whether
+  to open it.
 - RESOLVED 2026-09-23 (Q5, I059): `docs/quantiles.md` "How it compares" is
   re-measured against the new default, with the fixed-width baseline and
   NGBoost added.
