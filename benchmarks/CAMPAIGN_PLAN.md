@@ -452,6 +452,32 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I071 2026-09-25 F7 Q9 (the S and N candidates in `ChimeraBoostQuantileRegressor`'s audition, on by default; LIBRARY change, pre-registered)
+why now: I070's AuditionSN passed the default gate (gr 18W-1L, p 7.6e-5;
+hc 5W-0L; coverage error better; 1.11x fit). Same branch, renamed
+`campaign/quantile-q8-sn-audition`; muse task
+`20260925-quantile-q9-sn-library.md` (the Q7 pattern: the bench arm is
+the exact oracle).
+change (`chimeraboost/quantile_api.py`): after R, two candidates on R's
+centre model: S "fixed" (the centre model's prediction plus the
+validation residuals' empirical quantiles) and N "scaled" (the centre
+plus a spread model's floored prediction times the standardized
+validation residuals' quantiles), each calibrated and scored like H, B, R;
+ties head, bins, recentred, fixed, scaled. Every read path, SHAP included,
+serves the winner. `audition=False` and the no-evaluation-rows path
+unchanged. Also: the probe-count test (14 -> 17) and a `bench_status.py`
+guard for result files without `datasets`.
+barriers: as I070.
+forecast: (1) identity: the default head equals the bench arm bit for bit
+(grid and choice); (2) tests green, `audition=False` bit-identical; (3)
+the identity snapshot moves only on its quantile-head configs (the
+default head's grid), nothing else; (4) the I070 numbers therefore stand
+for the new default without a re-run (gr 18W-1L against the Q7 default).
+docs (Claude): `docs/quantiles.md` (five candidates; the comparison
+table's rows re-read from I070 against the same field runs),
+`docs/parameters.md` (the `audition` row), CHANGELOG.
+verdict: PENDING(muse library task)
+
 #### I070 2026-09-25 F7 Q8 T0 (the head's low-noise losses: a fixed-width and a scaled-residual audition candidate, and the round cap; BENCH-only, pre-registered)
 why now: the maintainer, 2026-09-25: "yeah we can continue on the quantile
 thread", picking option B (the head's largest measured weakness) after

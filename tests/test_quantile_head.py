@@ -840,7 +840,7 @@ def test_conformalize_rejects_anything_but_auto_true_or_false():
 
 
 # --------------------------------------------------------------------------
-# The audition default (Q7): H/B/R per-fit choice, on by default.
+# The audition default (Q7/Q9): H/B/R/S/N per-fit choice, on by default.
 # --------------------------------------------------------------------------
 
 
@@ -858,13 +858,13 @@ def _aud_split(X, y, split_seed):
 
 
 def _aud_data(kind):
-    """Small synthetic sets where H, B and R each win (verified)."""
+    """Small synthetic sets where H, B, R, S and N each win (verified)."""
     if kind == "head":
         rng = np.random.default_rng(1)
         n = 1000
         X = rng.standard_normal((n, 5))
         y = 2.0 * X[:, 0] + np.exp(0.6 * X[:, 1]) * rng.standard_normal(n)
-        return X, y, 1
+        return X, y, 2
     if kind == "bins":
         rng = np.random.default_rng(7)
         n = 1200
@@ -872,12 +872,24 @@ def _aud_data(kind):
         y = ((X[:, 0] > 0.712345).astype(float) * 5.0
              + rng.standard_normal(n) * 0.2)
         return X, y, 0
-    assert kind == "recentred"
-    rng = np.random.default_rng(2)
-    n = 1000
-    X = rng.standard_normal((n, 4))
-    y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
-    return X, y, 0
+    if kind == "recentred":
+        rng = np.random.default_rng(2)
+        n = 1000
+        X = rng.standard_normal((n, 4))
+        y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
+        return X, y, 0
+    if kind == "fixed":
+        rng = np.random.default_rng(3)
+        n = 600
+        X = rng.standard_normal((n, 6))
+        y = 2.0 * X[:, 0] + 0.1 * rng.standard_normal(n)
+        return X, y, 1
+    assert kind == "scaled"
+    rng = np.random.default_rng(41)
+    n = 2500
+    X = rng.standard_normal((n, 5))
+    y = 2.0 * X[:, 0] + np.exp(0.5 * X[:, 1]) * rng.standard_normal(n)
+    return X, y, 4
 
 
 def _aud_fit(kind):
@@ -907,11 +919,14 @@ def test_audition_false_equals_single_head():
 
 
 def test_audition_each_candidate_can_win():
-    """H, B and R each win on a small synthetic set; selection recorded."""
-    for kind in ("head", "bins", "recentred"):
+    """H, B, R, S and N each win on a small synthetic set; selection
+    recorded. S wins on a homoscedastic low-noise target, N on a strongly
+    heteroscedastic one."""
+    kinds = ("head", "bins", "recentred", "fixed", "scaled")
+    for kind in kinds:
         m, _, _ = _aud_fit(kind)
         assert m.audition_["selected"] == kind, (kind, m.audition_)
-        assert set(m.audition_["crps"]) == {"head", "bins", "recentred"}
+        assert set(m.audition_["crps"]) == set(kinds)
         scores = m.audition_["crps"]
         assert all(np.isfinite(v) for v in scores.values())
         assert scores[kind] == min(scores.values())
@@ -946,12 +961,15 @@ def test_audition_bins_skipped_when_max_bins_high():
             random_state=0, n_estimators=40, max_bins=bins).fit(
                 Xt, yt, eval_set=(Xv, yv))
         assert m.audition_ is not None
-        assert set(m.audition_["crps"]) == {"head", "recentred"}
-        assert m.audition_["selected"] in ("head", "recentred")
+        assert set(m.audition_["crps"]) == {"head", "recentred", "fixed",
+                                            "scaled"}
+        assert m.audition_["selected"] in ("head", "recentred", "fixed",
+                                           "scaled")
 
 
 def test_audition_tie_heavy_never_picks_recentred():
-    """Collapsed band: R's factors blow up, validation rejects it."""
+    """Collapsed band: R's factors blow up, validation rejects it; S and N
+    stay finite and ordered, whatever wins."""
     rng = np.random.default_rng(53)
     n = 500
     X = rng.standard_normal((n, 3))
@@ -960,15 +978,19 @@ def test_audition_tie_heavy_never_picks_recentred():
     Xt, yt, Xv, yv = X[:350], y[:350], X[350:], y[350:]
     m = ChimeraBoostQuantileRegressor(
         random_state=0, n_estimators=50).fit(Xt, yt, eval_set=(Xv, yv))
-    assert m.audition_["selected"] in ("head", "bins")
+    assert m.audition_["selected"] != "recentred"
+    scores = m.audition_["crps"]
+    assert set(scores) == {"head", "bins", "recentred", "fixed", "scaled"}
+    assert all(np.isfinite(v) for v in scores.values())
+    assert np.isfinite(scores["fixed"]) and np.isfinite(scores["scaled"])
     Q = m.predict(Xv)
     assert np.isfinite(Q).all()
     assert np.all(np.diff(Q, axis=1) >= 0.0)
 
 
 def test_audition_winner_staged_and_pickle():
-    """Staged final equals predict and pickle round-trips for H/B/R wins."""
-    for kind in ("head", "bins", "recentred"):
+    """Staged final equals predict and pickle round-trips for H/B/R/S/N."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
         m, Xte, _ = _aud_fit(kind)
         assert m.audition_["selected"] == kind
         Xt = Xte[:20]
@@ -985,3 +1007,47 @@ def test_audition_rejects_anything_but_true_or_false():
     with pytest.raises(ValueError, match="audition must be True or False"):
         ChimeraBoostQuantileRegressor(
             audition="yes", n_estimators=10).fit(X, y)
+
+
+def _hand_rescaled(raw, m):
+    """Median-rescale a raw winner grid with the winner's factors, by hand:
+    the all-ones short-circuit plus ``c + s * (Q - c)`` about the predicted
+    median, without calling the implementation."""
+    s = np.asarray(m.conformal_scale_, dtype=np.float64)
+    if np.all(s == 1.0):
+        return raw
+    mi, mw = m._median_idx_
+    if mw == 0.0:
+        c = raw[:, mi]
+    else:
+        c = raw[:, mi] + mw * (raw[:, mi + 1] - raw[:, mi])
+    return c[:, None] + s[None, :] * (raw - c[:, None])
+
+
+def test_audition_fixed_and_scaled_keep_the_head_booster():
+    """S/N winners keep the fitted head in ``model_`` -- inspectable, though
+    it delivers nothing -- and ``predict`` still serves the hand-built S/N
+    grid bit for bit."""
+    for kind in ("fixed", "scaled"):
+        m, Xte, _ = _aud_fit(kind)
+        assert m.audition_["selected"] == kind
+        assert isinstance(m.model_, MultiQuantileBoosting)
+        assert len(m.model_.trees_) > 0
+        Xt = Xte[:20]
+        centre = m._centre_model_
+        p = np.asarray(
+            centre.model_.predict_raw(Xt) + centre.quantile_offset_,
+            dtype=np.float64).ravel()
+        if kind == "fixed":
+            raw = p[:, None] + np.asarray(
+                m._fixed_q_, dtype=np.float64)[None, :]
+        else:
+            c = p + float(m._centre_off_)
+            spread = m._spread_model_
+            s = np.asarray(
+                spread.model_.predict_raw(Xt) + spread.quantile_offset_,
+                dtype=np.float64).ravel()
+            s = np.maximum(s, float(m._spread_floor_))
+            raw = c[:, None] + s[:, None] * np.asarray(
+                m._scaled_q_, dtype=np.float64)[None, :]
+        np.testing.assert_array_equal(m.predict(Xt), _hand_rescaled(raw, m))
