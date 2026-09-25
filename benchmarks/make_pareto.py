@@ -597,6 +597,7 @@ def render_image(scored, meta, out_path, metric="winrate"):
         gap_ticks = [g for g in GAP_TICKS if glo / 1.6 <= g <= ghi * 1.6]
         if len(gap_ticks) < 2:
             gap_ticks = GAP_TICKS
+        from matplotlib.ticker import FixedLocator, FuncFormatter
         ax.yaxis.set_major_locator(
             FixedLocator([_gap_to_y(100.0 - g) for g in gap_ticks]))
         ax.yaxis.set_minor_locator(FixedLocator([]))
