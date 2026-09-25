@@ -452,6 +452,33 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I067 2026-09-25 issue #113 slice 2 (random slopes on top of random intercepts; LIBRARY feature, opt-in, pre-registered)
+why now: the focus rule's next issue; the maintainer's go 2026-09-25 with
+the four design calls as recommended. PR #171 merged (a65c8b2). Branch
+`campaign/issue113-random-slopes` from main a65c8b2. Program:
+`benchmarks/RANDEFF_PLAN.md` "Slice 2" (design, decisions, API, tests, the
+pre-registered gate and bars).
+barriers: none matched.
+forecast: gate bars (a), (b), (d) pass and (c) has no breach (house seen
+3-5% better than intercepts, employee seen 1-2% worse, the rest within
++-0.3%); identity snapshot 186/186 (opt-in, default path untouched), so
+both Pareto axes are unchanged.
+pass 1 (muse exit 0): `random_effects.py` +`_slope_suff_stats`,
+`solve_slopes` (per-group 2x2 ridge; `ratio_a = inf` delegates to
+`solve_intercepts`, so no-slopes is exact), `estimate_slope_ratios_reml`
+(profiled REML with fixed effects [1, z] via Woodbury and the matrix
+determinant lemma, 3 cyclic golden-section alternations: cycle 2 moves
+< 0.02 decades, cycle 3 0.0000); `solve_intercepts` and
+`estimate_ratio_reml` byte-identical. `sklearn_api.py`: `random_slopes`,
+errors, both solve sites through helpers, `group_slopes_`,
+`group_slope_ratio_`, `group_slope_center_`, `group_slope_range_`; predict
+clips x to the fit range. 17 tests: solver vs brute force ~9e-16, REML vs
+explicit matrices ~2e-15 relative, known ratios within 0.005 decades,
+planted slopes corr 0.993, null slopes 1.2e-7, unseen = trees-only exactly,
+`random_slopes=None` bit-identical. Full suite 1240 passed, 1 skipped
+(conda python); identity snapshot 186/186; ruff clean. Committed.
+verdict: PENDING(muse pass 2 gate, then the run)
+
 #### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
 why now: the focus rule's third issue. PR #169 merged (5b27b06), #81
 closed. Program file `benchmarks/REFRESH_PLAN.md` (design, decisions,

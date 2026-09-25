@@ -10,7 +10,8 @@ from .booster import (GradientBoosting, LINEAR_LEAVES_MIN_SAMPLES,
                       MulticlassBoosting, _CAT_CTX_KEY, _thread_limit)
 from .preprocessing import CatTransformCache, as_model_array
 from .random_effects import (codes_for_labels, estimate_ratio_reml,
-                             solve_intercepts)
+                             estimate_slope_ratios_reml, solve_intercepts,
+                             solve_slopes)
 from .target_encoding import factorize
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
@@ -60,7 +61,7 @@ _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "cat_features", "cross_features",
                            "cross_top_columns",
                            "selection_rounds", "refit_full", "refit_members",
-                           "quality", "random_effects"})
+                           "quality", "random_effects", "random_slopes"})
 
 # --- quality: named operating points on the strength/slowdown Pareto --------
 # Evidence: benchmarks/SELECT_PLAN.md. Every recipe only pins parameters that
@@ -951,6 +952,205 @@ def _solve_group_offsets(model, X_full, y_full, sw_full, codes_full,
     ratio = estimate_ratio_reml(resid, codes_full, n_groups, sw_full)
     return (solve_intercepts(resid, codes_full, n_groups, ratio, sw_full),
             ratio)
+
+
+def _random_slope_single_item(random_slopes):
+    """The one column ``random_slopes`` names, or raise.
+
+    A bare string or integer means that one column; otherwise it must be a
+    one-element list (slice 2 fits one per-group slope).
+    """
+    if isinstance(random_slopes, (str, int, np.integer)) \
+            and not isinstance(random_slopes, bool):
+        return random_slopes
+    try:
+        items = list(random_slopes)
+    except TypeError:
+        raise ValueError(
+            "random_slopes must be a one-element list naming one numeric "
+            f"column by index or name; got {random_slopes!r}."
+        ) from None
+    if len(items) != 1:
+        raise ValueError(
+            "random_slopes takes exactly one column in slice 2 (one "
+            f"per-group slope); got {len(items)}: {items!r}.")
+    return items[0]
+
+
+def _random_slope_index(col, X, n_features):
+    """Resolve one slope column (index or name) to an integer position."""
+    if isinstance(col, str):
+        names = _extract_feature_names(X)
+        if names is None:
+            raise ValueError(
+                "random_slopes contains a column name, but X has no column "
+                "names to resolve it against; pass an integer index "
+                "instead, or fit on a DataFrame.")
+        pos = {n: i for i, n in enumerate(names)}
+        if col not in pos:
+            raise ValueError(
+                f"random_slopes name {col!r} is not a column of X; columns "
+                f"are {list(names)}.")
+        return pos[col]
+    if not (isinstance(col, (int, np.integer))
+            and not isinstance(col, bool)):
+        raise ValueError(
+            "random_slopes must name one numeric column by index or name; "
+            f"got {col!r}.")
+    idx = int(col)
+    if idx < 0 or idx >= n_features:
+        raise ValueError(
+            f"random_slopes index {idx} out of range for X with "
+            f"{n_features} column(s).")
+    return idx
+
+
+def _resolve_random_slope(random_slopes, random_effects, cat_features, X,
+                          n_features):
+    """Resolve ``random_slopes`` to one integer column index, or None.
+
+    Names resolve against X's columns like ``cat_features``. Raises a clear
+    ``ValueError`` when set without ``random_effects=True``, naming more
+    than one column, naming a categorical column, or naming an unknown name
+    or index.
+    """
+    if random_slopes is None:
+        return None
+    if not random_effects:
+        raise ValueError(
+            "random_slopes=... needs random_effects=True -- slopes are "
+            "per-group parameters and there are no groups without it.")
+    col = _random_slope_single_item(random_slopes)
+    idx = _random_slope_index(col, X, n_features)
+    if cat_features and idx in {int(c) for c in cat_features}:
+        raise ValueError(
+            f"random_slopes column {col!r} (index {idx}) is categorical "
+            "(it is in cat_features); name one numeric column.")
+    return idx
+
+
+def _slope_column_values(X, idx):
+    """The slope column of a feature matrix as float64, NaN kept.
+
+    ``X`` is the converted model array at fit time, or the validated
+    predict input. Missing entries (NaN, and None in an object column)
+    stay missing: they contribute ``z = 0`` downstream. Raises a clear
+    ``ValueError`` when the column is not numeric.
+    """
+    col = np.asarray(X)[:, idx]
+    try:
+        return np.asarray(col, dtype=np.float64)
+    except (ValueError, TypeError):
+        pass
+    out = np.empty(col.shape[0], dtype=np.float64)
+    for i, v in enumerate(np.asarray(col, dtype=object).tolist()):
+        if v is None:
+            out[i] = np.nan
+        else:
+            try:
+                out[i] = float(v)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"random_slopes column (index {idx}) must be numeric; "
+                    f"entry {v!r} at row {i} does not convert to float."
+                ) from None
+    return out
+
+
+def _slope_centre_and_range(x, weights):
+    """Weighted mean of the finite x (the centre) plus the (min, max) range.
+
+    Rows with missing x are excluded from both. With no finite x at all the
+    centre is 0.0 and the range (0.0, 0.0): every z is 0 and the slopes fit
+    nothing, without crashing.
+    """
+    fin = np.isfinite(x)
+    if not fin.any():
+        return 0.0, (0.0, 0.0)
+    xf = x[fin]
+    if weights is not None:
+        w = np.asarray(weights, dtype=np.float64)[fin]
+        tot = float(w.sum())
+        centre = (float((w * xf).sum() / tot) if tot > 0.0
+                  else float(xf.mean()))
+    else:
+        centre = float(xf.mean())
+    return centre, (float(xf.min()), float(xf.max()))
+
+
+def _solve_group_slopes(model, X_full, y_full, sw_full, codes_full,
+                        n_groups, slope_x):
+    """Intercepts + slopes + ratios + centre + range against a booster.
+
+    Scores ``model`` (trees-only) on every row and solves the empirical-Bayes
+    intercepts and slopes from those residuals. Returns
+    ``(b, a, ratio_b, ratio_a, centre, xrange)``.
+    """
+    resid = (np.asarray(y_full, dtype=np.float64)
+             - model.predict_raw(X_full))
+    centre, xrange = _slope_centre_and_range(slope_x, sw_full)
+    z = slope_x - centre
+    ratio_b, ratio_a = estimate_slope_ratios_reml(
+        resid, codes_full, n_groups, z, sw_full)
+    b, a = solve_slopes(resid, codes_full, n_groups, ratio_b, ratio_a, z,
+                        sw_full)
+    return b, a, ratio_b, ratio_a, centre, xrange
+
+
+def _re_prefit_target(model, X_full, y_full, sw_full, codes, n_groups,
+                      slope_x):
+    """Refit target with the pre-refit random effects removed.
+
+    Plain slice 1 when ``slope_x`` is None (intercepts only, exactly as
+    before); with slopes, both the intercepts and the slope terms come off.
+    """
+    if slope_x is None:
+        b_pre, _ = _solve_group_offsets(model, X_full, y_full, sw_full,
+                                        codes, n_groups)
+        return (np.asarray(y_full, dtype=np.float64) - b_pre[codes])
+    b_pre, a_pre, _, _, centre, _ = _solve_group_slopes(
+        model, X_full, y_full, sw_full, codes, n_groups, slope_x)
+    z = np.where(np.isnan(slope_x), 0.0, slope_x - centre)
+    return (np.asarray(y_full, dtype=np.float64) - b_pre[codes]
+            - a_pre[codes] * z)
+
+
+def _re_top_up(est, model, X_full, y_full, sw_full, codes, n_groups,
+               slope_x):
+    """Solve the shipped random effects against the final model.
+
+    Sets ``group_intercepts_``/``group_ratio_`` exactly as slice 1, plus the
+    slope attributes when ``slope_x`` is given.
+    """
+    if slope_x is None:
+        (est.group_intercepts_,
+         est.group_ratio_) = _solve_group_offsets(
+            model, X_full, y_full, sw_full, codes, n_groups)
+        return
+    (b, a, ratio_b, ratio_a, centre,
+     xrange) = _solve_group_slopes(model, X_full, y_full, sw_full, codes,
+                                   n_groups, slope_x)
+    est.group_intercepts_ = b
+    est.group_ratio_ = ratio_b
+    est.group_slopes_ = a
+    est.group_slope_ratio_ = ratio_a
+    est.group_slope_center_ = centre
+    est.group_slope_range_ = xrange
+
+
+def _re_slope_column(X_full, slope_idx):
+    """The fit-time slope values, or None when slopes are off."""
+    if slope_idx is None:
+        return None
+    return _slope_column_values(X_full, slope_idx)
+
+
+def _predict_slope_values(est, X):
+    """Predict-time slope values, or None when the model has no slopes."""
+    idx = getattr(est, "_random_slope_idx", None)
+    if idx is None or getattr(est, "group_slopes_", None) is None:
+        return None
+    return _slope_column_values(X, idx)
 
 
 def _extract_feature_names(X):
@@ -2174,6 +2374,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``predict`` takes the row groups and adds the fitted intercepts;
         unseen groups get exactly 0. Slice 1: ``loss="RMSE"`` single models
         only (not ``n_ensembles > 1``).
+    random_slopes : list with one int or str, or None, default None
+        Fit a random slope per group on one numeric column, named by index
+        or by name (resolved like ``cat_features``): the model becomes
+        ``F(X) + b_g + a_g * (x - centre)`` with independent shrunk
+        intercepts and slopes. The column stays in X for the trees; ``x``
+        is clipped to its fit range at predict time and a NaN x carries no
+        slope term. Needs ``random_effects=True``; slice 2, regression
+        only. ``None`` (the default) fits intercepts alone, bit-identical
+        to before this parameter existed.
 
     Attributes
     ----------
@@ -2212,6 +2421,19 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     group_ratio_ : float or None
         Fitted noise-to-group variance ratio (``inf`` means no group signal
         was found). ``None`` unless fit with ``random_effects=True``.
+    group_slopes_ : ndarray of shape (n_groups,) or None
+        Fitted random slopes in ``group_labels_`` order, in raw x units.
+        ``None`` unless fit with ``random_slopes=[...]``.
+    group_slope_ratio_ : float or None
+        Fitted noise-to-slope variance ratio (``inf`` means no slope
+        signal was found). ``None`` unless fit with ``random_slopes``.
+    group_slope_center_ : float or None
+        Weighted mean of the slope column on the fit rows; ``z = x -
+        centre``, so ``group_intercepts_`` is the level at the centre.
+        ``None`` unless fit with ``random_slopes``.
+    group_slope_range_ : tuple (min, max) or None
+        Fit range of the slope column; predict clips x into it. ``None``
+        unless fit with ``random_slopes``.
     """
 
     # Both estimators accept cross_features="always" (the unrefereed forced
@@ -2239,7 +2461,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
                  refit_full="replay", refit_members=False, quality=None,
-                 adaptive_learning_rate=True, random_effects=False):
+                 adaptive_learning_rate=True, random_effects=False,
+                 random_slopes=None):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -2282,6 +2505,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
         self.random_effects = random_effects
+        self.random_slopes = random_slopes
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -2326,12 +2550,21 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         _validate_hyperparams(self)
         y = _validate_fit_input(self, X, y, cat_features, sample_weight,
                                 classification=False)
+        slope_idx = _resolve_random_slope(
+            self.random_slopes, self.random_effects, cat_features, X,
+            self.n_features_in_)
+        self._random_slope_idx = slope_idx
         # Cached shap_importances describe the previous fit; drop them.
         self._shap_importances_cache_ = None
         # Random-effects state from any previous fit is stale now.
         self.group_intercepts_ = None
         self.group_labels_ = None
         self.group_ratio_ = None
+        self.group_slopes_ = None
+        self.group_slope_ratio_ = None
+        self.group_slope_center_ = None
+        self.group_slope_range_ = None
+        self._random_slope_idx = None
 
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
@@ -2368,7 +2601,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
             self.estimators_ = None
             return self._fit_single(X, y, cat_features, eval_set, groups,
-                                    sample_weight, callbacks)
+                                    sample_weight, callbacks, slope_idx)
 
     def __sklearn_is_fitted__(self):
         return (hasattr(self, "model_")
@@ -2480,7 +2713,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         return kw, loss_kwargs, ll
 
     def _fit_single(self, X, y, cat_features, eval_set, groups, sample_weight,
-                    callbacks=None):
+                    callbacks=None, slope_idx=None):
         """Fit one (non-bagged) model on the data as given.
 
         The helpers run in the exact order the inlined blocks always did --
@@ -2514,6 +2747,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # Kept for the optional full-data refit below: the auto split
         # reassigns X/y, but the refit retrains on every row.
         X_full, y_full, sw_full = X, y, sample_weight
+        slope_x_full = _re_slope_column(X_full, slope_idx)
         (es_active, auto_split, X, y, sample_weight, eval_set,
          split_idx) = _auto_es_split(
             self, X, y, sample_weight, eval_set, groups_for_split,
@@ -2578,27 +2812,24 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         y_full_for_refit = y_full
         if re_active:
             # Refinement riding the refit: the winner already learned X on
-            # raw y (the good equilibrium -- MERF order), so solve b against
-            # it and let the refit train on the group-adjusted target. When
-            # no refit runs this is skipped and the top-up below stands
-            # alone (still sound: pure post-only).
-            b_pre, _ = _solve_group_offsets(
+            # raw y (the good equilibrium -- MERF order), so solve b (and a
+            # with slopes) against it and let the refit train on the
+            # group-adjusted target. When no refit runs this is skipped and
+            # the top-up below stands alone (still sound: pure post-only).
+            y_full_for_refit = _re_prefit_target(
                 self.model_, X_full, y_full, sw_full, group_codes_full,
-                n_re_groups)
-            y_full_for_refit = (np.asarray(y_full, dtype=np.float64)
-                                - b_pre[group_codes_full])
+                n_re_groups, slope_x_full)
         self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full_for_refit,
                                  sw_full, cat_features, auto_split,
                                  cat_ctx=full_ctx)
 
         if re_active:
-            # The top-up: solve the intercepts once against the FINAL model
-            # on the FULL rows (raw y -- the solve differences F itself) --
-            # after any refit -- so every group in X carries an intercept,
-            # including auto-split val groups.
-            self.group_intercepts_, self.group_ratio_ = _solve_group_offsets(
-                self.model_, X_full, y_full, sw_full, group_codes_full,
-                n_re_groups)
+            # The top-up: solve the intercepts (and slopes) once against
+            # the FINAL model on the FULL rows (raw y -- the solve
+            # differences F itself) -- after any refit -- so every group in
+            # X carries an intercept, including auto-split val groups.
+            _re_top_up(self, self.model_, X_full, y_full, sw_full,
+                       group_codes_full, n_re_groups, slope_x_full)
 
         return self
 
@@ -2832,13 +3063,15 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                                 for m in self.estimators_], axis=0)
         return self.model_.predict_raw(X)
 
-    def _group_offsets(self, groups, n_rows):
-        """Random-intercept offsets for predict-time group labels.
+    def _group_offsets(self, groups, n_rows, slope_x=None):
+        """Random-effect offsets for predict-time group labels.
 
-        Returns None when no offsets apply: a model fit without random
-        effects and asked with ``groups=None``, or an RE model asked F-only.
-        Raises when groups are passed to a model that has no intercepts, or
-        the length mismatches the prediction rows. Unseen labels score 0.
+        Intercepts, plus the slope term ``a_g * (clip(x) - centre)`` when
+        the model has slopes (a NaN x carries no slope term). Returns None
+        when no offsets apply: a model fit without random effects and asked
+        with ``groups=None``, or an RE model asked F-only. Raises when
+        groups are passed to a model that has no intercepts, or the length
+        mismatches the prediction rows. Unseen labels score exactly 0.
         """
         if getattr(self, "group_intercepts_", None) is None:
             if groups is not None:
@@ -2857,13 +3090,26 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         off = np.zeros(n_rows, dtype=np.float64)
         seen = codes >= 0
         off[seen] = self.group_intercepts_[codes[seen]]
+        slopes = getattr(self, "group_slopes_", None)
+        if slopes is not None and slope_x is not None:
+            sx = np.asarray(slope_x, dtype=np.float64)
+            if sx.shape[0] != n_rows:
+                raise ValueError(
+                    "slope values must have one entry per prediction row "
+                    f"({n_rows},); got {sx.shape[0]}.")
+            lo, hi = self.group_slope_range_
+            xc = np.clip(sx, lo, hi)
+            have_x = seen & ~np.isnan(xc)
+            off[have_x] += (slopes[codes[have_x]]
+                            * (xc[have_x] - self.group_slope_center_))
         return off
 
     def predict(self, X, groups=None):
         """Predict regression targets.
 
         ``groups`` (labels matching ``fit``'s) adds the fitted random
-        intercept per row; unseen labels get exactly 0. ``None`` returns the
+        intercept per row, plus the random-slope term when the model has
+        slopes; unseen labels get exactly 0. ``None`` returns the
         trees-only prediction even for a random-effects model.
         """
         Xv = _check_predict_input(self, X)
@@ -2883,7 +3129,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         else:
             base = (self._transform_raw(self.model_.predict_raw(X))
                     + self.quantile_offset_)
-        off = self._group_offsets(groups, base.shape[0])
+        off = self._group_offsets(groups, base.shape[0],
+                                  _predict_slope_values(self, X))
         return base if off is None else base + off
 
     def staged_predict(self, X, groups=None):
@@ -2902,10 +3149,11 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
 
         off = None
         started = False
+        slope_x = _predict_slope_values(self, X)
         for staged in self.model_.staged_predict_raw(X):
             if not started:
                 # Sized from the first stage's row count.
-                off = self._group_offsets(groups, staged.shape[0])
+                off = self._group_offsets(groups, staged.shape[0], slope_x)
                 started = True
             base = self._transform_raw(staged) + self.quantile_offset_
             yield base if off is None else base + off
