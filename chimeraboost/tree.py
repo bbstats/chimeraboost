@@ -868,95 +868,263 @@ def _linear_leaf_fit(leaf, grad, hess, n_leaves, lin_feats, centers_std, Xb,  # 
 
     Notes
     -----
-    Parallel over leaves and bit-identical to the old serial global scan. A
-    stable counting sort groups sample indices by leaf in original order, so each
-    leaf accumulates in exactly the float-add sequence the serial version used --
-    a leaf only ever saw its own samples, in increasing i. Thread-count invariant
-    for the same reason.
-
-    Design values are gathered per sample inside the leaf loop: no (k, n) scratch
-    matrix, and one parallel region holds the JIT compile cost down.
+    Two bit-identical arms on `n <= _SMALL_N`: the small arm uses a serial
+    stable counting sort and parallelizes over leaves; the large arm sorts in
+    parallel, gathers leaf-sorted contiguous buffers once, and parallelizes
+    over (leaf, accumulator-group) tasks so a 60%-of-rows leaf spreads over
+    1+k threads. Every accumulator sums in increasing row index with the same
+    expressions, so both arms match the old serial global scan bit for bit.
     """
     n = leaf.shape[0]
     k = lin_feats.shape[0]
     d = 1 + k
-    coef = np.zeros((n_leaves, d))
+    if n <= _SMALL_N:
+        coef = np.zeros((n_leaves, d))
 
-    # Per-leaf grad/hess totals (for the constant fallback) and counts.
-    counts = np.zeros(n_leaves, dtype=np.int64)
-    Gtot = np.zeros(n_leaves)
-    Htot = np.zeros(n_leaves)
-    for i in range(n):
-        l = leaf[i]
-        counts[l] += 1
-        Gtot[l] += grad[i]
-        Htot[l] += hess[i]
+        # Per-leaf grad/hess totals (for the constant fallback) and counts.
+        counts = np.zeros(n_leaves, dtype=np.int64)
+        Gtot = np.zeros(n_leaves)
+        Htot = np.zeros(n_leaves)
+        for i in range(n):
+            l = leaf[i]
+            counts[l] += 1
+            Gtot[l] += grad[i]
+            Htot[l] += hess[i]
 
-    # Stable counting sort: order[start[l]:start[l+1]] = leaf-l samples in
-    # increasing original index.
-    start = np.zeros(n_leaves + 1, dtype=np.int64)
-    for l in range(n_leaves):
-        start[l + 1] = start[l] + counts[l]
+        # Stable counting sort: order[start[l]:start[l+1]] = leaf-l samples in
+        # increasing original index.
+        start = np.zeros(n_leaves + 1, dtype=np.int64)
+        for l in range(n_leaves):
+            start[l + 1] = start[l] + counts[l]
 
-    pos = start[:n_leaves].copy()
-    order = np.empty(n, dtype=np.int64)
-    for i in range(n):
-        l = leaf[i]
-        order[pos[l]] = i
-        pos[l] += 1
+        pos = start[:n_leaves].copy()
+        order = np.empty(n, dtype=np.int64)
+        for i in range(n):
+            l = leaf[i]
+            order[pos[l]] = i
+            pos[l] += 1
 
-    # Per-leaf normal equations + solve; leaves are independent.
-    for l in prange(n_leaves):
-        if counts[l] == 0:
-            continue
+        # Per-leaf normal equations + solve; leaves are independent.
+        for l in prange(n_leaves):
+            if counts[l] == 0:
+                continue
 
-        if counts[l] < 2 * d or k == 0:
-            if Htot[l] > 0.0:
-                coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
-            continue
+            if counts[l] < 2 * d or k == 0:
+                if Htot[l] > 0.0:
+                    coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
+                continue
 
-        Ml = np.zeros((d, d))
-        rl = np.zeros(d)
-        xrow = np.empty(k)
+            Ml = np.zeros((d, d))
+            rl = np.zeros(d)
+            xrow = np.empty(k)
 
-        for q in range(start[l], start[l + 1]):
+            for q in range(start[l], start[l + 1]):
+                i = order[q]
+                h = hess[i]
+                g = grad[i]
+
+                # Standardized design values for this sample; missing bins -> 0.
+                for j in range(k):
+                    f = lin_feats[j]
+                    v = centers_std[f, Xb[f, i]]
+                    xrow[j] = v if np.isfinite(v) else 0.0
+
+                Ml[0, 0] += h
+                rl[0] += -g
+                for j in range(k):
+                    xj = xrow[j]
+                    Ml[0, 1 + j] += h * xj
+                    Ml[1 + j, 0] += h * xj
+                    rl[1 + j] += -g * xj
+                    for jj in range(k):
+                        Ml[1 + j, 1 + jj] += h * xj * xrow[jj]
+
+            Ml[0, 0] += l2_intercept
+            for j in range(1, d):
+                Ml[j, j] += lin_lambda
+            for j in range(d):
+                Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
+
+            beta = _solve_small(Ml, rl)
+            if np.isnan(beta[0]):
+                # Singular pivot (unreachable given the diagonal ridge + jitter):
+                # keep the plain constant Newton value rather than a broken slope.
+                if Htot[l] > 0.0:
+                    coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
+                continue
+
+            for j in range(d):
+                coef[l, j] = lr * beta[j]
+    else:
+
+        # Parallel stable counting sort: per-chunk leaf counts, prefix sums in
+        # (leaf, chunk) order, each chunk scatters its rows in increasing index.
+        n_chunks = (n + 4095) // 4096
+        if n_chunks < 1:
+            n_chunks = 1
+        if n_chunks > 64:
+            n_chunks = 64
+        cnt = np.zeros((n_chunks, n_leaves), dtype=np.int64)
+        for c in prange(n_chunks):
+            lo = c * n // n_chunks
+            hi = (c + 1) * n // n_chunks
+            for i in range(lo, hi):
+                cnt[c, leaf[i]] += 1
+        counts = np.zeros(n_leaves, dtype=np.int64)
+        for l in range(n_leaves):
+            s = 0
+            for c in range(n_chunks):
+                s += cnt[c, l]
+            counts[l] = s
+        start = np.zeros(n_leaves + 1, dtype=np.int64)
+        for l in range(n_leaves):
+            start[l + 1] = start[l] + counts[l]
+        cursor = np.empty((n_chunks, n_leaves), dtype=np.int64)
+        for l in range(n_leaves):
+            s = start[l]
+            for c in range(n_chunks):
+                cursor[c, l] = s
+                s += cnt[c, l]
+        order = np.empty(n, dtype=np.int64)
+        for c in prange(n_chunks):
+            lo = c * n // n_chunks
+            hi = (c + 1) * n // n_chunks
+            for i in range(lo, hi):
+                l = leaf[i]
+                order[cursor[c, l]] = i
+                cursor[c, l] += 1
+
+        # One parallel gather into leaf-sorted contiguous buffers.
+        gs = np.empty(n, dtype=np.float64)
+        hs = np.empty(n, dtype=np.float64)
+        if k > 0:
+            Xd = np.empty((k, n), dtype=np.float64)
+        else:
+            Xd = np.empty((1, n), dtype=np.float64)
+        for q in prange(n):
             i = order[q]
-            h = hess[i]
-            g = grad[i]
-
-            # Standardized design values for this sample; missing bins -> 0.
+            gs[q] = grad[i]
+            hs[q] = hess[i]
             for j in range(k):
                 f = lin_feats[j]
                 v = centers_std[f, Xb[f, i]]
-                xrow[j] = v if np.isfinite(v) else 0.0
+                Xd[j, q] = v if np.isfinite(v) else 0.0
 
-            Ml[0, 0] += h
-            rl[0] += -g
-            for j in range(k):
-                xj = xrow[j]
-                Ml[0, 1 + j] += h * xj
-                Ml[1 + j, 0] += h * xj
-                rl[1 + j] += -g * xj
+        # Task map, accumulator-major so a big leaf's groups spread over threads:
+        # acc 0 = fallback (Gtot, Htot), acc 1 = full intercept group,
+        # acc 2+j = full slope group for feature j.
+        n_full = 0
+        n_fallback = 0
+        for l in range(n_leaves):
+            if counts[l] == 0:
+                continue
+            if counts[l] >= 2 * d and k > 0:
+                n_full += 1
+            else:
+                n_fallback += 1
+        T = n_fallback + n_full * (1 + k)
+        task_leaf = np.empty(T, dtype=np.int64)
+        task_acc = np.empty(T, dtype=np.int64)
+        p = 0
+        for l in range(n_leaves):
+            if counts[l] > 0 and not (counts[l] >= 2 * d and k > 0):
+                task_leaf[p] = l
+                task_acc[p] = 0
+                p += 1
+        for l in range(n_leaves):
+            if counts[l] >= 2 * d and k > 0:
+                task_leaf[p] = l
+                task_acc[p] = 1
+                p += 1
+        for j in range(k):
+            for l in range(n_leaves):
+                if counts[l] >= 2 * d and k > 0:
+                    task_leaf[p] = l
+                    task_acc[p] = 2 + j
+                    p += 1
+
+        Gtot = np.zeros(n_leaves)
+        Htot = np.zeros(n_leaves)
+        Ml_all = np.zeros((n_leaves, d, d))
+        rl_all = np.zeros((n_leaves, d))
+        for t in prange(T):
+            l = task_leaf[t]
+            acc = task_acc[t]
+            lo = start[l]
+            hi = start[l + 1]
+            if acc == 0:
+                sG = 0.0
+                sH = 0.0
+                for q in range(lo, hi):
+                    sG += gs[q]
+                    sH += hs[q]
+                Gtot[l] = sG
+                Htot[l] = sH
+            elif acc == 1:
+                sG = 0.0
+                sH = 0.0
+                sM00 = 0.0
+                sr0 = 0.0
+                for q in range(lo, hi):
+                    g = gs[q]
+                    h = hs[q]
+                    sG += g
+                    sH += h
+                    sM00 += h
+                    sr0 += -g
+                Gtot[l] = sG
+                Htot[l] = sH
+                Ml_all[l, 0, 0] = sM00
+                rl_all[l, 0] = sr0
+            else:
+                j = acc - 2
+                s01 = 0.0
+                s10 = 0.0
+                sr = 0.0
+                sblk = np.zeros(k)
+                for q in range(lo, hi):
+                    h = hs[q]
+                    g = gs[q]
+                    xj = Xd[j, q]
+                    hx = h * xj
+                    s01 += hx
+                    s10 += hx
+                    sr += -g * xj
+                    for jj in range(k):
+                        sblk[jj] += hx * Xd[jj, q]
+                Ml_all[l, 0, 1 + j] = s01
+                Ml_all[l, 1 + j, 0] = s10
+                rl_all[l, 1 + j] = sr
                 for jj in range(k):
-                    Ml[1 + j, 1 + jj] += h * xj * xrow[jj]
+                    Ml_all[l, 1 + j, 1 + jj] = sblk[jj]
 
-        Ml[0, 0] += l2_intercept
-        for j in range(1, d):
-            Ml[j, j] += lin_lambda
-        for j in range(d):
-            Ml[j, j] += 1e-9              # jitter: keep the solve well-posed
-
-        beta = _solve_small(Ml, rl)
-        if np.isnan(beta[0]):
-            # Singular pivot (unreachable given the diagonal ridge + jitter):
-            # keep the plain constant Newton value rather than a broken slope.
-            if Htot[l] > 0.0:
-                coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
-            continue
-
-        for j in range(d):
-            coef[l, j] = lr * beta[j]
-
+        # Same regularization, solve and fallbacks as the small-n arm.
+        coef = np.zeros((n_leaves, d))
+        for l in range(n_leaves):
+            if counts[l] == 0:
+                continue
+            if counts[l] < 2 * d or k == 0:
+                if Htot[l] > 0.0:
+                    coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
+                continue
+            Ml = np.empty((d, d))
+            rl = np.empty(d)
+            for a in range(d):
+                rl[a] = rl_all[l, a]
+                for b in range(d):
+                    Ml[a, b] = Ml_all[l, a, b]
+            Ml[0, 0] += l2_intercept
+            for j in range(1, d):
+                Ml[j, j] += lin_lambda
+            for j in range(d):
+                Ml[j, j] += 1e-9
+            beta = _solve_small(Ml, rl)
+            if np.isnan(beta[0]):
+                if Htot[l] > 0.0:
+                    coef[l, 0] = -lr * Gtot[l] / (Htot[l] + l2_intercept)
+                continue
+            for j in range(d):
+                coef[l, j] = lr * beta[j]
     return coef
 
 
@@ -2146,7 +2314,7 @@ def replay_oblivious_tree(donor, Xb, grad, hess, l2, lr, linear_leaves=False,
         return (ObliviousTree(sf, st, np.zeros(1), np.zeros(0)),
                 np.zeros(Xb.shape[1], dtype=np.int64))
 
-    leaf = _assign_leaves(Xb, sf, st)
+    leaf = donor.apply(Xb)
     n_leaves = 1 << len(sf)
     values = _leaf_values(leaf, grad, hess, n_leaves, l2, lr)
 

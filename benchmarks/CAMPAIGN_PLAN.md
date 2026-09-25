@@ -530,6 +530,39 @@ render the `refresh` docstring.
 verdict: **PASS → PR for the maintainer** (library, tests, docs). Issue
 #131 stays open for slices 2-7 (REFRESH_PLAN.md).
 next: issue #113 (random effects, slice 2) per the focus rule.
+follow-up (the maintainer, 2026-09-24, on PR #170): "Use a larger dataset
+to prove refresh's purpose", then "the prime use case is more of a 'daily
+refit' after a day of data comes in", then "Let's put the fast kernel in.
+Pretend you're like a maintainer adjusting an initial PR". Measured:
+Zurich delays at scale (fit 3.3M rows 259 s, refresh +1.6M 141 s, full
+refit on 4.9M 459 s; RMSE 3.0406 / 3.0402 / 3.0402); a daily refresh
+(517k-row store + 17k new rows) 5.0 s against a 15.6 s fit and a 0.56 s
+predict pass. Per tree 11.0 ms, of which `_linear_leaf_fit` 9.2 ms: a
+2.3 ms serial counting sort, then per-leaf sums bound by the largest leaf
+(median 38%, max 60% of rows). Muse task `20260924-issue131-fast-replay.md`
+on the PR branch: parallel stable sort, contiguous leaf-sorted gather,
+parallel over (leaf, accumulator) so one big leaf no longer serializes,
+every sum in the same row order.
+forecast (kernel): identity snapshot 186/186 and the goldens unchanged;
+`_linear_leaf_fit` 9.2 -> <= 3 ms at 517k rows; the daily refresh 5.0 ->
+<= 2.5 s; linear-leaf default fits faster by the kernel's share.
+muse (exit 0), `tree.py` only: `_linear_leaf_fit` keeps today's code as
+the arm for `n <= _SMALL_N`; above it, a parallel stable counting sort, one
+parallel gather into leaf-sorted contiguous buffers (`gs`, `hs`, `Xd` as
+(k, n)), and parallel (leaf, accumulator-group) tasks, accumulator-major,
+each sum in increasing row order with today's expressions;
+`replay_oblivious_tree` uses the parallel `donor.apply`. 21 new tests
+against a verbatim copy of the old kernel (sizes, empty and tiny leaves, a
+60% leaf, NaN bins, k 1 and 6, 1 and 12 threads).
+result: bit-identical HIT (identity snapshot 186/186; full suite 1280
+passed, 1 skipped; ruff clean). Speed MISS against the targets: at 517k
+rows `_linear_leaf_fit` 9.93 -> 7.81 ms (1.27x, target <= 3), replay per
+tree 11.74 -> 9.17 ms, the daily refresh 5.0 -> 3.6 s (target <= 2.5), a
+500k-row linear-leaf fit 15.9 -> 13.4 s (1.19x, the grow path shares the
+kernel). The gather alone moves ~76 MB per call (3.55 ms, RAM-bound).
+Untried lead: gather uint16 bins (6 MB) instead of float64 design values
+(24 MB), looking centres up in L1.
+verdict (kernel): PASS as a bit-identical speedup, shipped in PR #170.
 
 #### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
 why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84
