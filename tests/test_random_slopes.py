@@ -200,6 +200,31 @@ def _fit_rs(X, y, groups, fit_kw=None, **kw):
                                               **(fit_kw or {}))
 
 
+def _hand_predict(m, X, groups):
+    """Trees-only prediction plus hand-built random effects.
+
+    Uses only the fitted attributes (``group_intercepts_``,
+    ``group_slopes_``, ``group_slope_center_``, ``group_slope_range_``),
+    never the ``groups=...`` predict path -- so it disagrees with
+    ``predict`` exactly when ``predict`` drops the slope term. The
+    operation order mirrors ``_group_offsets`` + ``predict``, so equality
+    with ``predict`` is bit-exact, not approximate.
+    """
+    base = m.predict(X)
+    xc = np.asarray(X)[:, 0]
+    codes = codes_for_labels(groups, m.group_labels_)
+    n = base.shape[0]
+    off = np.zeros(n, dtype=np.float64)
+    seen = codes >= 0
+    off[seen] = m.group_intercepts_[codes[seen]]
+    lo, hi = m.group_slope_range_
+    xclip = np.clip(xc, lo, hi)
+    have_x = seen & ~np.isnan(xclip)
+    off[have_x] += (m.group_slopes_[codes[have_x]]
+                    * (xclip[have_x] - m.group_slope_center_))
+    return base + off
+
+
 def test_slopes_recover_truth_and_win_on_seen_groups():
     X, y, codes, b_true, a_true = _sloped_data()
     m = _fit_rs(X, y, codes)
@@ -220,6 +245,55 @@ def test_slopes_recover_truth_and_win_on_seen_groups():
     rmse_re = np.sqrt(
         np.mean((m_re.predict(Xte, groups=te_codes) - yte) ** 2))
     assert rmse_rs < rmse_re
+
+
+def test_predict_matches_hand_built_prediction_exactly():
+    # The #113 gate finding: predict skipped the slope term entirely, so
+    # this hand-built comparison (which never touches the groups=...
+    # predict path) is what would have caught it. Seen rows only, with
+    # some x beyond the fit range and some NaN x.
+    X, y, codes, _, _ = _sloped_data()
+    m = _fit_rs(X, y, codes)
+    rng = np.random.default_rng(11)
+    n_te = 300
+    te_codes = rng.integers(0, 25, size=n_te)
+    Xte = rng.normal(size=(n_te, 5))
+    lo, hi = m.group_slope_range_
+    Xte[:40, 0] = hi + 50.0
+    Xte[40:80, 0] = lo - 50.0
+    Xte[80:120, 0] = np.nan
+    np.testing.assert_array_equal(
+        m.predict(Xte, groups=te_codes), _hand_predict(m, Xte, te_codes))
+
+
+def test_planted_slopes_win_by_twenty_percent_on_seen_rows():
+    # Per-group slope sd 2.0 (>= 1.5) on the N(0, 1) column X0: fitting
+    # the slopes must cut the seen-row RMSE by at least 20% against
+    # intercepts alone on the same data.
+    X, y, codes, _, _ = _sloped_data(slope_sd=2.0)
+    m = _fit_rs(X, y, codes)
+    m_re = ChimeraBoostRegressor(n_estimators=300, random_state=0,
+                                 random_effects=True).fit(X, y, groups=codes)
+    rmse_rs = np.sqrt(np.mean((m.predict(X, groups=codes) - y) ** 2))
+    rmse_re = np.sqrt(
+        np.mean((m_re.predict(X, groups=codes) - y) ** 2))
+    assert rmse_rs < 0.8 * rmse_re
+
+
+def test_predict_differs_from_intercepts_where_slope_nonzero():
+    X, y, codes, _, _ = _sloped_data()
+    m = _fit_rs(X, y, codes)
+    got = m.predict(X, groups=codes)
+    base = m.predict(X)
+    cc = codes_for_labels(codes, m.group_labels_)
+    inter_only = base + m.group_intercepts_[cc]
+    lo, hi = m.group_slope_range_
+    slope_term = (m.group_slopes_[cc]
+                  * (np.clip(X[:, 0], lo, hi) - m.group_slope_center_))
+    nz = slope_term != 0.0
+    assert nz.any()
+    assert np.all(got[nz] != inter_only[nz])
+    np.testing.assert_array_equal(got[~nz], inter_only[~nz])
 
 
 def test_null_slopes_shrink_toward_zero():
@@ -244,15 +318,17 @@ def test_unseen_nan_and_clip():
     # predict_raw stays trees-only (RMSE: identity link, no offset).
     np.testing.assert_array_equal(f_only, m.predict_raw(Xte))
 
-    # A NaN x carries no slope term: intercept-only on the same rows.
+    # A NaN x carries no slope term: exactly the hand-built prediction
+    # (trees + intercepts, no slope on NaN rows) -- not another path that
+    # also skips the slope.
     Xnan = Xte.copy()
     Xnan[:, 0] = np.nan
-    want = (m.predict(Xnan)
-            + m.group_intercepts_[codes_for_labels(te_codes,
-                                                  m.group_labels_)])
-    np.testing.assert_array_equal(m.predict(Xnan, groups=te_codes), want)
+    np.testing.assert_array_equal(m.predict(Xnan, groups=te_codes),
+                                  _hand_predict(m, Xnan, te_codes))
 
-    # x beyond the fit range is clipped to it.
+    # x beyond the fit range is clipped to it: predict at far-out x equals
+    # the hand-built prediction at the range edge (trees bin both the
+    # same, so only the clipped slope term can differ).
     lo, hi = m.group_slope_range_
     for wide, edge in ((hi + 50.0, hi), (lo - 50.0, lo)):
         Xwide = Xte.copy()
@@ -261,7 +337,7 @@ def test_unseen_nan_and_clip():
         Xedge[:, 0] = edge
         np.testing.assert_array_equal(
             m.predict(Xwide, groups=te_codes),
-            m.predict(Xedge, groups=te_codes))
+            _hand_predict(m, Xedge, te_codes))
 
 
 def test_none_is_bit_identical_to_no_slopes():
@@ -359,6 +435,11 @@ def test_staged_predict_final_matches_predict():
     X, y, codes, _, _ = _sloped_data(n_groups=10, per=30)
     m = _fit_rs(X, y, codes)
     stages = list(m.staged_predict(X, groups=codes))
+    # The last stage carries the slopes too, not just the intercepts:
+    # it equals the hand-built prediction, which the slope-skipping
+    # pass-1 code fails.
+    np.testing.assert_allclose(stages[-1], _hand_predict(m, X, codes),
+                               rtol=1e-12)
     np.testing.assert_allclose(stages[-1], m.predict(X, groups=codes),
                                rtol=1e-12)
     stages_f = list(m.staged_predict(X))

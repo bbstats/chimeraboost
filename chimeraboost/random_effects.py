@@ -19,8 +19,8 @@ routines over five weighted per-group bincounts:
 - ``solve_slopes``: each group's posterior mean from its 2x2 ridge system.
 - ``estimate_slope_ratios_reml``: both noise-to-group variance ratios by
   profiled REML with fixed effects [1, z], via cyclic golden-section on the
-  log ratios with slice 1's bounds and constants (fixed iterations,
-  deterministic, no scipy -- it matches slice 1).
+  log ratios in slice 1's bounds with its own short leg count (fixed
+  iterations, deterministic, no scipy).
 
 ``codes_for_labels`` maps predict-time group labels back to the fit codes,
 with unseen labels (and anything that fails to match) falling back to -1,
@@ -197,10 +197,17 @@ def codes_for_labels(labels, categories):
 # --- random slopes, slice 2 (issue #113) ------------------------------------
 
 # Full intercept/slope alternations in estimate_slope_ratios_reml. Each 1-D
-# leg runs slice 1's 100-iteration golden-section; the third cycle moves each
-# ratio under 0.01 decades on gate-shaped probes, so it is confirmation, not
-# search. Fixed count: deterministic.
-_SLOPE_REML_CYCLES = 3
+# leg runs a _SLOPE_GOLDEN_ITERS-iteration golden-section; pass 1 found the
+# third cycle moves each ratio 0.0000 decades, so two cycles are the whole
+# search and the leg count carries the precision. Fixed count: deterministic.
+_SLOPE_REML_CYCLES = 2
+
+
+# Golden-section iterations per slope-search leg. 0.618^40 narrows the
+# 16-decade log interval below 1e-8 decades -- far past the 0.01-decade
+# level where the criterion stops moving the ratios. Slice 1's 100 stays
+# untouched (estimate_ratio_reml is byte-identical).
+_SLOPE_GOLDEN_ITERS = 40
 
 
 def _slope_suff_stats(resid, codes, n_groups, z, weights):
@@ -343,11 +350,11 @@ def _slope_reml_from_stats(s_w, s_z, s_zz, s_r, s_zr, q_ss, w_sum,
 
 
 def _golden_minimize(f, lo=_LOG_RATIO_LO, hi=_LOG_RATIO_HI):
-    """Golden-section minimum of ``f`` on [lo, hi] (slice 1's constants)."""
+    """Golden-section minimum of ``f`` on [lo, hi] (slope leg count)."""
     c = hi - _GOLDEN_GR * (hi - lo)
     d = lo + _GOLDEN_GR * (hi - lo)
     fc, fd = f(c), f(d)
-    for _ in range(_GOLDEN_ITERS):
+    for _ in range(_SLOPE_GOLDEN_ITERS):
         if fc < fd:
             hi, d, fd = d, c, fc
             c = hi - _GOLDEN_GR * (hi - lo)
@@ -365,12 +372,12 @@ def estimate_slope_ratios_reml(resid, codes, n_groups, z, weights=None):
     Profiled REML with fixed effects [1, z] over the slope sufficient
     statistics; both ratios searched on the log10 scale in slice 1's
     bounds by cyclic golden-section (``_SLOPE_REML_CYCLES`` full
-    intercept/slope alternations from slice 1's intercept ratio with no
-    slopes). Returns ``(ratio_b, ratio_a)``. Degenerate data returns inf
-    for the ratio with no support, as slice 1 does: one group or all
-    singletons give ``(inf, inf)``; x constant within every group (no
-    within-group slope information) gives slice 1's intercept ratio with
-    ``ratio_a = inf``.
+    intercept/slope alternations of ``_SLOPE_GOLDEN_ITERS``-iteration legs
+    from slice 1's intercept ratio with no slopes). Returns ``(ratio_b,
+    ``ratio_a)``. Degenerate data returns inf for the ratio with no
+    support, as slice 1 does: one group or all singletons give
+    ``(inf, inf)``; x constant within every group (no within-group slope
+    information) gives slice 1's intercept ratio with ``ratio_a = inf``.
     """
     resid = np.asarray(resid, dtype=np.float64)
     codes = np.asarray(codes, dtype=np.int64)

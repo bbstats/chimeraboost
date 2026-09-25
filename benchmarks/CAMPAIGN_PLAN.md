@@ -477,7 +477,34 @@ explicit matrices ~2e-15 relative, known ratios within 0.005 decades,
 planted slopes corr 0.993, null slopes 1.2e-7, unseen = trees-only exactly,
 `random_slopes=None` bit-identical. Full suite 1240 passed, 1 skipped
 (conda python); identity snapshot 186/186; ruff clean. Committed.
-verdict: PENDING(muse pass 2 gate, then the run)
+pass 2 (muse exit 0, committed 1c8e3a0): three planted-slope synth
+configs from a separate stream (the six old configs byte-identical by
+hash), the one-to-one alias drop (only employee's `department_name`), arms
+ChimeraRS (covariate by the correlation rule: X0 on synth; OverallQual,
+2016_gross_pay_received, SLG, price, SAT/ACT on the real sets) and
+ChimeraRS-null (X4, synth only).
+gate run 1 (`grouped-20260925-072649.json`, 14 sets x seeds 0-2, 8 arms):
+FAILED every bar: (a) 3/9 cells, slope-x-confounded seen +42%; (b) seen
++1% on the no-slope configs, x-confounded +15%; (c) employee +2.5%; (d)
+median fit ratio 3.8x. INVALID as a test of slopes: diagnosis showed
+`predict` never applies the slope term. `fit` stores `_random_slope_idx`
+and the stale-state reset block clears it eleven lines later
+(sklearn_api.py:2556/2567), so `predict` returns the intercept-only
+prediction with intercepts at the slope centre. The fitted slopes are
+right (corr 0.990 / 0.976 with the planted truth); combined by hand they
+give seen RMSE 1.315 / 1.349 against RE's 2.003 / 2.024 and predict's
+2.020 / 2.956. The 3.8x fit ratio is the slope REML search (3 cycles x 2
+legs x 100 iterations, twice per fit) on sub-second synthetic fits.
+Pass-1 tests missed the bug (a small planted-slope margin; NaN and clip
+checks compared against paths that also skip the slope). Fix task
+`20260925-issue113-slopes-fix.md`: the reset order, tests against a
+hand-built prediction that fail on the unfixed code, and a cheaper search
+(2 cycles, ~40 iterations). Then gate run 2 under the same pre-registered
+bars; run 1 is recorded as invalid, not as evidence either way.
+Slice 1's table re-scored with the alias fix (run 1, the RE/Cat/Drop/
+LightGBM/CatBoost arms are unaffected by the bug): RE vs Drop 11W-3L, vs
+Cat 11W-3L, vs LightGBM 11W-3L, vs CatBoost 10W-4L over 14 sets.
+verdict: PENDING(muse fix, then gate run 2)
 
 #### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
 why now: the focus rule's third issue. PR #169 merged (5b27b06), #81

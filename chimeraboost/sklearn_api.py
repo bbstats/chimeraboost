@@ -2553,7 +2553,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         slope_idx = _resolve_random_slope(
             self.random_slopes, self.random_effects, cat_features, X,
             self.n_features_in_)
-        self._random_slope_idx = slope_idx
+        # The slope column resolves here; it is stored after the reset below.
         # Cached shap_importances describe the previous fit; drop them.
         self._shap_importances_cache_ = None
         # Random-effects state from any previous fit is stale now.
@@ -2564,7 +2564,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         self.group_slope_ratio_ = None
         self.group_slope_center_ = None
         self.group_slope_range_ = None
-        self._random_slope_idx = None
+        self._random_slope_idx = slope_idx  # this fit's column, kept (None when off)
 
         if eval_set is not None:
             _check_eval_set(eval_set, self.n_features_in_)
