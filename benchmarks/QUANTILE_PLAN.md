@@ -432,11 +432,22 @@ Q0 reads moved it down to item 4.
    for coverage, which is what a user reads off an interval (the head is
    3.4 points short at 90% on Grinsztajn, 9.2 on hc, 17.5 under the time
    shift), and its CRPS bar is the gate as written.
+   **Re-read 2026-09-25 (I074):** the coverage case is gone. Calibration
+   (Q5) brought the default's median 90% coverage error on Grinsztajn to
+   0.32 points. Q1's remaining claim is CRPS through the head candidates
+   (H and B, 78 of 177 picks since Q9). It waits on the maintainer's pick
+   against the no-`eval_set` refit question (Still open, below).
 5. **Q4 (added 2026-09-23 from the synthetic baseline), spread-aware
    categorical encoding.** On `catscale` at 10k the head loses 42.4 to
    CatBoost's 30.9 excess CRPS: our ordered TS is a per-category MEAN, blind
    to a category that sets the spread. Probe first (monkeypatch an extra TS
    of |y − median| per categorical), then the real-data hc regressions.
+   **CLOSED 2026-09-25 (I074), nothing to build.** The N candidate (Q9)
+   already is the spread-aware encoding: its spread model's ordered TS of
+   `|y − centre|` is the per-category spread. On `catscale` the default
+   now scores 16.0 at 10k (CatBoost 30.9, NGBoost 32.8) and 79.9 at 1k
+   (CatBoost 108.2), picking N on 6 of 6 fits; on the hc regressions
+   employee_salaries moved from −5.7% to −1.3% against CatBoost MQ.
 6. Later: the leaf refit's cost (~90% of a round). The RigidShift gap
    was Q0's subject: the capped sets explain it, and uncapped rounds and
    depth 6 move the count against RigidShift from 20-16 to 21-15 and
