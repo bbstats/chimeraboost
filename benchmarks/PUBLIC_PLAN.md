@@ -275,7 +275,7 @@ README headline at `images/public_pareto.png` in place of the TabArena figure.
   arms — "wins N% of matchups" would largely be us beating ourselves.
   `tests/test_public_winrate.py` pins both the correctness and the stability
   property (adding a rung leaves every other row untouched).
-- **The fast rung is off the chart for now** (Nathan's call on this issue).
+- **The fast rung is off the chart for now** (Nathan's call on this issue). (RESOLVED 2026-07-27: stays off -- two rungs charted for efficiency, CHARTED_RUNGS in make_public_pareto.py; quality=1 measured beaten by LightGBM, see "What the uncharted rungs measured".)
 
 ## First read — 2026-07-27 (22 datasets, weighted)
 

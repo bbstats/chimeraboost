@@ -590,7 +590,7 @@ a change that helps a specific regime meaningfully and leaves the rest exactly
 where it was.
 
 Per project precedent (`refit_full`, `refit_members`) the flip itself is
-Nathan's call. **I now recommend it.** The remaining implementation step is a
+Nathan's call. (RESOLVED 2026-08-01: Nathan took it -- shipped as the default in PR #76, see SHIPPED below.) **I now recommend it.** The remaining implementation step is a
 one-line default change plus a golden refresh, deliberately NOT in this PR —
 flipping a default rewrites the numerical-identity goldens, and that deserves
 its own reviewable change rather than being buried in an investigation.

@@ -2328,7 +2328,12 @@ def main():
         seed_map = collected.get(ds_name)
         if not seed_map:
             continue
-        dataset_meta[ds_name] = seed_map[next(iter(seed_map))][0]
+        # Lowest seed's metadata, NOT whichever seed finished first: under the
+        # parallel pool above, insertion order into seed_map is completion
+        # order, so next(iter(seed_map)) is a race. y_std_test/class_prior are
+        # per-seed test-split quantities, and the race moved make_pareto's R2
+        # in the 4th decimal between runs with identical scores.
+        dataset_meta[ds_name] = seed_map[min(seed_map)][0]
         task = dataset_meta[ds_name]["task"]
 
         results = {m: [] for m in model_names}

@@ -53,7 +53,7 @@ class the selection race exists to referee. Proceed to tiers.
 
 hc decisive + Grinsztajn non-negative + gate non-negative. Exact gr-vs-hc
 weighting = Nathan's call (per /experiment); recommendation recorded at
-verdict time.
+verdict time. (RESOLVED 2026-07-20: no gr-vs-hc conflict existed to weigh -- gr exactly zero risk; verdict below, merged as PR #24.)
 
 ## Results log
 

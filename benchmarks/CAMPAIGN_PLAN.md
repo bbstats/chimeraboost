@@ -452,6 +452,46 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I069 2026-09-25 issue #45 (loose ends: harness H(13) + H(14), a plan-file audit, repo hygiene; BENCH + markdown)
+why now: the focus rule's last issue; #113 is explored (I067 not
+shipped, I068 parked). PR #173 merged (e9b6e32). Branch
+`campaign/issue45-loose-ends`; muse task `20260925-issue45-loose-ends.md`.
+sweep (2026-09-25, read-only): (1) H(13) `make_pareto.py --metric
+blended` NameError; (2) H(14) the metadata seed race in
+`run_benchmarks.py`; (3) stale "Nathan's call" / "pending" lines in 9 plan
+files and `docs/PROJECT_STATUS.md` (CLAUDE.md's close-the-loop rule); (4)
+`CLAUDE.md` says "530+ test functions" (now ~1,240); (5) worktrees:
+`.record-worktree` (merged, clean) REMOVED with its local branch;
+`.f2-worktree` holds UNCOMMITTED edits from the killed F2 experiment
+(`run_benchmarks.py`, `sklearn_api.py`, `tests/test_cross_features.py`)
+on a merged branch: the maintainer's call to discard; (6) five remote
+branches fully merged into main (`bench/portable-no-openml-api`,
+`issue106-predict-thresh`, `record/f2-loop-20260918`,
+`refactor/readable-comments`, `worktree-tabarena-030-readiness`): the
+maintainer's call to delete; (7) `pytest-of-Nathan/` in the repo root,
+created by muse's sandbox pytest and unreadable to the main user (git
+warns on every status): a `.gitignore` line is config, so his merge; (8)
+the archive branch `campaign/issue113-random-slopes` (I067): keep or
+delete, his call.
+forecast: the blended chart renders; H(14) deterministic; every flagged
+plan line classified with evidence; no library or test file changes.
+muse (exit 0): H(13) a local `FixedLocator`/`FuncFormatter` import in
+the blended branch (blended, winrate and default charts all render on
+`20260924-130232.json`); H(14) `seed_map[min(seed_map)]` with a comment
+(checked over all 6 completion orders; `quantile_suite` and
+`grouped_suite` were already deterministic, both keeping the LAST seed:
+a different convention, flagged and left). Audit of 16 flagged lines: 8
+resolved-but-unmarked, now carry a dated, sourced RESOLVED note (A2:187,
+CATCROSS:55, GROW:290, HIGHCARD:143, PUBLIC:278, QUANT:234,
+SMALLDATA:593, PROJECT_STATUS:293); 6 are history, left; 2 are genuinely
+open, left and listed below (GPU_PLAN Phase 0, HIGHCARD KDD98). CLAUDE.md:
+"530+ test functions" -> "1,200+ tests" (Claude).
+verdict: **PASS -> self-merged** (every path `.md` or under `benchmarks/`;
+`chimeraboost/` and `tests/` equal main). H(14) changes what
+`run_benchmarks.py` records (the lowest seed's metadata), which moves the
+skill chart's R2 in the 4th decimal on future runs: noted per the
+self-merge rule. The maintainer's calls from the sweep are in Open items.
+
 #### I068 2026-09-25 issue #113 remainder: the entity-ID auto-route kill-or-keep probe (BENCH only, pre-registered)
 why now: decision (3) of the maintainer's 2026-09-25 go on #113 demoted the
 auto-route from a default candidate to this probe; it closes that bullet
@@ -5537,8 +5577,20 @@ next: F1 S0 entry, then step-0 compute items in sequence (tests → attribution 
 
 ## Open items (owner named, close-the-loop)
 
-- OPEN 2026-09-23, owner the loop (harness, H(13)): `make_pareto.py --metric blended` dies with `NameError: name 'FixedLocator' is not defined` (render_image, the blended branch; `FuncFormatter` is unimported too). Reproduced on main's code against `20260922-144219.json`; ruff flags it (F821). A diagnostic path only, the headline charts are unaffected. Fix with the next harness task.
-- OPEN 2026-09-24, owner the loop (harness, H(14)): `run_benchmarks.py` stores one metadata dict per dataset, `seed_map[next(iter(seed_map))][0]` (line ~2331), which is the first seed to FINISH under the parallel pool. `y_std_test` and `class_prior` are per-seed test-split quantities, so the recorded one is a race, and `make_pareto.py` divides the 3-seed mean RMSE by that one seed's scale. Two runs with identical per-seed metrics (`20260922-144219`, `20260924-130232`) recorded different seeds on 6 of 59 regression keys and moved every arm's R² by up to 0.0002; rankings and the classification panel are untouched (a flipped two-class prior gives the same reference). Fix: record the scale per seed and score skill per seed before averaging, or at least take the lowest seed. Fix with the next harness task, beside H(13).
+- CLOSED 2026-09-25 (I069, fixed): was OPEN 2026-09-23, owner the loop (harness, H(13)): `make_pareto.py --metric blended` dies with `NameError: name 'FixedLocator' is not defined` (render_image, the blended branch; `FuncFormatter` is unimported too). Reproduced on main's code against `20260922-144219.json`; ruff flags it (F821). A diagnostic path only, the headline charts are unaffected. Fix with the next harness task.
+- CLOSED 2026-09-25 (I069, fixed: the lowest seed's metadata): was OPEN 2026-09-24, owner the loop (harness, H(14)): `run_benchmarks.py` stores one metadata dict per dataset, `seed_map[next(iter(seed_map))][0]` (line ~2331), which is the first seed to FINISH under the parallel pool. `y_std_test` and `class_prior` are per-seed test-split quantities, so the recorded one is a race, and `make_pareto.py` divides the 3-seed mean RMSE by that one seed's scale. Two runs with identical per-seed metrics (`20260922-144219`, `20260924-130232`) recorded different seeds on 6 of 59 regression keys and moved every arm's R² by up to 0.0002; rankings and the classification panel are untouched (a flipped two-class prior gives the same reference). Fix: record the scale per seed and score skill per seed before averaging, or at least take the lowest seed. Fix with the next harness task, beside H(13).
+- OPEN 2026-09-25, owner the maintainer (I069 sweep): (a) `.f2-worktree`
+  holds uncommitted edits from the killed F2 experiment (on a merged
+  branch): discard?; (b) delete the five remote branches fully merged into
+  main (`bench/portable-no-openml-api`, `issue106-predict-thresh`,
+  `record/f2-loop-20260918`, `refactor/readable-comments`,
+  `worktree-tabarena-030-readiness`)?; (c) add `pytest-of-*/` to
+  `.gitignore` (muse's sandbox pytest leaves it in the repo root, and git
+  warns on every status)?; (d) keep or delete the archive branch
+  `campaign/issue113-random-slopes` (I067)?; (e) close #113 (explored:
+  I067, I068)?; (f) two genuinely open plan items: GPU_PLAN.md Phase 0 (the
+  "hardware and honesty check") and HIGHCARD_PLAN.md's deferred KDD98 set.
+  PR #170 (refresh) stays parked open by his choice.
 
 - CLOSED 2026-09-21: remote `e2/forced-cross-features`, `method/e2-prereg`, `loop-scaffolding` and the five merged `campaign/*` rung branches deleted (each verified fully merged into main first; the four stacked rung branches carried only content-free merge commits on top of commits main already has). The local copies of the five went with them.
 - Stale remotes, the maintainer's call (status verified 2026-09-21). Fully merged into main, safe to delete: `bench/portable-no-openml-api`, `refactor/readable-comments`, `worktree-tabarena-030-readiness`, `issue106-predict-thresh` (its local copy is 1 commit ahead — the calibration study PR #108 carries), `record/f2-loop-20260918` (checked out in `.record-worktree`). NOT merged: `docs/attribution-humility` (5 ahead), `docs/user-focused` (4 ahead), `bbstats-patch-1` (1 ahead), `whitepaper` (PR #108, open). Local worktree branch `f2/subgate-race` still waits on the I017 kill being confirmed.
