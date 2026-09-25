@@ -119,3 +119,11 @@ Still open, for their slices:
   15 configurations, chained refreshes compose, identity snapshot unchanged.
   Smoke: a 60% model refreshed with 30% more rows recovered ~67% of a full
   90% refit's RMSE gain. Awaiting the maintainer's merge.
+- 2026-09-24 (maintainer follow-up on PR #170): at scale, a daily update
+  (Zurich delays, 3.3M-row model, 50k new rows) refreshes in 70 s against
+  a 232 s full refit and a 216 s original fit, same RMSE (3.04146 vs
+  3.04145); a predict pass over the store is 9.0 s, so a refresh is ~8
+  predict passes, not the spec's ~1. Most of it was the linear-leaf fit,
+  now faster and bit-identical (PR #170, commit 435e866): 9.9 -> 7.8 ms per
+  tree at 517k rows. Lead for more: gather uint16 bins instead of float64
+  design values in `_linear_leaf_fit` (the gather is ~76 MB per call).

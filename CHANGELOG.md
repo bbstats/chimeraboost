@@ -15,9 +15,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   with the tree count, learning rate and splits pinned; refreshing with no
   new rows reproduces the model bit for bit. Bagged models, multiclass,
   `loss="Quantile"` and `random_effects=True` are not supported yet. The
-  default fit is unchanged.
+  default fit's results are unchanged. On a 3.3M-row regression, folding in
+  a day of new rows took 70 s against 232 s for a full refit, at the same
+  accuracy.
 
 ### Changed
+- **Fits with linear leaves are faster, with identical results.** The
+  per-leaf linear fit used to sum each leaf on one thread, and one leaf
+  often holds 40-60% of the rows. Large leaves now spread their sums over
+  several threads, each sum still adding the rows in the same order. A
+  500k-row fit went from 15.9 to 13.4 s, and a refresh from 5.0 to 3.6 s.
 - **The quantile benchmark's NGBoost opponent now uses the RoNGBa
   settings** (Ren, Sun and Wu 2019; #163): trees of up to 31 leaves, a
   learning rate of 0.04 and at most 500 rounds, in place of NGBoost's stock
