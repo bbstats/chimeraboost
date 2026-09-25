@@ -32,6 +32,12 @@ ChimeraRE     random_effects=True on groups; the group column is DROPPED
 ChimeraRE-postonly
               the identical plain fit plus one EB solve after -- the
               refinement ablation, kept as the inner baseline
+ChimeraRS     like ChimeraRE plus random_slopes=[c]: one per-group slope on
+              the numeric column most |correlated| with y on the training
+              rows (slice 2, #113)
+ChimeraRS-null
+              like ChimeraRE plus random_slopes=[X4] -- a column with no
+              per-group slope, the null control; synthetic sets only
 ChimeraCat    plain ChimeraBoost with the group column as a categorical --
               the in-house baseline the new machinery must justify itself
               against (ordered target statistics on the IDs)
@@ -143,6 +149,18 @@ def _synth_base(rng, n_groups, sizes, group_sd, noise, x_shift=0.0):
     return X, y, codes
 
 
+def _with_slope(base, seed):
+    """Slice-1 base data plus a per-group slope on X0 (slice 2, #113).
+
+    ``y += a[codes] * X[:, 0]`` with ``a ~ N(0, 1.5)`` from a SEPARATE
+    stream, so the six existing configs stay byte-identical.
+    """
+    X, y, codes = base
+    rng2 = np.random.default_rng(5000 + seed)
+    a = rng2.normal(0.0, 1.5, size=int(codes.max()) + 1)
+    return X, y + a[codes] * X[:, 0], codes
+
+
 def synth_dataset(config, seed):
     """One truth-known grouped set. Configs vary ICC, skew and X/group ties."""
     rng = np.random.default_rng(1000 + seed)
@@ -159,17 +177,25 @@ def synth_dataset(config, seed):
         return _synth_base(rng, 10, 200, 5.0, 1.0)
     if config == "x-confounded":
         return _synth_base(rng, 40, 50, 5.0, 1.0, x_shift=1.5)
+    if config == "slope":
+        return _with_slope(_synth_base(rng, 40, 50, 5.0, 1.0), seed)
+    if config == "slope-many-small":
+        return _with_slope(_synth_base(rng, 200, 10, 4.0, 1.0), seed)
+    if config == "slope-x-confounded":
+        return _with_slope(_synth_base(rng, 40, 50, 5.0, 1.0, x_shift=1.5),
+                            seed)
     raise ValueError(f"unknown synth config {config!r}")
 
 
 SYNTH_CONFIGS = ["base", "low-icc", "skewed", "many-small", "few-big",
-                 "x-confounded"]
+                 "x-confounded", "slope", "slope-many-small",
+                 "slope-x-confounded"]
 
 
 # --- real grouped data (hc: registry) -------------------------------------
 
 def _load_hc_grouped(key):
-    """X with the group column last, y, cat list, group labels, group pos."""
+    """X (group last, group-aliases dropped), y, cat list, labels, gpos, names."""
     import pandas as pd
 
     name = key[len("hc:"):]
@@ -180,12 +206,24 @@ def _load_hc_grouped(key):
     if group_col not in X_df.columns:
         raise ValueError(f"{key}: group column {group_col!r} did not "
                          f"survive the load (dropped as near-unique?)")
+    # Slice-2 alias fix (#113): drop every column in one-to-one
+    # correspondence with the group column (employee's department_name),
+    # so the "group dropped" arms cannot see the group through an alias.
+    # This applies to every arm, so it re-scores slice 1's arms too.
+    nunique_g = X_df[group_col].nunique(dropna=False)
+    dropped = [c for c in X_df.columns
+               if c != group_col
+               and X_df[c].nunique(dropna=False) == nunique_g
+               and len(X_df[[group_col, c]].drop_duplicates()) == nunique_g]
+    if dropped:
+        print(f"  {key}: alias fix dropped {dropped}")
+        X_df = X_df.drop(columns=dropped)
     groups = X_df[group_col].to_numpy()
     # Group column last, so arms slice it off positionally.
     cols = [c for c in X_df.columns if c != group_col] + [group_col]
     X_df = X_df[cols]
     X, y, cat, _ = rb._frame_to_dataset(X_df, y, "auto", "regression")
-    return X, y, cat, groups, X.shape[1] - 1
+    return X, y, cat, groups, X.shape[1] - 1, list(X_df.columns)
 
 
 # --- arms -----------------------------------------------------------------
@@ -246,6 +284,64 @@ def _fit_chimera_re_postonly(tr, val, te, gpos, cat, threads):
     off[seen] = b[c[seen]]
     p = m.predict(Xte[:, keep]) + off
     return p, fit_s, time.time() - t, m.best_iteration_
+
+
+def _pick_slope_col(Xtr, ytr, gpos, cat):
+    """Original-coords index of the numeric column most |correlated| with y.
+
+    Slice-2 gate rule (#113): among the numeric columns (not categorical,
+    not the group column), the largest absolute Pearson correlation with y
+    on the training rows, ignoring rows where x or y is NaN. First wins
+    ties, so the pick is deterministic.
+    """
+    y = np.asarray(ytr, dtype=np.float64)
+    nan_y = np.isnan(y)
+    skip = set(cat or []) | {gpos}
+    best, best_r = None, -1.0
+    for j in range(Xtr.shape[1]):
+        if j in skip:
+            continue
+        x = np.asarray(Xtr[:, j], dtype=np.float64)
+        mask = ~(np.isnan(x) | nan_y)
+        if int(mask.sum()) < 2:
+            r = 0.0
+        else:
+            xm, ym = x[mask], y[mask]
+            dx, dy = xm - xm.mean(), ym - ym.mean()
+            denom = float(np.sqrt(float((dx ** 2).sum() * (dy ** 2).sum())))
+            r = abs(float((dx * dy).sum() / denom)) if denom else 0.0
+        if r > best_r:
+            best, best_r = j, r
+    if best is None:
+        raise ValueError("ChimeraRS needs a numeric non-group column")
+    return best
+
+
+def _fit_chimera_rs(tr, val, te, gpos, cat, threads, slope_col=None):
+    # The ChimeraRE arm plus random_slopes=[c] (slice 2, #113). slope_col
+    # is in ORIGINAL coords (group column still present, like gpos/cat);
+    # None means apply the correlation rule on the training rows.
+    Xtr, ytr, gtr = tr
+    Xte, _, gte = te
+    if slope_col is None:
+        slope_col = _pick_slope_col(Xtr, ytr, gpos, cat)
+    keep = [i for i in range(Xtr.shape[1]) if i != gpos]
+    cats = [c - (1 if c > gpos else 0) for c in (cat or []) if c != gpos]
+    c = slope_col - (1 if slope_col > gpos else 0)
+    m = _chimera(threads, random_effects=True, random_slopes=[c])
+    t = time.time()
+    m.fit(Xtr[:, keep], ytr, groups=gtr, cat_features=cats or None)
+    fit_s = time.time() - t
+    t = time.time()
+    p = m.predict(Xte[:, keep], groups=gte)
+    return p, fit_s, time.time() - t, m.best_iteration_
+
+
+def _fit_chimera_rs_null(tr, val, te, gpos, cat, threads):
+    # Null control: the RE arm plus a slope on X4, which carries no
+    # per-group slope in any synth config. run_one skips real sets before
+    # this is ever called (synthetic X is always 5 features + group).
+    return _fit_chimera_rs(tr, val, te, gpos, cat, threads, slope_col=4)
 
 
 def _fit_chimera_cat(tr, val, te, gpos, cat, threads):
@@ -318,6 +414,8 @@ def _fit_catboost_cat(tr, val, te, gpos, cat, threads):
 ARMS = {
     "ChimeraRE": _fit_chimera_re,
     "ChimeraRE-postonly": _fit_chimera_re_postonly,
+    "ChimeraRS": _fit_chimera_rs,
+    "ChimeraRS-null": _fit_chimera_rs_null,
     "ChimeraCat": _fit_chimera_cat,
     "ChimeraDrop": _fit_chimera_drop,
     "LightGBMCat": _fit_lightgbm_cat,
@@ -353,8 +451,9 @@ def run_one(key, seed, threads, models):
         Xo[:, :X.shape[1]] = X
         Xo[:, X.shape[1]] = groups
         X = Xo
+        names = ["X0", "X1", "X2", "X3", "X4", "group"]
     else:
-        X, y, cat, groups, gpos = _load_hc_grouped(key)
+        X, y, cat, groups, gpos, names = _load_hc_grouped(key)
     train_idx, seen_idx, unseen_idx = _grouped_test_split(groups, seed)
     te_idx = np.concatenate([seen_idx, unseen_idx])
     seen_mask = np.arange(len(te_idx)) < len(seen_idx)
@@ -373,11 +472,25 @@ def run_one(key, seed, threads, models):
 
     out = {}
     for name in models:
+        if name == "ChimeraRS-null" and not key.startswith("gsyn:"):
+            print(f"  [skip] {name} on {key}: synthetic sets only")
+            out[name] = None
+            continue
         try:
             p, fit_s, pred_s, best = ARMS[name](tr, val, te, gpos, cat,
                                                threads)
             out[name] = (score(y[te_idx], p, seen_mask), fit_s, pred_s,
                          best)
+            if name == "ChimeraRS":
+                # The arm applied the rule internally; re-derive the same
+                # deterministic pick for the record (out[name][0] is the
+                # metrics dict, mutated in place).
+                pick = _pick_slope_col(tr[0], tr[1], gpos, cat)
+                kept = int(pick - (1 if pick > gpos else 0))
+                out[name][0]["slope_col"] = kept
+                out[name][0]["slope_col_name"] = names[pick]
+                print(f"  {key} seed {seed}: ChimeraRS slope column "
+                      f"{names[pick]!r} (kept index {kept})")
         except Exception as e:
             print(f"  [skip] {name} on {key} (seed {seed}): "
                   f"{type(e).__name__}: {e}")
@@ -488,7 +601,7 @@ def main(argv=None):
                 print(f"{n}: synth n={len(y)} groups={len(np.unique(g))}")
             else:
                 try:
-                    X, y, cat, g, _ = _load_hc_grouped(n)
+                    X, y, cat, g, _gpos, _names = _load_hc_grouped(n)
                     ug, cs = np.unique(g, return_counts=True)
                     print(f"{n}: n={len(y)} groups={len(ug)} "
                           f"rows/group min={cs.min()} med={int(np.median(cs))} "
