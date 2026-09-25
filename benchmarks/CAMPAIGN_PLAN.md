@@ -453,6 +453,28 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I074 2026-09-25 F7 Q4 T0-a (does the five-candidate default still lose `catscale` to CatBoost? a synthetic recheck before any spread-TS work; bench-only, pre-registered)
+why now: Q4's premise (2026-09-23, `results/quantile-synth-20260923-090818.json`)
+is that the ordered TS is a per-category MEAN, blind to a category that
+sets the spread: on `catscale` at 10k the head scored CRPS 0.0424 against
+CatBoost MQ's 0.0309. Since I071 the N candidate's spread model fits
+`|y - centre|` with the categoricals, so its own TS IS the per-category
+mean absolute residual: a spread-aware encoding already inside the
+default. On the hc regressions the five-candidate default moved against
+CatBoost MQ on employee_salaries from -5.7% to -1.3% (N picked 3 of 3).
+barriers: none matched beyond I072's.
+run: `quantile_synth.py --regimes catscale --sizes 1000 10000 --seeds 3
+--models ChimeraBoostQuantile RigidShift` (no `--save`), against the
+stored CatBoost MQ / NGBoost / LightGBM numbers of the baseline run;
+RigidShift must reproduce its stored CRPS exactly (same data).
+forecast: (1) at 10k the default scores <= 0.0330 (within 7% of CatBoost's
+0.0309) and picks N on >= 2 of 3 seeds; (2) at 1k it stays ahead of
+CatBoost (<= 0.091 against 0.108).
+decision: (1) holds -> Q4 CLOSES (the N candidate is the spread-aware
+encoding), F7 moves to Q1; (1) fails -> Q4 T0-b, the explicit spread-TS
+probe on `catscale` and the hc regressions.
+verdict: PENDING(synthetic recheck)
+
 #### I072 2026-09-25 F7 Q10 T0 (where NGBoost's remaining CRPS lead on visualizing_soil and SGEMM comes from, centre or width; READ-ONLY diagnosis, pre-registered)
 why now: I071 merged (PR #177). RoNGBa still beats the default on
 visualizing_soil (-34.3%), SGEMM (-8.2%) and pol (-1.4%): the largest
