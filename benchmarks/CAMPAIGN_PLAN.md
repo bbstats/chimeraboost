@@ -452,6 +452,95 @@ Recommended pick: **R1, R2, R3, R4 + H(1)(4)(5)**. R1 and R2 have free probes an
 
 ## Iteration log (append-only)
 
+#### I067 2026-09-25 issue #113 slice 2 (random slopes on top of random intercepts; LIBRARY feature, opt-in, pre-registered)
+why now: the focus rule's next issue; the maintainer's go 2026-09-25 with
+the four design calls as recommended. PR #171 merged (a65c8b2). Branch
+`campaign/issue113-random-slopes` from main a65c8b2. Program:
+`benchmarks/RANDEFF_PLAN.md` "Slice 2" (design, decisions, API, tests, the
+pre-registered gate and bars).
+barriers: none matched.
+forecast: gate bars (a), (b), (d) pass and (c) has no breach (house seen
+3-5% better than intercepts, employee seen 1-2% worse, the rest within
++-0.3%); identity snapshot 186/186 (opt-in, default path untouched), so
+both Pareto axes are unchanged.
+pass 1 (muse exit 0): `random_effects.py` +`_slope_suff_stats`,
+`solve_slopes` (per-group 2x2 ridge; `ratio_a = inf` delegates to
+`solve_intercepts`, so no-slopes is exact), `estimate_slope_ratios_reml`
+(profiled REML with fixed effects [1, z] via Woodbury and the matrix
+determinant lemma, 3 cyclic golden-section alternations: cycle 2 moves
+< 0.02 decades, cycle 3 0.0000); `solve_intercepts` and
+`estimate_ratio_reml` byte-identical. `sklearn_api.py`: `random_slopes`,
+errors, both solve sites through helpers, `group_slopes_`,
+`group_slope_ratio_`, `group_slope_center_`, `group_slope_range_`; predict
+clips x to the fit range. 17 tests: solver vs brute force ~9e-16, REML vs
+explicit matrices ~2e-15 relative, known ratios within 0.005 decades,
+planted slopes corr 0.993, null slopes 1.2e-7, unseen = trees-only exactly,
+`random_slopes=None` bit-identical. Full suite 1240 passed, 1 skipped
+(conda python); identity snapshot 186/186; ruff clean. Committed.
+pass 2 (muse exit 0, committed 1c8e3a0): three planted-slope synth
+configs from a separate stream (the six old configs byte-identical by
+hash), the one-to-one alias drop (only employee's `department_name`), arms
+ChimeraRS (covariate by the correlation rule: X0 on synth; OverallQual,
+2016_gross_pay_received, SLG, price, SAT/ACT on the real sets) and
+ChimeraRS-null (X4, synth only).
+gate run 1 (`grouped-20260925-072649.json`, 14 sets x seeds 0-2, 8 arms):
+FAILED every bar: (a) 3/9 cells, slope-x-confounded seen +42%; (b) seen
++1% on the no-slope configs, x-confounded +15%; (c) employee +2.5%; (d)
+median fit ratio 3.8x. INVALID as a test of slopes: diagnosis showed
+`predict` never applies the slope term. `fit` stores `_random_slope_idx`
+and the stale-state reset block clears it eleven lines later
+(sklearn_api.py:2556/2567), so `predict` returns the intercept-only
+prediction with intercepts at the slope centre. The fitted slopes are
+right (corr 0.990 / 0.976 with the planted truth); combined by hand they
+give seen RMSE 1.315 / 1.349 against RE's 2.003 / 2.024 and predict's
+2.020 / 2.956. The 3.8x fit ratio is the slope REML search (3 cycles x 2
+legs x 100 iterations, twice per fit) on sub-second synthetic fits.
+Pass-1 tests missed the bug (a small planted-slope margin; NaN and clip
+checks compared against paths that also skip the slope). Fix task
+`20260925-issue113-slopes-fix.md`: the reset order, tests against a
+hand-built prediction that fail on the unfixed code, and a cheaper search
+(2 cycles, ~40 iterations). Then gate run 2 under the same pre-registered
+bars; run 1 is recorded as invalid, not as evidence either way.
+Slice 1's table re-scored with the alias fix (run 1, the RE/Cat/Drop/
+LightGBM/CatBoost arms are unaffected by the bug): RE vs Drop 11W-3L, vs
+Cat 11W-3L, vs LightGBM 11W-3L, vs CatBoost 10W-4L over 14 sets.
+fix (muse exit 0, committed fbc52ef): the reset order
+(`_random_slope_idx` stored after the reset block); 3 tests against a
+hand-built prediction that fail on the old code (5 failed) and pass now;
+the slope search at 2 cycles x 40 iterations (28 -> 9 ms, ratios equal to
+4 significant figures). Full suite 1243 passed, 1 skipped; identity
+snapshot 186/186.
+gate run 2 (`grouped-20260925-075425.json`; same 14 sets, seeds and
+bars): (a) PASS: planted slopes cut seen RMSE by 20.8 / 23.8 / 31.9% and
+overall by 2.1-3.3%, 8/9 cells on both. (b) FAIL on seen rows: overall
+within +-0.25% on every no-slope config and for the null arm, but seen
+rows leave the +-0.5% band in three cells: many-small +0.75% (RS), skewed
++1.75% (null arm), x-confounded -1.30% (a gain, still outside). (c)
+BREACH: employee +2.21% overall (+2.78% seen), slope on
+2016_gross_pay_received; house -0.52% overall and -3.50% seen (the
+forecast's 3-5%); the other three within +-0.1%. (d) FAIL: median fit
+ratio 1.73x (3.8x in run 1; the synthetic fits take ~0.1 s).
+verdict: **NOT SHIPPED.** The pre-registered rule needed (a), (b) and
+(d) to pass with no (c) breach. The mechanism is real, but the no-harm,
+real-data and cost bars fail. The library code is archived unmerged on
+branch `campaign/issue113-random-slopes` (fbc52ef): correct and tested,
+the starting point for a guarded slice 2b if one is ever wanted (the
+design probe found a validation race halves the employee damage at
+best). Kept: the gate's alias fix, a real benchmark bug, as its own PR
+from main. Dropped with the feature: the slope configs and the ChimeraRS
+arms.
+slice 1 re-scored with the alias fix (its original 11 sets): RE vs Drop
+9W-2L -> 8W-3L, vs Cat 9W-2L -> 8W-3L, vs LightGBM 8W-3L and vs CatBoost
+7W-4L unchanged. Synthetic sets are untouched (6W-0L), so the real-set
+record vs our own alternatives goes from 3W-2L to 2W-3L. Employee: RE
+6708 -> 7151 (the alias had let RE's trees see the department), Cat
+7235 -> 6515, Drop 6771 -> 6672, LightGBM and CatBoost unchanged. Slice
+1's opt-in ship still rests on its synthetic sweeps; its real-data
+pointer is now weaker than recorded on 2026-09-20.
+next: the maintainer's call on the rest of #113 (the auto-route
+kill-or-keep probe, the second grouping column, a guarded slice 2b); the
+loop moves to #45.
+
 #### I066 2026-09-24 issue #131 slice 1 (`refresh(X, y)` on an opt-in stored training set; LIBRARY feature, opt-in, pre-registered)
 why now: the focus rule's third issue. PR #169 merged (5b27b06), #81
 closed. Program file `benchmarks/REFRESH_PLAN.md` (design, decisions,

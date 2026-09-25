@@ -254,3 +254,118 @@ but rests on 5 sets). Slice-2 question: random slopes for the
 house/employee-shaped gap (group x feature interactions), before
 classification. Slice 2 is tracked in #113 (slopes, a second grouping
 column, and the entity-ID auto-route candidate).
+
+## Slice 2 (issue #113): random slopes -- started 2026-09-25
+
+Design pass 2026-09-24 (read-only; probes in memory with HistGradientBoosting
+stand-in trees and a post-fit solve on this suite's splits, seeds 0-2:
+pointers, not library numbers):
+- Only house is a slope problem. On seen rows our categorical arm beat RE
+  by 13% (27,872 vs 31,989), a group x feature interaction. Employee's gap
+  to LightGBM sits on UNSEEN departments (6,166 vs 7,545), where no
+  per-group parameter can act.
+- Gate bug: employee keeps `department_name`, a one-to-one alias of
+  `department` (37 levels each); the "group dropped" arms still see the
+  group through it.
+- Probe, seen-row RMSE vs intercepts alone: house with OverallQual 4%
+  better (3/3 seeds), with GrLivArea 11% better (3/3); colleges, Moneyball,
+  wine within 0.1% (REML shrinks the slope away); employee 1-2% worse
+  (0/3). A full 2x2 covariance hit correlation +-1 on 7 of 15 probe fits.
+- A second grouping column comes after slopes: exact crossed REML needs a
+  coupled log-determinant, and nothing in the gate calls for it.
+- The entity-ID auto-route is NOT a default candidate: regression-only it
+  engages 3 hc sets (wine, colleges, employee's date string) and cannot
+  carry a sign test, and the prior evidence runs against it (CAMPAIGN_PLAN
+  I040; the default count column). Demoted to a kill-or-keep probe
+  (benchmarks only, queued after slopes): arms default / top qualifying
+  column dropped + `random_effects` on it / that + its count feature; hc
+  wine, colleges, employee, 3 seeds; kill if < 2 of 3 wins or median <= 0.
+
+Decisions (the maintainer's go 2026-09-25 on the stated recommendations):
+(1) one slope column, independent intercept and slope variances; (2) the
+real-set covariate by a fixed rule, the numeric column most correlated
+with y on the training rows; (3) the auto-route demoted to the probe
+above; (4) fix the employee alias leak, reporting slice 1's employee row
+old and new.
+
+Model: `y = F(X) + b_g + c_g (x - xbar) + eps`, b and c independent with
+their own variances; x is one numeric column the user names and it stays
+in X. Per group a 2x2 ridge system from five bincounts; profiled REML with
+fixed effects [1, x]; the two ratios by cyclic golden-section on slice 1's
+constants (deterministic, fixed iterations).
+
+API: `random_slopes=None`, a one-element list naming one numeric column by
+index or name (resolved like `cat_features`). Errors: set without
+`random_effects=True`; more than one column; a categorical column; an
+unknown name or index. Attributes: `group_slopes_` (raw units, in
+`group_labels_` order), `group_slope_ratio_`, `group_slope_center_`;
+`group_intercepts_` becomes the level at the centre. Predict adds
+`b_g + c_g * (clip(x, fit min, fit max) - centre)`; a NaN x gives a slope
+term of 0; unseen groups get exactly 0.
+
+Tests: the solver equals the brute-force posterior mean; with weights the
+gradient at the solution is zero; a slope ratio of inf reduces exactly to
+`solve_intercepts` (1e-12); the REML criterion equals an explicit-matrix
+REML with fixed effects [1, x] up to a constant; known ratios recovered
+within 0.3 decades; degenerate inputs (one group, x constant within every
+group, all singletons); planted slopes recovered (corr > 0.95), seen-row
+accuracy beats intercepts, null slopes shrink; unseen groups give exactly
+the trees-only prediction; a NaN x gives exactly the intercept; clipping;
+`random_slopes=None` bit-identical (identity snapshot); errors, names,
+pickling, determinism, a zero-weight ghost group, and the last stage of
+`staged_predict`.
+
+Gate (this suite, pre-registered): new synthetic configs `slope` (40
+groups x 50 rows), `slope-many-small` (200 x 10) and `slope-x-confounded`,
+each with a per-group slope of sd 1.5 on X0 drawn from a separate random
+stream, so the six existing configs stay byte-identical. The real-set
+covariate by the correlation rule (expected: house OverallQual, employee
+gross pay, Moneyball SLG, wine price, colleges SAT/ACT). One-to-one group
+aliases dropped (employee's `department_name`). Arms, seeds 0-2: ChimeraRS,
+ChimeraRS-null (slope on X4, synthetic only), ChimeraRE, ChimeraCat,
+ChimeraDrop (LightGBM and CatBoost optional). Pass bars, dataset level
+over seed means:
+(a) RS beats RE on seen AND overall RMSE on all three slope configs, and in
+    at least 8 of 9 cells;
+(b) on the six intercept-only configs, and for the null arm, RS stays
+    within +-0.5% of RE everywhere;
+(c) real sets: none more than 1% worse than RE overall (a pointer with 5
+    sets; forecast house seen 3-5% better, employee seen 1-2% worse, the
+    rest within +-0.3%);
+(d) median fit-time ratio RS/RE <= 1.15.
+Ship opt-in iff (a), (b) and (d) pass and (c) has no breach. The default
+path is untouched, so both Pareto axes are unchanged by construction.
+
+Execution: campaign rung I067, branch `campaign/issue113-random-slopes`:
+muse pass 1 the library and tests, muse pass 2 the gate changes here, then
+the gate run and the verdict.
+
+### Slice 2 verdict (2026-09-25): NOT SHIPPED
+
+Gate run 1 (`grouped-20260925-072649.json`) was INVALID: `predict` never
+applied the slope term (the resolved column was cleared by the fit's
+stale-state reset), so it scored intercepts evaluated at the slope centre.
+Fixed with tests that compare against a hand-built prediction; the slope
+REML search trimmed to 2 cycles x 40 iterations (28 -> 9 ms).
+
+Gate run 2 (`grouped-20260925-075425.json`, same sets, seeds and bars):
+
+| bar | result |
+|---|---|
+| (a) planted slopes | PASS: seen RMSE -20.8 / -23.8 / -31.9%, overall -2.1 to -3.3%, 8/9 cells |
+| (b) no harm elsewhere | FAIL on seen rows: +0.75% (many-small), +1.75% (null arm, skewed), -1.30% (x-confounded); overall within +-0.25% everywhere |
+| (c) real sets | BREACH: employee +2.21% overall; house -3.50% seen (as forecast), -0.52% overall; the rest within +-0.1% |
+| (d) cost | FAIL: median fit ratio 1.73x |
+
+The mechanism works where the data has per-group slopes, but it does not
+clear the no-harm, real-data and cost bars, so the rule keeps it out. The
+code is archived unmerged on branch `campaign/issue113-random-slopes`
+(fbc52ef). A guarded slice 2b (keep slopes only when the held-out rows
+prefer them) is the one open door; the design probe found a validation
+race halves the employee damage at best.
+
+Also found and fixed in the gate: employee's `department_name` is a
+one-to-one alias of the group column. Re-scored on slice 1's 11 sets, RE
+vs Drop and vs Cat go from 9W-2L to 8W-3L (real sets 3W-2L -> 2W-3L; the
+alias had let RE's trees see the department). The synthetic sweeps that
+carried slice 1's ship are unchanged.
