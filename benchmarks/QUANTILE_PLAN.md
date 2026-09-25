@@ -407,6 +407,23 @@ Q0 reads moved it down to item 4.
    Moneyball, where S wins and a fixed width misses the shift (the other
    two sets improve). Open: NGBoost still wins
    visualizing_soil (−34%) and SGEMM (−8%).
+3e. **Q10, where NGBoost's remaining lead comes from (read-only).**
+   **DIAGNOSED 2026-09-25 (I072).** On visualizing_soil and SGEMM the
+   whole lead is the centre: our calibrated grid moved onto RoNGBa's mean
+   beats RoNGBa itself, and RoNGBa's grid on our median is worse than ours.
+   The centre gap is MAE-shaped (visualizing_soil: RoNGBa's mean has 3.2×
+   lower MAE, only 8% lower RMSE). The S/N centre is the point regressor
+   without its full refit. pol's small gap is width, not centre.
+3f. **Q11, the S/N centre's accuracy (five-set screens, bench-only).**
+   **CLOSED 2026-09-25 (I073, I073b), nothing shipped.** 254 bins for the
+   centre and spread models match RoNGBa's lead (visualizing_soil +24%,
+   SGEMM +7%, at 1.1× the centre's cost) but cost cpu_act 2.5%, and as
+   extra candidates beside the 128-bin centre they still do: the finer
+   grid's overfit is invisible to the early-stopping rows. 8000 rounds for
+   the centre help visualizing_soil only (+5%); the centre hits its cap on
+   1 of the 59 decide keys, so it cannot clear the gate. Bagging the centre
+   ×5 is the ceiling (visualizing_soil +30%, pol +9%) and is an ensemble,
+   so not a default.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
@@ -505,6 +522,16 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
+- **The head never trains on its own early-stopping fold** (recorded
+  2026-09-25, I073b). Without an `eval_set` the head carves
+  `validation_fraction` and neither it nor its S/N centre ever sees those
+  rows, while `ChimeraBoostRegressor` refits on all rows by default
+  (`refit_full`), worth 8.8% RMSE on visualizing_soil and 6.2% on pol. A
+  refit of the winner after the audition, keeping the calibration taken
+  before it, is the candidate. `quantile_suite.py` cannot measure it: it
+  passes the shared split as an `eval_set`, which the head must not train
+  on. Needs a no-`eval_set` protocol first; the maintainer's call whether
+  to open it.
 - RESOLVED 2026-09-23 (Q5, I059): `docs/quantiles.md` "How it compares" is
   re-measured against the new default, with the fixed-width baseline and
   NGBoost added.
