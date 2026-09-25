@@ -322,3 +322,32 @@ def test_audition_winner_shap_is_locally_accurate():
             assert not np.any(phiw), "fixed width attribution is zero"
         assert np.allclose(phiw[rows].sum(axis=1) + m.expected_value_,
                            iv[rows, 1] - iv[rows, 0])
+
+
+def _aud_nosplit_shap(kind):
+    """The kind's training rows without an eval_set, refit on; (model, Xte)."""
+    from sklearn.model_selection import train_test_split
+    taus = [0.05, 0.25, 0.5, 0.75, 0.95]
+    X, y, sseed = _aud_data_shap(kind)
+    Xtr, Xte, ytr, _ = train_test_split(X, y, test_size=0.25,
+                                       random_state=sseed)
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=300, early_stopping_rounds=50,
+        thread_count=1, random_state=0, refit_full=True).fit(Xtr, ytr)
+    return m, Xte
+
+
+def test_refit_full_shap_is_locally_accurate():
+    """SHAP reconstructs the RETRAINED winner per level, for H/B/R/S/N."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
+        m, Xte = _aud_nosplit_shap(kind)
+        assert m.audition_["selected"] == kind
+        Xt = Xte[:20]
+        rows = slice(None)
+        if kind == "scaled":
+            rows = _unfloored_rows(m, Xt)
+            assert rows.any(), "no unfloored rows; test is moot"
+        phi = m.shap_values(Xt)
+        assert phi.shape == (20, Xt.shape[1], 5)
+        assert np.allclose(phi[rows].sum(axis=1) + m.expected_value_,
+                           m.predict(Xt)[rows])
