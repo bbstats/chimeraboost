@@ -502,7 +502,37 @@ moves the other 20+ sets (exact ties or pick-noise inside +-0.5%).
 run: `quantile_suite.py --decide --seeds 3 --jobs 5 --save --models
 ChimeraBoostQuantile ChimeraBoostQuantileAuditionS
 ChimeraBoostQuantileAuditionSN ChimeraBoostQuantileDefaultUncapped`.
-verdict: PENDING(muse probe task, then the run)
+muse (exit 0, committed f318f40): one shared audition implementation
+(`_fit_audition(with_s, with_n)`), S reusing R's point model, N's spread
+model on `|yf - pf|` with the validation rows for early stopping and a
+floor of 1e-3 x the validation median; the existing Audition arm
+bit-identical and still equal to the library default.
+ran: `results/quantile-20260925-141117.json` (4 arms, 59 keys x 3 seeds).
+result against the default, same run (compare_runs --metric crps
+--by-suite): AuditionSN gr **18W-1L-17T**, two-sided sign p = 7.6e-5,
+engaged median +2.18% (CI +0.83..+3.80), coverage error better (90%
+0.41 -> 0.32, 80% 0.48 -> 0.37); hc 5W-0L-1T, median +1.12%, guard ok;
+the variants all pointers (hc@time 3-0, hc@sus25 2-0, hc@sus50 1-0,
+gr@sus25 4-2, gr@sus50 1-1). Gains: pol +31.2%, visualizing_soil +17.0%,
+Brazilian_houses +6.2 / +5.7%, superconduct +4.0%, cpu_act +3.8%,
+wine_quality +3.2%, Bike_Sharing +3.1%, elevators +3.1%, the rest +0.1 to
++2.2%; the one loss sulfur -0.31%. Picks over 177 fits: N 80, B 40, H 38,
+S 13, R 6. Fit median 1.11x. Against the field (field arms from
+`quantile-20260924-164257`, same splits): RigidShift 35W-1L (was 29-7),
+CatBoost MQ 29W-7L (was 27-9), LightGBM per-level 31W-5L (30-6), NGBoost
+33W-3L (unchanged: pol, visualizing_soil, SGEMM, pol now within 1.4%).
+AuditionS gr 8W-3L-25T, sign p 0.23: FAILS the default bar (S is mostly
+subsumed by N). DefaultUncapped gr 6W-3L-27T, p 0.51, hc all ties, 1.27x:
+FAILS.
+forecast: (1) S engaged 11 and won 8 (forecast 5-9 / 5-8): about HIT, but
+it fails the gate; (2) SN engaged 19 (forecast 10-18) and cost 1.11x
+(forecast ~1.3x): HIT on direction, cheaper and broader than forecast;
+(3) uncapped MISS (forecast all 13 cap-bound sets; on top of the audition
+it wins 6 of 9); (4) MISS for SN: it moved 19 sets, 18 for the better.
+verdict: **AuditionSN PASSES the default gate.** Next rung (I071): build
+S and N into `ChimeraBoostQuantileRegressor`'s audition as the default,
+bit-identical to the bench arm (the Q7 pattern). S and uncapped are not
+pursued on their own.
 
 #### I069 2026-09-25 issue #45 (loose ends: harness H(13) + H(14), a plan-file audit, repo hygiene; BENCH + markdown)
 why now: the focus rule's last issue; #113 is explored (I067 not
