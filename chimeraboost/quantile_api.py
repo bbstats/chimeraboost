@@ -341,7 +341,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         single head is fitted. Costs about 2.6x a single head at the median:
         S reuses R's centre fit, so the extra cost over the three-candidate
         audition is the spread-model fit, about 10% of the fit at the
-        median. ``False`` fits a single head as in earlier releases.
+        median. ``False`` fits a single head, as releases before 0.33.0 did.
         ``model_`` stays the fitted head booster whatever wins (the 254-bin
         booster for a bins win); for S and N it delivers nothing --
         ``predict`` serves the centre/spread models -- but stays inspectable.
@@ -1413,9 +1413,10 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
     @property
     def validation_history_(self):
-        """Per-round validation CRPS from ``fit`` (empty without a validation
-        set). From the winner's booster (the head's for R, the centre
-        model's for S and N)."""
+        """Per-round validation score from ``fit`` (empty without a validation
+        set). The winner's booster's CRPS for a head, bins or recentred
+        win (the head's for R); the centre model's squared-error
+        validation loss (RMSE space) for a fixed or scaled win."""
         if self._is_fixed() or self._is_scaled():
             return list(self._centre_model_.validation_history_)
         return list(self.model_.valid_history_)
