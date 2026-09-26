@@ -127,3 +127,12 @@ Still open, for their slices:
   now faster and bit-identical (PR #170, commit 435e866): 9.9 -> 7.8 ms per
   tree at 517k rows. Lead for more: gather uint16 bins instead of float64
   design values in `_linear_leaf_fit` (the gather is ~76 MB per call).
+- 2026-09-25: the maintainer left PR #170 open ("not sure I want it
+  implemented"). Slice 1 is PARKED; slices 2-7 are not started. If #170 is
+  closed, salvage the bit-identical replay-kernel speedup (435e866) as its
+  own PR: it speeds up every linear-leaf fit.
+- 2026-09-26: un-parked. The maintainer: "let's move forward with 170,
+  but clean up the merge conflicts then i'll merge the PR". Main merged
+  into the branch (conflicts only in CHANGELOG and two plan files; no
+  code overlapped), so the salvage note above no longer applies. Slices
+  2-7 are not started.

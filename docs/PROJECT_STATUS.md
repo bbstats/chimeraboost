@@ -290,7 +290,7 @@ speed wins must be algorithmic (less compute), not dtype/parallel tricks.
 Goal: a published **Elo** on the official TabArena benchmark as a 2nd independent
 robustness check. Pipeline is fully built (AutoGluon wrapper, runner, eval scripts in
 `A:\code\tabarena\...`; install recipe + env constraints in the `project-tabarena-elo`
-memory). Smoke-tested; full 51-task run + Elo eval pending.
+memory). Smoke-tested; full 51-task run + Elo eval pending. (RESOLVED 2026-06-03: full Lite run + Elo eval done -- README led with the TabArena-Lite Elo/speed chart that day, fcdc874; re-reads followed, e.g. post-0.25.0 2ef57f4.)
 
 **THE VOW — absolute:** TabArena-Lite is a *sealed* holdout. We never tune on it, and we
 **never even look at the per-dataset breakdown.** The only number that leaves it is the

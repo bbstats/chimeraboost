@@ -219,7 +219,8 @@ def run_one(regime, n, seed, taus, threads, models):
                                       random_state=seed)
     Xtr, Xte, ytr, yte = X[idx_tr], X[idx_te], y[idx_tr], y[idx_te]
     Qo_te = Q_or[idx_te]
-    split = rb._val_split(Xtr, ytr, "regression", 0)
+    split = qs._SplitWithFull(rb._val_split(Xtr, ytr, "regression", 0),
+                              (Xtr, ytr))
     cat = [X.shape[1] - 1] if regime == "catscale" else None
     oracle_crps = float(qm.crps(yte, Qo_te, taus))
 

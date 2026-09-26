@@ -59,6 +59,28 @@ def _load_json(path):
         return None
 
 
+def _latest_harness_json():
+    """Newest results .json carrying the keys the table reads, or None.
+
+    Probe scripts share RESULTS_DIR, and some of their JSONs (for example
+    ``probe-entity-route-*.json``) have no ``datasets`` map, which crashed
+    ``report()`` with ``KeyError`` once such a file was the newest.
+    ``summarize.latest_json`` only requires ``records``, so look here and
+    skip files that lack either key the stratified table reads.
+    """
+    best, best_mtime = None, None
+    for path in glob.glob(os.path.join(RESULTS_DIR, "*.json")):
+        data = _load_json(path)
+        if not isinstance(data, dict):
+            continue
+        if "records" not in data or "datasets" not in data:
+            continue
+        mtime = os.path.getmtime(path)
+        if best is None or mtime > best_mtime:
+            best, best_mtime = path, mtime
+    return best
+
+
 def _progress_block(prog, path):
     pct = prog.get("pct", 0)
     done = prog.get("completed", 0)
@@ -86,7 +108,7 @@ def report():
         if prog and prog.get("status") == "running" and age < STALE_S:
             return _progress_block(prog, prog_path)
 
-    latest = summarize.latest_json()
+    latest = _latest_harness_json()
     if not latest:
         return "No benchmark results yet, and no run in progress."
     header = f"# latest results: {os.path.basename(latest)}"

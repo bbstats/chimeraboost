@@ -382,6 +382,65 @@ Q0 reads moved it down to item 4.
    beats CatBoost MQ 27W-9L and tops the 59-key chart at 0.6006 @ 7.4×,
    with CatBoost off the frontier. The one flag: hc `@time` (3 sets), 90%
    coverage error 0.68 → 2.12 points.
+3c. **Q8 (added 2026-09-25, when the maintainer reopened the quantile
+   thread), the head's low-noise losses.** After Q7 the head still lost
+   pol, visualizing_soil and SGEMM to NGBoost and RigidShift. Three
+   bench-only probes: S, the fixed-width grid (RigidShift's) as a fourth
+   audition candidate; S+N, plus a scaled-residual candidate N (a second
+   default regressor predicts the centre's absolute error; per-level
+   factors from the standardized validation residuals); and the default at
+   8000 rounds.
+   **PASSED 2026-09-25 for S+N (I070, `results/quantile-20260925-141117.json`).**
+   Against the Q7 default: gr 18W-1L-17T, median +2.18%, sign p 7.6e-5,
+   90% coverage error 0.41 → 0.32; hc 5W-0L-1T; 1.11× the fit (pol +31%,
+   visualizing_soil +17%, the one loss sulfur −0.31%). Picks over 177
+   fits: N 80, B 40, H 38, S 13, R 6. S alone (8W-3L-25T, p 0.23) is
+   mostly subsumed by N; 8000 rounds (6W-3L-27T, p 0.51, 1.27×) fails.
+3d. **Q9, S and N in the library default.**
+   **PASSED 2026-09-25 (I071, `results/quantile-20260925-172250.json`);
+   merged as PR #177 (a6a90d2) the same day.** The default equals the bench arm on 177 of 177
+   fits. Against the single head (Q5): gr 25W-5L-6T, +3.04%, at 2.6× its
+   fit. Against the field on gr: CatBoost MQ 29W-7L, RigidShift 35W-1L,
+   LightGBM per-level 31W-5L, our per-level 34W-2L, NGBoost 33W-3L; on the
+   59-key chart 0.6046 @ 8.3×, CatBoost MQ 0.5982 @ 133×. The flag: hc
+   `@time` 90% coverage error 2.12 → 4.69 points; the rise comes from
+   Moneyball, where S wins and a fixed width misses the shift (the other
+   two sets improve). Open: NGBoost still wins
+   visualizing_soil (−34%) and SGEMM (−8%).
+3e. **Q10, where NGBoost's remaining lead comes from (read-only).**
+   **DIAGNOSED 2026-09-25 (I072).** On visualizing_soil and SGEMM the
+   whole lead is the centre: our calibrated grid moved onto RoNGBa's mean
+   beats RoNGBa itself, and RoNGBa's grid on our median is worse than ours.
+   The centre gap is MAE-shaped (visualizing_soil: RoNGBa's mean has 3.2×
+   lower MAE, only 8% lower RMSE). The S/N centre is the point regressor
+   without its full refit. pol's small gap is width, not centre.
+3f. **Q11, the S/N centre's accuracy (five-set screens, bench-only).**
+   **CLOSED 2026-09-25 (I073, I073b), nothing shipped.** 254 bins for the
+   centre and spread models match RoNGBa's lead (visualizing_soil +24%,
+   SGEMM +7%, at 1.1× the centre's cost) but cost cpu_act 2.5%, and as
+   extra candidates beside the 128-bin centre they still do: the finer
+   grid's overfit is invisible to the early-stopping rows. 8000 rounds for
+   the centre help visualizing_soil only (+5%); the centre hits its cap on
+   1 of the 59 decide keys, so it cannot clear the gate. Bagging the centre
+   ×5 is the ceiling (visualizing_soil +30%, pol +9%) and is an ensemble,
+   so not a default.
+3g. **Q12, retraining the winner on all rows (the maintainer's pick
+   2026-09-25).** Without an `eval_set` the head's own carve equals the
+   suite's shared split bit for bit, so the probe is a retrain added to
+   today's fit: every choice and calibration quantity from the held-out
+   fit, then (a) the R/S/N centre retrained on all rows, or (b) that plus
+   the H/B/R head retrained from scratch at the replay-round rule.
+   **PASSED 2026-09-25 (I075, `results/quantile-20260925-202430.json`).**
+   Against the default: (a) gr 19W-0L-17T, +1.72%, p 3.8e-6, 1.07× fit;
+   (b) gr 35W-1L, +0.91%, p 1.1e-9, hc 6W-0L, 1.28× fit; (b) beats (a)
+   20W-1L-15T (p 2.1e-5), so (b). Coverage guard fine (gr 90% error 0.32 →
+   0.47 points); the hc `@time` flag shrinks (4.69 → 3.29).
+3h. **Q13, `refit_full=True` as the default.**
+   **PASSED 2026-09-25 (I076); merged as PR #180 (180f765).** Without an
+   `eval_set` the default reproduces Q12's arm (b) bit for bit; with one,
+   nothing changes. The suite's field arm keeps its `eval_set`, so every
+   comparison stays "every model on the same rows" and leaves this gain
+   out.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
@@ -390,11 +449,22 @@ Q0 reads moved it down to item 4.
    for coverage, which is what a user reads off an interval (the head is
    3.4 points short at 90% on Grinsztajn, 9.2 on hc, 17.5 under the time
    shift), and its CRPS bar is the gate as written.
+   **Re-read 2026-09-25 (I074):** the coverage case is gone. Calibration
+   (Q5) brought the default's median 90% coverage error on Grinsztajn to
+   0.32 points. Q1's remaining claim is CRPS through the head candidates
+   (H and B, 78 of 177 picks since Q9). It waits on the maintainer's pick
+   against the no-`eval_set` refit question (Still open, below).
 5. **Q4 (added 2026-09-23 from the synthetic baseline), spread-aware
    categorical encoding.** On `catscale` at 10k the head loses 42.4 to
    CatBoost's 30.9 excess CRPS: our ordered TS is a per-category MEAN, blind
    to a category that sets the spread. Probe first (monkeypatch an extra TS
    of |y − median| per categorical), then the real-data hc regressions.
+   **CLOSED 2026-09-25 (I074), nothing to build.** The N candidate (Q9)
+   already is the spread-aware encoding: its spread model's ordered TS of
+   `|y − centre|` is the per-category spread. On `catscale` the default
+   now scores 16.0 at 10k (CatBoost 30.9, NGBoost 32.8) and 79.9 at 1k
+   (CatBoost 108.2), picking N on 6 of 6 fits; on the hc regressions
+   employee_salaries moved from −5.7% to −1.3% against CatBoost MQ.
 6. Later: the leaf refit's cost (~90% of a round). The RigidShift gap
    was Q0's subject: the capped sets explain it, and uncapped rounds and
    depth 6 move the count against RigidShift from 20-16 to 21-15 and
@@ -480,6 +550,18 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
+- RESOLVED 2026-09-25 (Q12 and Q13, I075 and I076): **The head never trains on its own early-stopping fold** (recorded
+  2026-09-25, I073b). Without an `eval_set` the head carves
+  `validation_fraction` and neither it nor its S/N centre ever sees those
+  rows, while `ChimeraBoostRegressor` refits on all rows by default
+  (`refit_full`), worth 8.8% RMSE on visualizing_soil and 6.2% on pol. A
+  refit of the winner after the audition, keeping the calibration taken
+  before it, is the candidate. `quantile_suite.py` cannot measure it: it
+  passes the shared split as an `eval_set`, which the head must not train
+  on. Needs a no-`eval_set` protocol first. **OPENED 2026-09-25 as Q12**
+  (the maintainer picked it over Q1): the head's own carve equals the
+  suite's shared split bit for bit, so the probe is a retrain added to
+  today's arm (`CAMPAIGN_PLAN.md` I075).
 - RESOLVED 2026-09-23 (Q5, I059): `docs/quantiles.md` "How it compares" is
   re-measured against the new default, with the fixed-width baseline and
   NGBoost added.

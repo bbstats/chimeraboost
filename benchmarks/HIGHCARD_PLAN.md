@@ -140,7 +140,7 @@ full stop.
 A change that wins only on one suite needs a mechanism story for why.
 Update: `.claude/skills/experiment/SKILL.md`, CLAUDE.md benchmark section,
 memory (algorithm history + a new hc-suite entry). Exact ship-rule weighting
-between the suites = Nathan's call at first live use, not hardcoded now.
+between the suites = Nathan's call at first live use, not hardcoded now. (RESOLVED 2026-07-27: no pooled verdict exists to weight -- per-stratum sign tests, see note above; first live use, the CATCROSS verdict 2026-07-20, recorded no gr-vs-hc conflict to weigh.)
 
 ## Decision points reserved for Nathan
 
@@ -218,7 +218,7 @@ Grinsztajn), so replacements were found by property search on OpenML metadata
 (`MaxNominalAttDistinctValues ≥ 50`, cardinality filters) BEFORE any fit —
 yielding `wine-reviews`, `colleges`, `kdd_ipums_la_97-small`, `cjs`. KDD98
 (id 23513, 25847-card reg) surfaced in that search but is DEFERRED (heavy +
-license-awkward — Nathan's call, per the plan).
+license-awkward — Nathan's call, per the plan). WON'T DO, 2026-09-25: the maintainer declined it; the frozen N=14 suite stands.
 
 ## Frozen HC suite — N=14
 

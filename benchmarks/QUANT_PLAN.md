@@ -231,7 +231,7 @@ through; harness `--chimera-quantize` (single + bagged arms).
       re-run to keep gate exposures minimal): 13W-13L-10T, mean +0.056%.
 - [x] Close: **SHIPPED** — default flip (booster + wrappers), goldens
       regenerated, 461 tests green, CHANGELOG [Unreleased], parameters.md
-      row, pareto refreshed — 2026-07-18. Merge + release = Nathan's call.
+      row, pareto refreshed — 2026-07-18. Merge + release = Nathan's call. (RESOLVED 2026-07-18: merged and released in 0.18.0 the same day -- see Program close below.)
 
 ## Program close (2026-07-18) — SHIPPED, same day
 

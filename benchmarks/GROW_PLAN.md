@@ -287,7 +287,7 @@ What the program settled (the profile table above is the durable asset):
 
 Merge decision: `grow-kernels` holds the profiler + L-pytree (identity
 certified end to end) and this record. Recommend merging as engineering
-(no release-note claims beyond internals); Nathan's call.
+(no release-note claims beyond internals); Nathan's call. (RESOLVED 2026-07-18: merged as engineering -- commit 12d0f74, released in 0.18.0 the same day.)
 
 ## Checklist
 

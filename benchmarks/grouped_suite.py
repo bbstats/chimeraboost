@@ -180,6 +180,18 @@ def _load_hc_grouped(key):
     if group_col not in X_df.columns:
         raise ValueError(f"{key}: group column {group_col!r} did not "
                          f"survive the load (dropped as near-unique?)")
+    # Drop every column in one-to-one correspondence with the group column
+    # (employee's department_name), so the "group dropped" arms cannot see
+    # the group through an alias (#113 review; it re-scores slice 1's arms,
+    # RANDEFF_PLAN.md "Slice 2 verdict").
+    nunique_g = X_df[group_col].nunique(dropna=False)
+    dropped = [c for c in X_df.columns
+               if c != group_col
+               and X_df[c].nunique(dropna=False) == nunique_g
+               and len(X_df[[group_col, c]].drop_duplicates()) == nunique_g]
+    if dropped:
+        print(f"  {key}: alias fix dropped {dropped}")
+        X_df = X_df.drop(columns=dropped)
     groups = X_df[group_col].to_numpy()
     # Group column last, so arms slice it off positionally.
     cols = [c for c in X_df.columns if c != group_col] + [group_col]

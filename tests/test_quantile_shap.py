@@ -249,7 +249,7 @@ def _aud_data_shap(kind):
         n = 1000
         X = rng.standard_normal((n, 5))
         y = 2.0 * X[:, 0] + np.exp(0.6 * X[:, 1]) * rng.standard_normal(n)
-        return X, y, 1
+        return X, y, 2
     if kind == "bins":
         rng = np.random.default_rng(7)
         n = 1200
@@ -257,12 +257,24 @@ def _aud_data_shap(kind):
         y = ((X[:, 0] > 0.712345).astype(float) * 5.0
              + rng.standard_normal(n) * 0.2)
         return X, y, 0
-    assert kind == "recentred"
-    rng = np.random.default_rng(2)
-    n = 1000
-    X = rng.standard_normal((n, 4))
-    y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
-    return X, y, 0
+    if kind == "recentred":
+        rng = np.random.default_rng(2)
+        n = 1000
+        X = rng.standard_normal((n, 4))
+        y = 2.0 * X[:, 0] + 0.2 * rng.standard_normal(n)
+        return X, y, 0
+    if kind == "fixed":
+        rng = np.random.default_rng(3)
+        n = 600
+        X = rng.standard_normal((n, 6))
+        y = 2.0 * X[:, 0] + 0.1 * rng.standard_normal(n)
+        return X, y, 1
+    assert kind == "scaled"
+    rng = np.random.default_rng(41)
+    n = 2500
+    X = rng.standard_normal((n, 5))
+    y = 2.0 * X[:, 0] + np.exp(0.5 * X[:, 1]) * rng.standard_normal(n)
+    return X, y, 4
 
 
 def _aud_fit_shap(kind):
@@ -276,18 +288,67 @@ def _aud_fit_shap(kind):
     return m, Xte
 
 
+def _unfloored_rows(m, Xt):
+    """Rows whose spread sits above its floor -- where N's attribution is
+    exact."""
+    spread = m._spread_model_
+    s_raw = np.asarray(
+        spread.model_.predict_raw(Xt) + spread.quantile_offset_,
+        dtype=np.float64).ravel()
+    return s_raw > float(m._spread_floor_)
+
+
 def test_audition_winner_shap_is_locally_accurate():
-    """SHAP reconstructs the winner for H/B/R, quantiles and width."""
-    for kind in ("head", "bins", "recentred"):
+    """SHAP reconstructs the winner for H/B/R/S/N, quantiles and width.
+
+    N is checked on unfloored rows only: the floor breaks the linearity
+    the attribution assumes."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
         m, Xte = _aud_fit_shap(kind)
         assert m.audition_["selected"] == kind
         Xt = Xte[:20]
+        rows = slice(None)
+        if kind == "scaled":
+            rows = _unfloored_rows(m, Xt)
+            assert rows.any(), "no unfloored rows; test is moot"
         phi = m.shap_values(Xt)
         assert phi.shape == (20, Xt.shape[1], 5)
-        assert np.allclose(phi.sum(axis=1) + m.expected_value_,
-                           m.predict(Xt))
+        assert np.allclose(phi[rows].sum(axis=1) + m.expected_value_,
+                           m.predict(Xt)[rows])
         iv = m.predict(Xt, kind="interval", alpha=0.1)
         phiw = m.shap_values(Xt, kind="width", alpha=0.1)
         assert phiw.shape == (20, Xt.shape[1])
-        assert np.allclose(phiw.sum(axis=1) + m.expected_value_,
-                           iv[:, 1] - iv[:, 0])
+        if kind == "fixed":
+            assert not np.any(phiw), "fixed width attribution is zero"
+        assert np.allclose(phiw[rows].sum(axis=1) + m.expected_value_,
+                           iv[rows, 1] - iv[rows, 0])
+
+
+def _aud_nosplit_shap(kind):
+    """The kind's training rows without an eval_set, under the default;
+    (model, Xte)."""
+    from sklearn.model_selection import train_test_split
+    taus = [0.05, 0.25, 0.5, 0.75, 0.95]
+    X, y, sseed = _aud_data_shap(kind)
+    Xtr, Xte, ytr, _ = train_test_split(X, y, test_size=0.25,
+                                       random_state=sseed)
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=300, early_stopping_rounds=50,
+        thread_count=1, random_state=0).fit(Xtr, ytr)
+    return m, Xte
+
+
+def test_refit_full_shap_is_locally_accurate():
+    """SHAP reconstructs the RETRAINED winner per level, for H/B/R/S/N."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
+        m, Xte = _aud_nosplit_shap(kind)
+        assert m.audition_["selected"] == kind
+        Xt = Xte[:20]
+        rows = slice(None)
+        if kind == "scaled":
+            rows = _unfloored_rows(m, Xt)
+            assert rows.any(), "no unfloored rows; test is moot"
+        phi = m.shap_values(Xt)
+        assert phi.shape == (20, Xt.shape[1], 5)
+        assert np.allclose(phi[rows].sum(axis=1) + m.expected_value_,
+                           m.predict(Xt)[rows])

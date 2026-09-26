@@ -184,7 +184,7 @@ with the transfer question unresolved because this panel skews small.
 That variant is a legitimate Phase 1 candidate but it was selected post hoc,
 so it is not evidence yet. It only becomes real if it survives the untouched
 instruments: synth screen → Grinsztajn + high-card (sign-tested separately)
-→ OpenML one-shot gate. **Nathan's call whether that is worth the run.**
+→ OpenML one-shot gate. **Nathan's call whether that is worth the run.** (RESOLVED 2026-08-01: not worth the run -- see the note below.)
 
 ### RESOLVED 2026-08-01 — the transfer question is answered, and the race is dead
 
