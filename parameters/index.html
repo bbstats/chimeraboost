@@ -1672,6 +1672,11 @@ for 3 or more.</p>
 <td>Fit five candidates and keep the one with the best CRPS on the rows early stopping held out: the head as configured, the same head with 254 histogram bins, the head's shape moved onto the median of a squared-error <code>ChimeraBoostRegressor</code>, that regressor's prediction plus one offset per level (<code>"fixed"</code>, the same width for every row), and the same centre plus a second regressor's predicted spread times one factor per level (<code>"scaled"</code>). Every prediction method and <code>shap_values</code> serve the winner, recorded in <code>audition_</code>. About 2.6 times the fit time of one head. It needs early-stopping rows and <code>conformalize="auto"</code>; otherwise one head is fitted. <code>False</code> fits one head, as releases before 0.33.0 did.</td>
 </tr>
 <tr>
+<td><code>refit_full</code></td>
+<td><code>True</code></td>
+<td>Once early stopping, calibration and the candidate choice are done on the held-out rows, retrain the winner on all rows, as <code>ChimeraBoostRegressor</code> does. Everything chosen on the held-out rows is kept: the candidate, the calibration factors, the offsets, <code>best_iteration_</code> and <code>validation_history_</code>; <code>refit_</code> records what was retrained. It acts only on the fold the model carves for itself: never with your own <code>eval_set</code>, with early stopping off, or with <code>conformalize=True</code>. About 30% more fit time when it acts. <code>False</code> skips it.</td>
+</tr>
+<tr>
 <td><code>split_projection</code></td>
 <td><code>"rotate"</code></td>
 <td>How the K gradient columns collapse for the split search. <code>"rotate"</code> measured best; <code>"sum"</code> is blind to changes in spread; <code>"gram"</code> measured no better than <code>"rotate"</code>.</td>

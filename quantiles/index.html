@@ -516,6 +516,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#retraining-on-all-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retraining on all rows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1229,6 +1240,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#retraining-on-all-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retraining on all rows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#scoring" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1452,11 +1474,30 @@ choice costs about 2.6 times the fit time of a single head. It needs held-out ro
 with early stopping off and no <code>eval_set</code>, or with <code>conformalize</code> set to <code>True</code> or
 <code>False</code>, one head is fitted. <code>audition=False</code> fits one head, as releases before 0.33.0
 did.</p>
+<h2 id="retraining-on-all-rows">Retraining on all rows<a class="headerlink" href="#retraining-on-all-rows" title="Permanent link">&para;</a></h2>
+<p>When you don't pass an <code>eval_set</code>, the model holds back <code>validation_fraction</code> of your
+rows, 20% by default. It uses them to choose the stopping round, calibrate the intervals
+and pick the candidate. Then it retrains the winner on all the rows, as
+<code>ChimeraBoostRegressor</code> does, so the held-back rows still reach the final model.
+Everything decided on them stays as it was: the candidate, the calibration factors, the
+fixed and scaled candidates' offsets, <code>best_iteration_</code> and <code>validation_history_</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">model</span> <span class="o">=</span> <span class="n">ChimeraBoostQuantileRegressor</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">model</span><span class="o">.</span><span class="n">refit_</span>      <span class="c1"># what was retrained, e.g. {"centre": True, "head": False, "rounds": None}</span>
+</code></pre></div>
+<p>On the 36 Grinsztajn regression datasets the retrain improves CRPS on 35 and loses on 1,
+by 0.5%. The median gain is 0.9%, and six low-noise datasets gain between 3% and 9%. The
+intervals come out very slightly wider: a nominal 90% interval covers 90.4% on average
+instead of 90.1%. The retrain adds about 30% to the fit time at the median, and
+<code>refit_full=False</code> skips it.</p>
+<p>It never trains on rows you hold out yourself. With your own <code>eval_set</code> nothing is
+retrained, and with <code>conformalize=True</code> nothing is retrained either, which keeps the
+coverage guarantee intact. Every model in the comparison below trains on the same rows,
+with the same rows held out, so the table does not include this gain.</p>
 <h2 id="scoring">Scoring<a class="headerlink" href="#scoring" title="Permanent link">&para;</a></h2>
 <p><code>chimeraboost.quantile_metrics</code> scores a predicted grid.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">chimeraboost</span><span class="w"> </span><span class="kn">import</span> <span class="n">quantile_metrics</span> <span class="k">as</span> <span class="n">qm</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">qm</span><span class="o">.</span><span class="n">format_report</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">report</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y_test</span><span class="p">)))</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1504,10 +1545,10 @@ did.</p>
 <p>CRPS is the one number for "is this predictive distribution any good". Lower is better,
 and only the true conditional distribution reaches the minimum. Exactly three things
 make it worse, and the score alone will not tell you which:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">norm</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">taus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.91</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">y</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="mi">20_000</span><span class="p">)</span>                     <span class="c1"># the truth is standard normal</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">loc</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">loc</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">taus</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">norm</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">taus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.91</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">y</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="mi">20_000</span><span class="p">)</span>                     <span class="c1"># the truth is standard normal</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">loc</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">loc</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">taus</span><span class="p">),</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">1</span><span class="p">))</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1555,21 +1596,21 @@ outcome that falls outside, and so cannot be gamed in either direction.</p>
 <p>The PIT histogram is the instrument for the under-dispersion described above. It asks
 where in the predicted grid each outcome actually landed: flat means calibrated, a U
 means the bands are too narrow, a hump means too wide.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">freq</span><span class="p">,</span> <span class="n">edges</span> <span class="o">=</span> <span class="n">qm</span><span class="o">.</span><span class="n">pit_histogram</span><span class="p">(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">),</span> <span class="n">model</span><span class="o">.</span><span class="n">quantiles_</span><span class="p">)</span>
 </code></pre></div>
 <p><code>predict(kind="mean")</code> integrates the quantile function over tau, by the trapezoid rule
 across the grid with the edge levels extended flat to 0 and 1. That flat extension
 assumes nothing about tails the model never estimated.</p>
 <h2 id="explaining-a-predicted-distribution">Explaining a predicted distribution<a class="headerlink" href="#explaining-a-predicted-distribution" title="Permanent link">&para;</a></h2>
 <p><code>shap_values</code> gives exact TreeSHAP attributions with a channel per level:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">)</span>                 <span class="c1"># (n, n_features, n_quantiles)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_importances</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">n_features</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>    <span class="c1"># averaged over the grid</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">quantile</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>        <span class="c1"># (n, n_features), one level</span>
 </code></pre></div>
 <p>The one no per-level approach can give you is the attribution of interval <strong>width</strong> —
 which features make a particular row's prediction more <em>uncertain</em>, as opposed to
 higher or lower:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">w</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"width"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>   <span class="c1"># (n, n_features)</span>
 </code></pre></div>
 <p>Shapley values are linear in the value function, so the difference between two levels'
 attributions is exactly the attribution of their difference. On heteroscedastic data
@@ -1583,7 +1624,7 @@ that across rows mixes rows that were reordered differently.</p>
 <p><code>shap_importances</code> already handles this — it explains the levels <em>before</em>
 rearrangement, where every row is on the same footing. If you are building your own
 global summary or a beeswarm plot, ask for the same thing:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">phi</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">shap_values</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">"raw"</span><span class="p">)</span>   <span class="c1"># one shared (n_quantiles,) baseline</span>
 </code></pre></div>
 <p>Per-prediction explanations need none of this; the default is what you want.</p>
 <h2 id="how-it-compares">How it compares<a class="headerlink" href="#how-it-compares" title="Permanent link">&para;</a></h2>
@@ -1681,8 +1722,9 @@ calibration repairs the tails. Earlier releases used <code>depth=4</code> with n
 <code>depth=4, conformalize=False</code> to reproduce them exactly. <code>min_child_weight</code> follows the
 most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
 about 20 rows.</p>
-<p>When fit time matters more than the last 3%, <code>audition=False</code> fits a single head in
-about 40% of the time.</p>
+<p>When fit time matters most, <code>refit_full=False</code> skips the retrain, which gives up a
+median 0.9% of CRPS, and <code>audition=False</code> fits a single head instead of five candidates,
+less than half the work, which gives up a median 3%.</p>
 <p><code>split_projection</code> chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: <code>"rotate"</code> measured
 best, <code>"sum"</code> is blind to changes in spread, and <code>"gram"</code> measured no better than
