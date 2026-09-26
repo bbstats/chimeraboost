@@ -1854,6 +1854,11 @@ used <code>depth=4</code> with no calibration; <code>depth=4, conformalize=False
 <td><code>False</code></td>
 <td>Fit one shrunk intercept per <code>groups=</code> label on top of the trees (regressor, RMSE single-model only). Small groups pool toward zero; unseen groups predict trees-only. See the User Guide: <a href="../recipes/#grouped-data-random-intercepts">grouped data</a>.</td>
 </tr>
+<tr>
+<td><code>store_training_data</code></td>
+<td><code>False</code></td>
+<td>Keep the rows the final model was fit on, in compact form, so <code>refresh(X, y)</code> can fold in new rows later by refitting only the leaf values. Regressor and binary classifier, single models only. The stored rows travel with the pickled model and grow with every refresh. See the User Guide: <a href="../recipes/#refreshing-with-new-rows">refreshing with new rows</a>.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="system">System<a class="headerlink" href="#system" title="Permanent link">&para;</a></h2>
