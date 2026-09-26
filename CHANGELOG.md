@@ -3,7 +3,7 @@
 All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.34.0] - 2026-09-26
 ### Added
 - **`store_training_data` and `refresh(X, y)`** on the regressor and the
   binary classifier (#131, first slice). With `store_training_data=True` a
