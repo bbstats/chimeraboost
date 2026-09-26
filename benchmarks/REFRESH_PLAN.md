@@ -136,4 +136,5 @@ Still open, for their slices:
   into the branch (conflicts only in CHANGELOG and two plan files; no
   code overlapped), so the salvage note above no longer applies. Slices
   2-7 are not started.
-- 2026-09-26: **slice 1 SHIPPED**, merged as PR #170 (fa577cc).
+- 2026-09-26: **slice 1 SHIPPED**, merged as PR #170 (fa577cc) and released
+  in 0.34.0 the same day.
