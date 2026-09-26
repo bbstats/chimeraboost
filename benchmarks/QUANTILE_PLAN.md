@@ -436,7 +436,7 @@ Q0 reads moved it down to item 4.
    20W-1L-15T (p 2.1e-5), so (b). Coverage guard fine (gr 90% error 0.32 →
    0.47 points); the hc `@time` flag shrinks (4.69 → 3.29).
 3h. **Q13, `refit_full=True` as the default.**
-   **PASSED 2026-09-25 (I076), PR for the maintainer.** Without an
+   **PASSED 2026-09-25 (I076); merged as PR #180 (180f765).** Without an
    `eval_set` the default reproduces Q12's arm (b) bit for bit; with one,
    nothing changes. The suite's field arm keeps its `eval_set`, so every
    comparison stays "every model on the same rows" and leaves this gain
