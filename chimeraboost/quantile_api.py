@@ -2,8 +2,8 @@
 
 Kept out of ``sklearn_api`` because it shares that module's input validation
 but almost none of its fit machinery: no loss family, no linear leaves, no
-cross features, no bagging, no full-data refit. It imports the validation
-helpers and keeps the same flat, module-function style.
+cross features, no bagging, and a full-data refit that is on by default. It
+imports the validation helpers and keeps the same flat, module-function style.
 """
 
 import warnings
@@ -265,6 +265,15 @@ def _pick_audition_winner(ordered):
     return best_name
 
 
+def _keep_es_state(new_booster, old_booster):
+    """Keep the early-stopped fit's visible state on a refit replacement,
+    as ``sklearn_api._refit_on_full`` does: the training and validation
+    curves, and the budget early stopping chose."""
+    new_booster.train_history_ = old_booster.train_history_
+    new_booster.valid_history_ = old_booster.valid_history_
+    new_booster.best_iteration_ = old_booster.best_iteration_
+
+
 def _phi_centre(phi, mi, mw):
     """Centre of attributions along the level axis, mirroring ``_centre``."""
     if mw == 0.0:
@@ -338,13 +347,34 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         calibrates the head and scored unweighted; ties go H, then B, then
         R, then S, then N. Needs ``conformalize="auto"`` and evaluation
         rows (the user's ``eval_set`` or the carved fold); otherwise the
-        single head is fitted. Costs about 2.6x a single head at the median:
-        S reuses R's centre fit, so the extra cost over the three-candidate
-        audition is the spread-model fit, about 10% of the fit at the
-        median. ``False`` fits a single head, as releases before 0.33.0 did.
+        single head is fitted. Costs about 2.6x a single head at the median
+        for fits with an ``eval_set``: S reuses R's centre fit, so the extra
+        cost over the three-candidate audition is the spread-model fit,
+        about 10% of the fit at the median. The full-data refit adds about
+        30% at the median when it acts. ``False`` fits a single head, as
+        releases before 0.33.0 did.
         ``model_`` stays the fitted head booster whatever wins (the 254-bin
         booster for a bins win); for S and N it delivers nothing --
         ``predict`` serves the centre/spread models -- but stays inspectable.
+    refit_full : bool, default True
+        Retrain the winner on all rows after early stopping chose the
+        budget, as ``ChimeraBoostRegressor`` does. Acts only on the
+        automatic early-stopping split: never with a user ``eval_set``,
+        with early stopping off, with ``conformalize=True``, or when the
+        carve failed -- those fits are exactly what they are without it.
+        An R, S or N winner's centre is then replaced by a default
+        ``ChimeraBoostRegressor`` fitted on all rows without an
+        ``eval_set`` -- offsets, spread model, residual quantiles, floor
+        and calibration factors stay from the audition fit -- and the
+        head booster of an H, B or R winner is retrained from scratch on
+        all rows with early stopping off, at ``min(ceil(t_star / (1 -
+        validation_fraction)), n_estimators)`` rounds with the
+        early-stopped learning rate pinned, where t_star is the rounds
+        the early-stopped head kept. ``audition_``,
+        ``conformal_scale_``, ``best_iteration_`` and
+        ``validation_history_`` keep the early-stopped fit's values;
+        ``refit_`` records what was retrained. ``False`` skips the
+        retrain.
 
     Attributes
     ----------
@@ -364,6 +394,12 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         "crps": {name: score}}`` for the candidates that ran, or ``None``
         when no audition ran (no evaluation rows, ``conformalize`` True or
         False, or ``audition=False``).
+    refit_ : dict or None
+        ``{"centre": bool, "head": bool, "rounds": int or None}`` --
+        whether the centre and the head booster were retrained on all
+        rows, and the head's retrained round count (None when the head
+        was not retrained). None when nothing was retrained
+        (``refit_full=False``, or a fit the refit does not cover).
 
     Notes
     -----
@@ -383,7 +419,8 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                  quantize_gradients=True, early_stopping=True,
                  validation_fraction=0.2, split_projection="rotate",
                  exact_splits=False, conformalize="auto",
-                 calibration_fraction=0.2, audition=True):
+                 calibration_fraction=0.2, audition=True,
+                 refit_full=True):
         self.quantiles = quantiles
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -409,6 +446,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         self.conformalize = conformalize
         self.calibration_fraction = calibration_fraction
         self.audition = audition
+        self.refit_full = refit_full
 
     def __sklearn_is_fitted__(self):
         return hasattr(self, "model_")
@@ -466,6 +504,82 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         elif eval_set is not None and es_rounds is None:
             es_rounds = 50
         return X, y, sample_weight, eval_set, es_rounds
+
+    def _refit_full_active(self, auto_split):
+        """True when the full-data refit fires: asked for, on the automatic
+        split, with no honest holdout at stake (``conformalize=True`` keeps
+        its pristine fold instead)."""
+        return (bool(self.refit_full) and bool(auto_split)
+                and self.conformalize is not True)
+
+    def _maybe_refit_full(self, auto_split, taus, es_rounds, cat_features,
+                          X_full, y_full, sw_full, groups_full):
+        """Retrain the winner on all rows, after the audition (or the single
+        head's calibration) finished exactly as without the refit. The
+        centre of an R, S or N winner is replaced by a default
+        ``ChimeraBoostRegressor`` fitted on the full rows without an
+        ``eval_set``; the head booster of an H, B or R winner -- or of the
+        single head when no audition ran -- is retrained from scratch with
+        early stopping off. Records what happened in ``refit_``."""
+        if not self._refit_full_active(auto_split):
+            return
+        selected = self._audition_selected()
+        centre_done = False
+        if selected in ("recentred", "fixed", "scaled"):
+            self._refit_audition_centre(es_rounds, cat_features, X_full,
+                                        y_full, sw_full, groups_full)
+            centre_done = True
+        head_done, rounds = False, None
+        if selected in (None, "head", "bins", "recentred"):
+            rounds = self._refit_head_booster(taus, selected, cat_features,
+                                              X_full, y_full, sw_full)
+            head_done = True
+        if not centre_done and not head_done:
+            return
+        self.refit_ = {"centre": centre_done, "head": head_done,
+                       "rounds": rounds}
+
+    def _refit_audition_centre(self, es_rounds, cat_features, X_full,
+                               y_full, sw_full, groups_full):
+        """Replace the R/S/N centre with the same regressor fitted on the
+        full rows without an ``eval_set``, so it carves the same split and
+        retrains with its own default refit. Offset, spread model,
+        residual quantiles, floor and factors stay from the audition fit;
+        the early-stopped curves stay on the replacement, as the
+        regressor's own refit keeps them."""
+        from .sklearn_api import ChimeraBoostRegressor
+        old = self._centre_model_
+        centre = ChimeraBoostRegressor(
+            n_estimators=self.n_estimators,
+            early_stopping_rounds=es_rounds,
+            thread_count=self.thread_count, random_state=self.random_state,
+            validation_fraction=self.validation_fraction)
+        centre.fit(X_full, y_full, cat_features=cat_features,
+                   sample_weight=sw_full, groups=groups_full)
+        _keep_es_state(centre.model_, old.model_)
+        self._centre_model_ = centre
+
+    def _refit_head_booster(self, taus, selected, cat_features, X_full,
+                            y_full, sw_full):
+        """Retrain the winner's head booster from scratch on the full rows:
+        the same construction (254 bins for a bins win), early stopping
+        off, ``min(ceil(t_star / (1 - validation_fraction)),
+        n_estimators)`` rounds with the early-stopped learning rate pinned.
+        Returns the retrained round count."""
+        winner = self.model_
+        t_star = len(winner.trees_)
+        frac = max(1.0 - float(self.validation_fraction), 1e-9)
+        rounds = min(int(np.ceil(t_star / frac)), int(self.n_estimators))
+        booster = self._make_mq_booster(
+            taus, None, cat_features, len(y_full),
+            max_bins=254 if selected == "bins" else None)
+        booster.n_estimators = rounds
+        booster.learning_rate = float(winner.lr_)
+        booster.fit(X_full, y_full, cat_features=cat_features,
+                    sample_weight=sw_full)
+        _keep_es_state(booster, winner)
+        self.model_ = booster
+        return rounds
 
     def _make_mq_booster(self, taus, es_rounds, cat_features, n_rows,
                          max_bins=None):
@@ -530,6 +644,7 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
         self._median_idx_ = _median_index(taus)
         self.conformal_scale_ = np.ones(taus.shape[0])
         self.audition_ = None
+        self.refit_ = None
         self._centre_model_ = None
         self._centre_off_ = None
         self._fixed_q_ = None
@@ -544,8 +659,15 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
 
         cal, X, y, sample_weight, groups = self._carve_calibration_fold(
             X, y, sample_weight, groups)
+        # Kept for the optional full-data refit below: the auto split
+        # reassigns X/y, but the refit retrains on every row.
+        X_full, y_full, sw_full, groups_full = X, y, sample_weight, groups
+        had_user_eval = eval_set is not None
         X, y, sample_weight, eval_set, es_rounds = self._carve_es_split(
             X, y, sample_weight, eval_set, groups)
+        # The carve is the only path that sets eval_set when the user did
+        # not, so this is True exactly when the automatic split was used.
+        auto_split = not had_user_eval and eval_set is not None
 
         self.model_ = self._make_mq_booster(taus, es_rounds, cat_features,
                                             len(y))
@@ -572,6 +694,9 @@ class ChimeraBoostQuantileRegressor(BaseEstimator):
                     taus, mi, mw)
             except ValueError:
                 pass   # uncertifiable: keep the raw grid, never raise
+
+        self._maybe_refit_full(auto_split, taus, es_rounds, cat_features,
+                               X_full, y_full, sw_full, groups_full)
 
         return self
 

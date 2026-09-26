@@ -233,7 +233,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 17
+    assert len(qs.PROBES) == 18
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -686,3 +686,40 @@ def test_q9_audition_sn_library_matches_bench_oracle_bit_for_bit(monkeypatch):
         # records the spread model's round and the library the centre's.
         if kind != "scaled":
             assert m.best_iteration_ == best_b
+
+
+def test_split_with_full_leaves_existing_arms_unchanged():
+    """The .full-carrying split unpacks as the plain 4-tuple: an existing
+    arm's grid and stopping round are identical either way."""
+    split, Xte, taus = _q0_split()
+    Xf, Xv, yf, yv = split
+    wrapped = qs._SplitWithFull(split, (np.concatenate([Xf, Xv]),
+                                       np.concatenate([yf, yv])))
+    assert len(wrapped) == 4
+    for a, b in zip(wrapped, split):
+        assert a is b
+    Qp, _, _, best_p = qs._fit_chimera_head(split, Xte, None, 1, taus)
+    Qw, _, _, best_w = qs._fit_chimera_head(wrapped, Xte, None, 1, taus)
+    assert best_w == best_p
+    assert np.array_equal(Qw, Qp)
+
+
+def test_all_rows_probe_records_choice_and_refit(monkeypatch):
+    """The AllRows arm fits the default on split.full with no eval_set and
+    records the audition choice (0-4) plus what was retrained."""
+    monkeypatch.setattr(rb, "MAX_ITERS", 300)
+    split, Xte, taus = _q0_split()
+    Xf, Xv, yf, yv = split
+    wrapped = qs._SplitWithFull(split, (np.concatenate([Xf, Xv]),
+                                       np.concatenate([yf, yv])))
+    Q, _, _, _, extra = qs.PROBES["ChimeraBoostQuantileAllRows"](
+        wrapped, Xte, None, 1, taus)
+    assert Q.shape == (Xte.shape[0], len(taus))
+    assert np.all(np.diff(Q, axis=1) >= 0)
+    assert extra["audition_choice"] in (0, 1, 2, 3, 4)
+    assert isinstance(extra["refit_centre"], bool)
+    assert isinstance(extra["refit_head"], bool)
+    if extra["refit_head"]:
+        assert isinstance(extra["refit_rounds"], int)
+    else:
+        assert extra["refit_rounds"] is None

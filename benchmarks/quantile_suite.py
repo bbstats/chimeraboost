@@ -96,6 +96,24 @@ RONGBA_LEARNING_RATE = 0.04
 RONGBA_LEAVES = 31
 
 
+class _SplitWithFull(tuple):
+    """The shared ``(Xf, Xv, yf, yv)`` split, carrying the training rows.
+
+    Unpacks and indexes as the plain 4-tuple every arm already takes;
+    ``.full`` is the ``(Xtr, ytr)`` the shared split was carved from, in
+    their original order, so a probe arm can fit on all training rows
+    while the library's own carve reproduces the shared split.
+    """
+
+    def __new__(cls, split, full):
+        obj = super().__new__(cls, split)
+        obj.full = full
+        return obj
+
+    def __init__(self, split, full):
+        pass
+
+
 def _fit_head_model(split, cat, threads, taus, n_estimators, **params):
     """Construct and fit the suite's head.
 
@@ -811,6 +829,41 @@ def _fit_chimera_default_uncapped(split, Xte, cat, threads, taus):
     return Q, fit_s, time.time() - t, m.best_iteration_
 
 
+_AUDITION_CHOICE = {"head": 0, "bins": 1, "recentred": 2,
+                    "fixed": 3, "scaled": 4}
+
+
+def _refit_extras(m):
+    """The refit probes' extras: the audition choice as the audition arms
+    encode it (0-4 for H, B, R, S, N), whether the centre and the head
+    were retrained, and the head's retrained round count."""
+    aud = m.audition_ or {}
+    refit = m.refit_ or {}
+    return {"audition_choice": _AUDITION_CHOICE.get(aud.get("selected")),
+            "refit_centre": bool(refit.get("centre", False)),
+            "refit_head": bool(refit.get("head", False)),
+            "refit_rounds": refit.get("rounds")}
+
+
+def _fit_chimera_all_rows(split, Xte, cat, threads, taus):
+    """The library default as a user without an ``eval_set`` gets it:
+    fitted on ALL training rows, so the audition runs on the library's
+    own carve (which reproduces the shared split) and the winner is
+    retrained on every row."""
+    Xtr, ytr = split.full
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=taus, n_estimators=rb.MAX_ITERS,
+        early_stopping_rounds=rb.PATIENCE, thread_count=threads,
+        random_state=0)
+    t = time.time()
+    m.fit(Xtr, ytr, cat_features=cat or None)
+    fit_s = time.time() - t
+    t = time.time()
+    Q = m.predict(Xte)
+    pred_s = time.time() - t
+    return Q, fit_s, pred_s, m.best_iteration_, _refit_extras(m)
+
+
 PROBES = {
     "ChimeraBoostQuantileUncapped": _fit_chimera_uncapped,
     "ChimeraBoostQuantileDepth6": _fit_chimera_depth6,
@@ -829,6 +882,7 @@ PROBES = {
     "ChimeraBoostQuantileAuditionS": _fit_chimera_audition_s,
     "ChimeraBoostQuantileAuditionSN": _fit_chimera_audition_sn,
     "ChimeraBoostQuantileDefaultUncapped": _fit_chimera_default_uncapped,
+    "ChimeraBoostQuantileAllRows": _fit_chimera_all_rows,
 }
 
 
@@ -944,7 +998,8 @@ def run_one(ds_name, seed, taus, threads, models):
                                            "regression")
     # One early-stopping split, shared by every arm, so no model is judged on
     # more data than another. Same carve the harness uses.
-    split = rb._val_split(Xtr, ytr, "regression", 0)
+    split = _SplitWithFull(rb._val_split(Xtr, ytr, "regression", 0),
+                           (Xtr, ytr))
 
     meta = {"task": "quantile", "n_train": int(Xtr.shape[0]),
             "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),

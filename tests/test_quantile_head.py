@@ -1051,3 +1051,170 @@ def test_audition_fixed_and_scaled_keep_the_head_booster():
             raw = c[:, None] + s[:, None] * np.asarray(
                 m._scaled_q_, dtype=np.float64)[None, :]
         np.testing.assert_array_equal(m.predict(Xt), _hand_rescaled(raw, m))
+
+
+# --------------------------------------------------------------------------
+# The full-data refit (Q13): on by default, audition-preserving.
+# --------------------------------------------------------------------------
+
+
+def _aud_nosplit_fit(kind, **kw):
+    """Fit on the kind's training rows WITHOUT an eval_set, so the library
+    carves its own split; return (model, Xtr, ytr, Xte, yte)."""
+    from sklearn.model_selection import train_test_split
+    X, y, sseed = _aud_data(kind)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                         random_state=sseed)
+    m = ChimeraBoostQuantileRegressor(
+        quantiles=_AUD_TAUS, n_estimators=300, early_stopping_rounds=50,
+        thread_count=1, random_state=0, **kw)
+    return m.fit(Xtr, ytr), Xtr, ytr, Xte, yte
+
+
+def test_no_eval_set_equals_suite_split_fit():
+    """Without an eval_set the head carves the suite's own split: bit for
+    bit the same fit as training on the carved rows with that eval_set
+    (the refit pinned off, so the carve is what is compared)."""
+    from sklearn.model_selection import train_test_split
+    rng = np.random.default_rng(60)
+    n = 1500
+    num = rng.standard_normal((n, 3))
+    cat = rng.integers(0, 6, n).astype(object)
+    X = np.column_stack([num, cat])
+    y = (2.0 * num[:, 0] + (cat.astype(float) - 2.5)
+         + rng.standard_normal(n))
+    Xf, Xv, yf, yv = train_test_split(X, y, test_size=0.2, random_state=0)
+    kw = dict(quantiles=_AUD_TAUS, n_estimators=300,
+              early_stopping_rounds=50, thread_count=1, random_state=0,
+              refit_full=False)
+    m_auto = ChimeraBoostQuantileRegressor(**kw).fit(X, y, cat_features=[3])
+    m_split = ChimeraBoostQuantileRegressor(**kw).fit(
+        Xf, yf, cat_features=[3], eval_set=(Xv, yv))
+    assert m_auto.audition_ is not None
+    assert m_auto.audition_ == m_split.audition_
+    assert np.array_equal(m_auto.conformal_scale_, m_split.conformal_scale_)
+    assert np.array_equal(m_auto.predict(X), m_split.predict(X))
+
+
+def test_refit_full_true_equals_default():
+    """refit_full=True is today's fit, exactly; the flag is a visible
+    constructor parameter defaulting to True."""
+    assert (ChimeraBoostQuantileRegressor().get_params()["refit_full"]
+            is True)
+    X, y = _heteroscedastic(n=1200, seed=61)
+    kw = dict(random_state=0, n_estimators=100, thread_count=1)
+    m = ChimeraBoostQuantileRegressor(**kw).fit(X, y)
+    r = ChimeraBoostQuantileRegressor(refit_full=True, **kw).fit(X, y)
+    assert m.refit_ is not None
+    assert r.refit_ == m.refit_
+    assert m.audition_ == r.audition_
+    assert np.array_equal(m.conformal_scale_, r.conformal_scale_)
+    assert np.array_equal(m.predict(X), r.predict(X))
+
+
+def test_refit_full_needs_auto_split_and_no_honest_fold():
+    """With a user eval_set, conformalize=True, or early stopping off, the
+    refit stays out: the default is exactly refit_full=False."""
+    X, y = _heteroscedastic(n=1200, seed=62)
+    Xt, yt, Xv, yv = X[:900], y[:900], X[900:], y[900:]
+    base = dict(random_state=0, n_estimators=100, thread_count=1)
+    d = ChimeraBoostQuantileRegressor(**base).fit(Xt, yt, eval_set=(Xv, yv))
+    f = ChimeraBoostQuantileRegressor(refit_full=False, **base).fit(
+        Xt, yt, eval_set=(Xv, yv))
+    assert d.refit_ is None
+    assert f.refit_ is None
+    assert d.audition_ == f.audition_
+    assert np.array_equal(d.conformal_scale_, f.conformal_scale_)
+    assert np.array_equal(d.predict(Xt), f.predict(Xt))
+    d = ChimeraBoostQuantileRegressor(conformalize=True, **base).fit(X, y)
+    f = ChimeraBoostQuantileRegressor(
+        conformalize=True, refit_full=False, **base).fit(X, y)
+    assert d.refit_ is None
+    assert f.refit_ is None
+    assert np.array_equal(d.predict(X), f.predict(X))
+    d = ChimeraBoostQuantileRegressor(early_stopping=False, **base).fit(X, y)
+    f = ChimeraBoostQuantileRegressor(
+        early_stopping=False, refit_full=False, **base).fit(X, y)
+    assert d.refit_ is None
+    assert f.refit_ is None
+    assert np.array_equal(d.predict(X), f.predict(X))
+
+
+_REFIT_WANT = {
+    "head": (False, True), "bins": (False, True),
+    "recentred": (True, True), "fixed": (True, False),
+    "scaled": (True, False),
+}
+
+
+def test_refit_full_records_and_keeps_es_values():
+    """Per winner: refit_ says what was retrained, at the replay round
+    count; audition_, factors, best round and curve keep the 80% values."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
+        mf, _, _, _, _ = _aud_nosplit_fit(kind, refit_full=False)
+        mt, _, _, _, _ = _aud_nosplit_fit(kind)
+        assert mt.audition_["selected"] == kind
+        assert mt.audition_ == mf.audition_
+        want_c, want_h = _REFIT_WANT[kind]
+        assert mt.refit_["centre"] is want_c
+        assert mt.refit_["head"] is want_h
+        if want_h:
+            t_star = len(mf.model_.trees_)
+            want_rounds = min(int(np.ceil(t_star / 0.8)), 300)
+            assert mt.refit_["rounds"] == want_rounds
+            assert len(mt.model_.trees_) == want_rounds
+        else:
+            assert mt.refit_["rounds"] is None
+        assert np.array_equal(mt.conformal_scale_, mf.conformal_scale_)
+        assert mt.best_iteration_ == mf.best_iteration_
+        assert mt.validation_history_ == mf.validation_history_
+
+
+def test_refit_full_centre_matches_full_row_regressor():
+    """The delivered R/S/N centre is the same regressor fitted on all rows;
+    offsets, residual quantiles, floor and spread stay from the audition."""
+    for kind in ("recentred", "fixed", "scaled"):
+        mt, Xtr, ytr, Xte, _ = _aud_nosplit_fit(kind)
+        mf, _, _, _, _ = _aud_nosplit_fit(kind, refit_full=False)
+        ref = ChimeraBoostRegressor(
+            n_estimators=300, early_stopping_rounds=50, thread_count=1,
+            random_state=0).fit(Xtr, ytr)
+        assert np.array_equal(mt._centre_model_.predict(Xte),
+                              ref.predict(Xte))
+        assert mt._centre_off_ == mf._centre_off_
+        if kind == "fixed":
+            assert np.array_equal(mt._fixed_q_, mf._fixed_q_)
+        if kind == "scaled":
+            assert np.array_equal(mt._scaled_q_, mf._scaled_q_)
+            assert mt._spread_floor_ == mf._spread_floor_
+            assert np.array_equal(mt._spread_model_.predict(Xte),
+                                  mf._spread_model_.predict(Xte))
+
+
+def test_refit_full_paths_serve_retrained_models():
+    """Ordered grids, staged final equals predict, pickle round-trips."""
+    for kind in ("head", "bins", "recentred", "fixed", "scaled"):
+        mt, _, _, Xte, _ = _aud_nosplit_fit(kind)
+        Q = mt.predict(Xte)
+        assert np.all(np.diff(Q, axis=1) >= 0)
+        Xt = Xte[:50]
+        stages = list(mt.staged_predict(Xt))
+        assert np.array_equal(stages[-1], mt.predict(Xt))
+        back = pickle.loads(pickle.dumps(mt))
+        assert np.array_equal(back.predict(Xte), Q)
+        assert back.refit_ == mt.refit_
+
+
+def test_refit_centre_uses_head_validation_fraction():
+    """With validation_fraction=0.3 the retrained centre still carves the
+    head's split: it equals the same regressor with validation_fraction=0.3
+    fitted on all rows."""
+    for kind in ("recentred", "fixed", "scaled"):
+        mt, Xtr, ytr, Xte, _ = _aud_nosplit_fit(
+            kind, validation_fraction=0.3)
+        assert mt.audition_["selected"] in ("recentred", "fixed", "scaled")
+        ref = ChimeraBoostRegressor(
+            n_estimators=300, early_stopping_rounds=50, thread_count=1,
+            random_state=0, validation_fraction=0.3).fit(Xtr, ytr)
+        assert np.array_equal(mt._centre_model_.predict(Xte),
+                              ref.predict(Xte))
