@@ -12,6 +12,7 @@ from .preprocessing import CatTransformCache, as_model_array
 from .random_effects import (codes_for_labels, estimate_ratio_reml,
                              solve_intercepts)
 from .target_encoding import factorize
+from .training_rows import TrainingRows
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 
 
@@ -60,7 +61,7 @@ _SKLEARN_ONLY = frozenset({"early_stopping", "validation_fraction",
                            "cat_features", "cross_features",
                            "cross_top_columns",
                            "selection_rounds", "refit_full", "refit_members",
-                           "quality", "random_effects"})
+                           "quality", "random_effects", "store_training_data"})
 
 # --- quality: named operating points on the strength/slowdown Pareto --------
 # Evidence: benchmarks/SELECT_PLAN.md. Every recipe only pins parameters that
@@ -235,7 +236,7 @@ _HYPERPARAM_CHECKS = (
 
 
 def _check_flag_params(estimator, p):
-    """The tri-state string/bool flags: refit_full, cross_features, quality."""
+    """The string/bool flags: refit_full, cross_features, quality, store."""
     v = p.get("refit_full")
     if v is not None and v != "replay" and not isinstance(v, (bool, np.bool_)):
         raise ValueError(
@@ -256,6 +257,12 @@ def _check_flag_params(estimator, p):
                 "quality must be None or one of "
                 + ", ".join(f"{k} ({n})" for k, n in QUALITY_NAMES.items())
                 + f"; got {v!r}.")
+
+    if "store_training_data" in p:
+        v = p["store_training_data"]
+        if not isinstance(v, (bool, np.bool_)):
+            raise ValueError(
+                f"store_training_data must be True or False; got {v!r}.")
 
 
 def _check_loss_family(p):
@@ -1870,6 +1877,174 @@ def _add_callback(callbacks, extra):
     return base + [extra]
 
 
+def _raise_store_unsupported(what):
+    """The slice-1 coverage error for ``store_training_data=True`` fits."""
+    raise NotImplementedError(
+        f"store_training_data=True does not support {what} yet; refresh() "
+        "currently covers single-model regression and binary classification.")
+
+
+def _check_store_fit(est):
+    """Raise unless this ``store_training_data=True`` fit is slice-1 shaped.
+
+    Called inside ``_quality_applied`` so quality 4/5 already resolved to
+    ``n_ensembles``; the multiclass arm runs in the classifier's
+    ``_fit_single`` once the classes are known.
+    """
+    if not est.store_training_data:
+        return
+    if est.n_ensembles and est.n_ensembles > 1:
+        _raise_store_unsupported("n_ensembles > 1 (including quality=4 and 5)")
+    if getattr(est, "loss", None) == "Quantile":
+        _raise_store_unsupported("loss='Quantile'")
+    if getattr(est, "random_effects", False):
+        _raise_store_unsupported("random_effects=True")
+
+
+def _check_store_multiclass(est):
+    """The multiclass arm of the slice-1 gate (classes are known by now)."""
+    if est.store_training_data and est.n_classes_ > 2:
+        _raise_store_unsupported("multiclass classification")
+
+
+def _capture_training_store(est, cap_full, cap_train, refit, *,
+                              classification):
+    """Set ``n_samples_trained_`` and ``_training_data_`` at the end of fit.
+
+    The captured rows are ``cap_full`` (every row) when the full-data refit
+    replaced the model, else ``cap_train`` (the post-split training rows --
+    X as given with an explicit eval_set or ``early_stopping=False``), each
+    an ``(X, y, sample_weight)`` triple in the booster's row order. The
+    captured ``y`` is exactly as the booster saw it (0/1 floats for binary),
+    the weights raw and un-normalized.
+    """
+    cap_X, cap_y, cap_w = cap_full if refit else cap_train
+    est.n_samples_trained_ = int(len(cap_y))
+    if not est.store_training_data:
+        est._training_data_ = None
+        return
+    if classification:
+        # Binary only (multiclass raised before any fitting work).
+        cap_y = (cap_y == est.classes_[1]).astype(np.float64)
+    est._training_data_ = TrainingRows.capture(
+        est.model_.prep_, cap_X, cap_y, cap_w)
+
+
+def _refresh_check_y(y, n_new, classification):
+    """Validate refresh targets; the empty case skips the target-type probe."""
+    if n_new:
+        return _check_y_target(y, n_new, classification)
+    y_arr = np.asarray(y)
+    if y_arr.shape[0] != 0:
+        raise ValueError(
+            "X and y have inconsistent lengths: X has 0 samples, "
+            f"y has {y_arr.shape[0]}.")
+    if y_arr.ndim == 2:
+        if y_arr.shape[1] == 1:
+            return y_arr.ravel()
+        raise ValueError(
+            "Multi-output y is not supported; pass a 1D y of shape "
+            "(n_samples,).")
+    return y_arr
+
+
+def _refresh_check_w(sample_weight, n_new):
+    """Validate refresh weights; the empty case only checks the shape."""
+    if sample_weight is None:
+        return None
+    if n_new:
+        _check_sample_weight_arr(sample_weight, n_new)
+        return np.asarray(sample_weight, dtype=np.float64)
+    sw = np.asarray(sample_weight, dtype=np.float64)
+    if sw.ndim != 1 or sw.shape[0] != 0:
+        raise ValueError(
+            f"sample_weight must be 1D of length 0; got shape {sw.shape}.")
+    return sw
+
+
+def _refresh_check_store_weights(rows0, sample_weight):
+    """The weighted/unweighted refresh presence checks."""
+    had_weights = rows0.sample_weight is not None
+    if had_weights and sample_weight is None:
+        raise ValueError(
+            "This model was fit with sample_weight, so refresh() needs "
+            "sample_weight for the new rows too, in the same units.")
+    if not had_weights and sample_weight is not None:
+        raise ValueError(
+            "This model was fit without sample_weight, so refresh() cannot "
+            "take sample_weight for the new rows; refit with sample_weight "
+            "to use weights.")
+
+
+def _refresh_map_labels(est, y_arr):
+    """Map refresh labels to the fitted 0/1 encoding, rejecting unseen ones."""
+    yv = np.asarray(y_arr)
+    if yv.size == 0:
+        return np.empty(0, dtype=np.float64)
+    try:
+        unseen = np.setdiff1d(np.unique(yv),
+                              np.unique(np.asarray(est.classes_)))
+    except TypeError:   # mixed un-orderable label types
+        seen = set(np.asarray(est.classes_).tolist())
+        unseen = np.array([v for v in dict.fromkeys(yv.tolist())
+                          if v not in seen], dtype=object)
+    if unseen.size:
+        raise ValueError(
+            f"y contains class label(s) {unseen.tolist()} not seen at fit; "
+            "refresh() cannot add classes -- refit instead.")
+    return (yv == est.classes_[1]).astype(np.float64)
+
+
+def _refresh_replay(est, rows, X_all):
+    """Replay the fitted booster's configuration on the combined rows.
+
+    Everything is pinned at its fitted value -- the size-adaptive autos are
+    NOT re-resolved the way ``_refit_on_full`` does -- and the donor's
+    histories are carried over so ``validation_history_`` still reports the
+    curve that chose the budget.
+    """
+    donor = est.model_
+    kw = donor.replay_kwargs()
+    kw["n_estimators"] = len(donor.trees_)
+    kw["learning_rate"] = float(donor.lr_)
+    kw["early_stopping_rounds"] = None
+    kw["replay_donor"] = (donor.trees_, donor.prep_)
+    b = GradientBoosting(**kw)
+    b.fit(X_all, rows.y, cat_features=list(donor.prep_.cat_features_),
+          sample_weight=rows.sample_weight)
+    b.train_history_ = donor.train_history_
+    b.valid_history_ = donor.valid_history_
+    est.model_ = b
+    est._training_data_ = rows
+    est.n_samples_trained_ = rows.n_rows
+    est._shap_importances_cache_ = None
+    if hasattr(est, "expected_value_"):
+        del est.expected_value_
+    return est
+
+
+def _refresh_single(est, X, y, sample_weight, *, classification):
+    """Shared body of the estimators' ``refresh`` (issue #131 slice 1)."""
+    Xv = _check_predict_input(est, X)
+    rows0 = getattr(est, "_training_data_", None)
+    if rows0 is None:
+        raise ValueError(
+            "refresh() needs the rows this model was trained on, but it was "
+            "fit with store_training_data=False. Refit with "
+            "store_training_data=True to enable refresh().")
+    n_new = len(Xv) if Xv is not None else len(X)
+    y_arr = _refresh_check_y(y, n_new, classification)
+    w_new = _refresh_check_w(sample_weight, n_new)
+    _refresh_check_store_weights(rows0, sample_weight)
+    if classification:
+        y_arr = _refresh_map_labels(est, y_arr)
+    else:
+        y_arr = np.asarray(y_arr, dtype=np.float64)
+    prep = est.model_.prep_
+    rows = rows0.append(prep, X, y_arr, w_new)
+    return _refresh_replay(est, rows, rows.rebuild_X(prep))
+
+
 class _RegBoosterFactory:
     """Value-capturing replacement for the regressor `_fit_single`'s old
     `_fit_booster` / `_screen` closures.
@@ -2174,6 +2349,17 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         ``predict`` takes the row groups and adds the fitted intercepts;
         unseen groups get exactly 0. Slice 1: ``loss="RMSE"`` single models
         only (not ``n_ensembles > 1``).
+    store_training_data : bool, default False
+        Keep the rows the final booster's leaves came from, so ``refresh``
+        can fold in new rows later without a from-scratch refit. What is
+        stored is compact, not raw X: plain numeric columns as binner bins,
+        the raw values of only the cross-feature parent columns,
+        categoricals as integer codes plus their per-column categories, the
+        target as the booster saw it, and the raw sample weights. The store
+        rides along in pickles and grows with every ``refresh`` call.
+        Roughly 3x smaller than float64 X for numeric data when cross
+        features engage, about 6.5x when they do not; far smaller for
+        object-dtype categoricals.
 
     Attributes
     ----------
@@ -2212,6 +2398,10 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
     group_ratio_ : float or None
         Fitted noise-to-group variance ratio (``inf`` means no group signal
         was found). ``None`` unless fit with ``random_effects=True``.
+    n_samples_trained_ : int
+        Number of rows the final booster's leaves came from: all rows when
+        the full-data refit ran, else the post-split training rows. Grown
+        by ``refresh``.
     """
 
     # Both estimators accept cross_features="always" (the unrefereed forced
@@ -2239,7 +2429,8 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, delta=1.0, tweedie_variance_power=1.5,
                  refit_full="replay", refit_members=False, quality=None,
-                 adaptive_learning_rate=True, random_effects=False):
+                 adaptive_learning_rate=True, random_effects=False,
+                 store_training_data=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -2282,6 +2473,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
         self.random_effects = random_effects
+        self.store_training_data = store_training_data
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -2344,6 +2536,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 _check_feature_names_match(self, eval_set[0])
 
         with _quality_applied(self):
+            _check_store_fit(self)
             if self.random_effects:
                 if self.loss != "RMSE":
                     raise ValueError(
@@ -2587,6 +2780,7 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 n_re_groups)
             y_full_for_refit = (np.asarray(y_full, dtype=np.float64)
                                 - b_pre[group_codes_full])
+        pre_refit = self.model_
         self._dispatch_reg_refit(kw, loss_kwargs, X_full, y_full_for_refit,
                                  sw_full, cat_features, auto_split,
                                  cat_ctx=full_ctx)
@@ -2600,6 +2794,9 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
                 self.model_, X_full, y_full, sw_full, group_codes_full,
                 n_re_groups)
 
+        _capture_training_store(
+            self, (X_full, y_full, sw_full), (X, y, sample_weight),
+            self.model_ is not pre_refit, classification=False)
         return self
 
     def _arm_forced_cross(self, fb, select_ll, ll):
@@ -2809,6 +3006,40 @@ class ChimeraBoostRegressor(RegressorMixin, BaseEstimator):
         """
         tf = getattr(self.model_.loss_, "transform", None)
         return raw if tf is None else tf(raw)
+
+    def refresh(self, X, y, sample_weight=None):
+        """Fold new rows into this fitted model without a from-scratch refit.
+
+        Appends ``(X, y[, sample_weight])`` to the rows stored at fit time
+        (``store_training_data=True``), rebuilds a raw-equivalent training
+        matrix from the store, and replays the FITTED booster's configuration
+        on it -- the same structure-transfer replay the default full-data
+        refit uses. Every tree's structure, the round count and the learning
+        rate stay pinned; leaf values and linear-leaf coefficients are refit
+        against the combined gradients.
+
+        ``refresh`` replays the fitted configuration and ignores any
+        ``set_params`` made after fit. The binner borders, the count and
+        cross selections, the validation history and the fitted selections
+        are unchanged; ``n_samples_trained_`` grows by the number of new
+        rows.
+
+        Parameters
+        ----------
+        X, y : array-like
+            New rows with the same features the model was fit on. Zero rows
+            are allowed, in which case predictions are unchanged.
+        sample_weight : array-like of shape (n_samples,) or None
+            Weights for the new rows, in the same units as the fit weights.
+            Required when the model was fit with weights, rejected when it
+            was not.
+
+        Returns
+        -------
+        self
+        """
+        return _refresh_single(self, X, y, sample_weight,
+                               classification=False)
 
     def predict_raw(self, X):
         """Raw additive score before the loss link and conformal quantile offset.
@@ -3235,6 +3466,17 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         called without its own ``cat_features`` (the fit argument overrides).
         Provided as a constructor argument so ``GridSearchCV``/``Pipeline`` can
         carry it.
+    store_training_data : bool, default False
+        Keep the rows the final booster's leaves came from, so ``refresh``
+        can fold in new rows later without a from-scratch refit. What is
+        stored is compact, not raw X: plain numeric columns as binner bins,
+        the raw values of only the cross-feature parent columns,
+        categoricals as integer codes plus their per-column categories, the
+        target as the booster saw it, and the raw sample weights. The store
+        rides along in pickles and grows with every ``refresh`` call.
+        Roughly 3x smaller than float64 X for numeric data when cross
+        features engage, about 6.5x when they do not; far smaller for
+        object-dtype categoricals.
 
     Attributes
     ----------
@@ -3254,6 +3496,10 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         Bagged-mode member defaults that were auto-applied (params the user
         left on auto resolve to tuned member values inside a bag; explicit
         values always win). Set only when ``n_ensembles > 1``.
+    n_samples_trained_ : int
+        Number of rows the final booster's leaves came from: all rows when
+        the full-data refit ran, else the post-split training rows. Grown
+        by ``refresh``.
     """
 
     # Not pinned on the classifier: linear_leaves=None is already an auto rule
@@ -3281,7 +3527,8 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                  n_ensembles=None, ensemble_n_jobs=-1, max_samples=0.8,
                  cat_features=None, quantize_gradients=True,
                  eval_metric=None, refit_full="replay", refit_members=False,
-                 quality=None, adaptive_learning_rate=True):
+                 quality=None, adaptive_learning_rate=True,
+                 store_training_data=False):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.depth = depth
@@ -3319,6 +3566,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         # Size fade for the auto learning rate, default-on since 0.30.0; only
         # consulted when learning_rate is None. False == the historical flat 0.1.
         self.adaptive_learning_rate = adaptive_learning_rate
+        self.store_training_data = store_training_data
 
     def fit(self, X, y, cat_features=None, eval_set=None, groups=None,
             sample_weight=None, callbacks=None):
@@ -3375,6 +3623,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
                 _check_eval_labels(eval_set, y)
 
         with _quality_applied(self):
+            _check_store_fit(self)
             if self.n_ensembles and self.n_ensembles > 1:
                 if callbacks is not None:
                     raise ValueError(
@@ -3668,6 +3917,7 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
         (X, y, sample_weight, eval_set, es_active, auto_split,
          X_full, y_full, sw_full, split_idx) = self._resolve_classes_and_split(
             X, y, cat_features, eval_set, groups, sample_weight)
+        _check_store_multiclass(self)
         full_ctx, train_ctx, val_ctx = _shared_cat_ctxs(
             X_full, split_idx, cat_features)
 
@@ -3754,10 +4004,51 @@ class ChimeraBoostClassifier(ClassifierMixin, BaseEstimator):
             self.temperature_ = _fit_temperature(raw, cal_y, self._multiclass,
                                                  sample_weight=cal_w)
 
+        pre_refit = self.model_
         self._dispatch_cls_refit(kw, X_full, y_full, sw_full, cat_features,
                                  auto_split, cat_ctx=full_ctx)
 
+        _capture_training_store(
+            self, (X_full, y_full, sw_full), (X, y, sample_weight),
+            self.model_ is not pre_refit, classification=True)
         return self
+
+    def refresh(self, X, y, sample_weight=None):
+        """Fold new rows into this fitted binary model without a from-scratch
+        refit.
+
+        Appends ``(X, y[, sample_weight])`` to the rows stored at fit time
+        (``store_training_data=True``), rebuilds a raw-equivalent training
+        matrix from the store, and replays the FITTED booster's configuration
+        on it -- the same structure-transfer replay the default full-data
+        refit uses. Every tree's structure, the round count and the learning
+        rate stay pinned; leaf values and linear-leaf coefficients are refit
+        against the combined gradients.
+
+        ``refresh`` replays the fitted configuration and ignores any
+        ``set_params`` made after fit. The binner borders, the count and
+        cross selections, the validation history, the fitted selections and
+        the frozen ``temperature_`` are unchanged; ``n_samples_trained_``
+        grows by the number of new rows.
+
+        Parameters
+        ----------
+        X, y : array-like
+            New rows with the same features the model was fit on. ``y``
+            carries original class labels, mapped through the fitted
+            ``classes_`` -- labels never seen at fit raise. Zero rows are
+            allowed, in which case predictions are unchanged.
+        sample_weight : array-like of shape (n_samples,) or None
+            Weights for the new rows, in the same units as the fit weights.
+            Required when the model was fit with weights, rejected when it
+            was not.
+
+        Returns
+        -------
+        self
+        """
+        return _refresh_single(self, X, y, sample_weight,
+                               classification=True)
 
     def predict_proba(self, X):
         Xv = _check_predict_input(self, X)

@@ -138,6 +138,7 @@ See the User Guide: [early stopping](recipes.md#early-stopping) for `eval_set` a
 | Parameter | Default | Effect |
 |---|---|---|
 | `random_effects` | `False` | Fit one shrunk intercept per `groups=` label on top of the trees (regressor, RMSE single-model only). Small groups pool toward zero; unseen groups predict trees-only. See the User Guide: [grouped data](recipes.md#grouped-data-random-intercepts). |
+| `store_training_data` | `False` | Keep the rows the final model was fit on, in compact form, so `refresh(X, y)` can fold in new rows later by refitting only the leaf values. Regressor and binary classifier, single models only. The stored rows travel with the pickled model and grow with every refresh. See the User Guide: [refreshing with new rows](recipes.md#refreshing-with-new-rows). |
 
 ## System
 

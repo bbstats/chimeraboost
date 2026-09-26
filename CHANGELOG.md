@@ -4,6 +4,21 @@ All notable changes to ChimeraBoost are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **`store_training_data` and `refresh(X, y)`** on the regressor and the
+  binary classifier (#131, first slice). With `store_training_data=True` a
+  model keeps its training rows in compact form (bins for plain numeric
+  columns, raw values only for the columns that feed cross features,
+  category codes), and `refresh` folds in new rows by replaying every
+  tree's splits on the old and new rows together and refitting only the
+  leaf values. It is the same replay the default full-data refit uses,
+  with the tree count, learning rate and splits pinned; refreshing with no
+  new rows reproduces the model bit for bit. Bagged models, multiclass,
+  `loss="Quantile"` and `random_effects=True` are not supported yet. The
+  default fit's results are unchanged. On a 3.3M-row regression, folding in
+  a day of new rows took 70 s against 232 s for a full refit, at the same
+  accuracy.
+
 ### Changed
 - **The quantile head retrains its winner on all rows by default.** Called
   without an `eval_set`, `ChimeraBoostQuantileRegressor` held back
@@ -49,6 +64,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   untouched: the exact-output snapshot moves only one quantile
   configuration (183 of 186 pins identical). Record:
   `benchmarks/QUANTILE_PLAN.md`, Phase 2 (Q8, Q9).
+- **Fits with linear leaves are faster, with identical results.** The
+  per-leaf linear fit used to sum each leaf on one thread, and one leaf
+  often holds 40-60% of the rows. Large leaves now spread their sums over
+  several threads, each sum still adding the rows in the same order. A
+  500k-row fit went from 15.9 to 13.4 s, and a refresh from 5.0 to 3.6 s.
 - **The quantile benchmark's NGBoost opponent now uses the RoNGBa
   settings** (Ren, Sun and Wu 2019; #163): trees of up to 31 leaves, a
   learning rate of 0.04 and at most 500 rounds, in place of NGBoost's stock

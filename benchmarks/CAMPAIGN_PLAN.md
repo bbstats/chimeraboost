@@ -1277,6 +1277,11 @@ PR #170 is PARKED OPEN (not merged, not closed); issue #131 stays open.
 The loop moves on to the other issues; if he closes #170, the kernel
 speedup (435e866, bit-identical, 1.19x on linear-leaf fits) is worth
 salvaging as its own PR, since it helps every default fit.
+2026-09-26, the maintainer: "let's move forward with 170, but clean up
+the merge conflicts then i'll merge the PR". Un-parked: main merged into
+the branch; the conflicts were CHANGELOG (entries on both sides, all
+kept), this file and `REFRESH_PLAN.md` (log lines on both sides, all
+kept); no code overlapped. Awaiting his merge.
 
 #### I065 2026-09-24 issue #81 (research cascade: dead self-test anchor, stale `ideas.py` flags; BENCH tooling + test, pre-registered)
 why now: the focus rule's second issue. PR #168 merged (3e02ab1), #84

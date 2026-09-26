@@ -131,3 +131,8 @@ Still open, for their slices:
   implemented"). Slice 1 is PARKED; slices 2-7 are not started. If #170 is
   closed, salvage the bit-identical replay-kernel speedup (435e866) as its
   own PR: it speeds up every linear-leaf fit.
+- 2026-09-26: un-parked. The maintainer: "let's move forward with 170,
+  but clean up the merge conflicts then i'll merge the PR". Main merged
+  into the branch (conflicts only in CHANGELOG and two plan files; no
+  code overlapped), so the salvage note above no longer applies. Slices
+  2-7 are not started.
