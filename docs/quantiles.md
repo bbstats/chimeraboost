@@ -156,6 +156,31 @@ with early stopping off and no `eval_set`, or with `conformalize` set to `True` 
 `False`, one head is fitted. `audition=False` fits one head, as releases before 0.33.0
 did.
 
+## Retraining on all rows
+
+When you don't pass an `eval_set`, the model holds back `validation_fraction` of your
+rows, 20% by default. It uses them to choose the stopping round, calibrate the intervals
+and pick the candidate. Then it retrains the winner on all the rows, as
+`ChimeraBoostRegressor` does, so the held-back rows still reach the final model.
+Everything decided on them stays as it was: the candidate, the calibration factors, the
+fixed and scaled candidates' offsets, `best_iteration_` and `validation_history_`.
+
+```python
+model = ChimeraBoostQuantileRegressor().fit(X, y)
+model.refit_      # what was retrained, e.g. {"centre": True, "head": False, "rounds": None}
+```
+
+On the 36 Grinsztajn regression datasets the retrain improves CRPS on 35 and loses on 1,
+by 0.5%. The median gain is 0.9%, and six low-noise datasets gain between 3% and 9%. The
+intervals come out very slightly wider: a nominal 90% interval covers 90.4% on average
+instead of 90.1%. The retrain adds about 30% to the fit time at the median, and
+`refit_full=False` skips it.
+
+It never trains on rows you hold out yourself. With your own `eval_set` nothing is
+retrained, and with `conformalize=True` nothing is retrained either, which keeps the
+coverage guarantee intact. Every model in the comparison below trains on the same rows,
+with the same rows held out, so the table does not include this gain.
+
 ## Scoring
 
 `chimeraboost.quantile_metrics` scores a predicted grid.
@@ -336,8 +361,9 @@ calibration repairs the tails. Earlier releases used `depth=4` with no calibrati
 most extreme level on the grid, so a leaf estimating the 5% quantile keeps at least
 about 20 rows.
 
-When fit time matters more than the last 3%, `audition=False` fits a single head in
-about 40% of the time.
+When fit time matters most, `refit_full=False` skips the retrain, which gives up a
+median 0.9% of CRPS, and `audition=False` fits a single head instead of five candidates,
+less than half the work, which gives up a median 3%.
 
 `split_projection` chooses how the K gradient columns collapse into the single vector
 the tree grower accepts. Leave it alone unless you are exploring: `"rotate"` measured

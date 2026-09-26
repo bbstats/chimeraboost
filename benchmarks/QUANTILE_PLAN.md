@@ -424,6 +424,23 @@ Q0 reads moved it down to item 4.
    1 of the 59 decide keys, so it cannot clear the gate. Bagging the centre
    ×5 is the ceiling (visualizing_soil +30%, pol +9%) and is an ensemble,
    so not a default.
+3g. **Q12, retraining the winner on all rows (the maintainer's pick
+   2026-09-25).** Without an `eval_set` the head's own carve equals the
+   suite's shared split bit for bit, so the probe is a retrain added to
+   today's fit: every choice and calibration quantity from the held-out
+   fit, then (a) the R/S/N centre retrained on all rows, or (b) that plus
+   the H/B/R head retrained from scratch at the replay-round rule.
+   **PASSED 2026-09-25 (I075, `results/quantile-20260925-202430.json`).**
+   Against the default: (a) gr 19W-0L-17T, +1.72%, p 3.8e-6, 1.07× fit;
+   (b) gr 35W-1L, +0.91%, p 1.1e-9, hc 6W-0L, 1.28× fit; (b) beats (a)
+   20W-1L-15T (p 2.1e-5), so (b). Coverage guard fine (gr 90% error 0.32 →
+   0.47 points); the hc `@time` flag shrinks (4.69 → 3.29).
+3h. **Q13, `refit_full=True` as the default.**
+   **PASSED 2026-09-25 (I076), PR for the maintainer.** Without an
+   `eval_set` the default reproduces Q12's arm (b) bit for bit; with one,
+   nothing changes. The suite's field arm keeps its `eval_set`, so every
+   comparison stays "every model on the same rows" and leaves this gain
+   out.
 4. **Q1, the narrow-interval defect (P16).** Leaf values are in-sample
    residual quantiles, so intervals over-narrow (0.869 at nominal 0.90 on
    2026-08-30; coverage decays with rounds). Fit leaf quantiles
@@ -533,7 +550,7 @@ offset on real data (a CRPS tie), which made it Q0's subject.
   against pinball. That is a default flip on a strength surface, so it needs
   its own pre-registration and the full `/experiment` protocol. Not attempted
   here. Recorded 2026-08-30.
-- **The head never trains on its own early-stopping fold** (recorded
+- RESOLVED 2026-09-25 (Q12 and Q13, I075 and I076): **The head never trains on its own early-stopping fold** (recorded
   2026-09-25, I073b). Without an `eval_set` the head carves
   `validation_fraction` and neither it nor its S/N centre ever sees those
   rows, while `ChimeraBoostRegressor` refits on all rows by default

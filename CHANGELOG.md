@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Changed
+- **The quantile head retrains its winner on all rows by default.** Called
+  without an `eval_set`, `ChimeraBoostQuantileRegressor` held back
+  `validation_fraction` of the rows for early stopping, calibration and
+  the candidate choice, and never trained on them. The new `refit_full`,
+  on by default, makes every choice on those rows as before and then
+  retrains the winner on all rows, as `ChimeraBoostRegressor` does. The
+  candidate, the calibration factors, the fixed and scaled candidates'
+  offsets, `best_iteration_` and `validation_history_` stay from the
+  held-out fit, and `refit_` records what was retrained. On the 36
+  Grinsztajn regression datasets it improves CRPS on 35 and loses 1 by
+  0.5% (median +0.9%; up to +8.6% on Brazilian_houses), and it improves all
+  6 high-cardinality ones (median +1.4%). It also shrinks the time-split
+  caveat in the next entry: the median 90% coverage error there falls
+  from 4.7 to 3.3 points. It adds about 30% to the fit time where it acts.
+  Nothing changes with your own `eval_set`, with early stopping off, or
+  with `conformalize=True`; `refit_full=False` skips it. The comparisons
+  in `docs/quantiles.md` keep every model on the same rows, so they do not
+  include this gain. Record: `benchmarks/QUANTILE_PLAN.md`, Q12 and Q13.
 - **The quantile head's audition gains two candidates, and its CRPS improves
   most on low-noise targets.** `ChimeraBoostQuantileRegressor`'s default
   choice now also tries `"fixed"`, an ordinary squared-error
