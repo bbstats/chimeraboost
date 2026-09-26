@@ -233,7 +233,7 @@ def test_q0_probes_are_opt_in(monkeypatch):
     import quantile_synth as qsyn
 
     assert len(qs.ARMS) == 7
-    assert len(qs.PROBES) == 19
+    assert len(qs.PROBES) == 18
     _stub_registry(monkeypatch, ["gr:reg_num/houses"],
                    {"gr:reg_num/houses": "regression"})
 
@@ -704,23 +704,22 @@ def test_split_with_full_leaves_existing_arms_unchanged():
     assert np.array_equal(Qw, Qp)
 
 
-def test_refit_probes_record_choice_and_refit(monkeypatch):
-    """The refit arms fit on split.full with no eval_set and record the
-    audition choice (0-4) plus what was retrained."""
+def test_all_rows_probe_records_choice_and_refit(monkeypatch):
+    """The AllRows arm fits the default on split.full with no eval_set and
+    records the audition choice (0-4) plus what was retrained."""
     monkeypatch.setattr(rb, "MAX_ITERS", 300)
     split, Xte, taus = _q0_split()
     Xf, Xv, yf, yv = split
     wrapped = qs._SplitWithFull(split, (np.concatenate([Xf, Xv]),
                                        np.concatenate([yf, yv])))
-    for name in ("ChimeraBoostQuantileRefitAll",
-                 "ChimeraBoostQuantileRefitCentre"):
-        Q, _, _, _, extra = qs.PROBES[name](wrapped, Xte, None, 1, taus)
-        assert Q.shape == (Xte.shape[0], len(taus))
-        assert np.all(np.diff(Q, axis=1) >= 0)
-        assert extra["audition_choice"] in (0, 1, 2, 3, 4)
-        assert isinstance(extra["refit_centre"], bool)
-        assert isinstance(extra["refit_head"], bool)
-        if extra["refit_head"]:
-            assert isinstance(extra["refit_rounds"], int)
-        else:
-            assert extra["refit_rounds"] is None
+    Q, _, _, _, extra = qs.PROBES["ChimeraBoostQuantileAllRows"](
+        wrapped, Xte, None, 1, taus)
+    assert Q.shape == (Xte.shape[0], len(taus))
+    assert np.all(np.diff(Q, axis=1) >= 0)
+    assert extra["audition_choice"] in (0, 1, 2, 3, 4)
+    assert isinstance(extra["refit_centre"], bool)
+    assert isinstance(extra["refit_head"], bool)
+    if extra["refit_head"]:
+        assert isinstance(extra["refit_rounds"], int)
+    else:
+        assert extra["refit_rounds"] is None

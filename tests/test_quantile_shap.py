@@ -325,7 +325,8 @@ def test_audition_winner_shap_is_locally_accurate():
 
 
 def _aud_nosplit_shap(kind):
-    """The kind's training rows without an eval_set, refit on; (model, Xte)."""
+    """The kind's training rows without an eval_set, under the default;
+    (model, Xte)."""
     from sklearn.model_selection import train_test_split
     taus = [0.05, 0.25, 0.5, 0.75, 0.95]
     X, y, sseed = _aud_data_shap(kind)
@@ -333,7 +334,7 @@ def _aud_nosplit_shap(kind):
                                        random_state=sseed)
     m = ChimeraBoostQuantileRegressor(
         quantiles=taus, n_estimators=300, early_stopping_rounds=50,
-        thread_count=1, random_state=0, refit_full=True).fit(Xtr, ytr)
+        thread_count=1, random_state=0).fit(Xtr, ytr)
     return m, Xte
 
 

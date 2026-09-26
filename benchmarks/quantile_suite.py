@@ -845,18 +845,16 @@ def _refit_extras(m):
             "refit_rounds": refit.get("rounds")}
 
 
-def _fit_chimera_refit(split, Xte, cat, threads, taus, scope):
-    """The Q12 probe: the head fitted on ALL training rows with
-    ``refit_full=True`` -- the audition runs on the library's own carve,
-    which reproduces the shared split, and the winner is then retrained
-    on every row. ``scope="centre"`` retrains only the R/S/N centre."""
+def _fit_chimera_all_rows(split, Xte, cat, threads, taus):
+    """The library default as a user without an ``eval_set`` gets it:
+    fitted on ALL training rows, so the audition runs on the library's
+    own carve (which reproduces the shared split) and the winner is
+    retrained on every row."""
     Xtr, ytr = split.full
     m = ChimeraBoostQuantileRegressor(
         quantiles=taus, n_estimators=rb.MAX_ITERS,
         early_stopping_rounds=rb.PATIENCE, thread_count=threads,
-        random_state=0, refit_full=True)
-    if scope == "centre":
-        m._refit_scope = "centre"
+        random_state=0)
     t = time.time()
     m.fit(Xtr, ytr, cat_features=cat or None)
     fit_s = time.time() - t
@@ -864,18 +862,6 @@ def _fit_chimera_refit(split, Xte, cat, threads, taus, scope):
     Q = m.predict(Xte)
     pred_s = time.time() - t
     return Q, fit_s, pred_s, m.best_iteration_, _refit_extras(m)
-
-
-def _fit_chimera_refit_all(split, Xte, cat, threads, taus):
-    """The head retrained on all rows: centre and head alike (Q12 arm b)."""
-    return _fit_chimera_refit(split, Xte, cat, threads, taus, scope="all")
-
-
-def _fit_chimera_refit_centre(split, Xte, cat, threads, taus):
-    """The head retrained on all rows: the R/S/N centre only, every head
-    booster untouched (Q12 arm a)."""
-    return _fit_chimera_refit(split, Xte, cat, threads, taus,
-                              scope="centre")
 
 
 PROBES = {
@@ -896,8 +882,7 @@ PROBES = {
     "ChimeraBoostQuantileAuditionS": _fit_chimera_audition_s,
     "ChimeraBoostQuantileAuditionSN": _fit_chimera_audition_sn,
     "ChimeraBoostQuantileDefaultUncapped": _fit_chimera_default_uncapped,
-    "ChimeraBoostQuantileRefitAll": _fit_chimera_refit_all,
-    "ChimeraBoostQuantileRefitCentre": _fit_chimera_refit_centre,
+    "ChimeraBoostQuantileAllRows": _fit_chimera_all_rows,
 }
 
 
