@@ -109,11 +109,8 @@ def _detect():
         have["lightgbm"] = True
     except Exception:
         have["lightgbm"] = False
-    try:
-        import miceforest  # noqa
-        have["cbmiceforest"] = True
-    except Exception:
-        have["cbmiceforest"] = False
+    import missing_arms
+    have["cbmiceforest"] = missing_arms.miceforest_status()[0]
     return have
 
 
@@ -376,6 +373,13 @@ def _add_miss_datasets(base_keys):
                 DATASETS[vkey] = DATASETS[key]
 
 
+def _has_numeric_nan(X, cat):
+    """True if any non-categorical column of X holds a NaN."""
+    cat_set = set(cat or ())
+    num = [j for j in range(X.shape[1]) if j not in cat_set]
+    return bool(num) and bool(np.isnan(np.asarray(X[:, num], dtype=float)).any())
+
+
 def _logit_rate_offset(lin, rate):
     """Intercept b with mean(sigmoid(lin + b)) == rate, by bisection."""
     lo, hi = -50.0, 50.0
@@ -442,6 +446,14 @@ def _inject_missing(Xtr, Xte, cat, mech, seed, rate=MISS_RATE):
     info = {"miss_mechanism": mech, "miss_cols": len(cols),
             "miss_rate": float((Mtr.sum() + Mte.sum()) / cells) if cells else 0.0}
     return Xtr, Xte, info
+
+
+def _miss_only_key(ds):
+    """--miss-only selection: an injected-missingness twin, or a plain HC set
+    (HC sets without numeric NaN are skipped in the worker, after the split)."""
+    if VARIANT_SEP in ds:
+        return ds.split(VARIANT_SEP, 1)[1] in MISS_MECHANISMS
+    return ds.startswith("hc:")
 
 
 def _task_of(ds_name):
@@ -1649,8 +1661,10 @@ def _run_lightgbm(task, Xtr, ytr, Xte, yte, cat, threads):
 # Each arm transforms the data (fitted on the training rows only; see
 # benchmarks/missing_arms.py), then runs the default ChimeraBoost. Fitting the
 # transform and transforming the training rows count as fit time;
-# transforming the test rows counts as predict time.
-def _run_chimera_missing(arm, task, Xtr, ytr, Xte, yte, cat, threads):
+# transforming the test rows counts as predict time. `cfg` is the same
+# --chimera-* configuration the baseline gets (wired in _make_runners), so an
+# arm and the baseline can never silently run different boosters.
+def _run_chimera_missing(arm, task, Xtr, ytr, Xte, yte, cat, threads, **cfg):
     import missing_arms
     t = time.time()
     tf = missing_arms.ARMS[arm](threads=threads, random_state=0)
@@ -1660,7 +1674,7 @@ def _run_chimera_missing(arm, task, Xtr, ytr, Xte, yte, cat, threads):
     Xte = tf.transform(Xte)
     t_pred = time.time() - t
     metrics, fit_s, pred_s, best = _run_chimera(task, Xtr, ytr, Xte, yte, cat,
-                                                threads)
+                                                threads, **cfg)
     return metrics, fit_s + t_fit, pred_s + t_pred, best
 
 
@@ -1737,6 +1751,9 @@ def _make_runners(model_names, chimera_cfg):
     for name in ("ChimeraBoostEns2", "ChimeraBoostEns5", "ChimeraBoostEns8",
                  "ChimeraBoostEns10"):
         runners[name] = functools.partial(runners[name], **ens_cfg)
+    for name, arm in MISSING_ARM_RUNNERS.items():
+        runners[name] = functools.partial(_run_chimera_missing, arm,
+                                          **chimera_cfg)
     return {name: runners[name] for name in model_names}
 
 
@@ -1797,7 +1814,7 @@ def _run_seed_task(task):
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
      ensemble_n, need_grinsztajn, need_pmlb, need_synth,
-     need_highcard, need_public, need_variants, need_miss) = task
+     need_highcard, need_public, need_variants, need_miss, miss_only) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_grinsztajn:
@@ -1850,6 +1867,16 @@ def _run_seed_task(task):
                                        "n_features": int(X.shape[1]),
                                        "has_cats": bool(cat)}, {}
             Xtr, Xte, miss_info = injected
+        elif miss_only and not variant and not _has_numeric_nan(Xtr, cat):
+            # --miss-only keeps real-missingness sets only: with no numeric NaN
+            # in the training rows every missing-value arm is an exact
+            # pass-through, so fitting anything here would be pure waste.
+            print(f"  [skip] {ds_name} (seed {seed}): no numeric NaN in the "
+                  "training rows (--miss-only)")
+            return ds_name, seed, {"task": ttype, "n_train": 0,
+                                   "n_total": int(len(y)),
+                                   "n_features": int(X.shape[1]),
+                                   "has_cats": bool(cat)}, {}
 
     meta = {"task": ttype, "n_train": int(Xtr.shape[0]),
             "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),
@@ -2117,6 +2144,16 @@ def main():
                          "every selected Grinsztajn dataset (30%% of each "
                          "affected numeric column, train and test). Opt-in, "
                          "never on by default; see MISSING_PLAN.md.")
+    ap.add_argument("--miss-only", action="store_true",
+                    help="the MISSING_PLAN bake-off selection: the @mcar/@mar/"
+                         "@mnar twins of every Grinsztajn dataset plus the HC "
+                         "sets whose training rows carry numeric NaN (the "
+                         "rest are skipped before any fit). Implies "
+                         "--grinsztajn --highcard --miss, no other variants.")
+    ap.add_argument("--seed-start", type=int, default=0,
+                    help="first seed (default 0); runs seeds seed-start .. "
+                         "seed-start+seeds-1. For confirming a screen on "
+                         "fresh seeds -- compare arms within ONE run.")
     ap.add_argument("--no-variants", dest="variants", action="store_false",
                     help="suppress the variant families (see --variants).")
     ap.add_argument("--list-datasets", action="store_true",
@@ -2259,6 +2296,11 @@ def main():
     if args.decide:
         args.grinsztajn = True
         args.highcard = True
+    if args.miss_only:
+        args.grinsztajn = True
+        args.highcard = True
+        args.miss = True
+        args.variants = False
 
     # Optional tee: mirror stdout to a results file so runs are inspectable
     # later. Default location is benchmarks/results/YYYYMMDD-HHMMSS.txt.
@@ -2364,6 +2406,12 @@ def main():
                  + [m for m in _OFF_BY_DEFAULT if not HAVE.get(m.lower(), False)]
                  + [m for m in _OPTIONAL if HAVE[m.lower()]])
     available += [m for m in _OPTIONAL_OFF if HAVE[m.lower()]]
+    if args.models and "CBMiceForest" in args.models and not HAVE["cbmiceforest"]:
+        # Refuse up front: otherwise the arm is dropped (not installed) or every
+        # fit raises and is recorded as a silent skip (LightGBM >= 4.6).
+        import missing_arms
+        ap.error("CBMiceForest unavailable: "
+                 + missing_arms.miceforest_status()[1])
     if args.models:
         model_names = [m for m in args.models if m in available]
     else:
@@ -2404,7 +2452,8 @@ def main():
     threads_per = max(1, total_threads // jobs)
 
     selected = [ds for ds in DATASETS
-                if not (args.datasets and ds not in args.datasets)
+                if not (args.miss_only and not _miss_only_key(ds))
+                and not (args.datasets and ds not in args.datasets)
                 and not (args.only == "regression" and _task_of(ds) != "regression")
                 and not (args.only == "classification" and _task_of(ds) == "regression")]
 
@@ -2421,7 +2470,7 @@ def main():
 
     print("Detected competitors:",
           ", ".join(k for k, v in HAVE.items() if v) or "none (sklearn only)")
-    print(f"scale={args.scale}  seeds={args.seeds}  jobs={jobs}  "
+    print(f"scale={args.scale}  seeds={args.seeds} (from {args.seed_start})  jobs={jobs}  "
           f"threads/job={threads_per}  max_iter={MAX_ITERS}  patience={PATIENCE}  "
           f"models={model_names}"
           + (f"  chimera_lr={args.lr}" if args.lr else "")
@@ -2448,12 +2497,14 @@ def main():
               f"windows per dataset no matter how many seeds you run. Vary "
               f"TEMPORAL_CUTS in a probe if you need more.\n")
 
+    seed_list = list(range(args.seed_start, args.seed_start + args.seeds))
+
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_grinsztajn, need_pmlb,
               need_synth, need_highcard, need_public, need_variants,
-              need_miss)
-             for ds in selected for s in range(args.seeds)]
+              need_miss, bool(args.miss_only))
+             for ds in selected for s in seed_list]
     total_tasks = len(tasks)
 
     # Live-progress sidecar so `bench_status.py` (the /bench command) can report
@@ -2507,7 +2558,7 @@ def main():
         times = {m: [] for m in model_names}
         iters = {m: [] for m in model_names}
         briers = {m: [] for m in model_names}
-        for s in range(args.seeds):
+        for s in seed_list:
             if s not in seed_map:
                 continue
             for name, res in seed_map[s][1].items():
@@ -2600,7 +2651,8 @@ def main():
         with open(json_path, "w", encoding="utf-8") as jf:
             _json.dump({
                 "config": {
-                    "seeds": args.seeds, "max_iters": MAX_ITERS,
+                    "seeds": args.seeds, "seed_start": args.seed_start,
+                    "max_iters": MAX_ITERS,
                     "patience": PATIENCE, "ensemble_n": ENSEMBLE_N,
                     "threads_per_model": threads_per,
                     "total_threads": total_threads,

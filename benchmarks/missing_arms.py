@@ -4,38 +4,49 @@ Each arm is a transform fitted on the TRAINING rows only and then applied to
 train and test; the default ChimeraBoost fit runs on the result. Benchmark-only:
 nothing here touches the library until an arm wins.
 
-Shared rules:
-  * Only numeric columns holding NaN in the training rows are touched ("nan
-    columns"). Categoricals pass through -- their NaN is already "__nan__".
-  * No NaN in the training rows => exact pass-through (same array object), so
-    the plain strata tie the baseline exactly.
-  * Every imputation arm appends missing-indicator columns (Perez-Lebel 2022;
-    Le Morvan & Varoquaux 2025: indicators help even under MCAR).
-  * New columns are appended at the END, so categorical indices stay valid.
+Design -- augment, never replace. Every arm keeps the original columns exactly
+as they are (NaN included, so ChimeraBoost's top-bin routing survives) and
+appends ONE filled copy per NaN-bearing column. Arms therefore all have the same
+width and differ only in where the copy puts the missing rows. Replacing the
+column instead would throw away the single-split "value > t or missing" route,
+which rigged the first design against imputation under MNAR. No indicator
+columns: the original column's top-bin split already isolates missing rows (an
+appended indicator measured an exact tie with the baseline).
 
-Arms (ARMS maps name -> class):
-  ind      one 0/1 "was missing" column per nan column
-  mia      + indicators + a mirrored copy of each nan column with NaN set below
-           the training minimum. The binner puts NaN in the TOP bin of the
-           original; the copy puts it at the bottom, so each split can choose
-           "missing goes high" or "missing goes low" -- XGBoost-style learned
-           direction, emulated without a kernel change.
-  mean     mean fill + indicators
-  missforest  IterativeImputer(RandomForest) + indicators
-  miceforest  miceforest (LightGBM MICE, optional dependency) + indicators.
-           miceforest 6.0.5 breaks on LightGBM >= 4.6; it needs lightgbm<4.6,
-           which would also move the LightGBM competitor -- install it in a
-           separate environment for the bake-off.
-  cbmice   IterativeImputer with a lean ChimeraBoost column model + indicators
-  masked   ONE ChimeraBoost regressor for every column, trained on randomly
-           re-masked copies of the training rows to predict a held-out cell
-           from (its row with NaNs, one-hot "which column"). One model instead
-           of p models x k sweeps, and it learns from masked context the way
-           it is used at imputation time.
+Shared rules:
+  * Only numeric columns with NaN in the training rows (and at least one
+    observed value) get a copy. Categoricals pass through -- their NaN is
+    already "__nan__". All-missing numeric columns are left out entirely.
+  * No such column => exact pass-through (same array object), so NaN-free
+    data ties the baseline exactly.
+  * No arm reads y: test rows have none, so using it would leak.
+  * Copies are appended at the END, so categorical indices stay valid.
+
+Arms (ARMS maps name -> class); the copy holds, for missing rows:
+  ind         1.0 (the copy is a 0/1 missing indicator; redundant, kept only
+              to reproduce the tie)
+  mia         a value just below the training minimum. The original sends
+              missing rows high at every split, the copy sends them low, so
+              each tree level can choose -- XGBoost-style learned direction,
+              emulated without a kernel change.
+  mean        the training mean
+  missforest  IterativeImputer(RandomForest), missForest-style at reduced
+              cost (RF_TREES trees, <= RF_MAX_SAMPLES rows per tree)
+  miceforest  miceforest (LightGBM MICE, optional dependency). 6.0.5 breaks
+              on LightGBM >= 4.6 -- see miceforest_status().
+  cbmice      IterativeImputer with a lean ChimeraBoost column model
+  masked      ONE ChimeraBoost regressor for every column: trained on
+              (row with its natural gaps and the target cell hidden, one-hot
+              "which column") -> the standardised target value. One model
+              instead of p models x k sweeps, NaN-native in its inputs.
 """
+import re
+
 import numpy as np
 
 MASKED_MAX_PAIRS = 200_000
+MASKED_CELL_BUDGET = 25_000_000   # cap on any design matrix the masked arm builds
+MASKED_MIN_PAIRS = 1_000
 RF_TREES = 50
 RF_MAX_SAMPLES = 10_000
 
@@ -49,10 +60,28 @@ def _as_float(X, cols):
     return np.asarray(X[:, cols], dtype=float)
 
 
+def miceforest_status():
+    """(usable, reason). miceforest 6.0.5 calls a private LightGBM method whose
+    signature changed in 4.6, so every fit raises there -- and the harness would
+    record each one as a silent skip."""
+    try:
+        import miceforest  # noqa: F401
+    except ImportError:
+        return False, "miceforest is not installed"
+    try:
+        import lightgbm
+    except ImportError:
+        return False, "lightgbm is not installed"
+    ver = tuple(int(p) for p in re.findall(r"\d+", lightgbm.__version__)[:2])
+    if ver >= (4, 6):
+        return False, (f"miceforest needs lightgbm<4.6 (found "
+                       f"{lightgbm.__version__}); run CBMiceForest from a "
+                       f"separate environment -- see MISSING_PLAN.md")
+    return True, ""
+
+
 class _Arm:
     """fit_transform(Xtr, cat) -> Xtr'; transform(Xte) -> Xte'."""
-
-    indicators = True
 
     def __init__(self, threads=1, random_state=0):
         self.threads = threads
@@ -62,41 +91,25 @@ class _Arm:
     def fit_transform(self, X, cat):
         num = _numeric_cols(X, cat)
         F = _as_float(X, num)
-        has = np.isnan(F).any(axis=0)
-        self.num_ = num
-        self.nan_local_ = np.flatnonzero(has)            # into F
-        self.nan_cols_ = [num[c] for c in self.nan_local_]  # into X
-        if not self.nan_cols_:
+        observed = ~np.isnan(F).all(axis=0)
+        # Usable numeric columns (at least one observed value), in X indices.
+        self.cols_ = [num[c] for c in np.flatnonzero(observed)]
+        F = F[:, observed]
+        # Columns that get a copy, as indices into the usable block.
+        self.nan_local_ = np.flatnonzero(np.isnan(F).any(axis=0))
+        if not len(self.nan_local_):
             return X
         self.mean_ = np.nanmean(F, axis=0)
-        self.mean_[np.isnan(self.mean_)] = 0.0
         self._fit(F)
         return self._apply(X)
 
     def transform(self, X):
-        if not self.nan_cols_:
+        if not len(self.nan_local_):
             return X
         return self._apply(X)
 
     def _apply(self, X):
-        F = _as_float(X, self.num_)
-        miss = np.isnan(F[:, self.nan_local_])
-        parts = [self._replace(X, F)]
-        if self.indicators:
-            parts.append(miss.astype(float))
-        extra = self._extra(F)
-        if extra is not None:
-            parts.append(extra)
-        return np.hstack(parts)
-
-    def _replace(self, X, F):
-        """X with nan columns filled (default: unchanged)."""
-        filled = self._fill(F)
-        if filled is None:
-            return X
-        X = X.copy()
-        X[:, self.nan_cols_] = filled
-        return X
+        return np.hstack([X, self._fill(_as_float(X, self.cols_))])
 
     def _predictors(self, F):
         """F with NaN in columns that were complete at fit time mean-filled,
@@ -116,26 +129,24 @@ class _Arm:
         pass
 
     def _fill(self, F):
-        return None
-
-    def _extra(self, F):
-        return None
+        """(n, len(nan_local_)) NaN-free copy of the NaN-bearing columns."""
+        raise NotImplementedError
 
 
 class IndicatorArm(_Arm):
-    pass
+    def _fill(self, F):
+        return np.isnan(F[:, self.nan_local_]).astype(float)
 
 
 class MIAArm(_Arm):
     def _fit(self, F):
-        G = F[:, self.nan_local_]
-        lo = np.nanmin(G, axis=0)
-        hi = np.nanmax(G, axis=0)
-        span = np.where(np.isfinite(hi - lo) & (hi > lo), hi - lo, 1.0)
-        lo = np.where(np.isfinite(lo), lo, 0.0)
-        self.low_ = lo - span          # clearly below every training value
+        # Just below the minimum: tree splits only see the order, and a value
+        # far below would distort linear leaves and cross features. The
+        # binner's greedy borders give the point mass its own bin.
+        self.low_ = np.nextafter(np.nanmin(F[:, self.nan_local_], axis=0),
+                                 -np.inf)
 
-    def _extra(self, F):
+    def _fill(self, F):
         G = F[:, self.nan_local_]
         return np.where(np.isnan(G), self.low_, G)
 
@@ -147,7 +158,7 @@ class MeanArm(_Arm):
 
 
 class _IterativeArm(_Arm):
-    """sklearn IterativeImputer over all numeric columns."""
+    """sklearn IterativeImputer over all usable numeric columns."""
 
     max_iter = 5
 
@@ -160,7 +171,7 @@ class _IterativeArm(_Arm):
         self.imp_ = IterativeImputer(
             estimator=self._estimator(len(F)), max_iter=self.max_iter,
             initial_strategy="mean", skip_complete=True,
-            random_state=self.random_state, keep_empty_features=True)
+            random_state=self.random_state)
         self.imp_.fit(self._predictors(F))
 
     def _fill(self, F):
@@ -173,7 +184,7 @@ class MissForestArm(_IterativeArm):
         from sklearn.ensemble import RandomForestRegressor
         return RandomForestRegressor(
             n_estimators=RF_TREES, max_features=0.33,
-            max_samples=min(n, RF_MAX_SAMPLES) if n > RF_MAX_SAMPLES else None,
+            max_samples=RF_MAX_SAMPLES if n > RF_MAX_SAMPLES else None,
             n_jobs=self.threads, random_state=self.random_state)
 
 
@@ -202,26 +213,28 @@ class MiceForestArm(_Arm):
                             columns=[f"c{j}" for j in range(F.shape[1])])
 
     def _fit(self, F):
+        ok, reason = miceforest_status()
+        if not ok:
+            raise RuntimeError(reason)
         import miceforest as mf
-        df = self._frame(F)
         # mean_match_candidates=0: plain model predictions. The default (5,
         # predictive mean matching) draws a random donor per cell -- right for
         # multiple imputation, but noise for a point fill feeding a predictor;
         # it measured worse (fill RMSE 0.47 vs 0.37 on a planted relation).
         # This is miceforest's strongest setting for our goal.
         self.kernel_ = mf.ImputationKernel(
-            df, num_datasets=1, mean_match_candidates=0,
+            self._frame(F), num_datasets=1, mean_match_candidates=0,
             random_state=self.random_state)
         self.kernel_.mice(self.iterations, num_threads=self.threads, verbose=False)
         self.train_fill_ = self.kernel_.complete_data(
             0, iteration=self.iterations).to_numpy(float)
-        self.n_fit_ = len(F)
         self.fit_mask_ = np.isnan(F)
 
     def _fill(self, F):
         # The kernel already holds the training rows' imputations; re-imputing
         # them as "new data" would draw a second, different completion.
-        if len(F) == self.n_fit_ and np.array_equal(np.isnan(F), self.fit_mask_):
+        if F.shape == self.fit_mask_.shape and np.array_equal(np.isnan(F),
+                                                               self.fit_mask_):
             full = self.train_fill_
         else:
             # iteration must be explicit: miceforest 6.0.5's default (-1) on
@@ -235,9 +248,22 @@ class MiceForestArm(_Arm):
 
 
 class MaskedArm(_Arm):
-    """One regressor for all nan columns, trained on re-masked rows."""
+    """One regressor for all NaN-bearing columns.
+
+    Training pairs are observed cells of those columns. The input is the cell's
+    row, standardised, with ONLY the target cell hidden -- the row keeps its
+    natural gaps, which is exactly the context the model meets when it imputes
+    (under MCAR identical in distribution; under MAR the missingness carries no
+    extra information about the target given the observed values). Extra random
+    masking was tried first and rejected: it hid columns that are never missing
+    at use time -- under MAR, the very columns that explain the gaps -- and
+    pushed training contexts to ~51% missing against ~30% at use time.
+    """
 
     n_estimators = 300
+
+    def _width(self):
+        return len(self.mu_) + len(self.nan_local_)
 
     def _design(self, Z, cols):
         """Rows of Z (standardised, with NaN) + one-hot of the target column."""
@@ -253,27 +279,38 @@ class MaskedArm(_Arm):
         Z = (F - self.mu_) / self.sd_
         G = Z[:, self.nan_local_]
         rows, cols = np.nonzero(~np.isnan(G))        # observed target cells
-        if len(rows) > MASKED_MAX_PAIRS:
-            pick = rng.choice(len(rows), MASKED_MAX_PAIRS, replace=False)
+        cap = min(MASKED_MAX_PAIRS,
+                  max(MASKED_MIN_PAIRS, MASKED_CELL_BUDGET // self._width()))
+        if len(rows) > cap:
+            pick = rng.choice(len(rows), cap, replace=False)
             rows, cols = rows[pick], cols[pick]
-        rate = float(np.isnan(G).mean())             # re-mask at the real rate
-        Xin = Z[rows].copy()
-        Xin[rng.random(Xin.shape) < rate] = np.nan
-        target_global = self.nan_local_[cols]
-        y = Z[rows, target_global]
-        Xin[np.arange(len(rows)), target_global] = np.nan
+        Xin = Z[rows]                                # fancy index -> a copy
+        target = self.nan_local_[cols]
+        y = Xin[np.arange(len(rows)), target].copy()
+        Xin[np.arange(len(rows)), target] = np.nan
         self.model_ = _lean_chimera(self.threads, self.random_state,
                                     n_estimators=self.n_estimators)
         self.model_.fit(self._design(Xin, cols), y)
+
+    def _predict_cells(self, Z, rows, cols, chunk_rows=None):
+        """Model output for cells (rows, cols), built and predicted in chunks
+        so the design matrix never exceeds MASKED_CELL_BUDGET."""
+        if chunk_rows is None:
+            chunk_rows = max(1, MASKED_CELL_BUDGET // self._width())
+        out = np.empty(len(rows))
+        for s in range(0, len(rows), chunk_rows):
+            r, c = rows[s:s + chunk_rows], cols[s:s + chunk_rows]
+            out[s:s + chunk_rows] = self.model_.predict(self._design(Z[r], c))
+        return out
 
     def _fill(self, F):
         Z = (F - self.mu_) / self.sd_
         G = F[:, self.nan_local_].copy()
         rows, cols = np.nonzero(np.isnan(G))
         if len(rows):
-            pred = self.model_.predict(self._design(Z[rows], cols))
             gc = self.nan_local_[cols]
-            G[rows, cols] = pred * self.sd_[gc] + self.mu_[gc]
+            G[rows, cols] = (self._predict_cells(Z, rows, cols) * self.sd_[gc]
+                             + self.mu_[gc])
         return G
 
 

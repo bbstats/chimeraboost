@@ -151,7 +151,8 @@ transaction date).
 
 ## Injected missingness — `@mcar` / `@mar` / `@mnar`
 
-Opt-in with `--miss`; **not** part of `--decide`. It is the test bed for one
+Opt-in with `--miss`; **not** part of `--decide`. `--miss-only` is the bake-off
+selection: the twins plus the HC sets whose training rows carry numeric NaN. It is the test bed for one
 research program (`benchmarks/MISSING_PLAN.md`), not a standing regime.
 
 Grinsztajn only: it has no numeric NaN at all, so it is a clean canvas. HC
