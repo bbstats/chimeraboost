@@ -434,7 +434,10 @@ SUITE_TAGS = {"gr:": "Grinsztajn et al. (2022)", "pm:": "PMLB tuning suite",
 # doing so would inflate the effective sample size of a sign test.
 VARIANT_SEP = "@"
 VARIANT_LABELS = {"": "full", "sus25": "SUS 25% train",
-                  "sus50": "SUS 50% train", "time": "temporal split"}
+                  "sus50": "SUS 50% train", "time": "temporal split",
+                  "mcar": "missing completely at random (MCAR)",
+                  "mar": "missing by other columns (MAR)",
+                  "mnar": "missing by own value (MNAR)"}
 
 
 def base_key(ds):

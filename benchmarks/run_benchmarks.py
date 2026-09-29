@@ -337,6 +337,107 @@ def _add_variant_datasets(base_keys):
                 f"{key!r} is not from the hc: or pub: suites")
 
 
+# @mcar / @mar / @mnar -- injected missingness (MISSING_PLAN.md). Opt-in via
+# --miss, never part of --decide by default: it is the test bed for one research
+# program, not a standing regime. Grinsztajn only -- it has no numeric NaN at
+# all, so it is a clean canvas; HC already carries REAL missingness and is the
+# honest stratum for it. Numeric columns only (categorical NaN is already its
+# own category). Train AND test rows are masked by the same mechanism, fitted on
+# train, so the model meets gaps at prediction time the way it would deployed.
+#   mcar -- every numeric cell missing with probability MISS_RATE.
+#   mar  -- half the numeric columns (at least one) stay fully observed; each
+#           other column goes missing with a logistic probability of a random
+#           linear mix of the observed ones. Needs >= 2 numeric columns.
+#   mnar -- self-masking: a column goes missing with a logistic probability of
+#           its OWN value (random direction per column), the case no imputer
+#           can recover from the observed data alone.
+# Every affected column averages MISS_RATE missing on the training rows.
+MISS_MECHANISMS = ("mcar", "mar", "mnar")
+MISS_RATE = 0.30
+MISS_MNAR_SLOPE = 2.0     # logit per training-sd of the column's own value
+_MISS_MECH_ID = {"mcar": 1, "mar": 2, "mnar": 3}
+
+
+def _add_miss_datasets(base_keys):
+    """Register @mcar/@mar/@mnar twins for every Grinsztajn key. Idempotent."""
+    for key in base_keys:
+        if VARIANT_SEP in key or not key.startswith("gr:"):
+            continue
+        for mech in MISS_MECHANISMS:
+            vkey = f"{key}{VARIANT_SEP}{mech}"
+            if vkey not in DATASETS:
+                # Same builder as the parent; masking happens after the split.
+                DATASETS[vkey] = DATASETS[key]
+
+
+def _logit_rate_offset(lin, rate):
+    """Intercept b with mean(sigmoid(lin + b)) == rate, by bisection."""
+    lo, hi = -50.0, 50.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if np.mean(1.0 / (1.0 + np.exp(-(lin + mid)))) < rate:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _inject_missing(Xtr, Xte, cat, mech, seed, rate=MISS_RATE):
+    """Mask numeric cells of (Xtr, Xte) under `mech`, or None if inapplicable.
+
+    Returns (Xtr, Xte, info). Inputs are not modified. The mechanism's
+    parameters (driver weights, intercepts, standardisation) are drawn and
+    fitted on the TRAINING rows only and then applied unchanged to the test
+    rows, so both come from one missingness process. Seeded per (seed, mech):
+    a dataset's three twins differ, and every model in a run sees one mask.
+    """
+    cat_set = set(cat or ())
+    num = [j for j in range(Xtr.shape[1]) if j not in cat_set]
+    if not num or (mech == "mar" and len(num) < 2):
+        return None
+    rng = np.random.default_rng([int(seed), _MISS_MECH_ID[mech]])
+    Xtr, Xte = Xtr.copy(), Xte.copy()
+    Ftr = Xtr[:, num].astype(float)
+    Fte = Xte[:, num].astype(float)
+    mu = np.nanmean(Ftr, axis=0)
+    sd = np.nanstd(Ftr, axis=0)
+    sd[~(sd > 0)] = 1.0
+    Ztr = np.nan_to_num((Ftr - mu) / sd)
+    Zte = np.nan_to_num((Fte - mu) / sd)
+
+    if mech == "mcar":
+        masked = list(range(len(num)))
+        Ptr = np.full(Ftr.shape, rate)
+        Pte = np.full(Fte.shape, rate)
+    else:
+        if mech == "mar":
+            perm = rng.permutation(len(num))
+            k = max(1, len(num) // 2)
+            drivers, masked = perm[:k], np.sort(perm[k:])
+            W = rng.standard_normal((k, len(masked))) / np.sqrt(k)
+            Ltr, Lte = Ztr[:, drivers] @ W, Zte[:, drivers] @ W
+        else:
+            masked = list(range(len(num)))
+            sign = rng.choice([-1.0, 1.0], size=len(num))
+            Ltr, Lte = MISS_MNAR_SLOPE * sign * Ztr, MISS_MNAR_SLOPE * sign * Zte
+        b = np.array([_logit_rate_offset(Ltr[:, c], rate)
+                      for c in range(Ltr.shape[1])])
+        Ptr = 1.0 / (1.0 + np.exp(-(Ltr + b)))
+        Pte = 1.0 / (1.0 + np.exp(-(Lte + b)))
+
+    Mtr = rng.random(Ptr.shape) < Ptr
+    Mte = rng.random(Pte.shape) < Pte
+    cols = [num[c] for c in masked]
+    for X, F, M in ((Xtr, Ftr, Mtr), (Xte, Fte, Mte)):
+        block = F[:, masked]
+        block[M] = np.nan
+        X[:, cols] = block
+    cells = Mtr.size + Mte.size
+    info = {"miss_mechanism": mech, "miss_cols": len(cols),
+            "miss_rate": float((Mtr.sum() + Mte.sum()) / cells) if cells else 0.0}
+    return Xtr, Xte, info
+
+
 def _task_of(ds_name):
     """Task type of a dataset by name, without building it."""
     ds_name = ds_name.split(VARIANT_SEP, 1)[0]     # variants inherit the parent's task
@@ -1658,7 +1759,7 @@ def _run_seed_task(task):
     global PATIENCE, ENSEMBLE_N
     (ds_name, seed, scale, threads, model_names, chimera_cfg, patience,
      ensemble_n, need_grinsztajn, need_pmlb, need_synth,
-     need_highcard, need_public, need_variants) = task
+     need_highcard, need_public, need_variants, need_miss) = task
     PATIENCE = patience
     ENSEMBLE_N = ensemble_n
     if need_grinsztajn:
@@ -1673,10 +1774,13 @@ def _run_seed_task(task):
         _add_public_datasets()
     if need_variants:
         _add_variant_datasets(list(DATASETS))
+    if need_miss:
+        _add_miss_datasets(list(DATASETS))
 
     rng = np.random.default_rng(1000 + seed)
     X, y, cat, ttype = DATASETS[ds_name](scale, rng)
     variant = ds_name.split(VARIANT_SEP, 1)[1] if VARIANT_SEP in ds_name else ""
+    miss_info = None
 
     if variant == "time":
         split = _temporal_split(X, y, seed, ttype)
@@ -1698,10 +1802,22 @@ def _run_seed_task(task):
             # parent's for this seed, so the twin reads as a point on the
             # parent's learning curve rather than a noisier separate dataset.
             Xtr, ytr = _subsample_train(Xtr, ytr, SUS_FRACTIONS[variant], ttype)
+        if variant in MISS_MECHANISMS:
+            injected = _inject_missing(Xtr, Xte, cat, variant, seed)
+            if injected is None:
+                print(f"  [skip] {ds_name} (seed {seed}): too few numeric "
+                      f"columns for {variant}")
+                return ds_name, seed, {"task": ttype, "n_train": 0,
+                                       "n_total": int(len(y)),
+                                       "n_features": int(X.shape[1]),
+                                       "has_cats": bool(cat)}, {}
+            Xtr, Xte, miss_info = injected
 
     meta = {"task": ttype, "n_train": int(Xtr.shape[0]),
             "n_total": int(X.shape[0]), "n_features": int(X.shape[1]),
             "has_cats": bool(cat), "variant": variant or None}
+    if miss_info:
+        meta.update(miss_info)
     # Target scale, so the table layer can flag "near-solved" regression datasets
     # (best NRMSE = best_RMSE / y_std below a threshold), where the "% vs best"
     # RMSE ratio explodes a negligible absolute gap. See summarize.NEAR_SOLVED_NRMSE.
@@ -1958,6 +2074,11 @@ def main():
                     help="add the SUS under-sampled twins and the temporal-split "
                          "variants for the selected suites (default: on for "
                          "--decide, off otherwise).")
+    ap.add_argument("--miss", action="store_true",
+                    help="add injected-missingness twins @mcar/@mar/@mnar for "
+                         "every selected Grinsztajn dataset (30%% of each "
+                         "affected numeric column, train and test). Opt-in, "
+                         "never on by default; see MISSING_PLAN.md.")
     ap.add_argument("--no-variants", dest="variants", action="store_false",
                     help="suppress the variant families (see --variants).")
     ap.add_argument("--list-datasets", action="store_true",
@@ -2193,6 +2314,11 @@ def main():
         # Explicitly naming a variant key implies wanting it.
         _add_variant_datasets(list(DATASETS))
         need_variants = True
+    need_miss = bool(args.miss) or bool(args.datasets and any(
+        d.rsplit(VARIANT_SEP, 1)[-1] in MISS_MECHANISMS
+        for d in args.datasets if VARIANT_SEP in d))
+    if need_miss:
+        _add_miss_datasets(list(DATASETS))
 
     # Resolve the model set. Competitors are gated on install; XGBoost is off
     # by default (it tracks LightGBM). --models overrides everything.
@@ -2285,7 +2411,8 @@ def main():
     # Run every (dataset, seed) draw, in parallel processes unless jobs == 1.
     tasks = [(ds, s, args.scale, threads_per, model_names, chimera_cfg,
               PATIENCE, ENSEMBLE_N, need_grinsztajn, need_pmlb,
-              need_synth, need_highcard, need_public, need_variants)
+              need_synth, need_highcard, need_public, need_variants,
+              need_miss)
              for ds in selected for s in range(args.seeds)]
     total_tasks = len(tasks)
 

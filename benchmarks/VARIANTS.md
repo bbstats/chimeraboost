@@ -148,3 +148,25 @@ Columns matching a date-like name that are **not** an observation time:
 `YrSold` is the time of record), `kdd_ipums_la_97-small` (`year`, `yrlastwk` —
 census survey fields), `kick` (`VehYear` — the vehicle's model year, not the
 transaction date).
+
+## Injected missingness — `@mcar` / `@mar` / `@mnar`
+
+Opt-in with `--miss`; **not** part of `--decide`. It is the test bed for one
+research program (`benchmarks/MISSING_PLAN.md`), not a standing regime.
+
+Grinsztajn only: it has no numeric NaN at all, so it is a clean canvas. HC
+already carries real missingness (11 of 14 sets) and is the honest stratum for
+it. Every Grinsztajn dataset gets all three twins; each is its own stratum.
+
+| twin | mechanism |
+|---|---|
+| `@mcar` | every numeric cell missing with probability 0.30 |
+| `@mar` | half the numeric columns stay fully observed; each other column goes missing with a logistic probability of a random linear mix of the observed ones. Skipped (reported) with fewer than 2 numeric columns |
+| `@mnar` | self-masking: a column goes missing with a logistic probability of its own value, slope 2 per training-sd, random direction per column |
+
+Rules: numeric columns only (categorical NaN is already its own category);
+every affected column averages 30% missing on the training rows; mechanism
+parameters are drawn and fitted on the training rows and applied unchanged to
+the test rows, so the model meets gaps at prediction time the way it would when
+deployed; seeded per (seed, mechanism). `tests/test_miss_variants.py` locks
+these properties.
