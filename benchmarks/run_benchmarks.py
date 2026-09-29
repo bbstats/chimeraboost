@@ -19,6 +19,7 @@ Usage:
 """
 
 import argparse
+import functools
 import json as _json
 import os
 import sys
@@ -108,6 +109,11 @@ def _detect():
         have["lightgbm"] = True
     except Exception:
         have["lightgbm"] = False
+    try:
+        import miceforest  # noqa
+        have["cbmiceforest"] = True
+    except Exception:
+        have["cbmiceforest"] = False
     return have
 
 
@@ -1639,6 +1645,32 @@ def _run_lightgbm(task, Xtr, ytr, Xte, yte, cat, threads):
     return (*_finish(task, yte, m, Xte_in, t), m.best_iteration_)
 
 
+# --- MISSING_PLAN step 2: missing-value handling arms ----------------------
+# Each arm transforms the data (fitted on the training rows only; see
+# benchmarks/missing_arms.py), then runs the default ChimeraBoost. Fitting the
+# transform and transforming the training rows count as fit time;
+# transforming the test rows counts as predict time.
+def _run_chimera_missing(arm, task, Xtr, ytr, Xte, yte, cat, threads):
+    import missing_arms
+    t = time.time()
+    tf = missing_arms.ARMS[arm](threads=threads, random_state=0)
+    Xtr = tf.fit_transform(Xtr, cat)
+    t_fit = time.time() - t
+    t = time.time()
+    Xte = tf.transform(Xte)
+    t_pred = time.time() - t
+    metrics, fit_s, pred_s, best = _run_chimera(task, Xtr, ytr, Xte, yte, cat,
+                                                threads)
+    return metrics, fit_s + t_fit, pred_s + t_pred, best
+
+
+MISSING_ARM_RUNNERS = {
+    "CBMissInd": "ind", "CBMissMIA": "mia", "CBMeanImp": "mean",
+    "CBMissForest": "missforest", "CBMiceForest": "miceforest",
+    "CBMice": "cbmice", "CBMaskedImp": "masked",
+}
+
+
 RUNNERS = {
     "ChimeraBoost": _run_chimera,
     "ChimeraBoostEns2": _run_chimera_ensemble_2,
@@ -1667,6 +1699,8 @@ RUNNERS = {
     "XGBoost": _run_xgboost,
     "LightGBM": _run_lightgbm,
 }
+for _name, _arm in MISSING_ARM_RUNNERS.items():
+    RUNNERS[_name] = functools.partial(_run_chimera_missing, _arm)
 
 # Always available (hard deps); the rest are gated on _detect(). Ensemble variants
 # are also dep-free but N× slower, so they're selectable via --models but off by
@@ -1683,7 +1717,11 @@ _OFF_BY_DEFAULT = ("XGBoost", "ChimeraBoostEns2", "ChimeraBoostEns5",
                    "ChimeraBoostNoRefit", "ChimeraBoostNoRefitSel25",
                    "ChimeraBoostXTop6", "ChimeraBoostXTop12",
                    "ChimeraBoostCatCount", "ChimeraBoostCatCountLib",
-                   "ChimeraBoostNoCatCount")
+                   "ChimeraBoostNoCatCount",
+                   "CBMissInd", "CBMissMIA", "CBMeanImp", "CBMissForest",
+                   "CBMice", "CBMaskedImp")
+# Optional AND off by default: listed only when installed, run only via --models.
+_OPTIONAL_OFF = ("CBMiceForest",)
 _OPTIONAL = ("CatBoost", "XGBoost", "LightGBM")
 
 
@@ -2325,10 +2363,12 @@ def main():
     available = (list(_ALWAYS)
                  + [m for m in _OFF_BY_DEFAULT if not HAVE.get(m.lower(), False)]
                  + [m for m in _OPTIONAL if HAVE[m.lower()]])
+    available += [m for m in _OPTIONAL_OFF if HAVE[m.lower()]]
     if args.models:
         model_names = [m for m in args.models if m in available]
     else:
-        model_names = [m for m in available if m not in _OFF_BY_DEFAULT
+        model_names = [m for m in available
+                       if m not in _OFF_BY_DEFAULT + _OPTIONAL_OFF
                        or (m == "XGBoost" and args.with_xgboost)]
     if "ChimeraBoost" not in model_names:
         ap.error("ChimeraBoost must be one of the models (it is the baseline).")
