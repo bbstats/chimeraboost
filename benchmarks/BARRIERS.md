@@ -512,6 +512,73 @@ the round cap as the head's largest CRPS loss.
 
 ---
 
+### B24 — Masking "noise" features out of the split search costs strength, even with a selector far better than chance
+tags: feature selection, feature screening, feature screen, prescreen, pre-screen, noise feature, noise features, irrelevant feature, uninformative, drop features, feature mask, static mask, mutual information, mutual-info, dependence, chatterjee, xi, recursive, redundancy-aware, colsample weights, feature weights
+
+Tested 2026-11-20 with a strong external selector: rank-binned
+mutual information (Miller-Madow corrected, G-test p-values) plus
+Chatterjee's xi, and a greedy redundancy-aware recursive pass with an
+interaction rescue. It ran on the early-stopping TRAINING rows and gave a
+static per-tree mask over every internal column (numeric, count, cross,
+target-encoded, combo; a cross or combo dies with either parent), reused
+by every race member and the full-data refit. That is exactly what an
+in-library `feature_screen` would do. 3 seeds, all 59 Grinsztajn + 14
+high-card sets, at full and 25% training rows, Brier / RMSE:
+
+| arm | gr full | gr 25% | hc full | hc 25% |
+|---|---|---|---|---|
+| drop if no signal on BOTH tests | 7W-18L, p=0.04 | 10W-26L, p=0.01 | 4W-6L | 7W-6L |
+| drop all the recursive pass left out | 11W-27L, p=0.01 | 12W-39L, p<0.001 | 5W-8L | 5W-9L |
+| control: same count dropped at random | 1W-23L | 3W-34L | 1W-9L | 2W-11L |
+
+The selector is good: the conservative arm beats the random control
+19W-5L and 30W-7L on Grinsztajn. It still loses to doing nothing,
+because the default already routes around noise columns. At full size it
+spent a median 0.0% of split gain on the columns the conservative rule
+flags. What the selector calls noise includes interaction-only signal
+that the trees and the cross race DO use: nyc-taxi loses 9-10% (both
+folders) because the mask drops pickup and dropoff minute, each flat on
+its own, whose difference is trip duration, the `diff` cross case;
+analcatdata_supreme loses 13%, pol (clf, 25%) 32%. The wins are few and
+idiosyncratic, all as lower Brier: eye_movements 5.5% (the selector keeps
+the row-order and assignment-ID columns and drops the eye-tracking ones),
+jannis 3%, hc:cjs 15%.
+
+Speed did not rescue it: the selector cost 17% (full) to 76% (25% rows)
+of a default fit, more than the masked histograms saved. That read is
+not decision-grade (an unrelated job shared the machine).
+
+Wide, junk-heavy data is a different regime, measured the same day
+(quiet machine, selector time counted in the fit): 1000 uniform columns
+of which 20 drive the target, 5k and 20k training rows, 3 seeds. An
+oracle screen (drop exactly the 980 junk columns) makes the fit 3.4-5.5x
+faster AND more accurate (RMSE 6% better, Brier 1.7-3.4% better), so the
+default does pay for junk when junk is 98% of the columns. The selector
+gets most of the speed (0.27-0.48x the default's time, its own cost
+included) but not the accuracy: its 0.05-Bonferroni cutoff drops at
+least 5-12 of the 20 real columns, and regression ends 2.6-4.1% worse
+(binary flat on the conservative rule). That cutoff asks "is this column
+proven useful?"; a screen in front of a GBDT needs "is it proven
+useless?". On the suites' five widest real sets (79-419 columns, mostly
+not junk) the selector cost about as much as the fit it saved: 0.57x
+at best (Allstate, 3.6% worse), 5x slower on topo_2_1.
+
+Consequence: do not propose removing, masking or down-weighting raw
+features by a marginal or greedy-conditional dependence test as a
+default on suite-like data. A selector good enough to be safe would have
+to see balanced and comparison interactions, which is the job the split
+search and the cross race already do. Two doors stay open: a
+validation-raced mask (fit with and without, keep the winner), which
+owes B12's cost argument and B17's small-data one; and a LOOSE-cutoff
+screen that engages only on very wide data, which this entry does not
+cover (untested).
+
+*Incident*: chat-directed probe, 2026-11-20. Probe scripts and the
+selector stayed outside the repo; the 25% rows here are every dataset
+shrunk, not the frozen `@sus25` list.
+
+---
+
 ## Adding an entry
 
 An entry earns its place when a closure is **paid for and general** — a measured
