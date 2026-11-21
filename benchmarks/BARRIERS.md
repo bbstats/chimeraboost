@@ -548,13 +548,30 @@ Speed did not rescue it: the selector cost 17% (full) to 76% (25% rows)
 of a default fit, more than the masked histograms saved. That read is
 not decision-grade (an unrelated job shared the machine).
 
+Wide, junk-heavy data is a different regime, measured the same day
+(quiet machine, selector time counted in the fit): 1000 uniform columns
+of which 20 drive the target, 5k and 20k training rows, 3 seeds. An
+oracle screen (drop exactly the 980 junk columns) makes the fit 3.4-5.5x
+faster AND more accurate (RMSE 6% better, Brier 1.7-3.4% better), so the
+default does pay for junk when junk is 98% of the columns. The selector
+gets most of the speed (0.27-0.48x the default's time, its own cost
+included) but not the accuracy: its 0.05-Bonferroni cutoff drops at
+least 5-12 of the 20 real columns, and regression ends 2.6-4.1% worse
+(binary flat on the conservative rule). That cutoff asks "is this column
+proven useful?"; a screen in front of a GBDT needs "is it proven
+useless?". On the suites' five widest real sets (79-419 columns, mostly
+not junk) the selector cost about as much as the fit it saved: 0.57x
+at best (Allstate, 3.6% worse), 5x slower on topo_2_1.
+
 Consequence: do not propose removing, masking or down-weighting raw
 features by a marginal or greedy-conditional dependence test as a
-default. A selector good enough to be safe would have to see balanced
-and comparison interactions, which is the job the split search and the
-cross race already do. A validation-raced mask (fit with and without,
-keep the winner) is the only door left; it owes B12's cost argument and
-B17's small-data one before a run.
+default on suite-like data. A selector good enough to be safe would have
+to see balanced and comparison interactions, which is the job the split
+search and the cross race already do. Two doors stay open: a
+validation-raced mask (fit with and without, keep the winner), which
+owes B12's cost argument and B17's small-data one; and a LOOSE-cutoff
+screen that engages only on very wide data, which this entry does not
+cover (untested).
 
 *Incident*: chat-directed probe, 2026-11-20. Probe scripts and the
 selector stayed outside the repo; the 25% rows here are every dataset
